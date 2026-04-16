@@ -52,7 +52,7 @@ That is the official path to become searchable in the ComfyUI Registry and Comfy
 
 To finish public searchability, these two items still need to exist on the Comfy Registry side.
 
-1. A publisher account for `Deno2026`
+1. A publisher account for `Deno`
 2. A repository secret named `REGISTRY_ACCESS_TOKEN`
 
 Once those are ready, the included publish workflow can push the node metadata to the registry.
