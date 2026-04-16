@@ -1,0 +1,8 @@
+services:
+  test:
+    build:
+      context: .
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: pytest -q
