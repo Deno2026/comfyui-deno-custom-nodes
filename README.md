@@ -1,9 +1,8 @@
 # ComfyUI Deno Custom Nodes
 
-ComfyUI custom nodes by Deno.
+ComfyUI Deno Custom Nodes.
 
-The first node in this repository is a simple test node called Deno Image Resize.
-It resizes a ComfyUI IMAGE batch to a target width and height with one of four interpolation modes.
+The repository starts with a simple Deno Image Resize node and is intended to expand over time with more general-purpose custom nodes.
 
 ## Included node
 
