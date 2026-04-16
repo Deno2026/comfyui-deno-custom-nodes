@@ -20,7 +20,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert pyproject["project"]["urls"]["Repository"] == "https://github.com/Deno2026/comfyui-deno-custom-nodes"
     assert pyproject["project"]["urls"]["Bug Tracker"] == "https://github.com/Deno2026/comfyui-deno-custom-nodes/issues"
 
-    assert pyproject["tool"]["comfy"]["PublisherId"] == "Deno2026"
+    assert pyproject["tool"]["comfy"]["PublisherId"] == "Deno"
     assert pyproject["tool"]["comfy"]["DisplayName"] == "ComfyUI Deno Custom Nodes"
     assert pyproject["tool"]["comfy"]["requires-comfyui"] == ">=0.3.0"
     assert pyproject["tool"]["comfy"]["Icon"].endswith("icon.svg")
