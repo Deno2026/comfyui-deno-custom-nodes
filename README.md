@@ -45,6 +45,18 @@ This repository is prepared for a safe workflow.
 3. Review the PR.
 4. Merge to `main` after review.
 
+## ComfyUI Manager and Registry readiness
+
+This repository now includes Comfy Registry metadata in `pyproject.toml`.
+That is the official path to become searchable in the ComfyUI Registry and ComfyUI Manager.
+
+To finish public searchability, these two items still need to exist on the Comfy Registry side.
+
+1. A publisher account for `Deno2026`
+2. A repository secret named `REGISTRY_ACCESS_TOKEN`
+
+Once those are ready, the included publish workflow can push the node metadata to the registry.
+
 ## Repository URL
 
 https://github.com/Deno2026/comfyui-deno-custom-nodes
