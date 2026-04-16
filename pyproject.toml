@@ -1,7 +1,7 @@
 [project]
 name = "deno-custom-nodes"
-description = "ComfyUI custom nodes by Deno, starting with a fast image resize node."
-version = "0.1.0"
+description = "ComfyUI Deno Custom Nodes"
+version = "0.1.1"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
