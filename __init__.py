@@ -1,112 +1,289 @@
+import math
+from typing import Tuple
+
+import numpy as np
 import torch
 import torch.nn.functional as F
+from PIL import Image
+
+
+COMMON_RATIOS = [
+    "1:1",
+    "4:5",
+    "5:4",
+    "3:4",
+    "4:3",
+    "2:3",
+    "3:2",
+    "16:9",
+    "9:16",
+    "16:10",
+    "10:16",
+    "21:9",
+    "9:21",
+]
+
+INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
+DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"]
+RESIZE_METHODS = ["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"]
+PREFERRED_DIMENSIONS = [512, 720, 768, 1024, 1088, 1536, 1920]
+
+
+def _get_torch():
+    return torch
+
+
+def _round_up(value: float, multiple: int) -> int:
+    return int(math.ceil(max(float(value), float(multiple)) / multiple) * multiple)
+
+
+def _parse_ratio(ratio_preset: str) -> Tuple[int, int]:
+    ratio_x, ratio_y = ratio_preset.split(":")
+    return int(ratio_x), int(ratio_y)
+
+
+def _simplify_ratio(width: int, height: int) -> str:
+    gcd = math.gcd(int(width), int(height))
+    return f"{width // gcd}:{height // gcd}"
+
+
+def _compute_aligned_ratio_dims(
+    ratio_preset: str,
+    megapixels: float,
+    divisible_by: int,
+) -> Tuple[int, int]:
+    ratio_x, ratio_y = _parse_ratio(ratio_preset)
+    total_pixels = max(0.01, float(megapixels)) * 1_000_000
+    effective_alignment = int(divisible_by)
+
+    base_width = math.sqrt(total_pixels * ratio_x / ratio_y)
+    base_height = math.sqrt(total_pixels * ratio_y / ratio_x)
+
+    def round_down(value: float) -> int:
+        return max(effective_alignment, int(math.floor(float(value) / effective_alignment) * effective_alignment))
+
+    width_candidates = sorted({_round_up(base_width, effective_alignment), round_down(base_width)})
+    height_candidates = sorted({_round_up(base_height, effective_alignment), round_down(base_height)})
+
+    candidates = set()
+
+    for width_candidate in width_candidates:
+        exact_height = width_candidate * ratio_y / ratio_x
+        candidates.add((width_candidate, _round_up(exact_height, effective_alignment)))
+        candidates.add((width_candidate, round_down(exact_height)))
+
+    for height_candidate in height_candidates:
+        exact_width = height_candidate * ratio_x / ratio_y
+        candidates.add((_round_up(exact_width, effective_alignment), height_candidate))
+        candidates.add((round_down(exact_width), height_candidate))
+
+    def candidate_score(dims: Tuple[int, int]) -> Tuple[float, float, float]:
+        width_candidate, height_candidate = dims
+        area_error = abs((width_candidate * height_candidate) - total_pixels) / total_pixels
+        width_error = abs(width_candidate - base_width) / base_width
+        height_error = abs(height_candidate - base_height) / base_height
+        ratio_error = abs((width_candidate / height_candidate) - (ratio_x / ratio_y)) / (ratio_x / ratio_y)
+        preference_error = min(abs(width_candidate - preferred) for preferred in PREFERRED_DIMENSIONS) + min(
+            abs(height_candidate - preferred) for preferred in PREFERRED_DIMENSIONS
+        )
+        return (
+            width_error + height_error,
+            preference_error,
+            area_error,
+            ratio_error,
+        )
+
+    return min(candidates, key=candidate_score)
+
+
+def _resize_with_method(
+    image,
+    target_width: int,
+    target_height: int,
+    resize_method: str,
+    interpolation: str,
+):
+    image_nchw = image.movedim(-1, 1)
+    _, _, source_height, source_width = image_nchw.shape
+
+    source_aspect = source_width / source_height
+    target_aspect = target_width / target_height
+
+    if resize_method == "Center Crop (Fill)":
+        if source_aspect > target_aspect:
+            scale = target_height / source_height
+        else:
+            scale = target_width / source_width
+
+        intermediate_width = max(1, int(round(source_width * scale)))
+        intermediate_height = max(1, int(round(source_height * scale)))
+        resized = _interpolate_image(image_nchw, intermediate_height, intermediate_width, interpolation)
+
+        crop_x = max(0, (intermediate_width - target_width) // 2)
+        crop_y = max(0, (intermediate_height - target_height) // 2)
+        resized = resized[:, :, crop_y:crop_y + target_height, crop_x:crop_x + target_width]
+    else:
+        if source_aspect > target_aspect:
+            scale = target_width / source_width
+        else:
+            scale = target_height / source_height
+
+        intermediate_width = max(1, int(round(source_width * scale)))
+        intermediate_height = max(1, int(round(source_height * scale)))
+        resized = _interpolate_image(image_nchw, intermediate_height, intermediate_width, interpolation)
+
+        pad_width = max(0, target_width - intermediate_width)
+        pad_height = max(0, target_height - intermediate_height)
+        resized = F.pad(
+            resized,
+            (
+                pad_width // 2,
+                pad_width - (pad_width // 2),
+                pad_height // 2,
+                pad_height - (pad_height // 2),
+            ),
+            mode="constant",
+            value=0.0,
+        )
+
+    return resized.movedim(1, -1).clamp(0.0, 1.0)
+
+
+def _interpolate_image(image_nchw, height: int, width: int, interpolation: str):
+    if interpolation == "lanczos":
+        return _resize_with_pil(image_nchw, height, width, Image.Resampling.LANCZOS)
+
+    kwargs = {}
+    if interpolation in {"bilinear", "bicubic"}:
+        kwargs["align_corners"] = False
+    return _get_torch().nn.functional.interpolate(
+        image_nchw,
+        size=(height, width),
+        mode=interpolation,
+        **kwargs,
+    )
+
+
+def _resize_with_pil(image_nchw, height: int, width: int, resample):
+    torch_module = _get_torch()
+    resized_batches = []
+
+    for sample in image_nchw:
+        sample_hwc = sample.permute(1, 2, 0).detach().cpu().clamp(0.0, 1.0).numpy()
+        pil_image = Image.fromarray(np.clip(sample_hwc * 255.0, 0, 255).astype(np.uint8))
+        resized = pil_image.resize((width, height), resample=resample)
+        resized_array = np.asarray(resized).astype(np.float32) / 255.0
+        if resized_array.ndim == 2:
+            resized_array = resized_array[:, :, None]
+        resized_tensor = torch_module.from_numpy(resized_array).permute(2, 0, 1)
+        resized_batches.append(resized_tensor)
+
+    return torch_module.stack(resized_batches, dim=0).to(image_nchw.device)
+
 
 class DenoResolutionSetup:
-    def __init__(self):
-        pass
-
     @classmethod
-    def INPUT_TYPES(s):
+    def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
                 "mode": (["Preset Ratio", "Manual Input"], {"default": "Preset Ratio"}),
-                "ratio_preset": ([
-                    "1:1", "4:3", "3:2", "16:9", "21:9", "9:16", "2:3", "3:4"
-                ], {"default": "16:9"}),
-                "alignment": ([8, 16, 32, 64, 128], {"default": 8}),
-                "resize_method": (["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"], {"default": "Center Crop (Fill)"}),
+                "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
+                "megapixels": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
-                "height": ("INT", {"default": 576, "min": 64, "max": 8192, "step": 8}),
+                "height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
+                "divisible_by": (DIVISIBLE_BY_VALUES, {"default": "64"}),
+                "resize_method": (RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
+                "interpolation": (INTERPOLATION_MODES, {"default": "lanczos"}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
             },
         }
 
     RETURN_TYPES = ("IMAGE", "INT", "INT")
-    RETURN_NAMES = ("IMAGE", "width", "height")
+    RETURN_NAMES = ("image", "width", "height")
     FUNCTION = "setup_resolution"
     CATEGORY = "Deno/Image"
 
-    def calculate_dims(self, mode, ratio_preset, width, height, alignment):
-        # 1. 기본 타겟 해상도 결정
-        target_w = width
-        target_h = height
+    def calculate_dims(
+        self,
+        mode: str,
+        ratio_preset: str,
+        megapixels: float,
+        width: int,
+        height: int,
+        divisible_by: int,
+    ) -> Tuple[int, int, float, str]:
+        effective_alignment = int(divisible_by)
 
         if mode == "Preset Ratio":
-            # 비율 파싱 (ex: "16:9")
-            rw, rh = map(int, ratio_preset.split(":"))
-            # 가로 기준으로 세로 계산
-            target_h = int((width * rh) / rw)
+            final_width, final_height = _compute_aligned_ratio_dims(
+                ratio_preset=ratio_preset,
+                megapixels=megapixels,
+                divisible_by=effective_alignment,
+            )
+        else:
+            final_width = _round_up(width, effective_alignment)
+            final_height = _round_up(height, effective_alignment)
 
-        # 2. Alignment 적용 (올림 처리: 항상 요청한 크기보다 크거나 같게)
-        final_w = ((target_w + alignment - 1) // alignment) * alignment
-        final_h = ((target_h + alignment - 1) // alignment) * alignment
+        final_megapixels = (final_width * final_height) / 1_000_000
+        aspect_ratio = _simplify_ratio(final_width, final_height)
+        return final_width, final_height, final_megapixels, aspect_ratio
 
-        return final_w, final_h
+    def _build_output_image(
+        self,
+        image,
+        width: int,
+        height: int,
+        resize_method: str,
+        interpolation: str,
+    ):
+        if image is None:
+            return _get_torch().zeros((1, height, width, 3), dtype=_get_torch().float32)
+        return _resize_with_method(image, width, height, resize_method, interpolation)
 
-    def setup_resolution(self, image, mode, ratio_preset, alignment, resize_method, width, height):
-        # 해상도 계산
-        tw, th = self.calculate_dims(mode, ratio_preset, width, height, alignment)
-        
-        # ComfyUI 이미지 텐서 형태: [B, H, W, C] -> PyTorch 처리 위해 [B, C, H, W]로 변경
-        img = image.permute(0, 3, 1, 2)
-        b, c, h, w = img.shape
-        
-        # 현재 이미지의 비율
-        src_aspect = w / h
-        dst_aspect = tw / th
-        
-        if resize_method == "Center Crop (Fill)":
-            # Fill: 타겟 영역을 완전히 채우고 남는 부분을 잘라냄 (왜곡 없음)
-            if src_aspect > dst_aspect:
-                # 가로가 더 김 -> 세로를 맞추고 가로를 자름
-                scale = tw / (w * (dst_aspect / src_aspect)) # 논리적 오류 방지를 위함
-                scale = th / h
-                inter_w = int(w * scale)
-                inter_h = th
-            else:
-                # 세로가 더 김 -> 가로를 맞추고 세로를 자름
-                scale = tw / w
-                inter_w = tw
-                inter_h = int(h * scale)
-            
-            # 리사이징
-            img = F.interpolate(img, size=(inter_h, inter_w), mode='bilinear', align_corners=False)
-            
-            # Center Crop
-            start_w = (inter_w - tw) // 2
-            start_h = (inter_h - th) // 2
-            img = img[:, :, start_h:start_h+th, start_w:start_w+tw]
+    def setup_resolution(
+        self,
+        mode: str,
+        ratio_preset: str,
+        megapixels: float,
+        width: int,
+        height: int,
+        divisible_by: int,
+        resize_method: str,
+        interpolation: str,
+        image=None,
+    ):
+        final_width, final_height, final_megapixels, aspect_ratio = self.calculate_dims(
+            mode=mode,
+            ratio_preset=ratio_preset,
+            megapixels=megapixels,
+            width=width,
+            height=height,
+            divisible_by=divisible_by,
+        )
 
-        else: # Fit (Letterbox/Pillarbox)
-            # Fit: 이미지 전체가 들어가게 하고 빈 공간을 검정색으로 채움
-            if src_aspect > dst_aspect:
-                # 가로가 더 김 -> 가로를 맞추고 세로에 패딩
-                scale = tw / w
-                inter_w = tw
-                inter_h = int(h * scale)
-            else:
-                # 세로가 더 김 -> 세로를 맞추고 가로에 패딩
-                scale = th / h
-                inter_w = int(w * scale)
-                inter_h = th
-            
-            img = F.interpolate(img, size=(inter_h, inter_w), mode='bilinear', align_corners=False)
-            
-            # Padding (검정색 채우기)
-            pad_w = tw - inter_w
-            pad_h = th - inter_h
-            # F.pad: (left, right, top, bottom)
-            img = F.pad(img, (pad_w//2, pad_w - pad_w//2, pad_h//2, pad_h - pad_h//2), mode='constant', value=0)
+        output_image = self._build_output_image(
+            image=image,
+            width=final_width,
+            height=final_height,
+            resize_method=resize_method,
+            interpolation=interpolation,
+        )
 
-        # 다시 [B, H, W, C]로 변환
-        out = img.permute(0, 2, 3, 1)
-        
-        return (out, tw, th)
+        return (
+            output_image,
+            final_width,
+            final_height,
+        )
+
 
 NODE_CLASS_MAPPINGS = {
-    "DenoResolutionSetup": DenoResolutionSetup
+    "DenoResolutionSetup": DenoResolutionSetup,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "DenoResolutionSetup": "Resolution Setup Helper (Deno)"
+    "DenoResolutionSetup": "(Deno) Resize Box",
 }
+
+WEB_DIRECTORY = "./web/js"

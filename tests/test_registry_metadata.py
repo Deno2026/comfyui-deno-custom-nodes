@@ -11,8 +11,8 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     pyproject = tomllib.loads(PYPROJECT_PATH.read_text())
 
     assert pyproject["project"]["name"] == "deno-custom-nodes"
-    assert pyproject["project"]["version"] == "0.1.1"
-    assert pyproject["project"]["description"] == "ComfyUI Deno Custom Nodes"
+    assert pyproject["project"]["version"] == "0.2.3"
+    assert pyproject["project"]["description"] == "Korean-friendly practical custom nodes for ComfyUI"
     assert pyproject["project"]["requires-python"] == ">=3.10"
     assert pyproject["project"]["license"] == {"file": "LICENSE"}
     assert pyproject["project"]["classifiers"] == ["Operating System :: OS Independent"]
@@ -21,7 +21,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert pyproject["project"]["urls"]["Bug Tracker"] == "https://github.com/Deno2026/comfyui-deno-custom-nodes/issues"
 
     assert pyproject["tool"]["comfy"]["PublisherId"] == "deno2026"
-    assert pyproject["tool"]["comfy"]["DisplayName"] == "Deno Custom Nodes"
+    assert pyproject["tool"]["comfy"]["DisplayName"] == "Deno Custom Nodex"
     assert pyproject["tool"]["comfy"]["requires-comfyui"] == ">=0.3.0"
     assert pyproject["tool"]["comfy"]["Icon"].endswith("icon.svg")
 

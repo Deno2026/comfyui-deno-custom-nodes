@@ -18,65 +18,75 @@ def load_package():
     return module
 
 
-def test_node_registration_exports_deno_image_resize_node():
+def test_node_registration_exports_only_resize_box_node():
     package = load_package()
 
-    assert "Deno Image Resize" in package.NODE_CLASS_MAPPINGS
-    assert package.NODE_CLASS_MAPPINGS["Deno Image Resize"].__name__ == "DenoImageResizeNode"
-    assert package.NODE_DISPLAY_NAME_MAPPINGS["Deno Image Resize"] == "Deno Image Resize"
+    assert list(package.NODE_CLASS_MAPPINGS.keys()) == ["DenoResolutionSetup"]
+    assert package.NODE_CLASS_MAPPINGS["DenoResolutionSetup"].__name__ == "DenoResolutionSetup"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
+    assert package.WEB_DIRECTORY == "./web/js"
 
 
-def test_image_resize_node_declares_comfyui_contract():
+def test_resize_box_declares_comfyui_contract():
     package = load_package()
-    node_cls = package.NODE_CLASS_MAPPINGS["Deno Image Resize"]
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoResolutionSetup"]
 
     input_types = node_cls.INPUT_TYPES()
 
-    assert input_types["required"]["image"][0] == "IMAGE"
-    assert input_types["required"]["width"][0] == "INT"
-    assert input_types["required"]["height"][0] == "INT"
-    assert input_types["required"]["interpolation"][0] == ["nearest", "bilinear", "bicubic", "area"]
-    assert node_cls.RETURN_TYPES == ("IMAGE",)
-    assert node_cls.RETURN_NAMES == ("image",)
-    assert node_cls.FUNCTION == "resize_image"
+    assert input_types["required"]["mode"][0] == ["Preset Ratio", "Manual Input"]
+    assert "16:9" in input_types["required"]["ratio_preset"][0]
+    assert input_types["required"]["megapixels"][0] == "FLOAT"
+    assert input_types["required"]["divisible_by"][0] == ["8", "16", "32", "64", "128"]
+    assert input_types["required"]["resize_method"][0] == [
+        "Center Crop (Fill)",
+        "Fit (Letterbox/Pillarbox)",
+    ]
+    assert input_types["required"]["interpolation"][0] == [
+        "lanczos",
+        "bicubic",
+        "bilinear",
+        "area",
+        "nearest",
+        "nearest-exact",
+    ]
+    assert input_types["optional"]["image"][0] == "IMAGE"
+    assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
+    assert node_cls.RETURN_NAMES == ("image", "width", "height")
+    assert node_cls.FUNCTION == "setup_resolution"
     assert node_cls.CATEGORY == "Deno/Image"
 
 
-def test_resize_image_uses_torch_interpolate_and_returns_image_tuple():
+def test_resize_box_calculates_aligned_dimensions_for_preset_mode():
     package = load_package()
-    node_cls = package.NODE_CLASS_MAPPINGS["Deno Image Resize"]
-    calls = []
+    node = package.DenoResolutionSetup()
 
-    class FakeTensor:
-        def movedim(self, src, dst):
-            calls.append(("movedim", src, dst))
-            return self
+    width, height, megapixels, aspect_ratio = node.calculate_dims(
+        mode="Preset Ratio",
+        ratio_preset="16:9",
+        megapixels=2.1,
+        width=1024,
+        height=1024,
+        divisible_by="64",
+    )
 
-        def clamp(self, minimum, maximum):
-            calls.append(("clamp", minimum, maximum))
-            return self
+    assert (width, height) == (1920, 1088)
+    assert round(megapixels, 3) == 2.089
+    assert aspect_ratio == "30:17"
 
-    class FakeFunctional:
-        @staticmethod
-        def interpolate(tensor, size, mode, **kwargs):
-            calls.append(("interpolate", size, mode, kwargs))
-            return tensor
 
-    class FakeNN:
-        functional = FakeFunctional()
+def test_resize_box_rounds_manual_input_to_effective_alignment():
+    package = load_package()
+    node = package.DenoResolutionSetup()
 
-    class FakeTorch:
-        nn = FakeNN()
+    width, height, megapixels, aspect_ratio = node.calculate_dims(
+        mode="Manual Input",
+        ratio_preset="1:1",
+        megapixels=1.0,
+        width=1030,
+        height=777,
+        divisible_by="64",
+    )
 
-    package._get_torch = lambda: FakeTorch
-    image = FakeTensor()
-
-    result = node_cls().resize_image(image=image, width=640, height=384, interpolation="bilinear")
-
-    assert result == (image,)
-    assert calls == [
-        ("movedim", -1, 1),
-        ("interpolate", (384, 640), "bilinear", {"align_corners": False}),
-        ("movedim", 1, -1),
-        ("clamp", 0.0, 1.0),
-    ]
+    assert (width, height) == (1088, 832)
+    assert round(megapixels, 3) == 0.905
+    assert aspect_ratio == "17:13"
