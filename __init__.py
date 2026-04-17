@@ -1,10 +1,10 @@
 import math
+import sys
+from pathlib import Path
 from typing import Tuple
 
-import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image
 
 
 COMMON_RATIOS = [
@@ -31,6 +31,19 @@ PREFERRED_DIMENSIONS = [512, 720, 768, 1024, 1088, 1536, 1920]
 
 def _get_torch():
     return torch
+
+
+def _get_comfy_utils():
+    try:
+        from comfy import utils as comfy_utils
+    except ModuleNotFoundError:
+        comfy_root = Path(__file__).resolve().parents[2]
+        comfy_root_str = str(comfy_root)
+        if comfy_root_str not in sys.path:
+            sys.path.append(comfy_root_str)
+        from comfy import utils as comfy_utils
+
+    return comfy_utils
 
 
 def _round_up(value: float, multiple: int) -> int:
@@ -151,7 +164,7 @@ def _resize_with_method(
 
 def _interpolate_image(image_nchw, height: int, width: int, interpolation: str):
     if interpolation == "lanczos":
-        return _resize_with_pil(image_nchw, height, width, Image.Resampling.LANCZOS)
+        return _resize_with_comfy(image_nchw, height, width)
 
     kwargs = {}
     if interpolation in {"bilinear", "bicubic"}:
@@ -164,21 +177,9 @@ def _interpolate_image(image_nchw, height: int, width: int, interpolation: str):
     )
 
 
-def _resize_with_pil(image_nchw, height: int, width: int, resample):
-    torch_module = _get_torch()
-    resized_batches = []
-
-    for sample in image_nchw:
-        sample_hwc = sample.permute(1, 2, 0).detach().cpu().clamp(0.0, 1.0).numpy()
-        pil_image = Image.fromarray(np.clip(sample_hwc * 255.0, 0, 255).astype(np.uint8))
-        resized = pil_image.resize((width, height), resample=resample)
-        resized_array = np.asarray(resized).astype(np.float32) / 255.0
-        if resized_array.ndim == 2:
-            resized_array = resized_array[:, :, None]
-        resized_tensor = torch_module.from_numpy(resized_array).permute(2, 0, 1)
-        resized_batches.append(resized_tensor)
-
-    return torch_module.stack(resized_batches, dim=0).to(image_nchw.device)
+def _resize_with_comfy(image_nchw, height: int, width: int):
+    comfy_utils = _get_comfy_utils()
+    return comfy_utils.common_upscale(image_nchw, width, height, "lanczos", "disabled")
 
 
 class DenoResolutionSetup:
