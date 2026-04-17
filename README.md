@@ -35,6 +35,15 @@ Development and tests run through Docker.
 docker compose run --rm test
 ```
 
+## Gemma4 preparation docs
+
+These docs are included so a weaker model can work more reliably in this repository.
+
+1. `docs/GEMMA4_OPERATOR_GUIDE.md`
+   - Full build, debug, test, and release playbook
+2. `docs/GEMMA4_TASK_PROMPT.md`
+   - Short reusable prompt and checklist for future work
+
 ## Safe mode workflow
 
 This repository is prepared for a safe workflow.
@@ -44,17 +53,19 @@ This repository is prepared for a safe workflow.
 3. Review the PR.
 4. Merge to `main` after review.
 
-## ComfyUI Manager and Registry readiness
+## ComfyUI Manager and Registry status
 
-This repository now includes Comfy Registry metadata in `pyproject.toml`.
-That is the official path to become searchable in the ComfyUI Registry and ComfyUI Manager.
+This repository includes Comfy Registry metadata in `pyproject.toml` and has been published to the Comfy Registry.
 
-To finish public searchability, these two items still need to exist on the Comfy Registry side.
+Registry page:
 
-1. A publisher account for `deno2026`
-2. A repository secret named `REGISTRY_ACCESS_TOKEN`
+https://registry.comfy.org/publishers/deno2026/nodes/deno-custom-nodes
 
-Once those are ready, the included publish workflow can push the node metadata to the registry.
+Important note:
+
+1. Registry updates can appear before ComfyUI Manager search updates.
+2. If the node does not show up in Manager yet, indexing may still be catching up.
+3. Git clone installation can still work even while Manager search visibility is delayed.
 
 ## Repository URL
 
