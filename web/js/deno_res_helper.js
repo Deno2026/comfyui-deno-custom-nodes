@@ -5,6 +5,15 @@ const PRESET_MODE = "Preset Ratio";
 const SUMMARY_HEIGHT = 158;
 const MIN_NODE_WIDTH = 320;
 const MIN_NODE_HEIGHT = 460;
+const THEME = {
+    cardFill: "rgba(3, 10, 7, 0.96)",
+    cardStroke: "rgba(56, 255, 126, 0.7)",
+    previewBg: "rgba(0, 0, 0, 0.92)",
+    previewFill: "rgba(10, 42, 24, 0.96)",
+    previewStroke: "rgba(79, 255, 142, 0.95)",
+    gridStroke: "rgba(95, 255, 155, 0.22)",
+    summaryText: "#d7ffe3",
+};
 
 app.registerExtension({
     name: "Deno.ResolutionHelper",
@@ -150,16 +159,16 @@ function drawResolutionSummary(node, ctx) {
     const summaryHeight = 30;
 
     ctx.save();
-    ctx.fillStyle = "rgba(25, 29, 38, 0.95)";
-    ctx.strokeStyle = "rgba(108, 180, 255, 0.65)";
+    ctx.fillStyle = THEME.cardFill;
+    ctx.strokeStyle = THEME.cardStroke;
     ctx.lineWidth = 1;
     roundRect(ctx, x, y, cardWidth, availableHeight, 12);
     ctx.fill();
     ctx.stroke();
 
-    drawAspectPreview(ctx, x, y, cardWidth, previewHeight, info.width, info.height, info.ratioLabel);
+    drawAspectPreview(ctx, x, y, cardWidth, previewHeight, info.width, info.height);
 
-    ctx.fillStyle = "#eef4ff";
+    ctx.fillStyle = THEME.summaryText;
     ctx.font = "12px sans-serif";
     ctx.textBaseline = "middle";
     ctx.fillText(info.text, x + 10, y + previewHeight + 24);
@@ -266,14 +275,14 @@ function simplifyRatio(width, height) {
     return `${width / divisor}:${height / divisor}`;
 }
 
-function drawAspectPreview(ctx, x, y, width, height, targetWidth, targetHeight, ratioLabel) {
+function drawAspectPreview(ctx, x, y, width, height, targetWidth, targetHeight) {
     const areaX = x + 10;
     const areaY = y + 10;
     const areaWidth = width - 20;
     const areaHeight = height - 14;
 
     ctx.save();
-    ctx.fillStyle = "rgba(10, 14, 20, 0.95)";
+    ctx.fillStyle = THEME.previewBg;
     roundRect(ctx, areaX, areaY, areaWidth, areaHeight, 8);
     ctx.fill();
 
@@ -289,26 +298,20 @@ function drawAspectPreview(ctx, x, y, width, height, targetWidth, targetHeight, 
     const previewX = areaX + (areaWidth - previewWidth) / 2;
     const previewY = areaY + (areaHeight - previewHeight) / 2;
 
-    ctx.fillStyle = "rgba(76, 132, 255, 0.18)";
-    ctx.strokeStyle = "rgba(118, 177, 255, 0.95)";
+    ctx.fillStyle = THEME.previewFill;
+    ctx.strokeStyle = THEME.previewStroke;
     ctx.lineWidth = 2;
     roundRect(ctx, previewX, previewY, previewWidth, previewHeight, 6);
     ctx.fill();
     ctx.stroke();
 
-    ctx.strokeStyle = "rgba(118, 177, 255, 0.28)";
+    ctx.strokeStyle = THEME.gridStroke;
     ctx.beginPath();
     ctx.moveTo(previewX + previewWidth / 2, previewY);
     ctx.lineTo(previewX + previewWidth / 2, previewY + previewHeight);
     ctx.moveTo(previewX, previewY + previewHeight / 2);
     ctx.lineTo(previewX + previewWidth, previewY + previewHeight / 2);
     ctx.stroke();
-
-    ctx.fillStyle = "#dceaff";
-    ctx.font = "12px sans-serif";
-    ctx.textBaseline = "top";
-    ctx.fillText(ratioLabel, areaX + 10, areaY + 8);
-    ctx.fillText(`${targetWidth} x ${targetHeight}`, areaX + 10, areaY + 28);
     ctx.restore();
 }
 
