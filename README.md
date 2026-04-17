@@ -35,15 +35,6 @@ Development and tests run through Docker.
 docker compose run --rm test
 ```
 
-## Gemma4 preparation docs
-
-These docs are included so a weaker model can work more reliably in this repository.
-
-1. `docs/GEMMA4_OPERATOR_GUIDE.md`
-   - Full build, debug, test, and release playbook
-2. `docs/GEMMA4_TASK_PROMPT.md`
-   - Short reusable prompt and checklist for future work
-
 ## Safe mode workflow
 
 This repository is prepared for a safe workflow.
