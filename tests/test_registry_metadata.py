@@ -11,7 +11,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     pyproject = tomllib.loads(PYPROJECT_PATH.read_text())
 
     assert pyproject["project"]["name"] == "deno-custom-nodes"
-    assert pyproject["project"]["version"] == "0.2.3"
+    assert pyproject["project"]["version"] == "0.2.4"
     assert pyproject["project"]["description"] == "Korean-friendly practical custom nodes for ComfyUI"
     assert pyproject["project"]["requires-python"] == ">=3.10"
     assert pyproject["project"]["license"] == {"file": "LICENSE"}
