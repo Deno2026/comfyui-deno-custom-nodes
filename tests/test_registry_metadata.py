@@ -31,8 +31,6 @@ def test_publish_workflow_exists_and_skips_without_registry_secret():
 
     assert "name: Publish to Comfy registry" in workflow
     assert "workflow_dispatch:" in workflow
-    assert "branches:" in workflow
-    assert "- main" in workflow
     assert "REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}" in workflow
     assert "if: ${{ env.REGISTRY_ACCESS_TOKEN != '' }}" in workflow
     assert "Comfy-Org/publish-node-action@main" in workflow

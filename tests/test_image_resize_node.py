@@ -1,4 +1,6 @@
 import importlib.util
+import sys
+import types
 from pathlib import Path
 
 
@@ -6,7 +8,27 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_INIT = REPO_ROOT / "__init__.py"
 
 
+def install_torch_stub():
+    if "torch" in sys.modules and "torch.nn.functional" in sys.modules:
+        return
+
+    torch_stub = types.ModuleType("torch")
+    nn_module = types.ModuleType("torch.nn")
+    functional_module = types.ModuleType("torch.nn.functional")
+
+    functional_module.pad = lambda *args, **kwargs: None
+    functional_module.interpolate = lambda *args, **kwargs: None
+    nn_module.functional = functional_module
+    torch_stub.nn = nn_module
+    torch_stub.float32 = "float32"
+
+    sys.modules["torch"] = torch_stub
+    sys.modules["torch.nn"] = nn_module
+    sys.modules["torch.nn.functional"] = functional_module
+
+
 def load_package():
+    install_torch_stub()
     spec = importlib.util.spec_from_file_location(
         "comfyui_deno_custom_nodes",
         PACKAGE_INIT,
