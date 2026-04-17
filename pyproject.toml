@@ -1,7 +1,7 @@
 [project]
 name = "deno-custom-nodes"
 description = "Korean-friendly practical custom nodes for ComfyUI"
-version = "0.2.5"
+version = "0.2.6"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
@@ -16,6 +16,6 @@ Documentation = "https://github.com/Deno2026/comfyui-deno-custom-nodes#readme"
 
 [tool.comfy]
 PublisherId = "deno2026"
-DisplayName = "Deno Custom Nodex"
+DisplayName = "Deno Custom Nodes"
 Icon = "https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/icon.svg"
 requires-comfyui = ">=0.3.0"

@@ -183,6 +183,13 @@ def _resize_with_comfy(image_nchw, height: int, width: int):
 
 
 class DenoResolutionSetup:
+    DESCRIPTION = (
+        "Resolution helper and image resize node for ComfyUI.\n"
+        "Preset ratio or manual input, MP-based sizing, divisible-by alignment, "
+        "crop/fit resize, and realtime ratio preview.\n"
+        "YouTube: https://www.youtube.com/@Denoise-AI"
+    )
+
     @classmethod
     def INPUT_TYPES(cls):
         return {

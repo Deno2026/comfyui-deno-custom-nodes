@@ -54,6 +54,7 @@ def test_resize_box_declares_comfyui_contract():
     assert node_cls.RETURN_NAMES == ("image", "width", "height")
     assert node_cls.FUNCTION == "setup_resolution"
     assert node_cls.CATEGORY == "Deno/Image"
+    assert "https://www.youtube.com/@Denoise-AI" in node_cls.DESCRIPTION
 
 
 def test_resize_box_calculates_aligned_dimensions_for_preset_mode():
