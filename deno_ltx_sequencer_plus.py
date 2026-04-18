@@ -1,5 +1,15 @@
-from comfy_extras.nodes_lt import LTXVAddGuide, get_noise_mask
+from comfy_extras.nodes_lt import LTXVAddGuide
 import torch
+
+try:
+    from comfy_extras.nodes_lt import get_noise_mask
+except ImportError:
+    # Older/custom Comfy builds may not expose get_noise_mask.
+    # Keep import-time compatibility so the node and tests still load.
+    def get_noise_mask(latent):
+        if isinstance(latent, dict):
+            return latent.get("noise_mask")
+        return None
 
 
 class DenoLTXSequencer:
