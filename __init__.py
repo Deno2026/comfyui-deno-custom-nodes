@@ -6,27 +6,11 @@ from typing import Tuple
 import torch
 import torch.nn.functional as F
 
-
-COMMON_RATIOS = [
-    "1:1",
-    "4:5",
-    "5:4",
-    "3:4",
-    "4:3",
-    "2:3",
-    "3:2",
-    "16:9",
-    "9:16",
-    "16:10",
-    "10:16",
-    "21:9",
-    "9:21",
-]
+from .deno_ltx_sequencer_plus import DenoLTXSequencer
+from .deno_multi_image_board import DenoMultiImageLoader
+from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
 
 INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
-DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"]
-RESIZE_METHODS = ["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"]
-PREFERRED_DIMENSIONS = [512, 720, 768, 1024, 1088, 1536, 1920]
 
 
 def _get_torch():
@@ -51,8 +35,7 @@ def _round_up(value: float, multiple: int) -> int:
 
 
 def _parse_ratio(ratio_preset: str) -> Tuple[int, int]:
-    ratio_x, ratio_y = ratio_preset.split(":")
-    return int(ratio_x), int(ratio_y)
+    return parse_ratio(ratio_preset)
 
 
 def _simplify_ratio(width: int, height: int) -> str:
@@ -288,10 +271,14 @@ class DenoResolutionSetup:
 
 NODE_CLASS_MAPPINGS = {
     "DenoResolutionSetup": DenoResolutionSetup,
+    "DenoMultiImageLoader": DenoMultiImageLoader,
+    "DenoLTXSequencer": DenoLTXSequencer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoResolutionSetup": "(Deno) Resize Box",
+    "DenoMultiImageLoader": "(Deno) Multi Image Loader",
+    "DenoLTXSequencer": "(Deno) LTX Sequencer",
 }
 
 WEB_DIRECTORY = "./web/js"
