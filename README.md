@@ -26,6 +26,8 @@ Main features:
 
 Minor-upgrade multi-image loader designed for batch guide workflows.
 
+Credit: Inspired by the original workflow ideas from **WhatDreamsCost**, then adapted and refined for the Deno workflow style.
+
 Main features:
 
 - scrollable fixed-height gallery instead of endlessly growing node height
@@ -40,6 +42,8 @@ Main features:
 ### `(Deno) LTX Sequencer`
 
 LTX guide sequencer tuned for multi-image workflows.
+
+Credit: Inspired by **WhatDreamsCost**'s LTX workflow approach, with Deno-side adjustments focused on day-to-day usability.
 
 Main features:
 
