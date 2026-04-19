@@ -501,6 +501,28 @@ function deferSequencerWidgetUpdate(fn) {
     setTimeout(fn, 0);
 }
 
+function scheduleUpstreamCountSync(node, options = {}) {
+    const propagate = options?.propagate !== false;
+    const delays = [0, 50, 140, 320];
+    for (const delay of delays) {
+        setTimeout(() => {
+            if (!node?.graph) {
+                return;
+            }
+            const multiInputSlot = node.inputs?.find((slot) => slot.name === "multi_input");
+            const hasLinks = getInputLinkIds(multiInputSlot).length > 0;
+            if (!hasLinks) {
+                node._syncImageCount?.(0, { propagate: false });
+                return;
+            }
+            const count = readUpstreamImageCount(node);
+            if (typeof count === "number") {
+                node._syncImageCount?.(count, { propagate });
+            }
+        }, delay);
+    }
+}
+
 function setupSequencer(node) {
     if (node.__denoSequencerReady) {
         return;
@@ -510,6 +532,7 @@ function setupSequencer(node) {
     window.__denoLtxSequencerNodes.add(node);
     node._currentImageCount = -1;
     node.__denoApplyingSync = false;
+    node.__denoHadInputLink = false;
 
     const strengthSyncWidget = getWidget(node, "strength_sync");
     if (strengthSyncWidget) {
@@ -810,25 +833,30 @@ function setupSequencer(node) {
         });
     };
 
+    const originalConnectInput = node.onConnectInput;
+    node.onConnectInput = function (inputIndex) {
+        const result = originalConnectInput?.apply(this, arguments);
+        if (result === false) {
+            return result;
+        }
+        if (this.inputs?.[inputIndex]?.name === "multi_input") {
+            scheduleUpstreamCountSync(this);
+        }
+        return result;
+    };
+
     const originalConnectionsChange = node.onConnectionsChange;
     node.onConnectionsChange = function (type, index, connected, linkInfo) {
         originalConnectionsChange?.apply(this, arguments);
-        if (type !== 1 || this.inputs?.[index]?.name !== "multi_input" || !connected) {
+        if (type !== 1 || this.inputs?.[index]?.name !== "multi_input") {
             return;
         }
-
-        setTimeout(() => {
-            const count = readUpstreamImageCount(this);
-            if (typeof count !== "number") {
-                return;
-            }
-            const numWidget = getWidget(this, "num_images");
-            if (numWidget) {
-                numWidget.value = count;
-                this.properties.num_images = count;
-            }
-            this._syncImageCount?.(count);
-        }, 50);
+        if (connected) {
+            scheduleUpstreamCountSync(this);
+            return;
+        }
+        this.__denoHadInputLink = false;
+        this._syncImageCount?.(0, { propagate: false });
     };
 
     setTimeout(() => {
@@ -841,6 +869,7 @@ function setupSequencer(node) {
             node._syncImageCount?.(count);
         }
         node._applyWidgetCount(node.properties.num_images ?? getWidget(node, "num_images")?.value ?? 0);
+        scheduleUpstreamCountSync(node, { propagate: false });
     }, 50);
 
     // Keep count in sync even when an intermediate node sits between loader and sequencer.
@@ -853,9 +882,16 @@ function setupSequencer(node) {
             return;
         }
         const multiInputSlot = node.inputs?.find((slot) => slot.name === "multi_input");
-        if (!getInputLinkIds(multiInputSlot).length) {
+        const hasLinks = getInputLinkIds(multiInputSlot).length > 0;
+        if (!hasLinks) {
+            const currentCount = Number(node.properties.num_images ?? getWidget(node, "num_images")?.value ?? 0);
+            if (node.__denoHadInputLink || currentCount !== 0) {
+                node.__denoHadInputLink = false;
+                node._syncImageCount?.(0, { propagate: false });
+            }
             return;
         }
+        node.__denoHadInputLink = true;
         const count = readUpstreamImageCount(node);
         if (typeof count !== "number") {
             return;
