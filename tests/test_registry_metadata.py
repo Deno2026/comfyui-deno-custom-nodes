@@ -15,7 +15,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     version = pyproject["project"]["version"]
     assert isinstance(version, str)
     assert re.fullmatch(r"\d+\.\d+\.\d+", version)
-    assert pyproject["project"]["description"] == "Korean-friendly practical custom nodes for ComfyUI"
+    assert pyproject["project"]["description"] == "Practical custom nodes for ComfyUI production workflows"
     assert pyproject["project"]["requires-python"] == ">=3.10"
     assert pyproject["project"]["license"] == {"file": "LICENSE"}
     assert pyproject["project"]["classifiers"] == ["Operating System :: OS Independent"]

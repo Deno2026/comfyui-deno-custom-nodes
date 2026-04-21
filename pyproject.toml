@@ -1,7 +1,7 @@
 [project]
 name = "deno-custom-nodes"
-description = "Korean-friendly practical custom nodes for ComfyUI"
-version = "0.2.9"
+description = "Practical custom nodes for ComfyUI production workflows"
+version = "0.3.0"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []

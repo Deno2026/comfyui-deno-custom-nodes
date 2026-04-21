@@ -3,7 +3,7 @@
 [YouTube Channel](https://www.youtube.com/@Denoise-AI)
 
 Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
-This repo is aimed at Korean-friendly tutorial workflows, but the nodes themselves are kept simple and easy to use for anyone.
+This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
 ## Included Nodes
 
