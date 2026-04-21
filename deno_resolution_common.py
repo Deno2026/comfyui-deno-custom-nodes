@@ -18,7 +18,7 @@ COMMON_RATIOS = [
     "9:21",
 ]
 
-DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"]
+DIVISIBLE_BY_VALUES = ["1", "8", "16", "32", "64", "128"]
 RESIZE_METHODS = ["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"]
 PREFERRED_DIMENSIONS = [512, 720, 768, 1024, 1088, 1536, 1920]
 

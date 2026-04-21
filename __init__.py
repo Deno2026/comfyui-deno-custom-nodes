@@ -34,6 +34,14 @@ def _round_up(value: float, multiple: int) -> int:
     return int(math.ceil(max(float(value), float(multiple)) / multiple) * multiple)
 
 
+def _round_down(value: float, multiple: int) -> int:
+    return max(multiple, int(math.floor(float(value) / multiple) * multiple))
+
+
+def _round_nearest(value: float, multiple: int) -> int:
+    return max(multiple, int(math.floor((float(value) / multiple) + 0.5) * multiple))
+
+
 def _parse_ratio(ratio_preset: str) -> Tuple[int, int]:
     return parse_ratio(ratio_preset)
 
@@ -87,6 +95,58 @@ def _compute_aligned_ratio_dims(
             preference_error,
             area_error,
             ratio_error,
+        )
+
+    return min(candidates, key=candidate_score)
+
+
+def _compute_auto_ratio_dims(
+    source_width: int,
+    source_height: int,
+    megapixels: float,
+    divisible_by: int,
+) -> Tuple[int, int]:
+    effective_alignment = int(divisible_by)
+    total_pixels = max(0.01, float(megapixels)) * 1_000_000
+    source_area = max(1.0, float(source_width * source_height))
+    source_aspect = float(source_width) / float(source_height)
+
+    scale = math.sqrt(total_pixels / source_area)
+    base_width = max(float(effective_alignment), float(source_width) * scale)
+    base_height = max(float(effective_alignment), float(source_height) * scale)
+
+    rounders = (_round_down, _round_nearest, _round_up)
+    candidates = set()
+
+    for rounder in rounders:
+        width_candidate = rounder(base_width, effective_alignment)
+        exact_height = width_candidate / source_aspect
+        for height_rounder in rounders:
+            candidates.add((width_candidate, height_rounder(exact_height, effective_alignment)))
+
+    for rounder in rounders:
+        height_candidate = rounder(base_height, effective_alignment)
+        exact_width = height_candidate * source_aspect
+        for width_rounder in rounders:
+            candidates.add((width_rounder(exact_width, effective_alignment), height_candidate))
+
+    candidates.add((
+        _round_nearest(base_width, effective_alignment),
+        _round_nearest(base_height, effective_alignment),
+    ))
+
+    def candidate_score(dims: Tuple[int, int]) -> Tuple[float, float, float]:
+        width_candidate, height_candidate = dims
+        area_error = abs((width_candidate * height_candidate) - total_pixels) / total_pixels
+        ratio_error = abs((width_candidate / height_candidate) - source_aspect) / source_aspect
+        distance_error = (
+            abs(width_candidate - base_width) / base_width
+            + abs(height_candidate - base_height) / base_height
+        )
+        return (
+            area_error,
+            ratio_error,
+            distance_error,
         )
 
     return min(candidates, key=candidate_score)
@@ -168,7 +228,7 @@ def _resize_with_comfy(image_nchw, height: int, width: int):
 class DenoResolutionSetup:
     DESCRIPTION = (
         "Resolution helper and image resize node for ComfyUI.\n"
-        "Preset ratio or manual input, MP-based sizing, divisible-by alignment, "
+        "Preset ratio, manual input, or keep-input-ratio auto mode with MP-based sizing, divisible-by alignment, "
         "crop/fit resize, and realtime ratio preview.\n"
         "YouTube: https://www.youtube.com/@Denoise-AI"
     )
@@ -177,12 +237,12 @@ class DenoResolutionSetup:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mode": (["Preset Ratio", "Manual Input"], {"default": "Preset Ratio"}),
+                "mode": (["Preset Ratio", "Manual Input", "Keep Input Ratio"], {"default": "Preset Ratio"}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "megapixels": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
                 "height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
-                "divisible_by": (DIVISIBLE_BY_VALUES, {"default": "64"}),
+                "divisible_by": (DIVISIBLE_BY_VALUES, {"default": "32"}),
                 "resize_method": (RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
                 "interpolation": (INTERPOLATION_MODES, {"default": "lanczos"}),
             },
@@ -204,6 +264,7 @@ class DenoResolutionSetup:
         width: int,
         height: int,
         divisible_by: int,
+        image=None,
     ) -> Tuple[int, int, float, str]:
         effective_alignment = int(divisible_by)
 
@@ -213,6 +274,18 @@ class DenoResolutionSetup:
                 megapixels=megapixels,
                 divisible_by=effective_alignment,
             )
+        elif mode == "Keep Input Ratio":
+            if image is not None:
+                _, source_height, source_width, _ = image.shape
+                final_width, final_height = _compute_auto_ratio_dims(
+                    source_width=int(source_width),
+                    source_height=int(source_height),
+                    megapixels=megapixels,
+                    divisible_by=effective_alignment,
+                )
+            else:
+                final_width = _round_up(width, effective_alignment)
+                final_height = _round_up(height, effective_alignment)
         else:
             final_width = _round_up(width, effective_alignment)
             final_height = _round_up(height, effective_alignment)
@@ -252,6 +325,7 @@ class DenoResolutionSetup:
             width=width,
             height=height,
             divisible_by=divisible_by,
+            image=image,
         )
 
         output_image = self._build_output_image(

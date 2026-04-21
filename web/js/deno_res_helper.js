@@ -2,6 +2,8 @@ import { app } from "../../scripts/app.js";
 
 const NODE_NAME = "DenoResolutionSetup";
 const PRESET_MODE = "Preset Ratio";
+const MANUAL_MODE = "Manual Input";
+const KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
 const SUMMARY_HEIGHT = 158;
 const MIN_NODE_WIDTH = 320;
 const MIN_NODE_HEIGHT = 460;
@@ -64,6 +66,7 @@ function enhanceResolutionNode(node) {
         node.__denoOriginalMouseMove = node.onMouseMove;
         node.__denoOriginalMouseUp = node.onMouseUp;
         node.__denoOriginalMouseLeave = node.onMouseLeave;
+        node.__denoOriginalRemoved = node.onRemoved;
 
         node.computeSize = function () {
             const size = node.__denoOriginalComputeSize
@@ -95,6 +98,11 @@ function enhanceResolutionNode(node) {
 
         node.onMouseMove = function (event, pos) {
             if (node.__denoAnchorDrag?.active) {
+                if (!isPrimaryPointerPressed(event)) {
+                    endAnchorDrag(node);
+                    requestNodeRedraw(node);
+                    return true;
+                }
                 const local = getNodeLocalPos(node, pos);
                 updateAnchorDrag(node, local.x, local.y);
                 requestNodeRedraw(node);
@@ -118,6 +126,14 @@ function enhanceResolutionNode(node) {
                 requestNodeRedraw(node);
             }
             return node.__denoOriginalMouseLeave?.call(node, event, pos);
+        };
+
+        node.onRemoved = function () {
+            if (node.__denoAnchorDrag?.active) {
+                endAnchorDrag(node);
+            }
+            unbindGlobalDragGuards(node);
+            return node.__denoOriginalRemoved?.apply(node, arguments);
         };
     }
 
@@ -171,12 +187,15 @@ function updateWidgetVisibility(node) {
     const heightWidget = getWidget(node, "height");
     const divisibleByWidget = getWidget(node, "divisible_by");
 
-    const presetMode = (modeWidget?.value ?? PRESET_MODE) === PRESET_MODE;
+    const mode = modeWidget?.value ?? PRESET_MODE;
+    const presetMode = mode === PRESET_MODE;
+    const autoMode = mode === KEEP_INPUT_RATIO_MODE;
+    const manualMode = mode === MANUAL_MODE;
 
     toggleWidget(node, ratioWidget, presetMode);
-    toggleWidget(node, megapixelsWidget, presetMode);
-    toggleWidget(node, widthWidget, !presetMode);
-    toggleWidget(node, heightWidget, !presetMode);
+    toggleWidget(node, megapixelsWidget, presetMode || autoMode);
+    toggleWidget(node, widthWidget, manualMode);
+    toggleWidget(node, heightWidget, manualMode);
     if (divisibleByWidget) {
         divisibleByWidget.name = "divisible_by";
         divisibleByWidget.label = "divisible_by";
@@ -344,12 +363,53 @@ function startAnchorDrag(node, anchorName) {
         startHeight: info.height,
         startPreviewRect: { ...previewRect },
     };
+    bindGlobalDragGuards(node);
 }
 
 function endAnchorDrag(node) {
     if (node.__denoAnchorDrag) {
         node.__denoAnchorDrag.active = false;
     }
+    unbindGlobalDragGuards(node);
+}
+
+function bindGlobalDragGuards(node) {
+    if (node.__denoGlobalDragGuardBound) {
+        return;
+    }
+
+    node.__denoGlobalDragGuard = () => {
+        if (node.__denoAnchorDrag?.active) {
+            endAnchorDrag(node);
+            requestNodeRedraw(node);
+        }
+    };
+
+    window.addEventListener("mouseup", node.__denoGlobalDragGuard, true);
+    window.addEventListener("blur", node.__denoGlobalDragGuard, true);
+    node.__denoGlobalDragGuardBound = true;
+}
+
+function unbindGlobalDragGuards(node) {
+    if (!node.__denoGlobalDragGuardBound || !node.__denoGlobalDragGuard) {
+        return;
+    }
+    window.removeEventListener("mouseup", node.__denoGlobalDragGuard, true);
+    window.removeEventListener("blur", node.__denoGlobalDragGuard, true);
+    node.__denoGlobalDragGuardBound = false;
+}
+
+function isPrimaryPointerPressed(event) {
+    if (!event) {
+        return true;
+    }
+    if (typeof event.buttons === "number") {
+        return (event.buttons & 1) === 1;
+    }
+    if (typeof event.which === "number") {
+        return event.which === 1;
+    }
+    return true;
 }
 
 function updateAnchorDrag(node, mouseX, mouseY) {
@@ -396,10 +456,10 @@ function updateAnchorDrag(node, mouseX, mouseY) {
     targetPreviewWidth = clamp(targetPreviewWidth, minPreview, previewRect.width * 4);
     targetPreviewHeight = clamp(targetPreviewHeight, minPreview, previewRect.height * 4);
 
-    const divisibleBy = Number.parseInt(String(getWidget(node, "divisible_by")?.value ?? "64"), 10) || 64;
+    const divisibleBy = Number.parseInt(String(getWidget(node, "divisible_by")?.value ?? "32"), 10) || 32;
     const mode = getWidget(node, "mode")?.value ?? PRESET_MODE;
 
-    if (mode === PRESET_MODE) {
+    if (mode === PRESET_MODE || mode === KEEP_INPUT_RATIO_MODE) {
         const ratio = state.startWidth / Math.max(1, state.startHeight);
         const widthScale = targetPreviewWidth / Math.max(1, previewRect.width);
         const heightScale = targetPreviewHeight / Math.max(1, previewRect.height);
@@ -443,46 +503,22 @@ function calculateDisplayInfo(node) {
     const height = Number.parseInt(getWidget(node, "height")?.value ?? 1024, 10);
     const ratioPreset = getWidget(node, "ratio_preset")?.value ?? "16:9";
     const megapixels = Number.parseFloat(getWidget(node, "megapixels")?.value ?? 1.0);
-    const divisibleBy = Number.parseInt(String(getWidget(node, "divisible_by")?.value ?? "64"), 10);
+    const divisibleBy = Number.parseInt(String(getWidget(node, "divisible_by")?.value ?? "32"), 10);
 
     let targetWidth = width;
     let targetHeight = height;
 
     if (mode === PRESET_MODE) {
         const [ratioX, ratioY] = ratioPreset.split(":").map(Number);
-        const totalPixels = Math.max(0.01, megapixels) * 1_000_000;
-        const baseWidth = Math.sqrt(totalPixels * ratioX / ratioY);
-        const baseHeight = Math.sqrt(totalPixels * ratioY / ratioX);
-        const roundDown = (value, multiple) =>
-            Math.max(multiple, Math.floor(value / multiple) * multiple);
-
-        const widthCandidates = [...new Set([roundUp(baseWidth, divisibleBy), roundDown(baseWidth, divisibleBy)])];
-        const heightCandidates = [...new Set([roundUp(baseHeight, divisibleBy), roundDown(baseHeight, divisibleBy)])];
-
-        const candidates = new Map();
-
-        for (const widthCandidate of widthCandidates) {
-            const exactHeight = (widthCandidate * ratioY) / ratioX;
-            candidates.set(`${widthCandidate}x${roundUp(exactHeight, divisibleBy)}`, [widthCandidate, roundUp(exactHeight, divisibleBy)]);
-            candidates.set(`${widthCandidate}x${roundDown(exactHeight, divisibleBy)}`, [widthCandidate, roundDown(exactHeight, divisibleBy)]);
-        }
-
-        for (const heightCandidate of heightCandidates) {
-            const exactWidth = (heightCandidate * ratioX) / ratioY;
-            candidates.set(`${roundUp(exactWidth, divisibleBy)}x${heightCandidate}`, [roundUp(exactWidth, divisibleBy), heightCandidate]);
-            candidates.set(`${roundDown(exactWidth, divisibleBy)}x${heightCandidate}`, [roundDown(exactWidth, divisibleBy), heightCandidate]);
-        }
-
-        [targetWidth, targetHeight] = [...candidates.values()].reduce((best, current) => {
-            const score = getCandidateScore(current[0], current[1], baseWidth, baseHeight, totalPixels, ratioX / ratioY);
-            const bestScore = getCandidateScore(best[0], best[1], baseWidth, baseHeight, totalPixels, ratioX / ratioY);
-
-            for (let i = 0; i < score.length; i += 1) {
-                if (score[i] < bestScore[i]) return current;
-                if (score[i] > bestScore[i]) return best;
-            }
-            return best;
-        });
+        [targetWidth, targetHeight] = computePresetDims(ratioX, ratioY, megapixels, divisibleBy);
+    } else if (mode === KEEP_INPUT_RATIO_MODE) {
+        const sourceSize = getLinkedImageSize(node) || { width, height };
+        [targetWidth, targetHeight] = computeKeepInputRatioDims(
+            sourceSize.width,
+            sourceSize.height,
+            megapixels,
+            divisibleBy
+        );
     } else {
         targetWidth = roundUp(width, divisibleBy);
         targetHeight = roundUp(height, divisibleBy);
@@ -507,11 +543,138 @@ function requestNodeRedraw(node) {
     app.graph?.setDirtyCanvas?.(true, true);
 }
 
+function computePresetDims(ratioX, ratioY, megapixels, divisibleBy) {
+    const totalPixels = Math.max(0.01, megapixels) * 1_000_000;
+    const baseWidth = Math.sqrt(totalPixels * ratioX / ratioY);
+    const baseHeight = Math.sqrt(totalPixels * ratioY / ratioX);
+
+    const widthCandidates = [...new Set([roundUp(baseWidth, divisibleBy), roundDown(baseWidth, divisibleBy)])];
+    const heightCandidates = [...new Set([roundUp(baseHeight, divisibleBy), roundDown(baseHeight, divisibleBy)])];
+
+    const candidates = new Map();
+
+    for (const widthCandidate of widthCandidates) {
+        const exactHeight = (widthCandidate * ratioY) / ratioX;
+        candidates.set(`${widthCandidate}x${roundUp(exactHeight, divisibleBy)}`, [widthCandidate, roundUp(exactHeight, divisibleBy)]);
+        candidates.set(`${widthCandidate}x${roundDown(exactHeight, divisibleBy)}`, [widthCandidate, roundDown(exactHeight, divisibleBy)]);
+    }
+
+    for (const heightCandidate of heightCandidates) {
+        const exactWidth = (heightCandidate * ratioX) / ratioY;
+        candidates.set(`${roundUp(exactWidth, divisibleBy)}x${heightCandidate}`, [roundUp(exactWidth, divisibleBy), heightCandidate]);
+        candidates.set(`${roundDown(exactWidth, divisibleBy)}x${heightCandidate}`, [roundDown(exactWidth, divisibleBy), heightCandidate]);
+    }
+
+    return [...candidates.values()].reduce((best, current) => {
+        const score = getPresetCandidateScore(current[0], current[1], baseWidth, baseHeight, totalPixels, ratioX / ratioY);
+        const bestScore = getPresetCandidateScore(best[0], best[1], baseWidth, baseHeight, totalPixels, ratioX / ratioY);
+
+        for (let i = 0; i < score.length; i += 1) {
+            if (score[i] < bestScore[i]) return current;
+            if (score[i] > bestScore[i]) return best;
+        }
+        return best;
+    });
+}
+
+function computeKeepInputRatioDims(sourceWidth, sourceHeight, megapixels, divisibleBy) {
+    const safeSourceWidth = Math.max(divisibleBy, Number(sourceWidth) || 1024);
+    const safeSourceHeight = Math.max(divisibleBy, Number(sourceHeight) || 1024);
+    const totalPixels = Math.max(0.01, megapixels) * 1_000_000;
+    const sourceAspect = safeSourceWidth / safeSourceHeight;
+    const sourceArea = safeSourceWidth * safeSourceHeight;
+
+    const scale = Math.sqrt(totalPixels / Math.max(1, sourceArea));
+    const baseWidth = Math.max(divisibleBy, safeSourceWidth * scale);
+    const baseHeight = Math.max(divisibleBy, safeSourceHeight * scale);
+
+    const rounders = [roundDown, roundNearest, roundUp];
+    const candidates = new Map();
+
+    for (const widthRounder of rounders) {
+        const widthCandidate = widthRounder(baseWidth, divisibleBy);
+        const exactHeight = widthCandidate / sourceAspect;
+        for (const heightRounder of rounders) {
+            const heightCandidate = heightRounder(exactHeight, divisibleBy);
+            candidates.set(`${widthCandidate}x${heightCandidate}`, [widthCandidate, heightCandidate]);
+        }
+    }
+
+    for (const heightRounder of rounders) {
+        const heightCandidate = heightRounder(baseHeight, divisibleBy);
+        const exactWidth = heightCandidate * sourceAspect;
+        for (const widthRounder of rounders) {
+            const widthCandidate = widthRounder(exactWidth, divisibleBy);
+            candidates.set(`${widthCandidate}x${heightCandidate}`, [widthCandidate, heightCandidate]);
+        }
+    }
+
+    candidates.set(
+        `${roundNearest(baseWidth, divisibleBy)}x${roundNearest(baseHeight, divisibleBy)}`,
+        [roundNearest(baseWidth, divisibleBy), roundNearest(baseHeight, divisibleBy)]
+    );
+
+    return [...candidates.values()].reduce((best, current) => {
+        const score = getAutoCandidateScore(current[0], current[1], baseWidth, baseHeight, totalPixels, sourceAspect);
+        const bestScore = getAutoCandidateScore(best[0], best[1], baseWidth, baseHeight, totalPixels, sourceAspect);
+
+        for (let i = 0; i < score.length; i += 1) {
+            if (score[i] < bestScore[i]) return current;
+            if (score[i] > bestScore[i]) return best;
+        }
+        return best;
+    });
+}
+
+function getLinkedImageSize(node) {
+    const imageInput = (node.inputs || []).find((input) => input.name === "image");
+    if (!imageInput || imageInput.link == null) {
+        return null;
+    }
+
+    const linkInfo = app.graph?.links?.[imageInput.link];
+    if (!linkInfo || !Number.isFinite(linkInfo.origin_id)) {
+        return null;
+    }
+
+    const sourceNode = app.graph?.getNodeById?.(linkInfo.origin_id);
+    if (!sourceNode) {
+        return null;
+    }
+
+    if (Array.isArray(sourceNode.imgs) && sourceNode.imgs.length > 0) {
+        const firstImage = sourceNode.imgs[0];
+        const imgWidth = Number(firstImage?.naturalWidth ?? firstImage?.width ?? 0);
+        const imgHeight = Number(firstImage?.naturalHeight ?? firstImage?.height ?? 0);
+        if (imgWidth > 0 && imgHeight > 0) {
+            return { width: imgWidth, height: imgHeight };
+        }
+    }
+
+    const widthWidget = getWidget(sourceNode, "width");
+    const heightWidget = getWidget(sourceNode, "height");
+    const widthValue = Number(widthWidget?.value);
+    const heightValue = Number(heightWidget?.value);
+    if (widthValue > 0 && heightValue > 0) {
+        return { width: widthValue, height: heightValue };
+    }
+
+    return null;
+}
+
 function roundUp(value, multiple) {
     return Math.ceil(Math.max(value, multiple) / multiple) * multiple;
 }
 
-function getCandidateScore(width, height, baseWidth, baseHeight, totalPixels, targetRatio) {
+function roundDown(value, multiple) {
+    return Math.max(multiple, Math.floor(value / multiple) * multiple);
+}
+
+function roundNearest(value, multiple) {
+    return Math.max(multiple, Math.floor(value / multiple + 0.5) * multiple);
+}
+
+function getPresetCandidateScore(width, height, baseWidth, baseHeight, totalPixels, targetRatio) {
     const preferredDimensions = [512, 720, 768, 1024, 1088, 1536, 1920];
     const widthError = Math.abs(width - baseWidth) / baseWidth;
     const heightError = Math.abs(height - baseHeight) / baseHeight;
@@ -521,6 +684,15 @@ function getCandidateScore(width, height, baseWidth, baseHeight, totalPixels, ta
     const areaError = Math.abs((width * height) - totalPixels) / totalPixels;
     const ratioError = Math.abs((width / height) - targetRatio) / targetRatio;
     return [widthError + heightError, preferenceError, areaError, ratioError];
+}
+
+function getAutoCandidateScore(width, height, baseWidth, baseHeight, totalPixels, sourceRatio) {
+    const areaError = Math.abs((width * height) - totalPixels) / totalPixels;
+    const ratioError = Math.abs((width / height) - sourceRatio) / sourceRatio;
+    const distanceError =
+        Math.abs(width - baseWidth) / baseWidth +
+        Math.abs(height - baseHeight) / baseHeight;
+    return [areaError, ratioError, distanceError];
 }
 
 function simplifyRatio(width, height) {

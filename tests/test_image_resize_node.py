@@ -94,7 +94,8 @@ def test_multi_image_loader_returns_only_batch_output():
     assert input_types["required"]["mode"][0] == ["Preset Ratio", "Manual Input"]
     assert "16:9" in input_types["required"]["ratio_preset"][0]
     assert input_types["required"]["megapixels"][0] == "FLOAT"
-    assert input_types["required"]["divisible_by"][0] == ["8", "16", "32", "64", "128"]
+    assert input_types["required"]["divisible_by"][0] == ["1", "8", "16", "32", "64", "128"]
+    assert input_types["required"]["divisible_by"][1]["default"] == "32"
     assert input_types["required"]["interpolation"][0][0] == "lanczos"
     assert node_cls.RETURN_TYPES == ("IMAGE",)
     assert node_cls.RETURN_NAMES == ("multi_output",)
@@ -117,10 +118,11 @@ def test_resize_box_declares_comfyui_contract():
 
     input_types = node_cls.INPUT_TYPES()
 
-    assert input_types["required"]["mode"][0] == ["Preset Ratio", "Manual Input"]
+    assert input_types["required"]["mode"][0] == ["Preset Ratio", "Manual Input", "Keep Input Ratio"]
     assert "16:9" in input_types["required"]["ratio_preset"][0]
     assert input_types["required"]["megapixels"][0] == "FLOAT"
-    assert input_types["required"]["divisible_by"][0] == ["8", "16", "32", "64", "128"]
+    assert input_types["required"]["divisible_by"][0] == ["1", "8", "16", "32", "64", "128"]
+    assert input_types["required"]["divisible_by"][1]["default"] == "32"
     assert input_types["optional"]["image"][0] == "IMAGE"
     assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
     assert node_cls.RETURN_NAMES == ("image", "width", "height")
@@ -161,3 +163,36 @@ def test_resize_box_rounds_manual_input_to_effective_alignment():
     assert (width, height) == (1088, 832)
     assert round(megapixels, 3) == 0.905
     assert aspect_ratio == "17:13"
+
+
+def test_resize_box_keep_input_ratio_mode_uses_source_image_aspect():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoResolutionSetup"]
+    input_types = node_cls.INPUT_TYPES()
+
+    assert input_types["required"]["megapixels"][0] == "FLOAT"
+    assert input_types["required"]["divisible_by"][0] == ["1", "8", "16", "32", "64", "128"]
+    assert input_types["required"]["interpolation"][0][0] == "lanczos"
+    assert input_types["optional"]["image"][0] == "IMAGE"
+    assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
+    assert node_cls.RETURN_NAMES == ("image", "width", "height")
+
+    class DummyImage:
+        shape = (1, 1024, 1536, 3)
+
+    node = package.DenoResolutionSetup()
+    width, height, megapixels, aspect_ratio = node.calculate_dims(
+        mode="Keep Input Ratio",
+        ratio_preset="16:9",
+        megapixels=2.1,
+        width=1024,
+        height=1024,
+        divisible_by="16",
+        image=DummyImage(),
+    )
+
+    assert width % 16 == 0
+    assert height % 16 == 0
+    assert round(width / height, 3) == 1.5
+    assert abs(megapixels - 2.1) < 0.03
+    assert aspect_ratio == "3:2"

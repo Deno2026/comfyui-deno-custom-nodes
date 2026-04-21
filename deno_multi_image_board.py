@@ -122,7 +122,7 @@ class DenoMultiImageLoader:
                 "megapixels": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
                 "height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
-                "divisible_by": (DIVISIBLE_BY_VALUES, {"default": "64"}),
+                "divisible_by": (DIVISIBLE_BY_VALUES, {"default": "32"}),
                 "interpolation": (IMAGE_INTERPOLATION_MODES, {"default": "lanczos"}),
                 "resize_method": (RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
             }
