@@ -76,10 +76,12 @@ def test_node_registration_exports_expected_nodes():
 
     assert list(package.NODE_CLASS_MAPPINGS.keys()) == [
         "DenoResolutionSetup",
+        "DenoResolutionSetupDragTest",
         "DenoMultiImageLoader",
         "DenoLTXSequencer",
     ]
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetupDragTest"] == "(Deno) Resize Box (Drag Test)"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
     assert package.WEB_DIRECTORY == "./web/js"
@@ -114,6 +116,22 @@ def test_ltx_sequencer_declares_sync_controls():
 def test_resize_box_declares_comfyui_contract():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoResolutionSetup"]
+
+    input_types = node_cls.INPUT_TYPES()
+
+    assert input_types["required"]["mode"][0] == ["Preset Ratio", "Manual Input"]
+    assert "16:9" in input_types["required"]["ratio_preset"][0]
+    assert input_types["required"]["megapixels"][0] == "FLOAT"
+    assert input_types["required"]["divisible_by"][0] == ["8", "16", "32", "64", "128"]
+    assert input_types["optional"]["image"][0] == "IMAGE"
+    assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
+    assert node_cls.RETURN_NAMES == ("image", "width", "height")
+    assert node_cls.FUNCTION == "setup_resolution"
+
+
+def test_resize_box_drag_test_declares_comfyui_contract():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoResolutionSetupDragTest"]
 
     input_types = node_cls.INPUT_TYPES()
 

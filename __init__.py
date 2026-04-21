@@ -269,14 +269,24 @@ class DenoResolutionSetup:
         )
 
 
+class DenoResolutionSetupDragTest(DenoResolutionSetup):
+    DESCRIPTION = (
+        "Test node for interactive resize preview drag anchors.\n"
+        "Same core behavior as (Deno) Resize Box, with draggable preview anchors for UX testing.\n"
+        "YouTube: https://www.youtube.com/@Denoise-AI"
+    )
+
+
 NODE_CLASS_MAPPINGS = {
     "DenoResolutionSetup": DenoResolutionSetup,
+    "DenoResolutionSetupDragTest": DenoResolutionSetupDragTest,
     "DenoMultiImageLoader": DenoMultiImageLoader,
     "DenoLTXSequencer": DenoLTXSequencer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoResolutionSetup": "(Deno) Resize Box",
+    "DenoResolutionSetupDragTest": "(Deno) Resize Box (Drag Test)",
     "DenoMultiImageLoader": "(Deno) Multi Image Loader",
     "DenoLTXSequencer": "(Deno) LTX Sequencer",
 }
