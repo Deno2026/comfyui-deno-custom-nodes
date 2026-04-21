@@ -106,6 +106,7 @@ function setupMultiImageLoader(node) {
 
     let draggedCard = null;
     let placeholder = null;
+    let isReordering = false;
 
     for (const currentWidget of node.widgets || []) {
         if (currentWidget.__denoLoaderWrapped) {
@@ -196,6 +197,7 @@ function setupMultiImageLoader(node) {
         card.addEventListener("dragstart", () => {
             draggedCard = card;
             placeholder = createPlaceholder();
+            isReordering = true;
             card.style.opacity = "0.35";
             setTimeout(() => {
                 if (card.parentElement) {
@@ -212,6 +214,7 @@ function setupMultiImageLoader(node) {
             placeholder?.remove();
             placeholder = null;
             draggedCard = null;
+            isReordering = false;
             const newOrder = Array.from(grid.children)
                 .filter((child) => child.dataset?.path)
                 .map((child) => child.dataset.path);
@@ -224,7 +227,15 @@ function setupMultiImageLoader(node) {
                 return;
             }
             const rect = card.getBoundingClientRect();
-            const insertAfter = event.clientY > rect.top + rect.height / 2;
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const dx = event.clientX - centerX;
+            const dy = event.clientY - centerY;
+            const horizontalDominant = Math.abs(dx) >= Math.abs(dy);
+            // Reorder a bit earlier than strict 50% to feel more responsive.
+            const insertAfter = horizontalDominant
+                ? event.clientX > rect.left + rect.width * 0.4
+                : event.clientY > rect.top + rect.height * 0.4;
             grid.insertBefore(placeholder, insertAfter ? card.nextSibling : card);
         });
 
@@ -257,7 +268,8 @@ function setupMultiImageLoader(node) {
 
     function syncLoaderStateFromWidget() {
         const count = getPaths().length;
-        if (node._denoImageCount !== count || grid.childElementCount !== count) {
+        const visibleCardCount = Array.from(grid.children).filter((child) => child.dataset?.path).length;
+        if (node._denoImageCount !== count || (!isReordering && visibleCardCount !== count)) {
             node._denoImageCount = count;
             notifyConnectedSequencers(node, count);
             render();
@@ -279,6 +291,9 @@ function setupMultiImageLoader(node) {
         event.preventDefault();
         event.stopPropagation();
         container.style.borderColor = "rgba(72,255,132,0.28)";
+        if (isReordering) {
+            return;
+        }
         if (event.dataTransfer?.files?.length) {
             uploadFiles(event.dataTransfer.files);
         }

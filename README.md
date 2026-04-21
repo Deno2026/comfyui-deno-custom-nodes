@@ -11,6 +11,8 @@ This repo is aimed at Korean-friendly tutorial workflows, but the nodes themselv
 
 Resolution helper and image resize node for ComfyUI.
 
+![Deno Resize Box](docs/images/resize-box.jpg)
+
 Main features:
 
 - `Preset Ratio` and `Manual Input` modes
@@ -28,6 +30,8 @@ Minor-upgrade multi-image loader designed for batch guide workflows.
 
 Credit: Inspired by the original workflow ideas from **WhatDreamsCost**, then adapted and refined for the Deno workflow style.
 
+![Deno Multi Image Loader](docs/images/multi-image-loader.jpg)
+
 Main features:
 
 - scrollable fixed-height gallery instead of endlessly growing node height
@@ -44,6 +48,8 @@ Main features:
 LTX guide sequencer tuned for multi-image workflows.
 
 Credit: Inspired by **WhatDreamsCost**'s LTX workflow approach, with Deno-side adjustments focused on day-to-day usability.
+
+![Deno LTX Sequencer](docs/images/ltx-sequencer.jpg)
 
 Main features:
 
