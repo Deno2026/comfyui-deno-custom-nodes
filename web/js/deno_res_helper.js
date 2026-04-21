@@ -5,6 +5,15 @@ const PRESET_MODE = "Preset Ratio";
 const SUMMARY_HEIGHT = 158;
 const MIN_NODE_WIDTH = 320;
 const MIN_NODE_HEIGHT = 460;
+const MIN_DIMENSION = 64;
+const MAX_DIMENSION = 8192;
+const PREVIEW_INSET_X = 18;
+const PREVIEW_INSET_Y = 18;
+const PREVIEW_BOTTOM_INSET = 12;
+const ANCHOR_VISUAL_SIZE = 5;
+const ANCHOR_HIT_EXTRA = 6;
+const ANCHOR_VIRTUAL_PULL = 24;
+const DRAG_GAIN = 1.18;
 const THEME = {
     cardFill: "rgba(3, 10, 7, 0.96)",
     cardStroke: "rgba(56, 255, 126, 0.7)",
@@ -13,6 +22,10 @@ const THEME = {
     previewStroke: "rgba(79, 255, 142, 0.95)",
     gridStroke: "rgba(95, 255, 155, 0.22)",
     summaryText: "#d7ffe3",
+    anchorFill: "rgba(8, 35, 18, 0.98)",
+    anchorStroke: "rgba(79, 255, 142, 0.95)",
+    anchorActiveFill: "rgba(79, 255, 142, 0.95)",
+    anchorActiveStroke: "rgba(0, 0, 0, 0.95)",
 };
 
 app.registerExtension({
@@ -43,14 +56,18 @@ function enhanceResolutionNode(node) {
         return;
     }
 
-    if (!node.__denoResolutionSetupPatched) {
-        node.__denoResolutionSetupPatched = true;
-        node.__denoOriginalComputeSize = node.computeSize?.bind(node);
-        node.__denoOriginalDrawForeground = node.onDrawForeground?.bind(node);
+    if (!node.__denoResDragPatched) {
+        node.__denoResDragPatched = true;
+        node.__denoOriginalComputeSize = node.computeSize;
+        node.__denoOriginalDrawForeground = node.onDrawForeground;
+        node.__denoOriginalMouseDown = node.onMouseDown;
+        node.__denoOriginalMouseMove = node.onMouseMove;
+        node.__denoOriginalMouseUp = node.onMouseUp;
+        node.__denoOriginalMouseLeave = node.onMouseLeave;
 
         node.computeSize = function () {
             const size = node.__denoOriginalComputeSize
-                ? node.__denoOriginalComputeSize(...arguments)
+                ? node.__denoOriginalComputeSize.apply(node, arguments)
                 : [MIN_NODE_WIDTH, 300];
             return [
                 Math.max(size[0], MIN_NODE_WIDTH),
@@ -60,9 +77,47 @@ function enhanceResolutionNode(node) {
 
         node.onDrawForeground = function (ctx) {
             if (node.__denoOriginalDrawForeground) {
-                node.__denoOriginalDrawForeground(ctx);
+                node.__denoOriginalDrawForeground.call(node, ctx);
             }
             drawResolutionSummary(node, ctx);
+        };
+
+        node.onMouseDown = function (event, pos) {
+            const local = getNodeLocalPos(node, pos);
+            const hit = getPreviewAnchorHit(node, local.x, local.y);
+            if (hit) {
+                startAnchorDrag(node, hit.name);
+                requestNodeRedraw(node);
+                return true;
+            }
+            return node.__denoOriginalMouseDown?.call(node, event, pos);
+        };
+
+        node.onMouseMove = function (event, pos) {
+            if (node.__denoAnchorDrag?.active) {
+                const local = getNodeLocalPos(node, pos);
+                updateAnchorDrag(node, local.x, local.y);
+                requestNodeRedraw(node);
+                return true;
+            }
+            return node.__denoOriginalMouseMove?.call(node, event, pos);
+        };
+
+        node.onMouseUp = function (event, pos) {
+            if (node.__denoAnchorDrag?.active) {
+                endAnchorDrag(node);
+                requestNodeRedraw(node);
+                return true;
+            }
+            return node.__denoOriginalMouseUp?.call(node, event, pos);
+        };
+
+        node.onMouseLeave = function (event, pos) {
+            if (node.__denoAnchorDrag?.active) {
+                endAnchorDrag(node);
+                requestNodeRedraw(node);
+            }
+            return node.__denoOriginalMouseLeave?.call(node, event, pos);
         };
     }
 
@@ -77,6 +132,18 @@ function enhanceResolutionNode(node) {
     wrapWidgetCallbacks(node);
     updateWidgetVisibility(node);
     requestNodeRedraw(node);
+}
+
+function getNodeLocalPos(node, pos) {
+    if (Array.isArray(pos) && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+        return { x: pos[0], y: pos[1] };
+    }
+
+    const graphMouse = app.canvas?.graph_mouse || [node.pos?.[0] ?? 0, node.pos?.[1] ?? 0];
+    return {
+        x: graphMouse[0] - (node.pos?.[0] ?? 0),
+        y: graphMouse[1] - (node.pos?.[1] ?? 0),
+    };
 }
 
 function wrapWidgetCallbacks(node) {
@@ -156,7 +223,6 @@ function drawResolutionSummary(node, ctx) {
     const y = Math.max(widgetBottom, 180);
     const availableHeight = Math.max(120, node.size[1] - y - 12);
     const previewHeight = Math.max(96, availableHeight - 42);
-    const summaryHeight = 30;
 
     ctx.save();
     ctx.fillStyle = THEME.cardFill;
@@ -166,13 +232,209 @@ function drawResolutionSummary(node, ctx) {
     ctx.fill();
     ctx.stroke();
 
-    drawAspectPreview(ctx, x, y, cardWidth, previewHeight, info.width, info.height);
+    const previewMeta = drawAspectPreview(ctx, node, x, y, cardWidth, previewHeight, info.width, info.height);
+    node.__denoPreviewRect = previewMeta.previewRect;
+    node.__denoPreviewAnchors = previewMeta.anchors;
 
     ctx.fillStyle = THEME.summaryText;
     ctx.font = "12px sans-serif";
     ctx.textBaseline = "middle";
     ctx.fillText(info.text, x + 10, y + previewHeight + 24);
     ctx.restore();
+}
+
+function drawAspectPreview(ctx, node, x, y, width, height, targetWidth, targetHeight) {
+    const areaX = x + PREVIEW_INSET_X;
+    const areaY = y + PREVIEW_INSET_Y;
+    const areaWidth = width - PREVIEW_INSET_X * 2;
+    const areaHeight = height - (PREVIEW_INSET_Y + PREVIEW_BOTTOM_INSET);
+
+    ctx.save();
+    ctx.fillStyle = THEME.previewBg;
+    roundRect(ctx, areaX, areaY, areaWidth, areaHeight, 8);
+    ctx.fill();
+
+    const ratio = Math.max(targetWidth / Math.max(targetHeight, 1), 0.001);
+    let previewWidth = areaWidth - 28;
+    let previewHeight = previewWidth / ratio;
+
+    if (previewHeight > areaHeight - 20) {
+        previewHeight = areaHeight - 20;
+        previewWidth = previewHeight * ratio;
+    }
+
+    const previewX = areaX + (areaWidth - previewWidth) / 2;
+    const previewY = areaY + (areaHeight - previewHeight) / 2;
+
+    ctx.fillStyle = THEME.previewFill;
+    ctx.strokeStyle = THEME.previewStroke;
+    ctx.lineWidth = 2;
+    roundRect(ctx, previewX, previewY, previewWidth, previewHeight, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = THEME.gridStroke;
+    ctx.beginPath();
+    ctx.moveTo(previewX + previewWidth / 2, previewY);
+    ctx.lineTo(previewX + previewWidth / 2, previewY + previewHeight);
+    ctx.moveTo(previewX, previewY + previewHeight / 2);
+    ctx.lineTo(previewX + previewWidth, previewY + previewHeight / 2);
+    ctx.stroke();
+
+    const anchorSize = ANCHOR_VISUAL_SIZE;
+    const activeAnchor = node.__denoAnchorDrag?.active ? node.__denoAnchorDrag.anchor : null;
+    const anchors = [
+        { name: "nw", x: previewX, y: previewY, size: anchorSize },
+        { name: "ne", x: previewX + previewWidth, y: previewY, size: anchorSize },
+        { name: "sw", x: previewX, y: previewY + previewHeight, size: anchorSize },
+        { name: "se", x: previewX + previewWidth, y: previewY + previewHeight, size: anchorSize },
+    ];
+
+    for (const anchor of anchors) {
+        const active = anchor.name === activeAnchor;
+        ctx.fillStyle = active ? THEME.anchorActiveFill : THEME.anchorFill;
+        ctx.strokeStyle = active ? THEME.anchorActiveStroke : THEME.anchorStroke;
+        ctx.lineWidth = 1.5;
+        roundRect(
+            ctx,
+            anchor.x - anchor.size,
+            anchor.y - anchor.size,
+            anchor.size * 2,
+            anchor.size * 2,
+            2
+        );
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    ctx.restore();
+
+    return {
+        previewRect: {
+            x: previewX,
+            y: previewY,
+            width: previewWidth,
+            height: previewHeight,
+        },
+        anchors,
+    };
+}
+
+function getPreviewAnchorHit(node, x, y) {
+    const anchors = node.__denoPreviewAnchors || [];
+    for (const anchor of anchors) {
+        const hitRadius = anchor.size + ANCHOR_HIT_EXTRA;
+        if (x >= anchor.x - hitRadius && x <= anchor.x + hitRadius && y >= anchor.y - hitRadius && y <= anchor.y + hitRadius) {
+            return anchor;
+        }
+    }
+    return null;
+}
+
+function startAnchorDrag(node, anchorName) {
+    const info = calculateDisplayInfo(node);
+    const previewRect = node.__denoPreviewRect;
+    if (!previewRect) {
+        return;
+    }
+    node.__denoAnchorDrag = {
+        active: true,
+        anchor: anchorName,
+        startWidth: info.width,
+        startHeight: info.height,
+        startPreviewRect: { ...previewRect },
+    };
+}
+
+function endAnchorDrag(node) {
+    if (node.__denoAnchorDrag) {
+        node.__denoAnchorDrag.active = false;
+    }
+}
+
+function updateAnchorDrag(node, mouseX, mouseY) {
+    const state = node.__denoAnchorDrag;
+    if (!state?.active) {
+        return;
+    }
+
+    const previewRect = state.startPreviewRect;
+    if (!previewRect || previewRect.width <= 0 || previewRect.height <= 0) {
+        return;
+    }
+
+    const minPreview = 20;
+    let targetPreviewWidth = previewRect.width;
+    let targetPreviewHeight = previewRect.height;
+
+    if (state.anchor === "se") {
+        targetPreviewWidth = applyDragGain(previewRect.width, withVirtualPull(mouseX - previewRect.x, previewRect.width));
+        targetPreviewHeight = applyDragGain(previewRect.height, withVirtualPull(mouseY - previewRect.y, previewRect.height));
+    } else if (state.anchor === "sw") {
+        targetPreviewWidth = applyDragGain(
+            previewRect.width,
+            withVirtualPull(previewRect.x + previewRect.width - mouseX, previewRect.width)
+        );
+        targetPreviewHeight = applyDragGain(previewRect.height, withVirtualPull(mouseY - previewRect.y, previewRect.height));
+    } else if (state.anchor === "ne") {
+        targetPreviewWidth = applyDragGain(previewRect.width, withVirtualPull(mouseX - previewRect.x, previewRect.width));
+        targetPreviewHeight = applyDragGain(
+            previewRect.height,
+            withVirtualPull(previewRect.y + previewRect.height - mouseY, previewRect.height)
+        );
+    } else if (state.anchor === "nw") {
+        targetPreviewWidth = applyDragGain(
+            previewRect.width,
+            withVirtualPull(previewRect.x + previewRect.width - mouseX, previewRect.width)
+        );
+        targetPreviewHeight = applyDragGain(
+            previewRect.height,
+            withVirtualPull(previewRect.y + previewRect.height - mouseY, previewRect.height)
+        );
+    }
+
+    targetPreviewWidth = clamp(targetPreviewWidth, minPreview, previewRect.width * 4);
+    targetPreviewHeight = clamp(targetPreviewHeight, minPreview, previewRect.height * 4);
+
+    const divisibleBy = Number.parseInt(String(getWidget(node, "divisible_by")?.value ?? "64"), 10) || 64;
+    const mode = getWidget(node, "mode")?.value ?? PRESET_MODE;
+
+    if (mode === PRESET_MODE) {
+        const ratio = state.startWidth / Math.max(1, state.startHeight);
+        const widthScale = targetPreviewWidth / Math.max(1, previewRect.width);
+        const heightScale = targetPreviewHeight / Math.max(1, previewRect.height);
+        const scale = clamp(Math.min(widthScale, heightScale), 0.1, 10);
+
+        let nextWidth = roundUp(state.startWidth * scale, divisibleBy);
+        let nextHeight = roundUp(nextWidth / Math.max(ratio, 0.001), divisibleBy);
+        nextWidth = roundUp(nextHeight * ratio, divisibleBy);
+
+        nextWidth = clamp(nextWidth, MIN_DIMENSION, MAX_DIMENSION);
+        nextHeight = clamp(nextHeight, MIN_DIMENSION, MAX_DIMENSION);
+        const nextMegapixels = Number(((nextWidth * nextHeight) / 1_000_000).toFixed(2));
+        setWidgetValue(node, "megapixels", nextMegapixels);
+    } else {
+        const widthScale = targetPreviewWidth / Math.max(1, previewRect.width);
+        const heightScale = targetPreviewHeight / Math.max(1, previewRect.height);
+        const nextWidth = clamp(roundUp(state.startWidth * widthScale, divisibleBy), MIN_DIMENSION, MAX_DIMENSION);
+        const nextHeight = clamp(roundUp(state.startHeight * heightScale, divisibleBy), MIN_DIMENSION, MAX_DIMENSION);
+        setWidgetValue(node, "width", nextWidth);
+        setWidgetValue(node, "height", nextHeight);
+    }
+}
+
+function setWidgetValue(node, name, value) {
+    const widget = getWidget(node, name);
+    if (!widget) {
+        return;
+    }
+    if (widget.value === value) {
+        return;
+    }
+    widget.value = value;
+    node.properties = node.properties || {};
+    node.properties[name] = value;
+    widget.callback?.(value);
 }
 
 function calculateDisplayInfo(node) {
@@ -261,6 +523,11 @@ function getCandidateScore(width, height, baseWidth, baseHeight, totalPixels, ta
     return [widthError + heightError, preferenceError, areaError, ratioError];
 }
 
+function simplifyRatio(width, height) {
+    const divisor = gcd(width, height);
+    return `${width / divisor}:${height / divisor}`;
+}
+
 function gcd(a, b) {
     let x = Math.abs(a);
     let y = Math.abs(b);
@@ -268,51 +535,6 @@ function gcd(a, b) {
         [x, y] = [y, x % y];
     }
     return x || 1;
-}
-
-function simplifyRatio(width, height) {
-    const divisor = gcd(width, height);
-    return `${width / divisor}:${height / divisor}`;
-}
-
-function drawAspectPreview(ctx, x, y, width, height, targetWidth, targetHeight) {
-    const areaX = x + 10;
-    const areaY = y + 10;
-    const areaWidth = width - 20;
-    const areaHeight = height - 14;
-
-    ctx.save();
-    ctx.fillStyle = THEME.previewBg;
-    roundRect(ctx, areaX, areaY, areaWidth, areaHeight, 8);
-    ctx.fill();
-
-    const ratio = Math.max(targetWidth / Math.max(targetHeight, 1), 0.001);
-    let previewWidth = areaWidth - 28;
-    let previewHeight = previewWidth / ratio;
-
-    if (previewHeight > areaHeight - 20) {
-        previewHeight = areaHeight - 20;
-        previewWidth = previewHeight * ratio;
-    }
-
-    const previewX = areaX + (areaWidth - previewWidth) / 2;
-    const previewY = areaY + (areaHeight - previewHeight) / 2;
-
-    ctx.fillStyle = THEME.previewFill;
-    ctx.strokeStyle = THEME.previewStroke;
-    ctx.lineWidth = 2;
-    roundRect(ctx, previewX, previewY, previewWidth, previewHeight, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.strokeStyle = THEME.gridStroke;
-    ctx.beginPath();
-    ctx.moveTo(previewX + previewWidth / 2, previewY);
-    ctx.lineTo(previewX + previewWidth / 2, previewY + previewHeight);
-    ctx.moveTo(previewX, previewY + previewHeight / 2);
-    ctx.lineTo(previewX + previewWidth, previewY + previewHeight / 2);
-    ctx.stroke();
-    ctx.restore();
 }
 
 function roundRect(ctx, x, y, width, height, radius) {
@@ -323,4 +545,25 @@ function roundRect(ctx, x, y, width, height, radius) {
     ctx.arcTo(x, y + height, x, y, radius);
     ctx.arcTo(x, y, x + width, y, radius);
     ctx.closePath();
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function withVirtualPull(rawValue, baseValue) {
+    if (!Number.isFinite(rawValue)) {
+        return baseValue;
+    }
+    if (rawValue >= baseValue) {
+        return rawValue + ANCHOR_VIRTUAL_PULL;
+    }
+    return rawValue;
+}
+
+function applyDragGain(baseValue, rawValue) {
+    if (!Number.isFinite(baseValue) || !Number.isFinite(rawValue)) {
+        return baseValue;
+    }
+    return baseValue + (rawValue - baseValue) * DRAG_GAIN;
 }
