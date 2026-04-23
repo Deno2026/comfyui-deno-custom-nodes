@@ -341,6 +341,16 @@ function patchSequencer(nodeType) {
         setupSequencer(this);
         return result;
     };
+
+    const onConfigure = nodeType.prototype.onConfigure;
+    nodeType.prototype.onConfigure = function () {
+        // Mark nodes restored from workflow serialization so we do not overwrite
+        // saved dynamic values with peer clone defaults.
+        this.__denoLoadedFromWorkflow = true;
+        const result = onConfigure?.apply(this, arguments);
+        setupSequencer(this);
+        return result;
+    };
 }
 
 function isStrengthValueName(name) {
@@ -421,9 +431,46 @@ function normalizeSequencerOrDefault(name, value, fallback = undefined) {
     return normalized;
 }
 
+function hasSequencerDynamicState(node) {
+    if (!node?.properties) {
+        return false;
+    }
+    for (let index = 1; index <= 50; index += 1) {
+        if (node.properties[`insert_frame_${index}`] !== undefined) {
+            return true;
+        }
+        if (node.properties[`insert_second_${index}`] !== undefined) {
+            return true;
+        }
+        if (node.properties[`strength_${index}`] !== undefined) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function getAllSequencerNodes(referenceNode = null) {
-    const result = new Set(window.__denoLtxSequencerNodes || []);
     const graph = referenceNode?.graph || app.graph;
+    const registry = window.__denoLtxSequencerNodes || new Set();
+    const result = new Set();
+
+    for (const candidate of registry) {
+        if (!candidate || candidate.comfyClass !== SEQUENCER_NODE || candidate.graph !== graph) {
+            registry.delete(candidate);
+            continue;
+        }
+
+        const inGraph = typeof graph?.getNodeById === "function"
+            ? graph.getNodeById(candidate.id) === candidate
+            : (graph?._nodes || []).includes(candidate);
+        if (!inGraph) {
+            registry.delete(candidate);
+            continue;
+        }
+
+        result.add(candidate);
+    }
+
     for (const candidate of graph?._nodes || []) {
         if (candidate?.comfyClass === SEQUENCER_NODE) {
             result.add(candidate);
@@ -527,9 +574,13 @@ function scheduleUpstreamCountSync(node, options = {}) {
             const multiInputSlot = node.inputs?.find((slot) => slot.name === "multi_input");
             const hasLinks = getInputLinkIds(multiInputSlot).length > 0;
             if (!hasLinks) {
-                node._syncImageCount?.(0, { propagate: false });
+                if (node.__denoHadInputLink) {
+                    node.__denoHadInputLink = false;
+                    node._syncImageCount?.(0, { propagate: false });
+                }
                 return;
             }
+            node.__denoHadInputLink = true;
             const count = readUpstreamImageCount(node);
             if (typeof count === "number") {
                 node._syncImageCount?.(count, { propagate });
@@ -550,10 +601,13 @@ function setupSequencer(node) {
     node.__denoHadInputLink = false;
 
     const strengthSyncWidget = getWidget(node, "strength_sync");
+    const initialStrengthSync = normalizeBooleanValue(
+        node.properties.strength_sync ?? strengthSyncWidget?.value ?? true
+    );
     if (strengthSyncWidget) {
-        strengthSyncWidget.value = true;
-        node.properties.strength_sync = true;
+        strengthSyncWidget.value = initialStrengthSync;
     }
+    node.properties.strength_sync = initialStrengthSync;
 
     const originalRemoved = node.onRemoved;
     node.onRemoved = function () {
@@ -712,7 +766,12 @@ function setupSequencer(node) {
                     name.startsWith("insert_second_") ||
                     isStrengthValueName(name)
                 ) {
-                    this.properties[name] = normalizeSequencerOrDefault(name, widget.value, this.properties[name]);
+                    // Preserve already-saved properties first, then fall back to current widget value.
+                    this.properties[name] = normalizeSequencerOrDefault(
+                        name,
+                        this.properties[name],
+                        widget.value
+                    );
                 }
             }
         }
@@ -855,6 +914,7 @@ function setupSequencer(node) {
             return result;
         }
         if (this.inputs?.[inputIndex]?.name === "multi_input") {
+            this.__denoHadInputLink = true;
             scheduleUpstreamCountSync(this);
         }
         return result;
@@ -867,17 +927,24 @@ function setupSequencer(node) {
             return;
         }
         if (connected) {
+            this.__denoHadInputLink = true;
             scheduleUpstreamCountSync(this);
             return;
         }
-        this.__denoHadInputLink = false;
-        this._syncImageCount?.(0, { propagate: false });
+        if (this.__denoHadInputLink) {
+            this.__denoHadInputLink = false;
+            this._syncImageCount?.(0, { propagate: false });
+        }
     };
 
     setTimeout(() => {
-        const peerNode = getAllSequencerNodes(node).find((candidate) => candidate !== node);
-        if (peerNode) {
-            cloneSequencerState(peerNode, node);
+        // Keep values loaded from workflow JSON intact.
+        // Peer clone is only for fresh sequencer nodes with no dynamic state yet.
+        if (!node.__denoLoadedFromWorkflow && !hasSequencerDynamicState(node)) {
+            const peerNode = getAllSequencerNodes(node).find((candidate) => candidate !== node);
+            if (peerNode) {
+                cloneSequencerState(peerNode, node);
+            }
         }
         const count = readUpstreamImageCount(node);
         if (typeof count === "number") {
@@ -899,8 +966,7 @@ function setupSequencer(node) {
         const multiInputSlot = node.inputs?.find((slot) => slot.name === "multi_input");
         const hasLinks = getInputLinkIds(multiInputSlot).length > 0;
         if (!hasLinks) {
-            const currentCount = Number(node.properties.num_images ?? getWidget(node, "num_images")?.value ?? 0);
-            if (node.__denoHadInputLink || currentCount !== 0) {
+            if (node.__denoHadInputLink) {
                 node.__denoHadInputLink = false;
                 node._syncImageCount?.(0, { propagate: false });
             }
