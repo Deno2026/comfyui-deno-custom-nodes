@@ -85,7 +85,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.WEB_DIRECTORY == "./web/js"
 
 
-def test_multi_image_loader_returns_only_batch_output():
+def test_multi_image_loader_returns_batch_and_int_dimensions():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
     input_types = node_cls.INPUT_TYPES()
@@ -97,8 +97,8 @@ def test_multi_image_loader_returns_only_batch_output():
     assert input_types["required"]["divisible_by"][0] == ["1", "8", "16", "32", "64", "128"]
     assert input_types["required"]["divisible_by"][1]["default"] == "32"
     assert input_types["required"]["interpolation"][0][0] == "lanczos"
-    assert node_cls.RETURN_TYPES == ("IMAGE",)
-    assert node_cls.RETURN_NAMES == ("multi_output",)
+    assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
+    assert node_cls.RETURN_NAMES == ("multi_output", "width", "height")
     assert node_cls.CATEGORY == "Deno/Image"
 
 

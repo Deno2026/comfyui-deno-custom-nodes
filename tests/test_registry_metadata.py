@@ -18,7 +18,9 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert pyproject["project"]["description"] == "Practical custom nodes for ComfyUI production workflows"
     assert pyproject["project"]["requires-python"] == ">=3.10"
     assert pyproject["project"]["license"] == {"file": "LICENSE"}
-    assert pyproject["project"]["classifiers"] == ["Operating System :: OS Independent"]
+    classifiers = pyproject["project"]["classifiers"]
+    assert "Operating System :: OS Independent" in classifiers
+    assert "License :: Public Domain" in classifiers
     assert pyproject["project"]["dependencies"] == []
     assert pyproject["project"]["urls"]["Repository"] == "https://github.com/Deno2026/comfyui-deno-custom-nodes"
     assert pyproject["project"]["urls"]["Bug Tracker"] == "https://github.com/Deno2026/comfyui-deno-custom-nodes/issues"
