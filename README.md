@@ -40,7 +40,7 @@ Main features:
 - `Preset Ratio` or `Manual Input` size mode
 - ratio preset, megapixels, divisible-by sizing, or direct width/height control
 - resize method and interpolation selection
-- single `multi_output` batch output
+- outputs: `multi_output`, `width`, `height`
 - optional crop or fit resizing during export
 
 ### `(Deno) LTX Sequencer`

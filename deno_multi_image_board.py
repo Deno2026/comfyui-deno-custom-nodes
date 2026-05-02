@@ -128,8 +128,8 @@ class DenoMultiImageLoader:
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("multi_output",)
+    RETURN_TYPES = ("IMAGE", "INT", "INT")
+    RETURN_NAMES = ("multi_output", "width", "height")
     FUNCTION = "load_images"
     CATEGORY = "Deno/Image"
 
@@ -193,4 +193,4 @@ class DenoMultiImageLoader:
         else:
             multi_output = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
 
-        return (multi_output,)
+        return (multi_output, int(width), int(height))
