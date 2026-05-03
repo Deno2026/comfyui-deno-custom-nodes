@@ -8,7 +8,6 @@ import torch.nn.functional as F
 
 from .deno_ltx_sequencer_plus import DenoLTXSequencer
 from .deno_ltx23_preset_loader import DenoLTX23PresetLoader
-from .deno_ltx8gb_downloader import DenoLTX8GBModelDownloader
 from .deno_ltx_multi_lora_loader import DenoLTXMultiLoraLoader
 from .deno_ltx_prompt_guide import DenoLTXPromptGuide
 from .deno_multi_image_board import DenoMultiImageLoader
@@ -352,7 +351,6 @@ NODE_CLASS_MAPPINGS = {
     "DenoMultiImageLoader": DenoMultiImageLoader,
     "DenoLTXSequencer": DenoLTXSequencer,
     "DenoLTX23PresetLoader": DenoLTX23PresetLoader,
-    "DenoLTX8GBModelDownloader": DenoLTX8GBModelDownloader,
     "DenoLTXMultiLoraLoader": DenoLTXMultiLoraLoader,
     "DenoLTXPromptGuide": DenoLTXPromptGuide,
 }
@@ -362,7 +360,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoMultiImageLoader": "(Deno) Multi Image Loader",
     "DenoLTXSequencer": "(Deno) LTX Sequencer",
     "DenoLTX23PresetLoader": "(Deno) LTX Model Loader",
-    "DenoLTX8GBModelDownloader": "(Deno) LTX 8GB VRAM Model Downloader",
     "DenoLTXMultiLoraLoader": "(Deno) LTX Multi LoRA Loader",
     "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
 }

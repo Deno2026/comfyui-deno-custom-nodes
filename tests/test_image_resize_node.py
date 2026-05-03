@@ -156,7 +156,6 @@ def test_node_registration_exports_expected_nodes():
         "DenoMultiImageLoader",
         "DenoLTXSequencer",
         "DenoLTX23PresetLoader",
-        "DenoLTX8GBModelDownloader",
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
     ]
@@ -164,7 +163,6 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX23PresetLoader"] == "(Deno) LTX Model Loader"
-    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX8GBModelDownloader"] == "(Deno) LTX 8GB VRAM Model Downloader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.WEB_DIRECTORY == "./web/js"
@@ -263,25 +261,6 @@ def test_ltx_prompt_guide_encodes_prompts_and_outputs_integer_frame_rate():
     assert node_cls.RETURN_TYPES == ("CONDITIONING", "CONDITIONING", "INT")
     assert node_cls.RETURN_NAMES == ("positive", "negative", "frame_rate")
     assert node_cls.CATEGORY == "Deno/LTX"
-
-
-def test_ltx_8gb_downloader_targets_expected_model_subfolders():
-    package = load_package()
-    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTX8GBModelDownloader"]
-    input_types = node_cls.INPUT_TYPES()
-    downloader_module = sys.modules[f"{package.__name__}.deno_ltx8gb_downloader"]
-
-    assert input_types["required"]["models_folder"][0] == "STRING"
-    assert node_cls.RETURN_TYPES == ()
-    assert node_cls.OUTPUT_NODE is True
-    assert [item["target_subdir"] for item in downloader_module.MODEL_FILES] == [
-        "unet",
-        "text_encoders",
-        "text_encoders",
-        "vae",
-        "vae",
-        "latent_upscale_models",
-    ]
 
 
 def test_resize_box_declares_comfyui_contract():

@@ -102,29 +102,6 @@ Main features:
 - supports Auto, Korean, English, Japanese, and Chinese dialogue estimates
 - outputs: `positive`, `negative`, `frame_rate`
 
-### `(Deno) LTX 8GB VRAM Model Downloader`
-
-Beginner-friendly downloader for the LTX 2.3 GGUF starter model set.
-
-![Deno LTX 8GB VRAM Model Downloader](docs/images/ltx-8gb-downloader.svg)
-
-Main features:
-
-- choose your ComfyUI `models` root folder with a Windows folder picker
-- downloads files into the correct model subfolders
-- skips already-complete files
-- resumes `.part` downloads when possible
-- shows per-file status and total progress
-
-Downloads:
-
-- `unet/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf`
-- `text_encoders/gemma_3_12B_it_fp4_mixed.safetensors`
-- `text_encoders/ltx-2.3_text_projection_bf16.safetensors`
-- `vae/LTX23_video_vae_bf16.safetensors`
-- `vae/LTX23_audio_vae_bf16.safetensors`
-- `latent_upscale_models/ltx-2.3-spatial-upscaler-x2-1.1.safetensors`
-
 ## Why This Exists
 
 These nodes are built to reduce repeated setup friction in actual ComfyUI production work.
