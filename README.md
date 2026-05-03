@@ -49,7 +49,7 @@ LTX guide sequencer tuned for multi-image workflows.
 
 Credit: Inspired by **WhatDreamsCost**'s LTX workflow approach, with Deno-side adjustments focused on day-to-day usability.
 
-![Deno LTX Sequencer](docs/images/ltx-sequencer.jpg)
+![Deno LTX Sequencer](docs/images/ltx-sequencer.svg)
 
 Main features:
 

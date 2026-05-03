@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="760" viewBox="0 0 520 760">
+  <rect width="520" height="760" fill="#151515"/>
+  <g opacity="0.45" stroke="#242424" stroke-width="1">
+    <path d="M0 24H520M0 48H520M0 72H520M0 96H520M0 120H520M0 144H520M0 168H520M0 192H520M0 216H520M0 240H520M0 264H520M0 288H520M0 312H520M0 336H520M0 360H520M0 384H520M0 408H520M0 432H520M0 456H520M0 480H520M0 504H520M0 528H520M0 552H520M0 576H520M0 600H520M0 624H520M0 648H520M0 672H520M0 696H520M0 720H520M0 744H520"/>
+    <path d="M24 0V760M48 0V760M72 0V760M96 0V760M120 0V760M144 0V760M168 0V760M192 0V760M216 0V760M240 0V760M264 0V760M288 0V760M312 0V760M336 0V760M360 0V760M384 0V760M408 0V760M432 0V760M456 0V760M480 0V760M504 0V760"/>
+  </g>
+
+  <rect x="66" y="46" width="360" height="650" rx="18" fill="#303030" stroke="#9c9c9c" stroke-width="2"/>
+  <rect x="66" y="46" width="360" height="46" rx="18" fill="#383838"/>
+  <rect x="250" y="22" width="170" height="30" rx="6" fill="#0b3017"/>
+  <text x="270" y="43" fill="#d8ffe1" font-family="Arial, sans-serif" font-size="16" font-weight="700">deno-custom-nodes</text>
+
+  <circle cx="86" cy="69" r="7" fill="#777"/>
+  <text x="110" y="77" fill="#f2f2f2" font-family="Arial, sans-serif" font-size="22" font-weight="700">(Deno) LTX Sequencer</text>
+
+  <g font-family="Arial, sans-serif" font-size="17" fill="#cfcfcf">
+    <circle cx="86" cy="112" r="6" fill="#ffad35"/>
+    <text x="104" y="118">positive</text>
+    <text x="348" y="118" text-anchor="end">positive</text>
+    <circle cx="390" cy="112" r="6" fill="#ffad35"/>
+
+    <circle cx="86" cy="138" r="6" fill="#ffad35"/>
+    <text x="104" y="144">negative</text>
+    <text x="348" y="144" text-anchor="end">negative</text>
+    <circle cx="390" cy="138" r="6" fill="#ffad35"/>
+
+    <circle cx="86" cy="164" r="6" fill="#ff7171"/>
+    <text x="104" y="170">vae</text>
+    <text x="348" y="170" text-anchor="end">latent</text>
+    <circle cx="390" cy="164" r="6" fill="#f38af8"/>
+
+    <circle cx="86" cy="190" r="6" fill="#f38af8"/>
+    <text x="104" y="196">latent</text>
+
+    <circle cx="86" cy="216" r="6" fill="#61b5f9"/>
+    <text x="104" y="222">multi_input</text>
+  </g>
+
+  <g font-family="Arial, sans-serif" font-size="16">
+    <rect x="94" y="234" width="288" height="26" rx="13" fill="#202020" stroke="#7d7d7d"/>
+    <text x="116" y="253" fill="#aaa">num_images</text>
+    <text x="330" y="253" fill="#f0f0f0" text-anchor="end">3</text>
+    <polygon points="102,247 113,240 113,254" fill="#ddd"/>
+    <polygon points="368,247 357,240 357,254" fill="#ddd"/>
+
+    <rect x="94" y="266" width="288" height="26" rx="13" fill="#202020" stroke="#7d7d7d"/>
+    <text x="116" y="285" fill="#aaa">insert_mode</text>
+    <text x="330" y="285" fill="#f0f0f0" text-anchor="end">frames</text>
+    <polygon points="102,279 113,272 113,286" fill="#ddd"/>
+    <polygon points="368,279 357,272 357,286" fill="#ddd"/>
+
+    <rect x="94" y="298" width="288" height="26" rx="13" fill="#202020" stroke="#7d7d7d"/>
+    <text x="116" y="317" fill="#aaa">frame_rate</text>
+    <text x="330" y="317" fill="#f0f0f0" text-anchor="end">24</text>
+    <polygon points="102,311 113,304 113,318" fill="#ddd"/>
+    <polygon points="368,311 357,304 357,318" fill="#ddd"/>
+
+    <rect x="94" y="330" width="288" height="26" rx="13" fill="#202020" stroke="#7d7d7d"/>
+    <text x="116" y="349" fill="#aaa">strength_sync</text>
+    <text x="330" y="349" fill="#f0f0f0" text-anchor="end">true</text>
+    <circle cx="360" cy="343" r="10" fill="#7f93aa"/>
+
+    <rect x="94" y="362" width="288" height="26" rx="13" fill="#202020" stroke="#7d7d7d"/>
+    <text x="116" y="381" fill="#aaa">bypass</text>
+    <text x="330" y="381" fill="#f0f0f0" text-anchor="end">false</text>
+    <circle cx="360" cy="375" r="10" fill="#444"/>
+  </g>
+
+  <g font-family="Arial, sans-serif">
+    <text x="94" y="426" fill="#eeeeee" font-size="17" font-weight="700">Image #1</text>
+    <rect x="94" y="452" width="288" height="26" rx="13" fill="#202020" stroke="#7d7d7d"/>
+    <text x="116" y="471" fill="#aaa" font-size="16">insert_frame_1</text>
+    <text x="330" y="471" fill="#f0f0f0" font-size="16" text-anchor="end">0</text>
+    <polygon points="102,465 113,458 113,472" fill="#ddd"/>
+    <polygon points="368,465 357,458 357,472" fill="#ddd"/>
+    <rect x="94" y="484" width="288" height="26" rx="13" fill="#202020" stroke="#7d7d7d"/>
+    <text x="116" y="503" fill="#aaa" font-size="16">strength_1</text>
+    <text x="330" y="503" fill="#f0f0f0" font-size="16" text-anchor="end">1.00</text>
+    <polygon points="102,497 113,490 113,504" fill="#ddd"/>
+    <polygon points="368,497 357,490 357,504" fill="#777"/>
+
+    <text x="94" y="550" fill="#eeeeee" font-size="17" font-weight="700">Image #2</text>
+    <rect x="94" y="576" width="288" height="26" rx="13" fill="#202020" stroke="#7d7d7d"/>
+    <text x="116" y="595" fill="#aaa" font-size="16">insert_frame_2</text>
+    <text x="330" y="595" fill="#f0f0f0" font-size="16" text-anchor="end">0</text>
+    <polygon points="102,589 113,582 113,596" fill="#ddd"/>
+    <polygon points="368,589 357,582 357,596" fill="#ddd"/>
+    <rect x="94" y="608" width="288" height="26" rx="13" fill="#202020" stroke="#7d7d7d"/>
+    <text x="116" y="627" fill="#aaa" font-size="16">strength_2</text>
+    <text x="330" y="627" fill="#f0f0f0" font-size="16" text-anchor="end">1.00</text>
+    <polygon points="102,621 113,614 113,628" fill="#ddd"/>
+    <polygon points="368,621 357,614 357,628" fill="#777"/>
+
+    <text x="94" y="674" fill="#eeeeee" font-size="17" font-weight="700">Image #3</text>
+  </g>
+</svg>
