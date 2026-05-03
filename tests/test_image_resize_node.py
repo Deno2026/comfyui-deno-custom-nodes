@@ -193,8 +193,34 @@ def test_ltx_sequencer_declares_sync_controls():
     input_types = node_cls.INPUT_TYPES()
 
     assert input_types["required"]["strength_sync"][0] == "BOOLEAN"
+    assert input_types["required"]["bypass"][0] == "BOOLEAN"
+    assert list(input_types["required"]).index("bypass") == list(input_types["required"]).index("strength_sync") + 1
     assert node_cls.RETURN_TYPES == ("CONDITIONING", "CONDITIONING", "LATENT")
     assert node_cls.CATEGORY == "Deno/LTX"
+
+
+def test_ltx_sequencer_bypass_returns_inputs_without_touching_vae():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXSequencer"]
+
+    positive = [{"positive": True}]
+    negative = [{"negative": True}]
+    latent = {"samples": object()}
+
+    result = node_cls.execute(
+        positive,
+        negative,
+        object(),
+        latent,
+        object(),
+        1,
+        "frames",
+        24,
+        True,
+        True,
+    )
+
+    assert result == (positive, negative, latent)
 
 
 def test_ltx_model_loader_declares_three_loading_modes():

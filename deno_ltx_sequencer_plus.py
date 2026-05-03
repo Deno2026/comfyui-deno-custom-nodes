@@ -35,6 +35,7 @@ class DenoLTXSequencer:
             "insert_mode": (["frames", "seconds"], {"default": "frames"}),
             "frame_rate": ("INT", {"default": 24, "min": 1, "max": 120, "step": 1}),
             "strength_sync": ("BOOLEAN", {"default": True}),
+            "bypass": ("BOOLEAN", {"default": False}),
         }
 
         optional = {}
@@ -56,8 +57,12 @@ class DenoLTXSequencer:
         insert_mode,
         frame_rate,
         strength_sync,
+        bypass,
         **kwargs,
     ):
+        if bypass:
+            return (positive, negative, latent)
+
         scale_factors = vae.downscale_index_formula
         # Keep parity with Comfy's LTXVAddGuide base behavior:
         # avoid cloning a large latent tensor up-front because append_keyframe

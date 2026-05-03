@@ -57,6 +57,7 @@ Main features:
 - auto-fills `num_images` from the connected loader when possible
 - keeps the existing sync-style workflow
 - allows only `strength` values to break out into manual control when needed
+- `bypass` switch passes `positive`, `negative`, and `latent` through unchanged for quick A/B tests
 
 ### `(Deno) LTX Model Loader`
 
@@ -88,7 +89,7 @@ Main features:
 
 ### `(Deno) LTX Prompt Guide`
 
-Prompt helper that combines LTX text encoding with frame-rate conditioning and dialogue-length planning.
+Prompt helper that combines LTX prompt encoding, optional negative prompt handling, built-in LTX conditioning, and dialogue-length planning.
 
 ![Deno LTX Prompt Guide](docs/images/ltx-prompt-guide.svg)
 
@@ -96,7 +97,7 @@ Main features:
 
 - positive prompt text encoding
 - optional collapsible negative prompt
-- `frame_rate` conditioning applied to positive and negative outputs
+- built-in LTX conditioning with `frame_rate`
 - estimates minimum video length from quoted dialogue
 - supports Auto, Korean, English, Japanese, and Chinese dialogue estimates
 - outputs: `positive`, `negative`, `frame_rate`

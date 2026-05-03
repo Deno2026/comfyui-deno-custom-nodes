@@ -710,7 +710,7 @@ function normalizeBooleanValue(value) {
 function normalizeSequencerValue(name, value) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) {
-        if (name === "strength_sync") {
+        if (name === "strength_sync" || name === "bypass") {
             return normalizeBooleanValue(value);
         }
         return value;
@@ -720,7 +720,7 @@ function normalizeSequencerValue(name, value) {
         return Math.round(numeric);
     }
 
-    if (name === "strength_sync") {
+    if (name === "strength_sync" || name === "bypass") {
         return normalizeBooleanValue(value);
     }
 
@@ -744,6 +744,9 @@ function getSequencerDefaultValue(name) {
     }
     if (name === "num_images") {
         return 0;
+    }
+    if (name === "bypass") {
+        return false;
     }
     return 0;
 }
@@ -982,7 +985,7 @@ function setupSequencer(node) {
             if (widget.__denoStaticWrapped) {
                 continue;
             }
-            if (!["num_images", "insert_mode", "frame_rate", "strength_sync"].includes(widget.name)) {
+            if (!["num_images", "insert_mode", "frame_rate", "strength_sync", "bypass"].includes(widget.name)) {
                 continue;
             }
 
@@ -1004,6 +1007,8 @@ function setupSequencer(node) {
                         if (nextValue) {
                             enableStrengthSync(this);
                         }
+                    } else if (widget.name === "bypass") {
+                        this.setDirtyCanvas?.(true, true);
                     } else {
                         syncSequencerState(this, widget.name, nextValue);
                         this._denoUpdateVisibility?.();
@@ -1052,6 +1057,8 @@ function setupSequencer(node) {
             if (normalizedValue) {
                 enableStrengthSync(this);
             }
+            this.setDirtyCanvas?.(true, true);
+        } else if (widgetName === "bypass") {
             this.setDirtyCanvas?.(true, true);
         } else {
             const isStrength = isStrengthValueName(widgetName);
