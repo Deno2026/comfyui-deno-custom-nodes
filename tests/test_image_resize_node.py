@@ -56,9 +56,86 @@ def install_ltx_stub():
     sys.modules["comfy_extras.nodes_lt"] = nodes_lt
 
 
+def install_comfyui_dependency_stubs():
+    if "folder_paths" not in sys.modules:
+        folder_paths = types.ModuleType("folder_paths")
+        folder_paths.models_dir = str(REPO_ROOT / "models")
+        folder_paths.get_filename_list = lambda folder_name: []
+        folder_paths.get_full_path = lambda folder_name, filename: str(REPO_ROOT / "models" / folder_name / filename)
+        folder_paths.get_full_path_or_raise = folder_paths.get_full_path
+        folder_paths.get_folder_paths = lambda folder_name: [str(REPO_ROOT / "models" / folder_name)]
+        sys.modules["folder_paths"] = folder_paths
+
+    if "nodes" not in sys.modules:
+        nodes_stub = types.ModuleType("nodes")
+
+        class CheckpointLoaderSimple:
+            def load_checkpoint(self, ckpt_name):
+                return "model", "clip", "video_vae"
+
+        class UNETLoader:
+            def load_unet(self, unet_name, weight_dtype):
+                return ("model",)
+
+        class DualCLIPLoader:
+            def load_clip(self, clip_name1, clip_name2, clip_type, device="default"):
+                return ("clip",)
+
+        nodes_stub.CheckpointLoaderSimple = CheckpointLoaderSimple
+        nodes_stub.UNETLoader = UNETLoader
+        nodes_stub.DualCLIPLoader = DualCLIPLoader
+        nodes_stub.NODE_CLASS_MAPPINGS = {}
+        sys.modules["nodes"] = nodes_stub
+
+    if "node_helpers" not in sys.modules:
+        node_helpers = types.ModuleType("node_helpers")
+        node_helpers.conditioning_set_values = lambda conditioning, values: conditioning
+        sys.modules["node_helpers"] = node_helpers
+
+    if "comfy" not in sys.modules:
+        comfy = types.ModuleType("comfy")
+        comfy.lora = types.ModuleType("comfy.lora")
+        comfy.lora_convert = types.ModuleType("comfy.lora_convert")
+        comfy.utils = types.ModuleType("comfy.utils")
+        comfy.lora.model_lora_keys_unet = lambda model, key_map: key_map
+        comfy.lora.model_lora_keys_clip = lambda clip, key_map: key_map
+        comfy.lora.load_lora = lambda lora_sd, key_map: {}
+        comfy.lora_convert.convert_lora = lambda lora_sd: lora_sd
+        comfy.utils.load_torch_file = lambda *args, **kwargs: {}
+        sys.modules["comfy"] = comfy
+        sys.modules["comfy.lora"] = comfy.lora
+        sys.modules["comfy.lora_convert"] = comfy.lora_convert
+        sys.modules["comfy.utils"] = comfy.utils
+
+    if "aiohttp" not in sys.modules:
+        aiohttp = types.ModuleType("aiohttp")
+        web = types.ModuleType("aiohttp.web")
+        web.json_response = lambda payload=None, status=200: {"payload": payload, "status": status}
+        aiohttp.web = web
+        sys.modules["aiohttp"] = aiohttp
+        sys.modules["aiohttp.web"] = web
+
+    if "server" not in sys.modules:
+        server = types.ModuleType("server")
+
+        class Routes:
+            def get(self, *_args, **_kwargs):
+                return lambda fn: fn
+
+            def post(self, *_args, **_kwargs):
+                return lambda fn: fn
+
+        class PromptServer:
+            instance = types.SimpleNamespace(routes=Routes())
+
+        server.PromptServer = PromptServer
+        sys.modules["server"] = server
+
+
 def load_package():
     install_torch_stub()
     install_ltx_stub()
+    install_comfyui_dependency_stubs()
     spec = importlib.util.spec_from_file_location(
         "comfyui_deno_custom_nodes",
         PACKAGE_INIT,
@@ -78,10 +155,18 @@ def test_node_registration_exports_expected_nodes():
         "DenoResolutionSetup",
         "DenoMultiImageLoader",
         "DenoLTXSequencer",
+        "DenoLTX23PresetLoader",
+        "DenoLTX8GBModelDownloader",
+        "DenoLTXMultiLoraLoader",
+        "DenoLTXPromptGuide",
     ]
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX23PresetLoader"] == "(Deno) LTX Model Loader"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX8GBModelDownloader"] == "(Deno) LTX 8GB VRAM Model Downloader"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.WEB_DIRECTORY == "./web/js"
 
 
@@ -110,6 +195,67 @@ def test_ltx_sequencer_declares_sync_controls():
     assert input_types["required"]["strength_sync"][0] == "BOOLEAN"
     assert node_cls.RETURN_TYPES == ("CONDITIONING", "CONDITIONING", "LATENT")
     assert node_cls.CATEGORY == "Deno/LTX"
+
+
+def test_ltx_model_loader_declares_three_loading_modes():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTX23PresetLoader"]
+    input_types = node_cls.INPUT_TYPES()
+
+    assert input_types["required"]["pipeline_mode"][0] == ["Checkpoint Style", "KJ Style", "GGUF Style"]
+    assert input_types["required"]["clip_device"][0] == ["default", "cpu"]
+    assert node_cls.RETURN_TYPES == ("MODEL", "CLIP", "VAE", "VAE")
+    assert node_cls.RETURN_NAMES == ("model", "clip", "video_vae", "audio_vae")
+    assert node_cls.CATEGORY == "Deno/LTX"
+
+
+def test_ltx_multi_lora_loader_declares_compact_av_controls():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXMultiLoraLoader"]
+    input_types = node_cls.INPUT_TYPES()
+    required = input_types["required"]
+
+    assert "advanced_mode" not in required
+    assert "trigger_1" not in required
+    assert required["active_loras"][0] == "INT"
+    assert required["lora_1"][0][0] == "__none__"
+    assert required["strength_1"][0] == "FLOAT"
+    assert required["video_1"][0] == "FLOAT"
+    assert required["audio_1"][0] == "FLOAT"
+    assert node_cls.RETURN_TYPES == ("MODEL", "CLIP")
+    assert node_cls.RETURN_NAMES == ("model", "clip")
+
+
+def test_ltx_prompt_guide_encodes_prompts_and_outputs_integer_frame_rate():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXPromptGuide"]
+    input_types = node_cls.INPUT_TYPES()
+
+    assert input_types["required"]["clip"][0] == "CLIP"
+    assert input_types["required"]["frame_rate"][0] == "INT"
+    assert input_types["required"]["frame_rate"][1]["step"] == 1
+    assert node_cls.RETURN_TYPES == ("CONDITIONING", "CONDITIONING", "INT")
+    assert node_cls.RETURN_NAMES == ("positive", "negative", "frame_rate")
+    assert node_cls.CATEGORY == "Deno/LTX"
+
+
+def test_ltx_8gb_downloader_targets_expected_model_subfolders():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTX8GBModelDownloader"]
+    input_types = node_cls.INPUT_TYPES()
+    downloader_module = sys.modules[f"{package.__name__}.deno_ltx8gb_downloader"]
+
+    assert input_types["required"]["models_folder"][0] == "STRING"
+    assert node_cls.RETURN_TYPES == ()
+    assert node_cls.OUTPUT_NODE is True
+    assert [item["target_subdir"] for item in downloader_module.MODEL_FILES] == [
+        "unet",
+        "text_encoders",
+        "text_encoders",
+        "vae",
+        "vae",
+        "latent_upscale_models",
+    ]
 
 
 def test_resize_box_declares_comfyui_contract():

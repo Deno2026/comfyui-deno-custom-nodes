@@ -58,6 +58,72 @@ Main features:
 - keeps the existing sync-style workflow
 - allows only `strength` values to break out into manual control when needed
 
+### `(Deno) LTX Model Loader`
+
+One compact loader for the common LTX 2.3 model-loading patterns.
+
+![Deno LTX Model Loader](docs/images/ltx-model-loader.svg)
+
+Main features:
+
+- `Checkpoint Style`, `KJ Style`, and `GGUF Style` modes
+- outputs: `model`, `clip`, `video_vae`, `audio_vae`
+- uses ComfyUI's built-in checkpoint / diffusion / DualCLIP loading paths where possible
+- uses KJNodes `VAELoaderKJ` for split video/audio VAE workflows
+- uses ComfyUI-GGUF UNet loading for GGUF workflows
+
+### `(Deno) LTX Multi LoRA Loader`
+
+Power-LoRA-style multi LoRA loader for LTX workflows.
+
+![Deno LTX Multi LoRA Loader](docs/images/ltx-multi-lora-loader.svg)
+
+Main features:
+
+- add multiple LoRAs in one compact node
+- per-slot enable toggle
+- per-slot `strength`, `video`, and `audio` strength controls
+- outputs patched `model` and `clip`
+- designed to stay close to the familiar Power LoRA Loader workflow while adding LTX-friendly A/V controls
+
+### `(Deno) LTX Prompt Guide`
+
+Prompt helper that combines LTX text encoding with frame-rate conditioning and dialogue-length planning.
+
+![Deno LTX Prompt Guide](docs/images/ltx-prompt-guide.svg)
+
+Main features:
+
+- positive prompt text encoding
+- optional collapsible negative prompt
+- `frame_rate` conditioning applied to positive and negative outputs
+- estimates minimum video length from quoted dialogue
+- supports Auto, Korean, English, Japanese, and Chinese dialogue estimates
+- outputs: `positive`, `negative`, `frame_rate`
+
+### `(Deno) LTX 8GB VRAM Model Downloader`
+
+Beginner-friendly downloader for the LTX 2.3 GGUF starter model set.
+
+![Deno LTX 8GB VRAM Model Downloader](docs/images/ltx-8gb-downloader.svg)
+
+Main features:
+
+- choose your ComfyUI `models` root folder with a Windows folder picker
+- downloads files into the correct model subfolders
+- skips already-complete files
+- resumes `.part` downloads when possible
+- shows per-file status and total progress
+
+Downloads:
+
+- `unet/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf`
+- `text_encoders/gemma_3_12B_it_fp4_mixed.safetensors`
+- `text_encoders/ltx-2.3_text_projection_bf16.safetensors`
+- `vae/LTX23_video_vae_bf16.safetensors`
+- `vae/LTX23_audio_vae_bf16.safetensors`
+- `latent_upscale_models/ltx-2.3-spatial-upscaler-x2-1.1.safetensors`
+
 ## Why This Exists
 
 These nodes are built to reduce repeated setup friction in actual ComfyUI production work.

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="470" viewBox="0 0 760 470">
+  <rect width="760" height="470" fill="#151515"/>
+  <rect x="62" y="42" width="560" height="380" rx="14" fill="#303030" stroke="#777" stroke-width="2"/>
+  <rect x="62" y="42" width="560" height="44" rx="14" fill="#3a3a3a"/>
+  <circle cx="84" cy="64" r="7" fill="#777"/>
+  <text x="110" y="70" fill="#f2f2f2" font-family="Arial, sans-serif" font-size="22" font-weight="700">(Deno) LTX Prompt Guide</text>
+  <rect x="430" y="28" width="190" height="28" rx="6" fill="#0b3017"/>
+  <text x="450" y="48" fill="#d8ffe1" font-family="Arial, sans-serif" font-size="16" font-weight="700">deno-custom-nodes</text>
+  <circle cx="84" cy="120" r="6" fill="#ffd422"/>
+  <text x="102" y="126" fill="#c8c8c8" font-family="Arial, sans-serif" font-size="16">clip</text>
+  <text x="542" y="126" fill="#c8c8c8" font-family="Arial, sans-serif" font-size="16">positive</text>
+  <circle cx="594" cy="121" r="6" fill="#ffa529"/>
+  <text x="538" y="154" fill="#c8c8c8" font-family="Arial, sans-serif" font-size="16">negative</text>
+  <circle cx="594" cy="149" r="6" fill="#ffa529"/>
+  <text x="530" y="182" fill="#c8c8c8" font-family="Arial, sans-serif" font-size="16">frame_rate</text>
+  <circle cx="594" cy="177" r="6" fill="#999"/>
+  <rect x="168" y="180" width="350" height="24" rx="12" fill="#17281d" stroke="#1dff75"/>
+  <text x="220" y="197" fill="#9dffc0" font-family="Arial, sans-serif" font-size="15" font-weight="700">Min video length: 4.43s+ | 111 frames+</text>
+  <rect x="82" y="226" width="520" height="132" fill="#1f1f1f"/>
+  <text x="96" y="250" fill="#f1f1f1" font-family="Consolas, monospace" font-size="15">&quot;Hello world&quot;</text>
+  <rect x="82" y="372" width="520" height="24" rx="6" fill="#202020" stroke="#777"/>
+  <text x="102" y="389" fill="#aaa" font-family="Arial, sans-serif" font-size="15">language</text>
+  <text x="534" y="389" fill="#f1f1f1" font-family="Arial, sans-serif" font-size="15">Natural</text>
+  <text x="646" y="170" fill="#9dffc0" font-family="Arial, sans-serif" font-size="20" font-weight="700">Plan dialogue timing</text>
+  <text x="646" y="204" fill="#d7ffe2" font-family="Arial, sans-serif" font-size="15">Positive/negative encoding</text>
+  <text x="646" y="228" fill="#d7ffe2" font-family="Arial, sans-serif" font-size="15">plus LTX frame-rate tagging.</text>
+</svg>

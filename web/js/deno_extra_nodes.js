@@ -3,6 +3,7 @@ import { api } from "../../scripts/api.js";
 
 const LOADER_NODE = "DenoMultiImageLoader";
 const SEQUENCER_NODE = "DenoLTXSequencer";
+const LTX_PRESET_NODE = "DenoLTX23PresetLoader";
 const LOADER_MIN_SIZE = [360, 520];
 
 window.__denoLtxSequencerNodes = window.__denoLtxSequencerNodes || new Set();
@@ -16,6 +17,9 @@ app.registerExtension({
         if (nodeData.name === SEQUENCER_NODE) {
             patchSequencer(nodeType);
         }
+        if (nodeData.name === LTX_PRESET_NODE) {
+            patchLtxPresetLoader(nodeType);
+        }
     },
 });
 
@@ -26,6 +30,333 @@ function patchMultiImageLoader(nodeType) {
         setupMultiImageLoader(this);
         return result;
     };
+}
+
+function patchLtxPresetLoader(nodeType) {
+    const onNodeCreated = nodeType.prototype.onNodeCreated;
+    nodeType.prototype.onNodeCreated = function () {
+        const result = onNodeCreated?.apply(this, arguments);
+        setupLtxPresetLoader(this);
+        return result;
+    };
+}
+
+function setupLtxPresetLoader(node) {
+    if (node.__denoLtxPresetReady) {
+        return;
+    }
+    node.__denoLtxPresetReady = true;
+
+    const modeWidget = getWidget(node, "pipeline_mode");
+    const modeWidgetIndex = node.widgets ? node.widgets.indexOf(modeWidget) : -1;
+    if (modeWidget) {
+        hideWidget(modeWidget);
+    }
+
+    const modeContainer = document.createElement("div");
+    modeContainer.style.cssText = `
+        width: 100%;
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        padding: 2px 0;
+        pointer-events: auto;
+    `;
+
+    const modeNames = ["Checkpoint Style", "KJ Style", "GGUF Style"];
+    const modeButtons = new Map();
+
+    const createModeButton = (modeName, label) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.style.cssText = `
+            flex: 1;
+            border-radius: 999px;
+            border: 1px solid rgba(85, 92, 99, 0.9);
+            background: rgba(32, 36, 42, 0.92);
+            color: #d7dce0;
+            cursor: pointer;
+            padding: 3px 6px;
+            font: 600 9px/1.1 sans-serif;
+            letter-spacing: -0.1px;
+            white-space: nowrap;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        `;
+        button.onclick = () => {
+            if (modeWidget) {
+                modeWidget.value = modeName;
+                node.properties = node.properties || {};
+                node.properties.pipeline_mode = modeName;
+                modeWidget.callback?.(modeName);
+            }
+            node._denoUpdateLtxPresetVisibility?.();
+            node._denoRefreshLtxModeButtons?.();
+            node.setDirtyCanvas?.(true, true);
+        };
+        modeButtons.set(modeName, button);
+        return button;
+    };
+
+    modeContainer.append(
+        createModeButton("Checkpoint Style", "Checkpoint"),
+        createModeButton("KJ Style", "KJ Style"),
+        createModeButton("GGUF Style", "GGUF Style")
+    );
+
+    const modeDomWidget = node.addDOMWidget("pipeline_buttons", "deno_ltx_mode_buttons", modeContainer, {
+        serialize: false,
+    });
+    modeDomWidget.computeSize = () => [Math.max(node.size?.[0] ?? 0, 320), 30];
+
+    const reorderWidgetSequence = () => {
+        if (!Array.isArray(node.widgets)) {
+            return;
+        }
+
+        const desired = [
+            "pipeline_mode",
+            "pipeline_buttons",
+            "checkpoint_name",
+            "diffusion_model_name",
+            "gguf_unet_name",
+            "video_vae_name",
+            "audio_vae_name",
+            "text_encoder_name",
+            "text_projection_name",
+            "clip_device",
+            "weight_dtype",
+            "split_weight_dtype",
+        ];
+
+        const rank = new Map(desired.map((name, idx) => [name, idx]));
+        const indexed = node.widgets.map((widget, originalIndex) => ({ widget, originalIndex }));
+        indexed.sort((a, b) => {
+            const aRank = rank.has(a.widget?.name) ? rank.get(a.widget?.name) : Number.MAX_SAFE_INTEGER;
+            const bRank = rank.has(b.widget?.name) ? rank.get(b.widget?.name) : Number.MAX_SAFE_INTEGER;
+            if (aRank !== bRank) {
+                return aRank - bRank;
+            }
+            return a.originalIndex - b.originalIndex;
+        });
+        node.widgets = indexed.map((entry) => entry.widget);
+    };
+
+    // Keep the mode buttons near the top and normalize widget sequence.
+    if (modeWidgetIndex >= 0 && node.widgets) {
+        const domIndex = node.widgets.indexOf(modeDomWidget);
+        if (domIndex >= 0) {
+            node.widgets.splice(domIndex, 1);
+            node.widgets.splice(modeWidgetIndex + 1, 0, modeDomWidget);
+        }
+    }
+    reorderWidgetSequence();
+
+    const migrateLegacyWeightWidget = () => {
+        const legacyWidget = getWidget(node, "split_weight_dtype");
+        const newWidget = getWidget(node, "weight_dtype");
+        if (!legacyWidget) {
+            return;
+        }
+
+        // Keep old workflows compatible but show the standard label.
+        legacyWidget.label = "weight_dtype";
+        if (!newWidget) {
+            legacyWidget.name = "weight_dtype";
+            node.properties = node.properties || {};
+            if (node.properties.weight_dtype === undefined && node.properties.split_weight_dtype !== undefined) {
+                node.properties.weight_dtype = node.properties.split_weight_dtype;
+            }
+        }
+    };
+
+    const getWeightDtypeWidget = () => getWidget(node, "weight_dtype") || getWidget(node, "split_weight_dtype");
+
+    const applyCompactLabels = () => {
+        const labelMap = {
+            checkpoint_name: "checkpoint",
+            text_encoder_name: "text_encoder",
+            text_projection_name: "text_projection",
+            diffusion_model_name: "diffusion",
+            gguf_unet_name: "gguf_unet",
+            video_vae_name: "video_vae",
+            audio_vae_name: "audio_vae",
+            clip_device: "clip_device",
+            weight_dtype: "weight_dtype",
+            split_weight_dtype: "weight_dtype",
+        };
+
+        const stableLabels = new Set(Object.values(labelMap));
+        const mode = getWidget(node, "pipeline_mode")?.value ?? node.properties?.pipeline_mode ?? "Checkpoint Style";
+        const modeModelLabel =
+            mode === "KJ Style" ? "diffusion" : mode === "GGUF Style" ? "gguf_unet" : "checkpoint";
+
+        const looksLikeFilename = (value) => {
+            const text = String(value || "");
+            return /(?:\.safetensors|\.gguf)(?:$|\s)|[\\/]/i.test(text);
+        };
+
+        for (const widget of node.widgets || []) {
+            const widgetName = String(widget?.name || "");
+            const currentLabel = String(widget?.label ?? "");
+
+            // 1) Exact known names
+            if (widgetName && widgetName in labelMap) {
+                widget.label = labelMap[widgetName];
+                continue;
+            }
+
+            // 2) Fuzzy fallback for legacy / migrated workflows
+            if (widgetName.includes("checkpoint")) {
+                widget.label = "checkpoint";
+                continue;
+            }
+            if (widgetName.includes("text_encoder")) {
+                widget.label = "text_encoder";
+                continue;
+            }
+            if (widgetName.includes("text_projection") || widgetName.includes("projection")) {
+                widget.label = "text_projection";
+                continue;
+            }
+            if (widgetName.includes("diffusion")) {
+                widget.label = "diffusion";
+                continue;
+            }
+            if (widgetName.includes("gguf")) {
+                widget.label = "gguf_unet";
+                continue;
+            }
+
+            // 3) Guardrail: if label is broken/corrupted, recover with a safe short label.
+            if (widget.type === "combo") {
+                const rawLabel = currentLabel.trim();
+                const labelBroken =
+                    !rawLabel ||
+                    rawLabel.length <= 2 ||
+                    rawLabel.startsWith(".") ||
+                    rawLabel.startsWith("-") ||
+                    looksLikeFilename(rawLabel) ||
+                    looksLikeFilename(widgetName);
+
+                if (labelBroken || !stableLabels.has(rawLabel)) {
+                    // Preserve known safe labels if we already have one.
+                    if (!stableLabels.has(rawLabel)) {
+                        widget.label = modeModelLabel;
+                    }
+                }
+            }
+        }
+    };
+
+    node._denoEnsureLtxNodeHeight = function () {
+        const computed = this.computeSize?.();
+        if (!computed || !Array.isArray(computed) || computed.length < 2) {
+            return;
+        }
+        // Keep extra bottom padding to avoid the last widget being clipped
+        // by subtle font/rendering differences across frontend versions.
+        const requiredHeight = Math.ceil(computed[1] + 24);
+        const currentWidth = Math.max(this.size?.[0] ?? computed[0], 320);
+        const currentHeight = this.size?.[1] ?? 0;
+        if (currentHeight < requiredHeight) {
+            this.setSize?.([currentWidth, requiredHeight]);
+        }
+    };
+
+    const originalOnResize = node.onResize;
+    node.onResize = function () {
+        const result = originalOnResize?.apply(this, arguments);
+        // If user drags node smaller than required widget height, clamp it back.
+        this._denoEnsureLtxNodeHeight?.();
+        return result;
+    };
+
+    // Keep left labels readable: when width is tight, truncate value text first.
+    const originalDrawWidgets = node.drawWidgets;
+    node.drawWidgets = function () {
+        const litegraph = globalThis?.LiteGraph ?? window?.LiteGraph;
+        if (!litegraph || !originalDrawWidgets) {
+            return originalDrawWidgets?.apply(this, arguments);
+        }
+
+        const prevEven = litegraph.truncateWidgetTextEvenly;
+        const prevValuesFirst = litegraph.truncateWidgetValuesFirst;
+        litegraph.truncateWidgetTextEvenly = false;
+        litegraph.truncateWidgetValuesFirst = true;
+        try {
+            return originalDrawWidgets.apply(this, arguments);
+        } finally {
+            litegraph.truncateWidgetTextEvenly = prevEven;
+            litegraph.truncateWidgetValuesFirst = prevValuesFirst;
+        }
+    };
+
+    node._denoUpdateLtxPresetVisibility = function () {
+        migrateLegacyWeightWidget();
+        applyCompactLabels();
+        reorderWidgetSequence();
+        const mode = getWidget(this, "pipeline_mode")?.value ?? this.properties?.pipeline_mode ?? "Checkpoint Style";
+        const checkpointMode = mode === "Checkpoint Style";
+        const kjMode = mode === "KJ Style";
+        const ggufMode = mode === "GGUF Style";
+
+        toggleWidgetVisibility(getWidget(this, "checkpoint_name"), checkpointMode);
+        toggleWidgetVisibility(getWidget(this, "diffusion_model_name"), kjMode);
+        toggleWidgetVisibility(getWidget(this, "gguf_unet_name"), ggufMode);
+        toggleWidgetVisibility(getWidget(this, "video_vae_name"), kjMode || ggufMode);
+        toggleWidgetVisibility(getWidget(this, "audio_vae_name"), kjMode || ggufMode);
+        const weightWidget = getWeightDtypeWidget();
+        toggleWidgetVisibility(weightWidget, kjMode);
+
+        this._denoRefreshLtxModeButtons?.();
+
+        this.setDirtyCanvas?.(true, true);
+        requestAnimationFrame(() => this._denoEnsureLtxNodeHeight?.());
+    };
+
+    node._denoRefreshLtxModeButtons = function () {
+        const mode = getWidget(this, "pipeline_mode")?.value ?? this.properties?.pipeline_mode ?? "Checkpoint Style";
+        for (const modeName of modeNames) {
+            const button = modeButtons.get(modeName);
+            if (!button) {
+                continue;
+            }
+            const active = modeName === mode;
+            button.style.background = active ? "rgba(26, 88, 48, 0.96)" : "rgba(32, 36, 42, 0.92)";
+            button.style.borderColor = active ? "rgba(96, 255, 156, 0.95)" : "rgba(85, 92, 99, 0.9)";
+            button.style.color = active ? "#dfffe8" : "#d7dce0";
+        }
+    };
+
+    for (const widget of node.widgets || []) {
+        if (widget.__denoPresetWrapped) {
+            continue;
+        }
+        const originalCallback = widget.callback;
+        widget.callback = function (value) {
+            const callbackResult = originalCallback?.apply(this, arguments);
+            node._denoUpdateLtxPresetVisibility?.();
+            node._denoRefreshLtxModeButtons?.();
+            requestAnimationFrame(() => node._denoEnsureLtxNodeHeight?.());
+            return callbackResult;
+        };
+        widget.__denoPresetWrapped = true;
+    }
+
+    setTimeout(() => {
+        migrateLegacyWeightWidget();
+        applyCompactLabels();
+        node._denoUpdateLtxPresetVisibility?.();
+        requestAnimationFrame(() => node._denoEnsureLtxNodeHeight?.());
+    }, 0);
+
+    // A second delayed pass catches workflows loaded with stale serialized sizes.
+    setTimeout(() => {
+        node._denoEnsureLtxNodeHeight?.();
+    }, 120);
 }
 
 function setupMultiImageLoader(node) {
