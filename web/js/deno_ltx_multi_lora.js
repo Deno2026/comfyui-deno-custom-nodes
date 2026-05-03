@@ -9,6 +9,7 @@ const GENERATED_PREFIX = "deno_ltx_multi_lora_";
 const MARGIN = 10;
 const INNER_MARGIN = MARGIN * 0.33;
 const NUMBER_COLUMN_GAP = 3 + INNER_MARGIN * 2;
+let lastContextMenuEvent = null;
 
 app.registerExtension({
     name: "Deno.LTXMultiLora",
@@ -46,6 +47,8 @@ function setupNode(node) {
         hideBackendWidgets(node);
         normalizeBackendValues(node);
         wrapComputeSize(node);
+        wrapContextMenu(node);
+        ensureContextEventTracker();
         rebuildUi(node);
         node.__denoLtxMultiLoraUiVersion = UI_VERSION;
     } finally {
@@ -105,6 +108,99 @@ function wrapComputeSize(node) {
     node.__denoLtxMultiLoraComputeWrapped = true;
 }
 
+function wrapContextMenu(node) {
+    if (node.__denoLtxMultiLoraContextWrapped) {
+        return;
+    }
+
+    const originalGetSlotInPosition = node.getSlotInPosition;
+    node.getSlotInPosition = function (canvasX, canvasY) {
+        const slot = originalGetSlotInPosition?.apply(this, arguments);
+        if (slot) {
+            return slot;
+        }
+
+        const rowWidget = rowWidgetAtCanvasY(this, canvasY);
+        if (rowWidget) {
+            return { widget: rowWidget, output: { type: "DENO LTX LORA ROW" } };
+        }
+        return slot;
+    };
+
+    const originalGetSlotMenuOptions = node.getSlotMenuOptions;
+    node.getSlotMenuOptions = function (slot) {
+        if (isLoraRowWidget(slot?.widget)) {
+            showRemoveLoraMenu(lastContextMenuEvent, this, slot.widget.index);
+            return undefined;
+        }
+        return originalGetSlotMenuOptions?.apply(this, arguments);
+    };
+
+    const originalGetExtraMenuOptions = node.getExtraMenuOptions;
+    node.getExtraMenuOptions = function (_canvas, options) {
+        const result = originalGetExtraMenuOptions?.apply(this, arguments);
+        const count = activeCount(this);
+        if (count <= 0 || !Array.isArray(options)) {
+            return result;
+        }
+
+        options.unshift({
+            content: "Remove LoRA Slot",
+            submenu: {
+                options: Array.from({ length: count }, (_, index) => {
+                    const slot = index + 1;
+                    return {
+                        content: "Slot " + slot + ": " + displayLora(getValue(this, "lora_" + slot, NONE_VALUE)),
+                        callback: () => removeLoraSlot(this, slot),
+                    };
+                }),
+            },
+        });
+        return result;
+    };
+
+    node.__denoLtxMultiLoraContextWrapped = true;
+}
+
+function isRightClickEvent(event) {
+    return event?.button === 2 || event?.which === 3 || event?.type === "contextmenu";
+}
+
+function ensureContextEventTracker() {
+    if (window.__denoLtxMultiLoraContextTrackerInstalled) {
+        return;
+    }
+    const remember = (event) => {
+        if (isRightClickEvent(event)) {
+            lastContextMenuEvent = event;
+        }
+    };
+    window.addEventListener("pointerdown", remember, true);
+    window.addEventListener("contextmenu", remember, true);
+    window.__denoLtxMultiLoraContextTrackerInstalled = true;
+}
+
+function isLoraRowWidget(widget) {
+    return String(widget?.name || "").startsWith(`${GENERATED_PREFIX}row_`);
+}
+
+function rowWidgetAtCanvasY(node, canvasY) {
+    if (!node?.pos || !Array.isArray(node.widgets)) {
+        return null;
+    }
+    const localY = canvasY - node.pos[1];
+    for (const widget of node.widgets) {
+        if (!isLoraRowWidget(widget) || !Number.isFinite(widget.last_y)) {
+            continue;
+        }
+        const height = widget.computeSize?.(node.size?.[0] || MIN_WIDTH)?.[1] || LiteGraph.NODE_WIDGET_HEIGHT;
+        if (localY >= widget.last_y && localY <= widget.last_y + height) {
+            return widget;
+        }
+    }
+    return null;
+}
+
 class DenoBaseWidget {
     constructor(name) {
         this.name = `${GENERATED_PREFIX}${name}`;
@@ -133,6 +229,13 @@ class DenoBaseWidget {
     }
 
     mouse(event, pos, node) {
+        if (isRightClickEvent(event) && typeof this.onContextMenu === "function") {
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            this.cancelMouseDown();
+            return this.onContextMenu(event, pos, node) === true;
+        }
+
         if (event.type === "pointerdown") {
             this.mouseDowned = [...pos];
             this.isMouseDownedAndOver = true;
@@ -306,6 +409,7 @@ class DenoLoraRowWidget extends DenoBaseWidget {
     }
 
     draw(ctx, node, width, posY, height) {
+        this.last_y = posY;
         const lowQuality = isLowQuality();
         const enabled = Boolean(getValue(node, `enabled_${this.index}`, true));
         const midY = posY + height * 0.5;
@@ -426,6 +530,11 @@ class DenoLoraRowWidget extends DenoBaseWidget {
         this.drag(node, "audio", event.deltaX);
     }
 
+    onContextMenu(event, pos, node) {
+        showRemoveLoraMenu(event, node, this.index);
+        return true;
+    }
+
     step(node, prefix, delta, min, max) {
         const key = `${prefix}_${this.index}`;
         setValue(node, key, clamp(round2(Number(getValue(node, key, 1)) + delta), min, max));
@@ -501,6 +610,54 @@ function showLoraChooser(event, node, index) {
             redraw(node);
         },
     });
+}
+
+function showRemoveLoraMenu(event, node, index) {
+    new LiteGraph.ContextMenu(["Remove"], {
+        event,
+        title: `LoRA Slot ${index}`,
+        className: "dark",
+        scale: Math.max(1, app.canvas?.ds?.scale ?? 1),
+        callback: () => {
+            removeLoraSlot(node, index);
+        },
+    });
+}
+
+function removeLoraSlot(node, index) {
+    const count = activeCount(node);
+    if (count <= 0 || index < 1 || index > count) {
+        return;
+    }
+
+    for (let slot = index; slot < count; slot += 1) {
+        copySlotValues(node, slot + 1, slot);
+    }
+    resetSlotValues(node, count);
+    setValue(node, "active_loras", Math.max(0, count - 1));
+    rebuildUi(node);
+}
+
+function copySlotValues(node, fromIndex, toIndex) {
+    for (const prefix of ["enabled", "lora", "strength", "video", "audio"]) {
+        setValue(node, `${prefix}_${toIndex}`, getValue(node, `${prefix}_${fromIndex}`, defaultSlotValue(prefix)));
+    }
+}
+
+function resetSlotValues(node, index) {
+    for (const prefix of ["enabled", "lora", "strength", "video", "audio"]) {
+        setValue(node, `${prefix}_${index}`, defaultSlotValue(prefix));
+    }
+}
+
+function defaultSlotValue(prefix) {
+    if (prefix === "enabled") {
+        return true;
+    }
+    if (prefix === "lora") {
+        return NONE_VALUE;
+    }
+    return 1.0;
 }
 
 function hideBackendWidgets(node) {

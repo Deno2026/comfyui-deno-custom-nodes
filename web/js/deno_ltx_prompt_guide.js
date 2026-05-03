@@ -2,6 +2,10 @@ import { app } from "../../scripts/app.js";
 
 const NODE_NAME = "DenoLTXPromptGuide";
 const GENERATED_PREFIX = "deno_ltx_prompt_guide_";
+const PROMPT_MIN_HEIGHT = 50;
+const NEGATIVE_PROMPT_DEFAULT_HEIGHT = 110;
+const NEGATIVE_PROMPT_MIN_HEIGHT = 80;
+const NEGATIVE_PROMPT_MAX_HEIGHT = 180;
 
 const LANGUAGE_AUTO = "Auto";
 const LANGUAGE_KOREAN = "Korean";
@@ -134,9 +138,7 @@ class NegativeToggleWidget {
         }
         if (event.type === "pointerup") {
             this.isMouseDownedAndOver = false;
-            setWidgetValue(node, "show_negative_prompt", !isNegativeOpen(node));
-            updateNegativeVisibility(node);
-            refreshNode(node);
+            toggleNegativePrompt(node);
             return true;
         }
         return false;
@@ -157,6 +159,9 @@ function storeWidgetDefaults(node) {
         }
         if (!Object.prototype.hasOwnProperty.call(widget, "__denoPromptOriginalComputeSize")) {
             widget.__denoPromptOriginalComputeSize = widget.computeSize;
+        }
+        if (widget.name === "positive_prompt" || widget.name === "negative_prompt") {
+            ensurePromptHeightLock(widget);
         }
     }
 }
@@ -194,6 +199,75 @@ function wrapWidgetCallbacks(node) {
 function updateNegativeVisibility(node) {
     setWidgetHidden(getWidget(node, "show_negative_prompt"), true);
     setWidgetHidden(getWidget(node, "negative_prompt"), !isNegativeOpen(node));
+}
+
+function toggleNegativePrompt(node) {
+    const opening = !isNegativeOpen(node);
+    const positiveWidget = getWidget(node, "positive_prompt");
+    const negativeWidget = getWidget(node, "negative_prompt");
+    const positiveHeight = getWidgetCurrentHeight(positiveWidget) ?? NEGATIVE_PROMPT_DEFAULT_HEIGHT;
+    const negativeHeight = opening
+        ? getNegativePromptTargetHeight(node, positiveHeight)
+        : getWidgetCurrentHeight(negativeWidget) ?? negativeWidget?.__denoPromptLastOpenHeight ?? NEGATIVE_PROMPT_DEFAULT_HEIGHT;
+
+    setPromptHeightLock(positiveWidget, positiveHeight, PROMPT_MIN_HEIGHT);
+    setPromptHeightLock(negativeWidget, negativeHeight, NEGATIVE_PROMPT_MIN_HEIGHT);
+    if (negativeWidget) {
+        negativeWidget.__denoPromptLastOpenHeight = negativeHeight;
+    }
+
+    setWidgetValue(node, "show_negative_prompt", opening);
+    updateNegativeVisibility(node);
+    resizeNodeByDelta(node, opening ? negativeHeight + 4 : -(negativeHeight + 4));
+
+    queueMicrotask(() => refreshNode(node));
+}
+
+function ensurePromptHeightLock(widget) {
+    if (!widget?.options || widget.__denoPromptHeightLockWrapped) {
+        return;
+    }
+    const originalGetHeight = widget.options.getHeight;
+    const originalGetMinHeight = widget.options.getMinHeight;
+    const originalGetMaxHeight = widget.options.getMaxHeight;
+    widget.options.getHeight = function () {
+        if (Number.isFinite(widget.__denoPromptLockedHeight)) {
+            return widget.__denoPromptLockedHeight;
+        }
+        return originalGetHeight?.apply(this, arguments);
+    };
+    widget.options.getMinHeight = function () {
+        if (Number.isFinite(widget.__denoPromptLockedHeight)) {
+            return widget.__denoPromptLockedHeight;
+        }
+        return originalGetMinHeight?.apply(this, arguments);
+    };
+    widget.options.getMaxHeight = function () {
+        if (Number.isFinite(widget.__denoPromptLockedHeight)) {
+            return widget.__denoPromptLockedHeight;
+        }
+        return originalGetMaxHeight?.apply(this, arguments);
+    };
+    widget.__denoPromptHeightLockWrapped = true;
+}
+
+function setPromptHeightLock(widget, height, minHeight = PROMPT_MIN_HEIGHT) {
+    ensurePromptHeightLock(widget);
+    if (widget && Number.isFinite(height)) {
+        widget.__denoPromptLockedHeight = Math.max(minHeight, height);
+    }
+}
+
+function getWidgetCurrentHeight(widget) {
+    const height = widget?.computedHeight;
+    return Number.isFinite(height) ? height : null;
+}
+
+function getNegativePromptTargetHeight(node, positiveHeight) {
+    const negativeWidget = getWidget(node, "negative_prompt");
+    const remembered = negativeWidget?.__denoPromptLastOpenHeight;
+    const target = Number.isFinite(remembered) ? remembered : Math.min(positiveHeight, NEGATIVE_PROMPT_DEFAULT_HEIGHT);
+    return Math.max(NEGATIVE_PROMPT_MIN_HEIGHT, Math.min(target, NEGATIVE_PROMPT_MAX_HEIGHT));
 }
 
 function setWidgetHidden(widget, hidden) {
@@ -237,13 +311,31 @@ function refreshNode(node) {
     try {
         const computed = node.computeSize?.();
         if (computed) {
-            node.setSize?.([Math.max(node.size?.[0] || computed[0], computed[0]), Math.max(computed[1], 120)]);
+            const width = Math.max(node.size?.[0] || computed[0], computed[0]);
+            const height = Math.max(node.size?.[1] || computed[1], computed[1], 120);
+            node.setSize?.([width, height]);
         }
         node.setDirtyCanvas?.(true, true);
         app.graph?.setDirtyCanvas?.(true, true);
     } finally {
         node.__denoLtxPromptGuideRefreshing = false;
     }
+}
+
+function resizeNodeByDelta(node, delta) {
+    if (!Number.isFinite(delta) || Math.abs(delta) < 1) {
+        refreshNode(node);
+        return;
+    }
+    const width = node.size?.[0] || node.computeSize?.()?.[0] || 400;
+    const height = Math.max((node.size?.[1] || 120) + delta, 120);
+    node.setSize?.([width, height]);
+    const computed = node.computeSize?.();
+    if (computed) {
+        node.setSize?.([Math.max(width, computed[0]), Math.max(height, computed[1], 120)]);
+    }
+    node.setDirtyCanvas?.(true, true);
+    app.graph?.setDirtyCanvas?.(true, true);
 }
 
 function estimateDialogue(node) {
