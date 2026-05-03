@@ -12,12 +12,13 @@ const LANGUAGE_KOREAN = "Korean";
 const LANGUAGE_ENGLISH = "English";
 const LANGUAGE_JAPANESE = "Japanese";
 const LANGUAGE_CHINESE = "Chinese";
+const VALID_LANGUAGES = new Set([LANGUAGE_AUTO, LANGUAGE_KOREAN, LANGUAGE_ENGLISH, LANGUAGE_JAPANESE, LANGUAGE_CHINESE]);
 
 const LANGUAGE_PROFILES = {
-    [LANGUAGE_KOREAN]: { unitsPerSecond: 4.2, segmentPadding: 0.35, punctuationPause: 0.22 },
-    [LANGUAGE_JAPANESE]: { unitsPerSecond: 4.6, segmentPadding: 0.35, punctuationPause: 0.20 },
-    [LANGUAGE_CHINESE]: { unitsPerSecond: 3.9, segmentPadding: 0.35, punctuationPause: 0.22 },
-    [LANGUAGE_ENGLISH]: { unitsPerSecond: 2.45, segmentPadding: 0.35, punctuationPause: 0.20 },
+    [LANGUAGE_KOREAN]: { unitsPerSecond: 6.2, segmentPadding: 0.15, punctuationPause: 0.12 },
+    [LANGUAGE_JAPANESE]: { unitsPerSecond: 6.0, segmentPadding: 0.15, punctuationPause: 0.12 },
+    [LANGUAGE_CHINESE]: { unitsPerSecond: 4.8, segmentPadding: 0.15, punctuationPause: 0.12 },
+    [LANGUAGE_ENGLISH]: { unitsPerSecond: 2.75, segmentPadding: 0.15, punctuationPause: 0.12 },
 };
 
 app.registerExtension({
@@ -55,6 +56,7 @@ function setupNode(node) {
 
         removeGeneratedWidgets(node);
         storeWidgetDefaults(node);
+        normalizeLanguageWidget(node);
         setWidgetHidden(getWidget(node, "show_negative_prompt"), true);
 
         const summary = node.addCustomWidget(new DialogueSummaryWidget());
@@ -373,13 +375,26 @@ function extractDialogueSegments(prompt) {
 }
 
 function estimateSegmentSeconds(text, language) {
-    const selectedLanguage = language === LANGUAGE_AUTO ? detectLanguage(text) : language;
+    const normalizedLanguage = normalizeLanguage(language);
+    const selectedLanguage = normalizedLanguage === LANGUAGE_AUTO ? detectLanguage(text) : normalizedLanguage;
     const profile = LANGUAGE_PROFILES[selectedLanguage] || LANGUAGE_PROFILES[LANGUAGE_ENGLISH];
     const units = countUnits(text, selectedLanguage);
     const punctuationCount = (text.match(/[.!?\u3002\uff01\uff1f\u2026]+|[,\u3001;\uff1b:\uff1a]+/g) || []).length;
     const baseSeconds = units / profile.unitsPerSecond;
     const seconds = baseSeconds + profile.segmentPadding + punctuationCount * profile.punctuationPause;
     return Math.max(0.45, seconds);
+}
+
+function normalizeLanguageWidget(node) {
+    const widget = getWidget(node, "language");
+    if (widget && !VALID_LANGUAGES.has(String(widget.value))) {
+        widget.value = LANGUAGE_AUTO;
+    }
+}
+
+function normalizeLanguage(language) {
+    const value = String(language || LANGUAGE_AUTO);
+    return VALID_LANGUAGES.has(value) ? value : LANGUAGE_AUTO;
 }
 
 function detectLanguage(text) {
