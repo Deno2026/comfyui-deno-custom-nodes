@@ -369,11 +369,11 @@ function setupMultiImageLoader(node) {
     hideWidget(pathsWidget);
 
     node._denoUpdateLoaderVisibility = function () {
-        const mode = getWidget(this, "mode")?.value ?? "Preset Ratio";
+        const mode = getWidget(this, "mode")?.value ?? "Keep Input Ratio";
         toggleWidgetVisibility(getWidget(this, "ratio_preset"), mode === "Preset Ratio");
-        toggleWidgetVisibility(getWidget(this, "megapixels"), mode === "Preset Ratio");
-        toggleWidgetVisibility(getWidget(this, "width"), mode !== "Preset Ratio");
-        toggleWidgetVisibility(getWidget(this, "height"), mode !== "Preset Ratio");
+        toggleWidgetVisibility(getWidget(this, "megapixels"), mode === "Preset Ratio" || mode === "Keep Input Ratio");
+        toggleWidgetVisibility(getWidget(this, "width"), mode === "Manual Input");
+        toggleWidgetVisibility(getWidget(this, "height"), mode === "Manual Input");
         this.setDirtyCanvas?.(true, true);
     };
 

@@ -1,5 +1,6 @@
 import os
-from typing import List
+import math
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -30,6 +31,70 @@ def _get_comfy_utils():
 
 def _split_paths(image_paths: str) -> List[str]:
     return [line.strip() for line in (image_paths or "").splitlines() if line.strip()]
+
+
+def _round_down(value: float, multiple: int) -> int:
+    return max(multiple, int(math.floor(float(value) / multiple) * multiple))
+
+
+def _round_nearest(value: float, multiple: int) -> int:
+    return max(multiple, int(math.floor((float(value) / multiple) + 0.5) * multiple))
+
+
+def _compute_keep_input_ratio_dims(source_width: int, source_height: int, megapixels: float, divisible_by: int) -> Tuple[int, int]:
+    effective_alignment = int(divisible_by)
+    total_pixels = max(0.01, float(megapixels)) * 1_000_000
+    source_area = max(1.0, float(source_width * source_height))
+    source_aspect = float(source_width) / float(source_height)
+
+    scale = math.sqrt(total_pixels / source_area)
+    base_width = max(float(effective_alignment), float(source_width) * scale)
+    base_height = max(float(effective_alignment), float(source_height) * scale)
+
+    rounders = (_round_down, _round_nearest, round_up)
+    candidates = set()
+
+    for rounder in rounders:
+        width_candidate = rounder(base_width, effective_alignment)
+        exact_height = width_candidate / source_aspect
+        for height_rounder in rounders:
+            candidates.add((width_candidate, height_rounder(exact_height, effective_alignment)))
+
+    for rounder in rounders:
+        height_candidate = rounder(base_height, effective_alignment)
+        exact_width = height_candidate * source_aspect
+        for width_rounder in rounders:
+            candidates.add((width_rounder(exact_width, effective_alignment), height_candidate))
+
+    candidates.add((
+        _round_nearest(base_width, effective_alignment),
+        _round_nearest(base_height, effective_alignment),
+    ))
+
+    def candidate_score(dims: Tuple[int, int]) -> Tuple[float, float, float]:
+        width_candidate, height_candidate = dims
+        area_error = abs((width_candidate * height_candidate) - total_pixels) / total_pixels
+        ratio_error = abs((width_candidate / height_candidate) - source_aspect) / source_aspect
+        distance_error = (
+            abs(width_candidate - base_width) / base_width
+            + abs(height_candidate - base_height) / base_height
+        )
+        return (area_error, ratio_error, distance_error)
+
+    return min(candidates, key=candidate_score)
+
+
+def _read_image_size(path: str) -> tuple[int, int] | None:
+    resolved_path = _resolve_path(path)
+    if resolved_path is None:
+        return None
+    try:
+        with Image.open(resolved_path) as image:
+            image = ImageOps.exif_transpose(image)
+            return image.size
+    except Exception as exc:
+        print(f"[DenoMultiImageLoader] Failed to read image size {path}: {exc}")
+        return None
 
 
 def _resolve_path(path: str) -> str | None:
@@ -117,7 +182,7 @@ class DenoMultiImageLoader:
         return {
             "required": {
                 "image_paths": ("STRING", {"default": "", "multiline": True}),
-                "mode": (["Preset Ratio", "Manual Input"], {"default": "Preset Ratio"}),
+                "mode": (["Keep Input Ratio", "Preset Ratio", "Manual Input"], {"default": "Keep Input Ratio"}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "megapixels": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
@@ -169,14 +234,23 @@ class DenoMultiImageLoader:
         interpolation: str,
         resize_method: str,
     ):
+        paths = _split_paths(image_paths)
+
         if mode == "Preset Ratio":
             width, height = compute_aligned_ratio_dims(ratio_preset, megapixels, int(divisible_by))
+        elif mode == "Keep Input Ratio":
+            first_size = _read_image_size(paths[0]) if paths else None
+            if first_size is not None:
+                width, height = _compute_keep_input_ratio_dims(first_size[0], first_size[1], megapixels, int(divisible_by))
+            else:
+                width = round_up(width, int(divisible_by))
+                height = round_up(height, int(divisible_by))
         else:
             width = round_up(width, int(divisible_by))
             height = round_up(height, int(divisible_by))
 
         loaded_images = []
-        for path in _split_paths(image_paths):
+        for path in paths:
             image_tensor = self._load_single_image(
                 path=path,
                 width=width,

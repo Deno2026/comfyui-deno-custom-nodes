@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 const NODE_NAME = "DenoLTXMultiLoraLoader";
 const UI_VERSION = "rgthree-style-draft-v2";
@@ -10,6 +11,8 @@ const MARGIN = 10;
 const INNER_MARGIN = MARGIN * 0.33;
 const NUMBER_COLUMN_GAP = 3 + INNER_MARGIN * 2;
 let lastContextMenuEvent = null;
+let cachedLoraOptions = null;
+let loraOptionsPromise = null;
 
 app.registerExtension({
     name: "Deno.LTXMultiLora",
@@ -597,8 +600,8 @@ class DenoAddLoraWidget extends DenoBaseWidget {
     }
 }
 
-function showLoraChooser(event, node, index) {
-    const values = loraOptions(node);
+async function showLoraChooser(event, node, index) {
+    const values = await loraOptions(node);
     new LiteGraph.ContextMenu(values.map((value) => displayLora(value)), {
         event,
         title: "Choose a LoRA",
@@ -690,9 +693,6 @@ function normalizeBackendValues(node) {
         normalizeNumber(node, `strength_${index}`, 1, -10, 10);
         normalizeNumber(node, `video_${index}`, 1, 0, 2);
         normalizeNumber(node, `audio_${index}`, 1, 0, 2);
-        if (!loraOptions(node).includes(getValue(node, `lora_${index}`, NONE_VALUE))) {
-            setValue(node, `lora_${index}`, NONE_VALUE);
-        }
     }
 }
 
@@ -736,7 +736,61 @@ function allRowsEnabled(node) {
     return true;
 }
 
-function loraOptions(node) {
+async function loraOptions(node) {
+    if (loraOptionsPromise) {
+        return loraOptionsPromise;
+    }
+    loraOptionsPromise = fetchLatestLoraOptions(node).finally(() => {
+        loraOptionsPromise = null;
+    });
+    return loraOptionsPromise;
+}
+
+async function fetchLatestLoraOptions(node) {
+    try {
+        const response = await api.fetchApi("/object_info/DenoLTXMultiLoraLoader");
+        if (!response.ok) {
+            throw new Error(`object_info request failed: ${response.status}`);
+        }
+        const info = await response.json();
+        const values = extractLoraOptions(info);
+        if (values.length > 1) {
+            cachedLoraOptions = values;
+            updateBackendLoraWidgets(node, values);
+            return values;
+        }
+    } catch (error) {
+        console.warn("[DenoLTXMultiLora] Failed to refresh LoRA list, using cached widget options.", error);
+    }
+    return loraOptionsSync(node);
+}
+
+function extractLoraOptions(info) {
+    const nodeInfo = info?.[NODE_NAME] || info;
+    const required = nodeInfo?.input?.required || {};
+    const loraInput = required.lora_1;
+    const raw = Array.isArray(loraInput) ? loraInput[0] : null;
+    const values = Array.isArray(raw) ? raw : [NONE_VALUE];
+    return values.includes(NONE_VALUE) ? values : [NONE_VALUE, ...values];
+}
+
+function updateBackendLoraWidgets(node, values) {
+    for (let index = 1; index <= MAX_SLOTS; index += 1) {
+        const widget = getWidget(node, `lora_${index}`);
+        if (!widget) {
+            continue;
+        }
+        widget.options = widget.options || {};
+        widget.options.values = values;
+        widget.options.list = values;
+        widget.values = values;
+    }
+}
+
+function loraOptionsSync(node) {
+    if (Array.isArray(cachedLoraOptions) && cachedLoraOptions.length) {
+        return cachedLoraOptions;
+    }
     const widget = getWidget(node, "lora_1");
     const raw = widget?.options?.values || widget?.options?.list || widget?.values || [NONE_VALUE];
     const values = Array.isArray(raw) ? raw : [NONE_VALUE];

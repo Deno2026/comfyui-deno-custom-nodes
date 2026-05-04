@@ -174,7 +174,8 @@ def test_multi_image_loader_returns_batch_and_int_dimensions():
     input_types = node_cls.INPUT_TYPES()
 
     assert input_types["required"]["image_paths"][0] == "STRING"
-    assert input_types["required"]["mode"][0] == ["Preset Ratio", "Manual Input"]
+    assert input_types["required"]["mode"][0] == ["Keep Input Ratio", "Preset Ratio", "Manual Input"]
+    assert input_types["required"]["mode"][1]["default"] == "Keep Input Ratio"
     assert "16:9" in input_types["required"]["ratio_preset"][0]
     assert input_types["required"]["megapixels"][0] == "FLOAT"
     assert input_types["required"]["divisible_by"][0] == ["1", "8", "16", "32", "64", "128"]
