@@ -73,6 +73,20 @@ Main features:
 - uses KJNodes `VAELoaderKJ` for split video/audio VAE workflows
 - uses ComfyUI-GGUF UNet loading for GGUF workflows
 
+### `(Deno) LTX Model Downloader`
+
+Beginner-friendly downloader for the LTX 2.3 8GB VRAM GGUF starter model set.
+
+![Deno LTX Model Downloader](docs/images/ltx-model-downloader.svg)
+
+Main features:
+
+- downloads the GGUF beginner model set into ComfyUI-registered model folders
+- prefers an existing external ComfyUI model root when ComfyUI already knows about one
+- skips files that already exist
+- shows per-file status and total progress inside the node
+- downloads only after the user presses `Download`
+
 ### `(Deno) LTX Multi LoRA Loader`
 
 Power-LoRA-style multi LoRA loader for LTX workflows.

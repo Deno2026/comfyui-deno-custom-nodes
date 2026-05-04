@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="520" viewBox="0 0 760 520">
+  <rect width="760" height="520" fill="#151515"/>
+  <rect x="54" y="36" width="600" height="430" rx="14" fill="#303030" stroke="#777" stroke-width="2"/>
+  <rect x="54" y="36" width="600" height="44" rx="14" fill="#3a3a3a"/>
+  <circle cx="76" cy="58" r="7" fill="#777"/>
+  <text x="102" y="64" fill="#f2f2f2" font-family="Arial, sans-serif" font-size="22" font-weight="700">(Deno) LTX Model Downloader</text>
+  <rect x="452" y="22" width="190" height="28" rx="6" fill="#0b3017"/>
+  <text x="472" y="42" fill="#d8ffe1" font-family="Arial, sans-serif" font-size="16" font-weight="700">deno-custom-nodes</text>
+  <rect x="82" y="106" width="544" height="322" rx="12" fill="#06110b" stroke="#1dbf65"/>
+  <text x="102" y="140" fill="#9dffc0" font-family="Arial, sans-serif" font-size="20" font-weight="700">LTX 2.3 8GB VRAM model set</text>
+  <text x="102" y="168" fill="#a8eeb9" font-family="Arial, sans-serif" font-size="15">Choose your ComfyUI models folder. Existing files are skipped.</text>
+  <rect x="102" y="190" width="390" height="32" rx="8" fill="#0b1510" stroke="#1d8e4a"/>
+  <text x="118" y="211" fill="#e7ffed" font-family="Arial, sans-serif" font-size="15">D:\ComfyUI Model\models</text>
+  <rect x="504" y="190" width="102" height="32" rx="16" fill="#173822" stroke="#56d884"/>
+  <text x="520" y="211" fill="#e7ffed" font-family="Arial, sans-serif" font-size="14" font-weight="700">Choose folder</text>
+  <rect x="102" y="236" width="504" height="18" rx="9" fill="#092011" stroke="#31d774"/>
+  <rect x="102" y="236" width="196" height="18" rx="9" fill="#43de82"/>
+  <text x="342" y="250" fill="#ffffff" font-family="Arial, sans-serif" font-size="13" font-weight="700">38.9%</text>
+  <g font-family="Arial, sans-serif" font-size="14">
+    <rect x="102" y="270" width="504" height="28" rx="7" fill="#132017"/>
+    <text x="118" y="289" fill="#e7ffed">unet/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf</text>
+    <text x="538" y="289" fill="#ffd36a" font-weight="700">downloading</text>
+    <rect x="102" y="306" width="504" height="28" rx="7" fill="#132017"/>
+    <text x="118" y="325" fill="#e7ffed">text_encoders/gemma_3_12B_it_fp4_mixed.safetensors</text>
+    <text x="558" y="325" fill="#8fffb2" font-weight="700">exists</text>
+    <rect x="102" y="342" width="504" height="28" rx="7" fill="#132017"/>
+    <text x="118" y="361" fill="#e7ffed">vae/LTX23_video_vae_bf16.safetensors</text>
+    <text x="558" y="361" fill="#8fffb2" font-weight="700">exists</text>
+  </g>
+  <rect x="102" y="386" width="100" height="32" rx="16" fill="#1b6c3a"/>
+  <text x="124" y="407" fill="#e7ffed" font-family="Arial, sans-serif" font-size="15" font-weight="700">Download</text>
+</svg>

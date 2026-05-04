@@ -60,6 +60,7 @@ def install_comfyui_dependency_stubs():
     if "folder_paths" not in sys.modules:
         folder_paths = types.ModuleType("folder_paths")
         folder_paths.models_dir = str(REPO_ROOT / "models")
+        folder_paths.folder_names_and_paths = {}
         folder_paths.get_filename_list = lambda folder_name: []
         folder_paths.get_full_path = lambda folder_name, filename: str(REPO_ROOT / "models" / folder_name / filename)
         folder_paths.get_full_path_or_raise = folder_paths.get_full_path
@@ -156,6 +157,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoMultiImageLoader",
         "DenoLTXSequencer",
         "DenoLTX23PresetLoader",
+        "DenoLTXModelDownloader",
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
     ]
@@ -163,6 +165,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX23PresetLoader"] == "(Deno) LTX Model Loader"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXModelDownloader"] == "(Deno) LTX Model Downloader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.WEB_DIRECTORY == "./web/js"
@@ -232,6 +235,18 @@ def test_ltx_model_loader_declares_three_loading_modes():
     assert node_cls.RETURN_TYPES == ("MODEL", "CLIP", "VAE", "VAE")
     assert node_cls.RETURN_NAMES == ("model", "clip", "video_vae", "audio_vae")
     assert node_cls.CATEGORY == "Deno/LTX"
+
+
+def test_ltx_model_downloader_declares_output_node_and_safe_root_widget():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
+    input_types = node_cls.INPUT_TYPES()
+
+    assert node_cls.RETURN_TYPES == ()
+    assert node_cls.OUTPUT_NODE is True
+    assert node_cls.CATEGORY == "Deno/Downloaders"
+    assert "model_root" in input_types["required"]
+    assert input_types["required"]["model_root"][1]["default"] == input_types["required"]["model_root"][0][0]
 
 
 def test_ltx_multi_lora_loader_declares_compact_av_controls():
