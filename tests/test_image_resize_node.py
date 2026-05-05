@@ -165,7 +165,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX23PresetLoader"] == "(Deno) LTX Model Loader"
-    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXModelDownloader"] == "(Deno) LTX Model Downloader"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXModelDownloader"] == "(Deno) Easy Model Download Helper"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.WEB_DIRECTORY == "./web/js"
@@ -237,16 +237,25 @@ def test_ltx_model_loader_declares_three_loading_modes():
     assert node_cls.CATEGORY == "Deno/LTX"
 
 
-def test_ltx_model_downloader_declares_output_node_and_safe_root_widget():
+def test_ltx_model_setup_helper_declares_output_node_and_safe_root_widget():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
     input_types = node_cls.INPUT_TYPES()
 
     assert node_cls.RETURN_TYPES == ()
     assert node_cls.OUTPUT_NODE is True
-    assert node_cls.CATEGORY == "Deno/Downloaders"
+    assert node_cls.CATEGORY == "Deno/Setup"
     assert "model_root" in input_types["required"]
     assert input_types["required"]["model_root"][1]["default"] == input_types["required"]["model_root"][0][0]
+
+
+def test_ltx_model_setup_helper_has_no_backend_download_code():
+    source = (REPO_ROOT / "deno_ltx_model_downloader.py").read_text(encoding="utf-8")
+
+    assert "urlopen" not in source
+    assert "urllib.request" not in source
+    assert "subprocess" not in source
+    assert "@PromptServer.instance.routes.post" not in source
 
 
 def test_ltx_multi_lora_loader_declares_compact_av_controls():

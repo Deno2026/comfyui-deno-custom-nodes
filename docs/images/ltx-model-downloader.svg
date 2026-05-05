@@ -1,32 +1,115 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="520" viewBox="0 0 760 520">
-  <rect width="760" height="520" fill="#151515"/>
-  <rect x="54" y="36" width="600" height="430" rx="14" fill="#303030" stroke="#777" stroke-width="2"/>
-  <rect x="54" y="36" width="600" height="44" rx="14" fill="#3a3a3a"/>
-  <circle cx="76" cy="58" r="7" fill="#777"/>
-  <text x="102" y="64" fill="#f2f2f2" font-family="Arial, sans-serif" font-size="22" font-weight="700">(Deno) LTX Model Downloader</text>
-  <rect x="452" y="22" width="190" height="28" rx="6" fill="#0b3017"/>
-  <text x="472" y="42" fill="#d8ffe1" font-family="Arial, sans-serif" font-size="16" font-weight="700">deno-custom-nodes</text>
-  <rect x="82" y="106" width="544" height="322" rx="12" fill="#06110b" stroke="#1dbf65"/>
-  <text x="102" y="140" fill="#9dffc0" font-family="Arial, sans-serif" font-size="20" font-weight="700">LTX 2.3 8GB VRAM model set</text>
-  <text x="102" y="168" fill="#a8eeb9" font-family="Arial, sans-serif" font-size="15">Choose your ComfyUI models folder. Existing files are skipped.</text>
-  <rect x="102" y="190" width="390" height="32" rx="8" fill="#0b1510" stroke="#1d8e4a"/>
-  <text x="118" y="211" fill="#e7ffed" font-family="Arial, sans-serif" font-size="15">D:\ComfyUI Model\models</text>
-  <rect x="504" y="190" width="102" height="32" rx="16" fill="#173822" stroke="#56d884"/>
-  <text x="520" y="211" fill="#e7ffed" font-family="Arial, sans-serif" font-size="14" font-weight="700">Choose folder</text>
-  <rect x="102" y="236" width="504" height="18" rx="9" fill="#092011" stroke="#31d774"/>
-  <rect x="102" y="236" width="196" height="18" rx="9" fill="#43de82"/>
-  <text x="342" y="250" fill="#ffffff" font-family="Arial, sans-serif" font-size="13" font-weight="700">38.9%</text>
-  <g font-family="Arial, sans-serif" font-size="14">
-    <rect x="102" y="270" width="504" height="28" rx="7" fill="#132017"/>
-    <text x="118" y="289" fill="#e7ffed">unet/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf</text>
-    <text x="538" y="289" fill="#ffd36a" font-weight="700">downloading</text>
-    <rect x="102" y="306" width="504" height="28" rx="7" fill="#132017"/>
-    <text x="118" y="325" fill="#e7ffed">text_encoders/gemma_3_12B_it_fp4_mixed.safetensors</text>
-    <text x="558" y="325" fill="#8fffb2" font-weight="700">exists</text>
-    <rect x="102" y="342" width="504" height="28" rx="7" fill="#132017"/>
-    <text x="118" y="361" fill="#e7ffed">vae/LTX23_video_vae_bf16.safetensors</text>
-    <text x="558" y="361" fill="#8fffb2" font-weight="700">exists</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="697" height="733" viewBox="0 0 697 733">
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#06120b"/>
+      <stop offset="1" stop-color="#020704"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#20c86c"/>
+      <stop offset="1" stop-color="#8effb2"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <rect width="697" height="733" fill="#171717"/>
+  <g opacity="0.18" stroke="#333" stroke-width="1">
+    <path d="M0 36h697M0 72h697M0 108h697M0 144h697M0 180h697M0 216h697M0 252h697M0 288h697M0 324h697M0 360h697M0 396h697M0 432h697M0 468h697M0 504h697M0 540h697M0 576h697M0 612h697M0 648h697M0 684h697"/>
+    <path d="M36 0v733M72 0v733M108 0v733M144 0v733M180 0v733M216 0v733M252 0v733M288 0v733M324 0v733M360 0v733M396 0v733M432 0v733M468 0v733M504 0v733M540 0v733M576 0v733M612 0v733M648 0v733"/>
   </g>
-  <rect x="102" y="386" width="100" height="32" rx="16" fill="#1b6c3a"/>
-  <text x="124" y="407" fill="#e7ffed" font-family="Arial, sans-serif" font-size="15" font-weight="700">Download</text>
+
+  <rect x="14" y="20" width="669" height="707" rx="14" fill="#303030" stroke="#a6a6a6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="20" y="26" width="657" height="48" rx="10" fill="#393939"/>
+  <circle cx="36" cy="45" r="6" fill="#777"/>
+  <text x="60" y="50" fill="#f5f5f5" font-family="Arial, sans-serif" font-size="18" font-weight="700">(Deno) Easy Model Download Helper</text>
+
+  <rect x="442" y="3" width="176" height="28" rx="6" fill="#103916"/>
+  <text x="459" y="23" fill="#d8ffe1" font-family="Arial, sans-serif" font-size="17" font-weight="700">deno-custom-nodes</text>
+
+  <rect x="34" y="70" width="628" height="594" rx="10" fill="url(#panel)" stroke="#0f7d3e"/>
+
+  <text x="46" y="98" fill="#93ffb8" font-family="Arial, sans-serif" font-size="16" font-weight="800">Easy Model Download Helper</text>
+  <rect x="46" y="111" width="158" height="28" rx="14" fill="#134522" stroke="#46df7d"/>
+  <text x="58" y="130" fill="#e3ffeb" font-family="Arial, sans-serif" font-size="11" font-weight="800">Preset: LTX 2.3 8GB VRAM</text>
+  <text x="46" y="160" fill="#a3efb8" font-family="Arial, sans-serif" font-size="13">Open the official Hugging Face links, download with your browser, then move files into the shown target</text>
+  <text x="46" y="177" fill="#a3efb8" font-family="Arial, sans-serif" font-size="13">paths. No Python auto-download is used.</text>
+
+  <rect x="46" y="192" width="384" height="34" rx="9" fill="#06100a" stroke="#185c33"/>
+  <text x="60" y="214" fill="#e3ffeb" font-family="Arial, sans-serif" font-size="13">D:\ComfyUI Model\models</text>
+  <rect x="445" y="190" width="92" height="38" rx="19" fill="#13251a" stroke="#6b9976"/>
+  <text x="465" y="214" fill="#ecfff1" font-family="Arial, sans-serif" font-size="12" font-weight="800">Switch root</text>
+  <rect x="548" y="190" width="82" height="38" rx="19" fill="#13251a" stroke="#6b9976"/>
+  <text x="574" y="214" fill="#ecfff1" font-family="Arial, sans-serif" font-size="12" font-weight="800">Copy root</text>
+
+  <rect x="46" y="236" width="584" height="18" rx="9" fill="#0a1a10" stroke="#2cba64"/>
+  <rect x="46" y="236" width="584" height="18" rx="9" fill="url(#bar)"/>
+  <text x="330" y="249" text-anchor="middle" fill="#f5fff7" font-family="Arial, sans-serif" font-size="12" font-weight="800">6/6 files ready</text>
+
+  <g font-family="Arial, sans-serif">
+    <g transform="translate(46 264)">
+      <rect width="584" height="49" rx="7" fill="#0d1711" stroke="#1c2a20"/>
+      <text x="10" y="20" fill="#f2fff5" font-size="13" font-weight="800">GGUF model</text>
+      <text x="10" y="38" fill="#95d4a4" font-size="10">unet/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf - 16.54 GiB</text>
+      <text x="470" y="29" fill="#7dffa9" font-size="12" font-weight="800">ready</text>
+      <rect x="502" y="10" width="46" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="514" y="29" fill="#eaffef" font-size="11" font-weight="800">Open</text>
+      <rect x="556" y="10" width="28" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="563" y="29" fill="#eaffef" font-size="11" font-weight="800">Copy</text>
+    </g>
+    <g transform="translate(46 319)">
+      <rect width="584" height="49" rx="7" fill="#0d1711" stroke="#1c2a20"/>
+      <text x="10" y="20" fill="#f2fff5" font-size="13" font-weight="800">Gemma text encoder</text>
+      <text x="10" y="38" fill="#95d4a4" font-size="10">text_encoders/gemma_3_12B_it_fp4_mixed.safetensors - 8.80 GiB</text>
+      <text x="470" y="29" fill="#7dffa9" font-size="12" font-weight="800">ready</text>
+      <rect x="502" y="10" width="46" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="514" y="29" fill="#eaffef" font-size="11" font-weight="800">Open</text>
+      <rect x="556" y="10" width="28" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="563" y="29" fill="#eaffef" font-size="11" font-weight="800">Copy</text>
+    </g>
+    <g transform="translate(46 374)">
+      <rect width="584" height="49" rx="7" fill="#0d1711" stroke="#1c2a20"/>
+      <text x="10" y="20" fill="#f2fff5" font-size="13" font-weight="800">Text projection</text>
+      <text x="10" y="38" fill="#95d4a4" font-size="10">text_encoders/ltx-2.3_text_projection_bf16.safetensors - 2.15 GiB</text>
+      <text x="470" y="29" fill="#7dffa9" font-size="12" font-weight="800">ready</text>
+      <rect x="502" y="10" width="46" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="514" y="29" fill="#eaffef" font-size="11" font-weight="800">Open</text>
+      <rect x="556" y="10" width="28" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="563" y="29" fill="#eaffef" font-size="11" font-weight="800">Copy</text>
+    </g>
+    <g transform="translate(46 429)">
+      <rect width="584" height="49" rx="7" fill="#0d1711" stroke="#1c2a20"/>
+      <text x="10" y="20" fill="#f2fff5" font-size="13" font-weight="800">Video VAE</text>
+      <text x="10" y="38" fill="#95d4a4" font-size="10">vae/LTX23_video_vae_bf16.safetensors - 1.35 GiB</text>
+      <text x="470" y="29" fill="#7dffa9" font-size="12" font-weight="800">ready</text>
+      <rect x="502" y="10" width="46" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="514" y="29" fill="#eaffef" font-size="11" font-weight="800">Open</text>
+      <rect x="556" y="10" width="28" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="563" y="29" fill="#eaffef" font-size="11" font-weight="800">Copy</text>
+    </g>
+    <g transform="translate(46 484)">
+      <rect width="584" height="49" rx="7" fill="#0d1711" stroke="#1c2a20"/>
+      <text x="10" y="20" fill="#f2fff5" font-size="13" font-weight="800">Audio VAE</text>
+      <text x="10" y="38" fill="#95d4a4" font-size="10">vae/LTX23_audio_vae_bf16.safetensors - 348.0 MiB</text>
+      <text x="470" y="29" fill="#7dffa9" font-size="12" font-weight="800">ready</text>
+      <rect x="502" y="10" width="46" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="514" y="29" fill="#eaffef" font-size="11" font-weight="800">Open</text>
+      <rect x="556" y="10" width="28" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="563" y="29" fill="#eaffef" font-size="11" font-weight="800">Copy</text>
+    </g>
+    <g transform="translate(46 539)">
+      <rect width="584" height="49" rx="7" fill="#0d1711" stroke="#1c2a20"/>
+      <text x="10" y="20" fill="#f2fff5" font-size="13" font-weight="800">Spatial upscaler x2</text>
+      <text x="10" y="38" fill="#95d4a4" font-size="10">latent_upscale_models/ltx-2.3-spatial-upscaler-x2-1.1.safetensors - 949.6 MiB</text>
+      <text x="470" y="29" fill="#7dffa9" font-size="12" font-weight="800">ready</text>
+      <rect x="502" y="10" width="46" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="514" y="29" fill="#eaffef" font-size="11" font-weight="800">Open</text>
+      <rect x="556" y="10" width="28" height="29" rx="7" fill="#13251a" stroke="#50755c"/>
+      <text x="563" y="29" fill="#eaffef" font-size="11" font-weight="800">Copy</text>
+    </g>
+  </g>
+
+  <rect x="46" y="598" width="115" height="38" rx="19" fill="#1c8b49" stroke="#70e79a"/>
+  <text x="69" y="622" fill="#f2fff5" font-family="Arial, sans-serif" font-size="12" font-weight="800">Refresh Check</text>
+  <text x="170" y="622" fill="#9dffc0" font-family="Arial, sans-serif" font-size="12" font-weight="700">All files found. Press R if model lists need refresh.</text>
 </svg>

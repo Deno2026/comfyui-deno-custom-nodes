@@ -2,14 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import os
-import threading
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
-import uuid
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import folder_paths
 from aiohttp import web
@@ -17,7 +12,6 @@ from server import PromptServer
 
 
 ROUTE_PREFIX = "/deno/ltx_model_downloader"
-CHUNK_SIZE = 1024 * 1024
 
 
 MODEL_FILES = [
@@ -88,10 +82,6 @@ MODEL_ROOT_SUBDIRS = {
 }
 
 
-_JOBS: Dict[str, Dict] = {}
-_JOBS_LOCK = threading.Lock()
-
-
 def _norm(path: Path | str) -> str:
     return str(Path(path).expanduser().resolve())
 
@@ -158,11 +148,10 @@ def _collect_model_roots() -> List[Dict]:
             1 for item in MODEL_FILES if _is_complete(_target_path(root["path"], item), item["size"])
         )
 
-    ordered = sorted(
+    return sorted(
         roots.values(),
         key=lambda item: (-int(item["existing_count"]), 0 if item["source"] != "default" else 1, item["path"].casefold()),
     )
-    return ordered
 
 
 def _root_widget_choices() -> List[str]:
@@ -184,9 +173,13 @@ def _select_root(root_id: Optional[str]) -> Tuple[Dict, List[Dict]]:
     return roots[0], roots
 
 
-def _download_url(item: Dict) -> str:
-    repo_path = urllib.parse.quote(item["repo_path"].replace("\\", "/"))
-    return f"https://huggingface.co/{item['repo']}/resolve/main/{repo_path}?download=true"
+def _hf_file_url(item: Dict) -> str:
+    # Static Hugging Face file URL only. The node never downloads it from Python.
+    return f"https://huggingface.co/{item['repo']}/resolve/main/{item['repo_path']}?download=true"
+
+
+def _hf_repo_url(item: Dict) -> str:
+    return f"https://huggingface.co/{item['repo']}/blob/main/{item['repo_path']}"
 
 
 def _target_path(models_root: str, item: Dict) -> Path:
@@ -203,203 +196,77 @@ def _is_complete(path: Path, expected_size: int) -> bool:
     return size >= int(expected_size * 0.98)
 
 
-def _public_file(models_root: str, item: Dict, override: Optional[Dict] = None) -> Dict:
+def _public_file(models_root: str, item: Dict) -> Dict:
     target = _target_path(models_root, item)
     part = target.with_suffix(target.suffix + ".part")
     expected_size = int(item["size"])
     exists = _is_complete(target, expected_size)
+    partial = part.exists()
     downloaded = 0
-    status = "pending"
+    status = "missing"
 
     if exists:
         downloaded = target.stat().st_size
         status = "exists"
-    elif part.exists():
+    elif partial:
         downloaded = part.stat().st_size
         status = "partial"
-
-    if override:
-        downloaded = int(override.get("downloaded", downloaded))
-        status = str(override.get("status", status))
 
     return {
         "id": item["id"],
         "label": item["label"],
+        "repo": item["repo"],
+        "repo_path": item["repo_path"],
+        "url": _hf_file_url(item),
+        "repo_url": _hf_repo_url(item),
         "relative_path": f"{item['target_subdir']}/{item['filename']}",
         "target_path": str(target),
+        "target_dir": str(target.parent),
         "size": expected_size,
         "downloaded": downloaded,
         "status": status,
     }
 
 
-def _public_files(models_root: str, job: Optional[Dict] = None) -> List[Dict]:
-    file_states = job.get("file_states", {}) if job else {}
-    return [_public_file(models_root, item, file_states.get(item["id"])) for item in MODEL_FILES]
-
-
-def _job_payload(job_id: str) -> Dict:
-    with _JOBS_LOCK:
-        job = dict(_JOBS[job_id])
-    return {
-        "job_id": job_id,
-        "root_id": job["root_id"],
-        "models_root": job["models_root"],
-        "status": job["status"],
-        "message": job["message"],
-        "error": job.get("error", ""),
-        "total_size": job["total_size"],
-        "downloaded": job["downloaded"],
-        "percent": round((job["downloaded"] / job["total_size"]) * 100, 2) if job["total_size"] else 0,
-        "files": _public_files(job["models_root"], job),
-    }
-
-
-def _set_job(job_id: str, **updates) -> None:
-    with _JOBS_LOCK:
-        if job_id in _JOBS:
-            _JOBS[job_id].update(updates)
-
-
-def _set_file_state(job_id: str, file_id: str, **updates) -> None:
-    with _JOBS_LOCK:
-        if job_id not in _JOBS:
-            return
-        file_states = _JOBS[job_id].setdefault("file_states", {})
-        state = file_states.setdefault(file_id, {})
-        state.update(updates)
-        downloaded = 0
-        models_root = _JOBS[job_id]["models_root"]
-        for item in MODEL_FILES:
-            current = _public_file(models_root, item, file_states.get(item["id"]))
-            downloaded += min(int(current["downloaded"]), int(current["size"]))
-        _JOBS[job_id]["downloaded"] = downloaded
-
-
-def _download_file(job_id: str, models_root: str, item: Dict) -> None:
-    target = _target_path(models_root, item)
-    expected_size = int(item["size"])
-    if _is_complete(target, expected_size):
-        _set_file_state(job_id, item["id"], status="exists", downloaded=target.stat().st_size)
-        return
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    part = target.with_suffix(target.suffix + ".part")
-    resume_from = part.stat().st_size if part.exists() else 0
-    url = _download_url(item)
-    headers = {"User-Agent": "Deno-ComfyUI-LTX-Model-Downloader/1.0"}
-    mode = "ab"
-    if resume_from > 0:
-        headers["Range"] = f"bytes={resume_from}-"
-
-    request = urllib.request.Request(url, headers=headers)
-    try:
-        response = urllib.request.urlopen(request, timeout=60)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 416 and _is_complete(part, expected_size):
-            os.replace(part, target)
-            _set_file_state(job_id, item["id"], status="done", downloaded=target.stat().st_size)
-            return
-        raise
-
-    with response:
-        if resume_from > 0 and response.status != 206:
-            resume_from = 0
-            mode = "wb"
-        _set_file_state(job_id, item["id"], status="downloading", downloaded=resume_from)
-        downloaded = resume_from
-        with part.open(mode + "") as handle:
-            while True:
-                chunk = response.read(CHUNK_SIZE)
-                if not chunk:
-                    break
-                handle.write(chunk)
-                downloaded += len(chunk)
-                _set_file_state(job_id, item["id"], status="downloading", downloaded=downloaded)
-
-    if not _is_complete(part, expected_size):
-        raise RuntimeError(f"Incomplete download: {item['filename']}")
-    os.replace(part, target)
-    _set_file_state(job_id, item["id"], status="done", downloaded=target.stat().st_size)
-
-
-def _download_job(job_id: str) -> None:
-    with _JOBS_LOCK:
-        job = dict(_JOBS[job_id])
-    models_root = job["models_root"]
-    try:
-        _set_job(job_id, status="running", message="Downloading model set...")
-        for item in MODEL_FILES:
-            _set_job(job_id, message=f"Checking {item['filename']}")
-            _download_file(job_id, models_root, item)
-        _set_job(job_id, status="done", message="Done. Press R or refresh ComfyUI model lists if needed.")
-    except Exception as exc:  # noqa: BLE001 - route should report user-facing errors.
-        _set_job(job_id, status="error", message="Download failed.", error=str(exc))
-
-
-def _create_job(root: Dict) -> str:
-    job_id = uuid.uuid4().hex
-    existing_downloaded = sum(
-        min(file["downloaded"], file["size"]) for file in _public_files(root["path"])
-    )
-    with _JOBS_LOCK:
-        _JOBS[job_id] = {
-            "root_id": root["id"],
-            "models_root": root["path"],
-            "status": "queued",
-            "message": "Queued",
-            "error": "",
-            "created_at": time.time(),
-            "total_size": sum(int(item["size"]) for item in MODEL_FILES),
-            "downloaded": existing_downloaded,
-            "file_states": {},
-        }
-    thread = threading.Thread(target=_download_job, args=(job_id,), daemon=True)
-    thread.start()
-    return job_id
+def _public_files(models_root: str) -> List[Dict]:
+    return [_public_file(models_root, item) for item in MODEL_FILES]
 
 
 @PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/info")
 async def ltx_model_downloader_info(request):
     try:
         selected, roots = _select_root(request.query.get("root_id"))
+        files = _public_files(selected["path"])
         payload = {
+            "mode": "manual_setup_helper",
+            "preset_id": "ltx_23_8gb_vram",
+            "preset_label": "LTX 2.3 8GB VRAM",
+            "instructions": (
+                "Open each official Hugging Face file link, download it with your browser, "
+                "then move the file into the shown target path. This node only checks local files."
+            ),
             "roots": roots,
             "selected_root_id": selected["id"],
             "models_root": selected["path"],
-            "files": _public_files(selected["path"]),
+            "files": files,
             "total_size": sum(int(item["size"]) for item in MODEL_FILES),
+            "existing_count": sum(1 for file in files if file["status"] == "exists"),
         }
         return web.json_response(payload)
     except Exception as exc:  # noqa: BLE001
         return web.json_response({"error": str(exc)}, status=400)
 
 
-@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/start")
-async def ltx_model_downloader_start(request):
-    try:
-        data = await request.json()
-        selected, _ = _select_root(data.get("root_id"))
-        job_id = _create_job(selected)
-        return web.json_response(_job_payload(job_id))
-    except Exception as exc:  # noqa: BLE001
-        return web.json_response({"error": str(exc)}, status=400)
-
-
-@PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/status/{{job_id}}")
-async def ltx_model_downloader_status(request):
-    job_id = request.match_info["job_id"]
-    with _JOBS_LOCK:
-        exists = job_id in _JOBS
-    if not exists:
-        return web.json_response({"error": "Unknown download job."}, status=404)
-    return web.json_response(_job_payload(job_id))
-
-
 class DenoLTXModelDownloader:
+    DESCRIPTION = (
+        "Preset-based easy model download helper.\n"
+        "The first preset is the LTX 2.3 8GB VRAM GGUF starter set. "
+        "Shows official Hugging Face links, target ComfyUI model paths, "
+        "and local install status without running automatic downloads."
+    )
     RETURN_TYPES = ()
     FUNCTION = "run"
-    CATEGORY = "Deno/Downloaders"
+    CATEGORY = "Deno/Setup"
     OUTPUT_NODE = True
 
     @classmethod
@@ -416,4 +283,3 @@ class DenoLTXModelDownloader:
 
     def run(self, model_root: str):
         return ()
-

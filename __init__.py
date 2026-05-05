@@ -362,7 +362,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoMultiImageLoader": "(Deno) Multi Image Loader",
     "DenoLTXSequencer": "(Deno) LTX Sequencer",
     "DenoLTX23PresetLoader": "(Deno) LTX Model Loader",
-    "DenoLTXModelDownloader": "(Deno) LTX Model Downloader",
+    "DenoLTXModelDownloader": "(Deno) Easy Model Download Helper",
     "DenoLTXMultiLoraLoader": "(Deno) LTX Multi LoRA Loader",
     "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
 }
