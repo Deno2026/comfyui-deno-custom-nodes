@@ -288,6 +288,37 @@ def test_ltx_prompt_guide_encodes_prompts_and_outputs_integer_frame_rate():
     assert node_cls.CATEGORY == "Deno/LTX"
 
 
+def test_ltx_prompt_guide_keeps_negative_prompt_when_collapsed():
+    package = load_package()
+
+    class RecordingClip:
+        def __init__(self):
+            self.texts = []
+
+        def tokenize(self, text):
+            self.texts.append(text)
+            return text
+
+        def encode_from_tokens_scheduled(self, tokens):
+            return {"encoded": tokens}
+
+    clip = RecordingClip()
+    node = package.DenoLTXPromptGuide()
+    positive, negative, frame_rate = node.build(
+        clip=clip,
+        positive_prompt="hello",
+        language="Auto",
+        frame_rate=25,
+        show_negative_prompt=False,
+        negative_prompt="low quality",
+    )
+
+    assert clip.texts == ["hello", "low quality"]
+    assert positive == {"encoded": "hello"}
+    assert negative == {"encoded": "low quality"}
+    assert frame_rate == 25
+
+
 def test_resize_box_declares_comfyui_contract():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoResolutionSetup"]

@@ -76,7 +76,7 @@ class DenoLTXPromptGuide:
         negative_prompt: str,
     ):
         positive = _encode_text(clip, positive_prompt)
-        negative = _encode_text(clip, negative_prompt if show_negative_prompt else "")
+        negative = _encode_text(clip, negative_prompt)
 
         frame_rate = int(frame_rate)
         positive = node_helpers.conditioning_set_values(positive, {"frame_rate": frame_rate})

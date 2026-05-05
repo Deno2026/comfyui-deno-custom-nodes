@@ -642,6 +642,13 @@ function getLinkedImageSize(node) {
         return null;
     }
 
+    const hintedSize = sourceNode.__denoOutputImageSize ?? sourceNode.properties?.__denoOutputImageSize;
+    const hintedWidth = Number(hintedSize?.width);
+    const hintedHeight = Number(hintedSize?.height);
+    if (hintedWidth > 0 && hintedHeight > 0) {
+        return { width: hintedWidth, height: hintedHeight };
+    }
+
     if (Array.isArray(sourceNode.imgs) && sourceNode.imgs.length > 0) {
         const firstImage = sourceNode.imgs[0];
         const imgWidth = Number(firstImage?.naturalWidth ?? firstImage?.width ?? 0);

@@ -5,6 +5,9 @@ const LOADER_NODE = "DenoMultiImageLoader";
 const SEQUENCER_NODE = "DenoLTXSequencer";
 const LTX_PRESET_NODE = "DenoLTX23PresetLoader";
 const LOADER_MIN_SIZE = [360, 520];
+const LOADER_KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
+const LOADER_PRESET_MODE = "Preset Ratio";
+const LOADER_MANUAL_MODE = "Manual Input";
 
 window.__denoLtxSequencerNodes = window.__denoLtxSequencerNodes || new Set();
 
@@ -369,11 +372,11 @@ function setupMultiImageLoader(node) {
     hideWidget(pathsWidget);
 
     node._denoUpdateLoaderVisibility = function () {
-        const mode = getWidget(this, "mode")?.value ?? "Keep Input Ratio";
-        toggleWidgetVisibility(getWidget(this, "ratio_preset"), mode === "Preset Ratio");
-        toggleWidgetVisibility(getWidget(this, "megapixels"), mode === "Preset Ratio" || mode === "Keep Input Ratio");
-        toggleWidgetVisibility(getWidget(this, "width"), mode === "Manual Input");
-        toggleWidgetVisibility(getWidget(this, "height"), mode === "Manual Input");
+        const mode = getWidget(this, "mode")?.value ?? LOADER_KEEP_INPUT_RATIO_MODE;
+        toggleWidgetVisibility(getWidget(this, "ratio_preset"), mode === LOADER_PRESET_MODE);
+        toggleWidgetVisibility(getWidget(this, "megapixels"), mode === LOADER_PRESET_MODE || mode === LOADER_KEEP_INPUT_RATIO_MODE);
+        toggleWidgetVisibility(getWidget(this, "width"), mode === LOADER_MANUAL_MODE);
+        toggleWidgetVisibility(getWidget(this, "height"), mode === LOADER_MANUAL_MODE);
         this.setDirtyCanvas?.(true, true);
     };
 
@@ -447,6 +450,7 @@ function setupMultiImageLoader(node) {
         currentWidget.callback = function (value) {
             const result = originalCallback?.apply(this, arguments);
             node._denoUpdateLoaderVisibility?.();
+            refreshOutputSizeHint();
             return result;
         };
         currentWidget.__denoLoaderWrapped = true;
@@ -468,6 +472,38 @@ function setupMultiImageLoader(node) {
         node.setDirtyCanvas?.(true, true);
         app.graph?.setDirtyCanvas?.(true, true);
         render();
+        refreshOutputSizeHint();
+    }
+
+    function setOutputSizeHint(size) {
+        if (!size || !(size.width > 0) || !(size.height > 0)) {
+            return;
+        }
+        const nextSize = {
+            width: Math.round(size.width),
+            height: Math.round(size.height),
+        };
+        const prevSize = node.__denoOutputImageSize ?? {};
+        if (prevSize.width === nextSize.width && prevSize.height === nextSize.height) {
+            return;
+        }
+        node.__denoOutputImageSize = nextSize;
+        node.properties = node.properties || {};
+        node.properties.__denoOutputImageSize = nextSize;
+        node.setDirtyCanvas?.(true, true);
+        app.graph?.setDirtyCanvas?.(true, true);
+    }
+
+    async function refreshOutputSizeHint() {
+        const requestId = (node.__denoOutputSizeRequestId || 0) + 1;
+        node.__denoOutputSizeRequestId = requestId;
+
+        const paths = getPaths();
+        const size = await calculateLoaderOutputSize(node, paths);
+        if (node.__denoOutputSizeRequestId !== requestId) {
+            return;
+        }
+        setOutputSizeHint(size);
     }
 
     function createPlaceholder() {
@@ -604,6 +640,7 @@ function setupMultiImageLoader(node) {
             node._denoImageCount = count;
             notifyConnectedSequencers(node, count);
             render();
+            refreshOutputSizeHint();
         }
     }
 
@@ -663,6 +700,196 @@ function setupMultiImageLoader(node) {
     setTimeout(syncLoaderStateFromWidget, 250);
     node._denoUpdateLoaderVisibility?.();
     render();
+    refreshOutputSizeHint();
+}
+
+async function calculateLoaderOutputSize(node, paths) {
+    const mode = getWidget(node, "mode")?.value ?? LOADER_KEEP_INPUT_RATIO_MODE;
+    const width = getWidgetNumber(node, "width", 1024);
+    const height = getWidgetNumber(node, "height", 1024);
+    const megapixels = getWidgetNumber(node, "megapixels", 1.0);
+    const divisibleBy = getWidgetNumber(node, "divisible_by", 32);
+
+    if (mode === LOADER_PRESET_MODE) {
+        const ratioPreset = getWidget(node, "ratio_preset")?.value ?? "16:9";
+        const [ratioX, ratioY] = ratioPreset.split(":").map(Number);
+        return dimensionsFromTuple(computeLoaderPresetDims(ratioX || 16, ratioY || 9, megapixels, divisibleBy));
+    }
+
+    if (mode === LOADER_KEEP_INPUT_RATIO_MODE) {
+        const firstPath = paths?.[0];
+        if (firstPath) {
+            const sourceSize = await readInputImageSize(firstPath);
+            if (sourceSize) {
+                return dimensionsFromTuple(
+                    computeLoaderKeepInputRatioDims(sourceSize.width, sourceSize.height, megapixels, divisibleBy)
+                );
+            }
+        }
+    }
+
+    return {
+        width: roundLoaderUp(width, divisibleBy),
+        height: roundLoaderUp(height, divisibleBy),
+    };
+}
+
+function getWidgetNumber(node, name, fallback) {
+    const value = Number(getWidget(node, name)?.value ?? node.properties?.[name] ?? fallback);
+    return Number.isFinite(value) ? value : fallback;
+}
+
+function dimensionsFromTuple(dims) {
+    return { width: dims[0], height: dims[1] };
+}
+
+function readInputImageSize(path) {
+    return new Promise((resolve) => {
+        const image = new Image();
+        image.onload = () => {
+            const width = Number(image.naturalWidth || image.width || 0);
+            const height = Number(image.naturalHeight || image.height || 0);
+            resolve(width > 0 && height > 0 ? { width, height } : null);
+        };
+        image.onerror = () => resolve(null);
+        image.src = `/api/view?filename=${encodeURIComponent(path)}&type=input`;
+    });
+}
+
+function computeLoaderPresetDims(ratioX, ratioY, megapixels, divisibleBy) {
+    const effectiveAlignment = getEffectiveAlignment(divisibleBy);
+    const totalPixels = Math.max(0.01, megapixels) * 1_000_000;
+    const baseWidth = Math.sqrt(totalPixels * ratioX / ratioY);
+    const baseHeight = Math.sqrt(totalPixels * ratioY / ratioX);
+
+    const widthCandidates = [
+        ...new Set([roundLoaderUp(baseWidth, effectiveAlignment), roundLoaderDown(baseWidth, effectiveAlignment)]),
+    ];
+    const heightCandidates = [
+        ...new Set([roundLoaderUp(baseHeight, effectiveAlignment), roundLoaderDown(baseHeight, effectiveAlignment)]),
+    ];
+    const candidates = new Map();
+
+    for (const widthCandidate of widthCandidates) {
+        const exactHeight = (widthCandidate * ratioY) / ratioX;
+        candidates.set(
+            `${widthCandidate}x${roundLoaderUp(exactHeight, effectiveAlignment)}`,
+            [widthCandidate, roundLoaderUp(exactHeight, effectiveAlignment)]
+        );
+        candidates.set(
+            `${widthCandidate}x${roundLoaderDown(exactHeight, effectiveAlignment)}`,
+            [widthCandidate, roundLoaderDown(exactHeight, effectiveAlignment)]
+        );
+    }
+
+    for (const heightCandidate of heightCandidates) {
+        const exactWidth = (heightCandidate * ratioX) / ratioY;
+        candidates.set(
+            `${roundLoaderUp(exactWidth, effectiveAlignment)}x${heightCandidate}`,
+            [roundLoaderUp(exactWidth, effectiveAlignment), heightCandidate]
+        );
+        candidates.set(
+            `${roundLoaderDown(exactWidth, effectiveAlignment)}x${heightCandidate}`,
+            [roundLoaderDown(exactWidth, effectiveAlignment), heightCandidate]
+        );
+    }
+
+    return [...candidates.values()].reduce((best, current) => {
+        const score = getLoaderPresetCandidateScore(current[0], current[1], baseWidth, baseHeight, totalPixels, ratioX / ratioY);
+        const bestScore = getLoaderPresetCandidateScore(best[0], best[1], baseWidth, baseHeight, totalPixels, ratioX / ratioY);
+        return compareScore(score, bestScore) < 0 ? current : best;
+    });
+}
+
+function computeLoaderKeepInputRatioDims(sourceWidth, sourceHeight, megapixels, divisibleBy) {
+    const effectiveAlignment = getEffectiveAlignment(divisibleBy);
+    const safeSourceWidth = Math.max(effectiveAlignment, Number(sourceWidth) || 1024);
+    const safeSourceHeight = Math.max(effectiveAlignment, Number(sourceHeight) || 1024);
+    const totalPixels = Math.max(0.01, megapixels) * 1_000_000;
+    const sourceAspect = safeSourceWidth / safeSourceHeight;
+    const scale = Math.sqrt(totalPixels / Math.max(1, safeSourceWidth * safeSourceHeight));
+    const baseWidth = Math.max(effectiveAlignment, safeSourceWidth * scale);
+    const baseHeight = Math.max(effectiveAlignment, safeSourceHeight * scale);
+    const rounders = [roundLoaderDown, roundLoaderNearest, roundLoaderUp];
+    const candidates = new Map();
+
+    for (const widthRounder of rounders) {
+        const widthCandidate = widthRounder(baseWidth, effectiveAlignment);
+        const exactHeight = widthCandidate / sourceAspect;
+        for (const heightRounder of rounders) {
+            const heightCandidate = heightRounder(exactHeight, effectiveAlignment);
+            candidates.set(`${widthCandidate}x${heightCandidate}`, [widthCandidate, heightCandidate]);
+        }
+    }
+
+    for (const heightRounder of rounders) {
+        const heightCandidate = heightRounder(baseHeight, effectiveAlignment);
+        const exactWidth = heightCandidate * sourceAspect;
+        for (const widthRounder of rounders) {
+            const widthCandidate = widthRounder(exactWidth, effectiveAlignment);
+            candidates.set(`${widthCandidate}x${heightCandidate}`, [widthCandidate, heightCandidate]);
+        }
+    }
+
+    candidates.set(
+        `${roundLoaderNearest(baseWidth, effectiveAlignment)}x${roundLoaderNearest(baseHeight, effectiveAlignment)}`,
+        [roundLoaderNearest(baseWidth, effectiveAlignment), roundLoaderNearest(baseHeight, effectiveAlignment)]
+    );
+
+    return [...candidates.values()].reduce((best, current) => {
+        const score = getLoaderAutoCandidateScore(current[0], current[1], baseWidth, baseHeight, totalPixels, sourceAspect);
+        const bestScore = getLoaderAutoCandidateScore(best[0], best[1], baseWidth, baseHeight, totalPixels, sourceAspect);
+        return compareScore(score, bestScore) < 0 ? current : best;
+    });
+}
+
+function getEffectiveAlignment(divisibleBy) {
+    const value = Number.parseInt(String(divisibleBy ?? 32), 10);
+    return Number.isFinite(value) && value > 0 ? value : 32;
+}
+
+function roundLoaderUp(value, multiple) {
+    const effectiveAlignment = getEffectiveAlignment(multiple);
+    return Math.ceil(Math.max(value, effectiveAlignment) / effectiveAlignment) * effectiveAlignment;
+}
+
+function roundLoaderDown(value, multiple) {
+    const effectiveAlignment = getEffectiveAlignment(multiple);
+    return Math.max(effectiveAlignment, Math.floor(value / effectiveAlignment) * effectiveAlignment);
+}
+
+function roundLoaderNearest(value, multiple) {
+    const effectiveAlignment = getEffectiveAlignment(multiple);
+    return Math.max(effectiveAlignment, Math.floor(value / effectiveAlignment + 0.5) * effectiveAlignment);
+}
+
+function getLoaderPresetCandidateScore(width, height, baseWidth, baseHeight, totalPixels, targetRatio) {
+    const preferredDimensions = [512, 720, 768, 1024, 1088, 1536, 1920];
+    const widthError = Math.abs(width - baseWidth) / baseWidth;
+    const heightError = Math.abs(height - baseHeight) / baseHeight;
+    const preferenceError =
+        Math.min(...preferredDimensions.map((preferred) => Math.abs(width - preferred))) +
+        Math.min(...preferredDimensions.map((preferred) => Math.abs(height - preferred)));
+    const areaError = Math.abs((width * height) - totalPixels) / totalPixels;
+    const ratioError = Math.abs((width / height) - targetRatio) / targetRatio;
+    return [widthError + heightError, preferenceError, areaError, ratioError];
+}
+
+function getLoaderAutoCandidateScore(width, height, baseWidth, baseHeight, totalPixels, sourceRatio) {
+    const areaError = Math.abs((width * height) - totalPixels) / totalPixels;
+    const ratioError = Math.abs((width / height) - sourceRatio) / sourceRatio;
+    const distanceError =
+        Math.abs(width - baseWidth) / baseWidth +
+        Math.abs(height - baseHeight) / baseHeight;
+    return [areaError, ratioError, distanceError];
+}
+
+function compareScore(score, bestScore) {
+    for (let i = 0; i < score.length; i += 1) {
+        if (score[i] < bestScore[i]) return -1;
+        if (score[i] > bestScore[i]) return 1;
+    }
+    return 0;
 }
 
 function patchSequencer(nodeType) {
