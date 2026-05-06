@@ -261,6 +261,7 @@ def test_ltx_model_loader_declares_three_loading_modes():
     input_types = node_cls.INPUT_TYPES()
 
     assert input_types["required"]["pipeline_mode"][0] == ["Checkpoint Style", "KJ Style", "GGUF Style"]
+    assert "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf" in input_types["required"]["gguf_unet_name"][0]
     assert input_types["required"]["clip_device"][0] == ["default", "cpu"]
     assert node_cls.RETURN_TYPES == ("MODEL", "CLIP", "VAE", "VAE")
     assert node_cls.RETURN_NAMES == ("model", "clip", "video_vae", "audio_vae")
@@ -276,7 +277,8 @@ def test_ltx_model_setup_helper_declares_output_node_and_safe_root_widget():
     assert node_cls.OUTPUT_NODE is True
     assert node_cls.CATEGORY == "Deno/Setup"
     assert "model_root" in input_types["required"]
-    assert input_types["required"]["model_root"][1]["default"] == input_types["required"]["model_root"][0][0]
+    assert input_types["required"]["model_root"][0] == "STRING"
+    assert input_types["required"]["model_root"][1]["default"]
 
 
 def test_ltx_model_setup_helper_has_no_backend_download_code():
