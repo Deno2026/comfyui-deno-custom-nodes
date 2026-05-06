@@ -1,5 +1,7 @@
 import importlib.util
+import os
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -65,6 +67,7 @@ def install_comfyui_dependency_stubs():
         folder_paths.get_full_path = lambda folder_name, filename: str(REPO_ROOT / "models" / folder_name / filename)
         folder_paths.get_full_path_or_raise = folder_paths.get_full_path
         folder_paths.get_folder_paths = lambda folder_name: [str(REPO_ROOT / "models" / folder_name)]
+        folder_paths.get_input_directory = lambda: str(REPO_ROOT / "input")
         sys.modules["folder_paths"] = folder_paths
 
     if "nodes" not in sys.modules:
@@ -187,6 +190,33 @@ def test_multi_image_loader_returns_batch_and_int_dimensions():
     assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
     assert node_cls.RETURN_NAMES == ("multi_output", "width", "height")
     assert node_cls.CATEGORY == "Deno/Image"
+
+
+def test_multi_image_loader_input_browser_lists_newest_files_first():
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_input_directory = folder_paths.get_input_directory
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        old_file = Path(temp_dir) / "old.png"
+        new_file = Path(temp_dir) / "new.jpg"
+        ignored_file = Path(temp_dir) / "note.txt"
+        old_file.write_bytes(b"old")
+        new_file.write_bytes(b"new")
+        ignored_file.write_text("ignore", encoding="utf-8")
+        os.utime(old_file, (100, 100))
+        os.utime(new_file, (200, 200))
+        os.utime(ignored_file, (300, 300))
+
+        folder_paths.get_input_directory = lambda: temp_dir
+        try:
+            files = board._list_input_folder_images()
+        finally:
+            folder_paths.get_input_directory = original_get_input_directory
+
+    assert [entry["name"] for entry in files] == ["new.jpg", "old.png"]
+    assert files[0]["mtime"] > files[1]["mtime"]
 
 
 def test_ltx_sequencer_declares_sync_controls():

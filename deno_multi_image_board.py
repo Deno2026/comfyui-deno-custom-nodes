@@ -5,12 +5,15 @@ from typing import List, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
+from aiohttp import web
 from PIL import Image, ImageOps
+from server import PromptServer
 
 from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, RESIZE_METHODS, compute_aligned_ratio_dims, round_up
 
 
 IMAGE_INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
+INPUT_BROWSER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 
 
 def _get_folder_paths():
@@ -27,6 +30,38 @@ def _get_comfy_utils():
     except ModuleNotFoundError:
         return None
     return comfy_utils
+
+
+def _list_input_folder_images():
+    folder_paths = _get_folder_paths()
+    if folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
+        return []
+
+    input_dir = folder_paths.get_input_directory()
+    files = []
+    try:
+        for name in os.listdir(input_dir):
+            full_path = os.path.join(input_dir, name)
+            if not os.path.isfile(full_path):
+                continue
+            if os.path.splitext(name)[1].lower() not in INPUT_BROWSER_IMAGE_EXTENSIONS:
+                continue
+            stat = os.stat(full_path)
+            files.append({
+                "name": name,
+                "mtime": stat.st_mtime,
+                "size": stat.st_size,
+            })
+    except Exception as exc:
+        print(f"[DenoMultiImageLoader] Failed to list input folder images: {exc}")
+        return []
+
+    return sorted(files, key=lambda item: (-float(item["mtime"]), str(item["name"]).lower()))
+
+
+@PromptServer.instance.routes.get("/deno/input-folder-images")
+async def deno_input_folder_images(_request):
+    return web.json_response({"files": _list_input_folder_images()})
 
 
 def _split_paths(image_paths: str) -> List[str]:

@@ -15,7 +15,7 @@ app.registerExtension({
     name: "Deno.ExtraNodes",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name === LOADER_NODE) {
-            patchMultiImageLoader(nodeType);
+            patchMultiImageLoader(nodeType, { inputFolderBrowser: true });
         }
         if (nodeData.name === SEQUENCER_NODE) {
             patchSequencer(nodeType);
@@ -26,11 +26,11 @@ app.registerExtension({
     },
 });
 
-function patchMultiImageLoader(nodeType) {
+function patchMultiImageLoader(nodeType, options = {}) {
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
         const result = onNodeCreated?.apply(this, arguments);
-        setupMultiImageLoader(this);
+        setupMultiImageLoader(this, options);
         return result;
     };
 }
@@ -362,7 +362,7 @@ function setupLtxPresetLoader(node) {
     }, 120);
 }
 
-function setupMultiImageLoader(node) {
+function setupMultiImageLoader(node, options = {}) {
     const pathsWidget = getWidget(node, "image_paths");
     if (!pathsWidget || node.__denoLoaderReady) {
         return;
@@ -400,8 +400,13 @@ function setupMultiImageLoader(node) {
     topBar.style.cssText = "display:flex; gap:8px; align-items:center;";
 
     const uploadBtn = createActionButton("Upload");
+    const inputFolderBtn = options.inputFolderBrowser ? createActionButton("Input Folder") : null;
     const clearBtn = createActionButton("Clear", true);
-    topBar.append(uploadBtn, clearBtn);
+    topBar.append(uploadBtn);
+    if (inputFolderBtn) {
+        topBar.append(inputFolderBtn);
+    }
+    topBar.append(clearBtn);
 
     const countLabel = document.createElement("div");
     countLabel.style.cssText = "margin-left:auto; color:#94f7af; font:600 11px sans-serif;";
@@ -409,7 +414,9 @@ function setupMultiImageLoader(node) {
 
     const hint = document.createElement("div");
     hint.style.cssText = "color:#7dcf92; font:11px sans-serif; opacity:0.85;";
-    hint.textContent = "Drag files, press Ctrl+V, or use Upload. Drag cards to reorder.";
+    hint.textContent = inputFolderBtn
+        ? "Drag files, press Ctrl+V, use Upload, or add existing input-folder images."
+        : "Drag files, press Ctrl+V, or use Upload. Drag cards to reorder.";
 
     const grid = document.createElement("div");
     grid.style.cssText = `
@@ -644,7 +651,328 @@ function setupMultiImageLoader(node) {
         }
     }
 
+    async function fetchInputFolderImages() {
+        const denoResponse = await api.fetchApi("/deno/input-folder-images", { cache: "no-store" });
+        if (denoResponse.status === 200) {
+            const payload = await denoResponse.json();
+            return (payload?.files ?? [])
+                .map((entry) => String(entry?.name ?? entry ?? "").trim())
+                .filter((entry) => /\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i.test(entry));
+        }
+
+        const response = await api.fetchApi("/object_info/LoadImage", { cache: "no-store" });
+        if (response.status !== 200) {
+            throw new Error(`Input folder list failed (${denoResponse.status}, fallback ${response.status})`);
+        }
+
+        const payload = await response.json();
+        const imageOptions = payload?.LoadImage?.input?.required?.image?.[0] ?? [];
+        return imageOptions
+            .map((entry) => String(entry || "").trim())
+            .filter((entry) => /\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i.test(entry))
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    }
+
+    function showInputFolderBrowser() {
+        const overlay = document.createElement("div");
+        overlay.style.cssText = `
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.46);
+            pointer-events: auto;
+        `;
+
+        const modal = document.createElement("div");
+        modal.style.cssText = `
+            width: min(760px, calc(100vw - 48px));
+            max-height: min(720px, calc(100vh - 48px));
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 16px;
+            box-sizing: border-box;
+            border: 1px solid rgba(72, 255, 132, 0.42);
+            border-radius: 16px;
+            background: rgba(3, 12, 8, 0.98);
+            color: #dfffea;
+            box-shadow: 0 18px 64px rgba(0, 0, 0, 0.55);
+            font: 12px sans-serif;
+        `;
+
+        const header = document.createElement("div");
+        header.style.cssText = "display:flex; gap:10px; align-items:center;";
+
+        const title = document.createElement("div");
+        title.textContent = "Add images from ComfyUI input folder";
+        title.style.cssText = "flex:1; color:#9dffba; font:700 15px sans-serif;";
+
+        const closeBtn = createActionButton("Close");
+        closeBtn.onclick = () => closeInputFolderBrowser();
+        header.append(title, closeBtn);
+
+        const search = document.createElement("input");
+        search.type = "search";
+        search.placeholder = "Search input images...";
+        search.style.cssText = `
+            width: 100%;
+            border: 1px solid rgba(72, 255, 132, 0.28);
+            border-radius: 10px;
+            background: rgba(9, 18, 14, 0.96);
+            color: #dfffea;
+            padding: 8px 10px;
+            box-sizing: border-box;
+            outline: none;
+            font: 12px sans-serif;
+        `;
+
+        const status = document.createElement("div");
+        status.textContent = "Loading input folder list...";
+        status.style.cssText = "color:#91dca4; min-height:16px;";
+
+        const list = document.createElement("div");
+        list.style.cssText = `
+            flex: 1;
+            min-height: 220px;
+            overflow: auto;
+            position: relative;
+            padding: 4px;
+            box-sizing: border-box;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.22);
+        `;
+
+        const footer = document.createElement("div");
+        footer.style.cssText = "display:flex; gap:8px; align-items:center;";
+        const addBtn = createActionButton("Add Selected");
+        addBtn.disabled = true;
+        addBtn.style.opacity = "0.55";
+        const selectedLabel = document.createElement("div");
+        selectedLabel.style.cssText = "color:#9dffba; font:600 12px sans-serif;";
+        selectedLabel.textContent = "0 selected";
+        footer.append(addBtn, selectedLabel);
+
+        modal.append(header, search, status, list, footer);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const stopCanvasEvent = (event) => event.stopPropagation();
+        modal.addEventListener("pointerdown", stopCanvasEvent);
+        modal.addEventListener("mousedown", stopCanvasEvent);
+        modal.addEventListener("wheel", stopCanvasEvent, { passive: false });
+        overlay.addEventListener("click", (event) => {
+            if (event.target === overlay) {
+                closeInputFolderBrowser();
+            }
+        });
+
+        const selected = new Set();
+        let allFiles = [];
+        let filteredFiles = [];
+        let virtualRenderFrame = 0;
+        const virtualGrid = {
+            gap: 10,
+            padding: 4,
+            minCardWidth: 132,
+            cardHeight: 122,
+            overscanRows: 3,
+        };
+
+        const cleanupInputFolderBrowser = () => {
+            window.removeEventListener("resize", scheduleVirtualRender);
+            if (virtualRenderFrame) {
+                cancelAnimationFrame(virtualRenderFrame);
+                virtualRenderFrame = 0;
+            }
+        };
+
+        const closeInputFolderBrowser = () => {
+            cleanupInputFolderBrowser();
+            overlay.remove();
+        };
+
+        const refreshSelected = () => {
+            selectedLabel.textContent = `${selected.size} selected`;
+            addBtn.disabled = selected.size === 0;
+            addBtn.style.opacity = selected.size === 0 ? "0.55" : "1";
+        };
+
+        const getVirtualMetrics = () => {
+            const availableWidth = Math.max(1, list.clientWidth - (virtualGrid.padding * 2));
+            const columns = Math.max(
+                1,
+                Math.floor((availableWidth + virtualGrid.gap) / (virtualGrid.minCardWidth + virtualGrid.gap))
+            );
+            const cardWidth = Math.floor((availableWidth - (virtualGrid.gap * (columns - 1))) / columns);
+            const rowHeight = virtualGrid.cardHeight + virtualGrid.gap;
+            const rowCount = Math.ceil(filteredFiles.length / columns);
+            return {
+                columns,
+                cardWidth,
+                rowHeight,
+                rowCount,
+                totalHeight: (rowCount * rowHeight) + virtualGrid.padding,
+            };
+        };
+
+        const createInputFolderCard = (file, index, metrics) => {
+            const column = index % metrics.columns;
+            const row = Math.floor(index / metrics.columns);
+            const card = document.createElement("button");
+            card.type = "button";
+            card.style.cssText = `
+                position: absolute;
+                left: ${virtualGrid.padding + (column * (metrics.cardWidth + virtualGrid.gap))}px;
+                top: ${virtualGrid.padding + (row * metrics.rowHeight)}px;
+                width: ${metrics.cardWidth}px;
+                height: ${virtualGrid.cardHeight}px;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                border: 1px solid ${selected.has(file) ? "rgba(72,255,132,0.9)" : "rgba(54,110,74,0.9)"};
+                border-radius: 10px;
+                padding: 6px;
+                background: ${selected.has(file) ? "rgba(21, 75, 39, 0.72)" : "rgba(8, 16, 13, 0.95)"};
+                color: #dfffea;
+                cursor: pointer;
+                text-align: left;
+                overflow: hidden;
+            `;
+
+            const img = document.createElement("img");
+            img.src = `/api/view?filename=${encodeURIComponent(file)}&type=input`;
+            img.loading = "lazy";
+            img.decoding = "async";
+            if ("fetchPriority" in img) {
+                img.fetchPriority = "low";
+            }
+            img.style.cssText = `
+                width: 100%;
+                height: 82px;
+                object-fit: cover;
+                border-radius: 7px;
+                background: #020403;
+                pointer-events: none;
+            `;
+
+            const label = document.createElement("div");
+            label.textContent = file;
+            label.title = file;
+            label.style.cssText = `
+                color: #dfffea;
+                font: 600 11px/1.25 sans-serif;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            `;
+
+            card.onclick = () => {
+                if (selected.has(file)) {
+                    selected.delete(file);
+                } else {
+                    selected.add(file);
+                }
+                refreshSelected();
+                renderVirtualGrid();
+            };
+            card.append(img, label);
+            return card;
+        };
+
+        const renderEmptyMessage = (message) => {
+            const empty = document.createElement("div");
+            empty.textContent = message;
+            empty.style.cssText = "color:#91dca4; padding:10px;";
+            list.replaceChildren(empty);
+        };
+
+        const renderVirtualGrid = () => {
+            if (!filteredFiles.length) {
+                renderEmptyMessage(allFiles.length ? "No images match the search." : "No input images found.");
+                return;
+            }
+
+            const metrics = getVirtualMetrics();
+            const scrollTop = list.scrollTop;
+            const viewportHeight = list.clientHeight || 220;
+            const startRow = Math.max(0, Math.floor(scrollTop / metrics.rowHeight) - virtualGrid.overscanRows);
+            const endRow = Math.min(
+                metrics.rowCount,
+                Math.ceil((scrollTop + viewportHeight) / metrics.rowHeight) + virtualGrid.overscanRows
+            );
+            const startIndex = startRow * metrics.columns;
+            const endIndex = Math.min(filteredFiles.length, endRow * metrics.columns);
+
+            const spacer = document.createElement("div");
+            spacer.dataset.denoVirtualGrid = "true";
+            spacer.style.cssText = `
+                position: relative;
+                width: 100%;
+                height: ${Math.max(metrics.totalHeight, viewportHeight)}px;
+                min-height: ${viewportHeight}px;
+            `;
+
+            const cards = [];
+            for (let index = startIndex; index < endIndex; index += 1) {
+                cards.push(createInputFolderCard(filteredFiles[index], index, metrics));
+            }
+            spacer.replaceChildren(...cards);
+            list.replaceChildren(spacer);
+            list.scrollTop = scrollTop;
+        };
+
+        const scheduleVirtualRender = () => {
+            if (virtualRenderFrame) {
+                return;
+            }
+            virtualRenderFrame = requestAnimationFrame(() => {
+                virtualRenderFrame = 0;
+                renderVirtualGrid();
+            });
+        };
+
+        const applyInputFolderFilter = () => {
+            const needle = search.value.trim().toLowerCase();
+            filteredFiles = allFiles.filter((file) => file.toLowerCase().includes(needle));
+            status.textContent = needle
+                ? `${filteredFiles.length} of ${allFiles.length} input images shown`
+                : `${allFiles.length} input image${allFiles.length === 1 ? "" : "s"} found`;
+            list.scrollTop = 0;
+            renderVirtualGrid();
+        };
+
+        search.oninput = applyInputFolderFilter;
+        list.addEventListener("scroll", scheduleVirtualRender, { passive: true });
+        window.addEventListener("resize", scheduleVirtualRender);
+        addBtn.onclick = () => {
+            if (!selected.size) {
+                return;
+            }
+            const selectedInOrder = allFiles.filter((file) => selected.has(file));
+            setPaths(getPaths().concat(selectedInOrder));
+            closeInputFolderBrowser();
+        };
+
+        fetchInputFolderImages()
+            .then((files) => {
+                allFiles = files;
+                applyInputFolderFilter();
+                refreshSelected();
+                search.focus();
+            })
+            .catch((error) => {
+                status.textContent = `Failed to read input folder list: ${error.message || error}`;
+                list.replaceChildren();
+            });
+    }
+
     uploadBtn.onclick = () => fileInput.click();
+    if (inputFolderBtn) {
+        inputFolderBtn.onclick = showInputFolderBrowser;
+    }
     clearBtn.onclick = () => setPaths([]);
     fileInput.onchange = (event) => uploadFiles(event.target.files);
 

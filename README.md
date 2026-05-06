@@ -37,7 +37,10 @@ Main features:
 - scrollable fixed-height gallery instead of endlessly growing node height
 - drag reorder with stable placeholder insertion
 - upload button, drag-and-drop upload, and paste image support
-- `Preset Ratio` or `Manual Input` size mode
+- `Input Folder` browser for reusing existing ComfyUI `input` images
+- newest-first input image sorting based on file modified time
+- virtualized input-folder thumbnails for smoother browsing with many images
+- `Keep Input Ratio`, `Preset Ratio`, or `Manual Input` size mode
 - ratio preset, megapixels, divisible-by sizing, or direct width/height control
 - resize method and interpolation selection
 - outputs: `multi_output`, `width`, `height`
