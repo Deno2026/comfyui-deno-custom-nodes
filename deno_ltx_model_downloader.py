@@ -275,7 +275,7 @@ class DenoLTXModelDownloader:
         return {
             "required": {
                 "model_root": (
-                    choices,
+                    "STRING",
                     {"default": choices[0]},
                 ),
             }

@@ -13,6 +13,11 @@ DEVICE_CHOICES = ["default", "cpu"]
 DTYPE_CHOICES = ["default", "fp16", "bf16", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e5m2"]
 KJ_VAE_DEVICE = "main_device"
 KJ_VAE_DTYPE = "bf16"
+RECOMMENDED_GGUF_UNETS = [
+    "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf",
+    "LTX-2.3-22B-distilled-1.1-Q2_K.gguf",
+    "ltx-2.3-22b-dev-Q4_K_M.gguf",
+]
 
 
 def _normalize_name(name: str) -> str:
@@ -66,6 +71,8 @@ def _build_text_projection_options(recommended: Sequence[str]) -> List[str]:
 
 def _get_gguf_choices() -> List[str]:
     options: List[str] = []
+    for item in RECOMMENDED_GGUF_UNETS:
+        _add_unique(options, item)
 
     try:
         discovered = folder_paths.get_filename_list("unet_gguf")
