@@ -5,17 +5,21 @@
 Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
+## Visual Guide
+
+For larger screenshots and menu-by-menu explanations, see the [Detailed Node Guide](docs/NODE_GUIDE.md).
+
 ## Included Nodes
 
 ### `(Deno) Resize Box`
 
 Resolution helper and image resize node for ComfyUI.
 
-![Deno Resize Box](docs/images/resize-box.jpg)
+![Deno Resize Box](docs/images/resize-box-overview.svg)
 
 Main features:
 
-- `Preset Ratio` and `Manual Input` modes
+- `Keep Input Ratio`, `Preset Ratio`, and `Manual Input` modes
 - common ratio presets
 - megapixel-based size calculation
 - `divisible_by` alignment
@@ -30,7 +34,7 @@ Minor-upgrade multi-image loader designed for batch guide workflows.
 
 Credit: Inspired by the original workflow ideas from **WhatDreamsCost**, then adapted and refined for the Deno workflow style.
 
-![Deno Multi Image Loader](docs/images/multi-image-loader.jpg)
+![Deno Multi Image Loader](docs/images/multi-image-loader-overview.svg)
 
 Main features:
 
@@ -52,7 +56,7 @@ LTX guide sequencer tuned for multi-image workflows.
 
 Credit: Inspired by **WhatDreamsCost**'s LTX workflow approach, with Deno-side adjustments focused on day-to-day usability.
 
-![Deno LTX Sequencer](docs/images/ltx-sequencer.svg)
+![Deno LTX Sequencer](docs/images/ltx-sequencer-overview.svg)
 
 Main features:
 
@@ -66,7 +70,7 @@ Main features:
 
 One compact loader for the common LTX 2.3 model-loading patterns.
 
-![Deno LTX Model Loader](docs/images/ltx-model-loader.svg)
+![Deno LTX Model Loader](docs/images/ltx-model-loader-modes.svg)
 
 Main features:
 
@@ -81,7 +85,7 @@ Main features:
 
 Preset-based setup helper for recommended model file sets. The first built-in preset is the LTX 2.3 8GB VRAM GGUF starter set.
 
-![Deno Easy Model Download Helper](docs/images/ltx-model-downloader.svg)
+![Deno Easy Model Download Helper](docs/images/easy-model-download-helper-overview.svg)
 
 Main features:
 
@@ -95,7 +99,7 @@ Main features:
 
 Power-LoRA-style multi LoRA loader for LTX workflows.
 
-![Deno LTX Multi LoRA Loader](docs/images/ltx-multi-lora-loader.svg)
+![Deno LTX Multi LoRA Loader](docs/images/ltx-multi-lora-loader-overview.svg)
 
 Main features:
 
@@ -109,7 +113,7 @@ Main features:
 
 Prompt helper that combines LTX prompt encoding, optional negative prompt handling, built-in LTX conditioning, and dialogue-length planning.
 
-![Deno LTX Prompt Guide](docs/images/ltx-prompt-guide.svg)
+![Deno LTX Prompt Guide](docs/images/ltx-prompt-guide-overview.svg)
 
 Main features:
 
