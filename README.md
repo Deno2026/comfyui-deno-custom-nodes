@@ -93,14 +93,16 @@ Main features:
 
 Creator preset link guide:
 
-- Hugging Face: right-click the small download icon next to the target file, copy the link address, then paste it into the preset `URL` field.
+- Hugging Face: right-click the small download icon next to the target file, choose `Copy link address`, then paste that direct file URL into the preset `URL` field.
 - Civitai: copy the model page URL from the browser address bar, paste it into the preset `URL` field, then press the `Civitai` button in the editor to fill the filename.
-- Do not use the Civitai blue `Download` button link as the preset URL unless you intentionally want to provide a direct API download link.
-- `File name` is used for the target path check. It does not have to match the URL text exactly, especially for Civitai API links.
+- For Civitai pages, do not copy the blue `Download` button link unless you intentionally want to provide a direct API download URL.
+- `File name` is used only for the target-path check. It does not have to match the URL text exactly, especially for Civitai/API links.
 
 ![Hugging Face link guide](docs/images/easy-model-download-helper-huggingface-link.png)
 
-![Civitai link guide](docs/images/easy-model-download-helper-civitai-link.png)
+![Civitai page URL guide](docs/images/easy-model-download-helper-civitai-link.png)
+
+![Civitai preset editor guide](docs/images/easy-model-download-helper-civitai-node.png)
 
 ### `(Deno) LTX Multi LoRA Loader`
 
