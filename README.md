@@ -75,21 +75,21 @@ Main features:
 - uses ComfyUI's built-in checkpoint / diffusion / DualCLIP loading paths where possible
 - uses KJNodes `VAELoaderKJ` for split video/audio VAE workflows
 - uses ComfyUI-GGUF UNet loading for GGUF workflows
+- includes clearer dependency errors and an audio VAE compatibility fallback for mixed ComfyUI/KJNodes environments
 
 ### `(Deno) Easy Model Download Helper`
 
-Preset-based setup helper for recommended model file sets. The first preset is the LTX 2.3 8GB VRAM GGUF starter set.
+Preset-based setup helper for recommended model file sets. The first built-in preset is the LTX 2.3 8GB VRAM GGUF starter set.
 
 ![Deno Easy Model Download Helper](docs/images/ltx-model-downloader.svg)
 
 Main features:
 
-- shows the selected preset model set with official Hugging Face links
-- prefers an existing external ComfyUI model root when ComfyUI already knows about one
-- shows the exact target path for each file
-- checks whether each file already exists locally
-- provides copy buttons for the URL and target path
-- does not run Python-side automatic downloads
+- opens official model links in the browser instead of downloading files in Python
+- shows detected ComfyUI model roots and lets users copy the selected root
+- supports saved creator presets inside the workflow
+- supports Hugging Face direct links and Civitai page/download links
+- shows target ComfyUI model subfolders so viewers know exactly where files should go
 
 ### `(Deno) LTX Multi LoRA Loader`
 

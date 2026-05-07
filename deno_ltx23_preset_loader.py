@@ -1,4 +1,5 @@
 import importlib.util
+import inspect
 import os
 import sys
 from pathlib import Path
@@ -18,6 +19,20 @@ RECOMMENDED_GGUF_UNETS = [
     "LTX-2.3-22B-distilled-1.1-Q2_K.gguf",
     "ltx-2.3-22b-dev-Q4_K_M.gguf",
 ]
+GGUF_INSTALL_MESSAGE = (
+    "[Deno] GGUF Style requires the ComfyUI-GGUF custom node.\n"
+    "Install 'ComfyUI-GGUF' from ComfyUI Manager, restart ComfyUI completely, then run again.\n"
+    "This Deno node is a workflow helper; the GGUF loading engine is provided by ComfyUI-GGUF."
+)
+KJ_INSTALL_MESSAGE = (
+    "[Deno] KJ/GGUF Style requires the comfyui-kjnodes custom node.\n"
+    "Install 'comfyui-kjnodes' from ComfyUI Manager, restart ComfyUI completely, then run again.\n"
+    "This Deno node uses KJNodes for the LTX video/audio VAE loaders."
+)
+COMFY_METADATA_MESSAGE = (
+    "[Deno] GGUF Style requires a newer ComfyUI core with diffusion-model metadata support.\n"
+    "Update ComfyUI, update ComfyUI-GGUF, restart ComfyUI completely, then run again."
+)
 
 
 def _normalize_name(name: str) -> str:
@@ -133,6 +148,22 @@ def _load_ltx_audio_vae(checkpoint_name: str):
     return _extract_output_value(output_obj, "LTXVAudioVAELoader")
 
 
+def _load_ltx_audio_vae_file(audio_vae_name: str):
+    import comfy.utils
+    from comfy.sd import VAE
+
+    vae_path = folder_paths.get_full_path_or_raise("vae", audio_vae_name)
+    sd, metadata = comfy.utils.load_torch_file(vae_path, return_metadata=True)
+    sd_audio = comfy.utils.state_dict_prefix_replace(
+        dict(sd),
+        {"audio_vae.": "autoencoder.", "vocoder.": "vocoder."},
+        filter_keys=True,
+    )
+    vae = VAE(sd=sd_audio, metadata=metadata)
+    vae.throw_exception_if_invalid()
+    return vae
+
+
 _GGUF_MODULE = None
 _GGUF_LOAD_ERROR: Optional[Exception] = None
 
@@ -148,7 +179,7 @@ def _load_gguf_module():
     gguf_dir = custom_nodes_dir / "ComfyUI-GGUF"
     init_path = gguf_dir / "__init__.py"
     if not init_path.exists():
-        _GGUF_LOAD_ERROR = RuntimeError("ComfyUI-GGUF is not installed. Install it to use GGUF Style.")
+        _GGUF_LOAD_ERROR = RuntimeError(GGUF_INSTALL_MESSAGE)
         raise _GGUF_LOAD_ERROR
 
     module_name = "deno_comfyui_gguf_bridge"
@@ -162,7 +193,10 @@ def _load_gguf_module():
         submodule_search_locations=[str(gguf_dir)],
     )
     if spec is None or spec.loader is None:
-        _GGUF_LOAD_ERROR = RuntimeError("Failed to build import spec for ComfyUI-GGUF.")
+        _GGUF_LOAD_ERROR = RuntimeError(
+            "[Deno] ComfyUI-GGUF was found, but it could not be loaded.\n"
+            "Update or reinstall ComfyUI-GGUF from ComfyUI Manager, then restart ComfyUI."
+        )
         raise _GGUF_LOAD_ERROR
 
     module = importlib.util.module_from_spec(spec)
@@ -170,7 +204,11 @@ def _load_gguf_module():
     try:
         spec.loader.exec_module(module)
     except Exception as exc:
-        _GGUF_LOAD_ERROR = RuntimeError(f"Failed to import ComfyUI-GGUF: {exc}")
+        _GGUF_LOAD_ERROR = RuntimeError(
+            "[Deno] ComfyUI-GGUF is installed, but failed to import.\n"
+            "Update or reinstall ComfyUI-GGUF from ComfyUI Manager, then restart ComfyUI.\n"
+            f"Original import error: {exc}"
+        )
         raise _GGUF_LOAD_ERROR
 
     _GGUF_MODULE = module
@@ -191,7 +229,7 @@ def _load_kj_nodes_module():
     custom_nodes_dir = _find_custom_nodes_root()
     module_path = custom_nodes_dir / "comfyui-kjnodes" / "nodes" / "nodes.py"
     if not module_path.exists():
-        _KJ_LOAD_ERROR = RuntimeError("comfyui-kjnodes is not installed. Install it to use KJ/GGUF Style.")
+        _KJ_LOAD_ERROR = RuntimeError(KJ_INSTALL_MESSAGE)
         raise _KJ_LOAD_ERROR
 
     module_name = "deno_comfyui_kjnodes_bridge"
@@ -201,7 +239,10 @@ def _load_kj_nodes_module():
 
     spec = importlib.util.spec_from_file_location(module_name, str(module_path))
     if spec is None or spec.loader is None:
-        _KJ_LOAD_ERROR = RuntimeError("Failed to build import spec for comfyui-kjnodes.")
+        _KJ_LOAD_ERROR = RuntimeError(
+            "[Deno] comfyui-kjnodes was found, but it could not be loaded.\n"
+            "Update or reinstall comfyui-kjnodes from ComfyUI Manager, then restart ComfyUI."
+        )
         raise _KJ_LOAD_ERROR
 
     module = importlib.util.module_from_spec(spec)
@@ -209,7 +250,11 @@ def _load_kj_nodes_module():
     try:
         spec.loader.exec_module(module)
     except Exception as exc:
-        _KJ_LOAD_ERROR = RuntimeError(f"Failed to import comfyui-kjnodes: {exc}")
+        _KJ_LOAD_ERROR = RuntimeError(
+            "[Deno] comfyui-kjnodes is installed, but failed to import.\n"
+            "Update or reinstall comfyui-kjnodes from ComfyUI Manager, then restart ComfyUI.\n"
+            f"Original import error: {exc}"
+        )
         raise _KJ_LOAD_ERROR
 
     _KJ_MODULE = module
@@ -230,7 +275,10 @@ def _get_gguf_loader_class():
     mapping = getattr(gguf_module, "NODE_CLASS_MAPPINGS", {})
     cls = mapping.get("UnetLoaderGGUFAdvanced") or mapping.get("UnetLoaderGGUF")
     if cls is None:
-        raise RuntimeError("ComfyUI-GGUF loader class not found.")
+        raise RuntimeError(
+            "[Deno] ComfyUI-GGUF is installed, but its GGUF UNet loader was not found.\n"
+            "Update ComfyUI-GGUF from ComfyUI Manager, restart ComfyUI completely, then run again."
+        )
     return cls
 
 
@@ -242,14 +290,66 @@ def _get_kj_vae_loader_class():
     kj_module = _load_kj_nodes_module()
     cls = getattr(kj_module, "VAELoaderKJ", None)
     if cls is None:
-        raise RuntimeError("VAELoaderKJ class not found in comfyui-kjnodes.")
+        raise RuntimeError(
+            "[Deno] comfyui-kjnodes is installed, but VAELoaderKJ was not found.\n"
+            "Update comfyui-kjnodes from ComfyUI Manager, restart ComfyUI completely, then run again."
+        )
     return cls
+
+
+def _assert_comfy_supports_ltx23_gguf_metadata():
+    try:
+        import comfy.sd
+    except Exception as exc:
+        raise RuntimeError(
+            "[Deno] Could not check ComfyUI GGUF metadata support.\n"
+            "Update ComfyUI, restart completely, then run again.\n"
+            f"Original import error: {exc}"
+        ) from exc
+
+    try:
+        params = inspect.signature(comfy.sd.load_diffusion_model_state_dict).parameters
+    except Exception as exc:
+        raise RuntimeError(COMFY_METADATA_MESSAGE + f"\nOriginal check error: {exc}") from exc
+
+    if "metadata" not in params:
+        raise RuntimeError(COMFY_METADATA_MESSAGE)
+
+
+def _friendly_ltx23_shape_error(exc: Exception) -> RuntimeError:
+    message = str(exc)
+    if "size mismatch" in message and "scale_shift_table" in message and "LTXAVModel" in message:
+        return RuntimeError(
+            "[Deno] The GGUF file was found, but ComfyUI built an incompatible LTXAVModel.\n"
+            "This usually means ComfyUI or ComfyUI-GGUF is too old to read the LTX 2.3 GGUF metadata.\n"
+            "Update ComfyUI core and ComfyUI-GGUF, restart ComfyUI completely, then run again.\n"
+            "If it still happens, re-download the GGUF model because its metadata may be missing or incompatible.\n"
+            f"Original error: {message}"
+        )
+    return RuntimeError(message)
+
+
+def _friendly_ltx_audio_vae_error(exc: Exception, audio_vae_name: str = "") -> RuntimeError:
+    message = str(exc)
+    known_signature_mismatch = "AudioVAE.__init__()" in message and "3 were given" in message
+    missing_metadata = "Metadata is required for audio VAE" in message or "Audio VAE config is required" in message
+    if known_signature_mismatch or missing_metadata:
+        selected = f"\nSelected audio VAE: {audio_vae_name}" if audio_vae_name else ""
+        return RuntimeError(
+            "[Deno] LTX Audio VAE failed to load because ComfyUI/KJNodes and the audio VAE format are not compatible.\n"
+            "Update ComfyUI core, comfyui-kjnodes, and ComfyUI-GGUF from ComfyUI Manager, then restart ComfyUI completely.\n"
+            "Also make sure the audio VAE is the official LTX23_audio_vae_bf16.safetensors file with metadata intact."
+            f"{selected}\n"
+            f"Original error: {message}"
+        )
+    return RuntimeError(message)
 
 
 class DenoLTX23PresetLoader:
     DESCRIPTION = (
         "Unified LTX model loader for beginner workflows.\n"
         "Choose Checkpoint Style, KJ Style, or GGUF Style and output MODEL/CLIP/video+audio VAE from one node.\n"
+        "GGUF Style requires ComfyUI-GGUF. KJ/GGUF Style requires comfyui-kjnodes.\n"
         "YouTube: https://www.youtube.com/@Denoise-AI"
     )
 
@@ -334,10 +434,23 @@ class DenoLTX23PresetLoader:
             "VAELoaderKJ(video)",
         )
         audio_vae = _extract_output_value(
-            vae_loader.load_vae(audio_vae_name, KJ_VAE_DEVICE, KJ_VAE_DTYPE),
+            self._load_kj_audio_vae_with_fallback(vae_loader, audio_vae_name),
             "VAELoaderKJ(audio)",
         )
         return video_vae, audio_vae
+
+    def _load_kj_audio_vae_with_fallback(self, vae_loader, audio_vae_name: str):
+        try:
+            return vae_loader.load_vae(audio_vae_name, KJ_VAE_DEVICE, KJ_VAE_DTYPE)
+        except TypeError as exc:
+            if "AudioVAE.__init__()" not in str(exc) or "3 were given" not in str(exc):
+                raise
+            try:
+                return (_load_ltx_audio_vae_file(audio_vae_name),)
+            except Exception as fallback_exc:  # noqa: BLE001
+                raise _friendly_ltx_audio_vae_error(fallback_exc, audio_vae_name) from exc
+        except Exception as exc:
+            raise _friendly_ltx_audio_vae_error(exc, audio_vae_name) from exc
 
     def _load_checkpoint_style(
         self,
@@ -347,7 +460,10 @@ class DenoLTX23PresetLoader:
     ):
         model, _clip_from_checkpoint, video_vae = nodes.CheckpointLoaderSimple().load_checkpoint(checkpoint_name)
         clip = _load_ltx_audio_text_encoder(text_encoder_name, checkpoint_name, clip_device)
-        audio_vae = _load_ltx_audio_vae(checkpoint_name)
+        try:
+            audio_vae = _load_ltx_audio_vae(checkpoint_name)
+        except Exception as exc:
+            raise _friendly_ltx_audio_vae_error(exc, checkpoint_name) from exc
         return model, clip, video_vae, audio_vae
 
     def _load_kj_style(
@@ -375,19 +491,27 @@ class DenoLTX23PresetLoader:
         clip_device: str,
     ):
         if gguf_unet_name == "__none__":
-            raise RuntimeError("No GGUF UNet found. Install ComfyUI-GGUF and place *.gguf in models/unet.")
+            raise RuntimeError(
+                "[Deno] No GGUF model was selected.\n"
+                "Install ComfyUI-GGUF, place an LTX 2.3 *.gguf file in a ComfyUI model folder such as models/unet, "
+                "then press R to refresh model lists."
+            )
 
+        _assert_comfy_supports_ltx23_gguf_metadata()
         loader_cls = _get_gguf_loader_class()
         loader = loader_cls()
         try:
-            model = loader.load_unet(
-                gguf_unet_name,
-                dequant_dtype="default",
-                patch_dtype="default",
-                patch_on_device=False,
-            )[0]
-        except TypeError:
-            model = loader.load_unet(gguf_unet_name)[0]
+            try:
+                model = loader.load_unet(
+                    gguf_unet_name,
+                    dequant_dtype="default",
+                    patch_dtype="default",
+                    patch_on_device=False,
+                )[0]
+            except TypeError:
+                model = loader.load_unet(gguf_unet_name)[0]
+        except RuntimeError as exc:
+            raise _friendly_ltx23_shape_error(exc) from exc
 
         clip = nodes.DualCLIPLoader().load_clip(text_encoder_name, text_projection_name, "ltxv", clip_device)[0]
         video_vae, audio_vae = self._load_kj_vaes(video_vae_name, audio_vae_name)
@@ -413,6 +537,7 @@ class DenoLTX23PresetLoader:
                 clip_device=clip_device,
             )
         elif pipeline_mode == "KJ Style":
+            _get_kj_vae_loader_class()
             model, clip, video_vae, audio_vae = self._load_kj_style(
                 diffusion_model_name=diffusion_model_name,
                 text_encoder_name=text_encoder_name,
@@ -423,6 +548,9 @@ class DenoLTX23PresetLoader:
                 weight_dtype=weight_dtype,
             )
         else:
+            _assert_comfy_supports_ltx23_gguf_metadata()
+            _get_gguf_loader_class()
+            _get_kj_vae_loader_class()
             model, clip, video_vae, audio_vae = self._load_gguf_style(
                 gguf_unet_name=gguf_unet_name,
                 text_encoder_name=text_encoder_name,

@@ -266,6 +266,28 @@ def test_ltx_model_loader_declares_three_loading_modes():
     assert node_cls.RETURN_TYPES == ("MODEL", "CLIP", "VAE", "VAE")
     assert node_cls.RETURN_NAMES == ("model", "clip", "video_vae", "audio_vae")
     assert node_cls.CATEGORY == "Deno/LTX"
+    assert "ComfyUI-GGUF" in node_cls.DESCRIPTION
+    assert "comfyui-kjnodes" in node_cls.DESCRIPTION
+
+
+def test_ltx_model_loader_has_friendly_gguf_dependency_errors():
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx23_preset_loader"]
+
+    assert "ComfyUI-GGUF" in module.GGUF_INSTALL_MESSAGE
+    assert "comfyui-kjnodes" in module.KJ_INSTALL_MESSAGE
+
+    original = RuntimeError(
+        "Error(s) in loading state_dict for LTXAVModel: "
+        "size mismatch for transformer_blocks.0.scale_shift_table"
+    )
+    friendly = module._friendly_ltx23_shape_error(original)
+    assert "Update ComfyUI core and ComfyUI-GGUF" in str(friendly)
+
+    audio_original = TypeError("AudioVAE.__init__() takes 2 positional arguments but 3 were given")
+    audio_friendly = module._friendly_ltx_audio_vae_error(audio_original, "LTX23_audio_vae_bf16.safetensors")
+    assert "Update ComfyUI core, comfyui-kjnodes, and ComfyUI-GGUF" in str(audio_friendly)
+    assert "LTX23_audio_vae_bf16.safetensors" in str(audio_friendly)
 
 
 def test_ltx_model_setup_helper_declares_output_node_and_safe_root_widget():
@@ -279,6 +301,38 @@ def test_ltx_model_setup_helper_declares_output_node_and_safe_root_widget():
     assert "model_root" in input_types["required"]
     assert input_types["required"]["model_root"][0] == "STRING"
     assert input_types["required"]["model_root"][1]["default"]
+    assert "presets_json" in input_types["required"]
+    assert input_types["required"]["presets_json"][0] == "STRING"
+    assert "ltx_23_8gb_vram" in input_types["required"]["presets_json"][1]["default"]
+    assert node_cls().run(input_types["required"]["model_root"][1]["default"]) == ()
+
+
+def test_ltx_model_setup_helper_preserves_builtin_preset_for_old_workflows():
+    package = load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+
+    parsed = module._parse_presets_state(
+        {
+            "active_preset_id": "custom_pack",
+            "presets": [
+                {
+                    "id": "custom_pack",
+                    "title": "Custom Pack",
+                    "files": [
+                        {
+                            "url": "https://example.com/model.safetensors",
+                            "target_subdir": "checkpoints",
+                            "filename": "model.safetensors",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert parsed["presets"][0]["id"] == "ltx_23_8gb_vram"
+    assert parsed["presets"][1]["id"] == "custom_pack"
+    assert parsed["active_preset_id"] == "custom_pack"
 
 
 def test_ltx_model_setup_helper_has_no_backend_download_code():
@@ -287,7 +341,8 @@ def test_ltx_model_setup_helper_has_no_backend_download_code():
     assert "urlopen" not in source
     assert "urllib.request" not in source
     assert "subprocess" not in source
-    assert "@PromptServer.instance.routes.post" not in source
+    assert "write_bytes(" not in source
+    assert "shutil.copy" not in source
 
 
 def test_ltx_multi_lora_loader_declares_compact_av_controls():
