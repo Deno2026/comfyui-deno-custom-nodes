@@ -52,7 +52,7 @@ LTX guide sequencer tuned for multi-image workflows.
 
 Credit: Inspired by **WhatDreamsCost**'s LTX workflow approach, with Deno-side adjustments focused on day-to-day usability.
 
-![Deno LTX Sequencer](docs/images/ltx-sequencer.svg)
+![Deno LTX Sequencer](docs/images/ltx-sequencer.jpg)
 
 Main features:
 
@@ -66,7 +66,7 @@ Main features:
 
 One compact loader for the common LTX 2.3 model-loading patterns.
 
-![Deno LTX Model Loader](docs/images/ltx-model-loader.svg)
+![Deno LTX Model Loader](docs/images/ltx-model-loader.jpg)
 
 Main features:
 
@@ -81,7 +81,7 @@ Main features:
 
 Preset-based setup helper for recommended model file sets. The first built-in preset is the LTX 2.3 8GB VRAM GGUF starter set.
 
-![Deno Easy Model Download Helper](docs/images/ltx-model-downloader.svg)
+![Deno Easy Model Download Helper](docs/images/easy-model-download-helper.png)
 
 Main features:
 
@@ -95,7 +95,7 @@ Main features:
 
 Power-LoRA-style multi LoRA loader for LTX workflows.
 
-![Deno LTX Multi LoRA Loader](docs/images/ltx-multi-lora-loader.svg)
+![Deno LTX Multi LoRA Loader](docs/images/ltx-multi-lora-loader.png)
 
 Main features:
 
@@ -109,7 +109,7 @@ Main features:
 
 Prompt helper that combines LTX prompt encoding, optional negative prompt handling, built-in LTX conditioning, and dialogue-length planning.
 
-![Deno LTX Prompt Guide](docs/images/ltx-prompt-guide.svg)
+![Deno LTX Prompt Guide](docs/images/ltx-prompt-guide.png)
 
 Main features:
 
