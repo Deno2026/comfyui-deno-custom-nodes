@@ -540,7 +540,7 @@ function setupMultiImageLoader(node, options = {}) {
         `;
 
         const image = document.createElement("img");
-        image.src = `/api/view?filename=${encodeURIComponent(path)}&type=input`;
+        setInputImageSource(image, path);
         image.style.cssText = "display:block; width:100%; height:100%; object-fit:cover; pointer-events:none;";
 
         const badge = document.createElement("div");
@@ -651,13 +651,50 @@ function setupMultiImageLoader(node, options = {}) {
         }
     }
 
-    async function fetchInputFolderImages() {
-        const denoResponse = await api.fetchApi("/deno/input-folder-images", { cache: "no-store" });
+    function normalizeInputFolderPath(path) {
+        const normalized = String(path || "")
+            .replace(/\\/g, "/")
+            .split("/")
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .join("/");
+        return normalized.split("/").includes("..") ? "" : normalized;
+    }
+
+    function normalizeInputFolderFile(entry) {
+        const rawName = typeof entry === "string" ? entry : (entry?.name ?? entry?.path ?? "");
+        const name = normalizeInputFolderPath(rawName);
+        return /\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i.test(name) ? name : "";
+    }
+
+    function normalizeInputFolderFolder(entry) {
+        const path = normalizeInputFolderPath(typeof entry === "string" ? entry : (entry?.path ?? entry?.name ?? ""));
+        if (!path) {
+            return null;
+        }
+        const fallbackName = path.split("/").pop() || path;
+        const name = String(entry?.display_name ?? entry?.name ?? fallbackName).trim() || fallbackName;
+        return { name, path };
+    }
+
+    async function fetchInputFolderImages(inputPath = "") {
+        const browserPath = normalizeInputFolderPath(inputPath);
+        const denoEndpoint = browserPath
+            ? `/deno/input-folder-images?path=${encodeURIComponent(browserPath)}`
+            : "/deno/input-folder-images";
+        const denoResponse = await api.fetchApi(denoEndpoint, { cache: "no-store" });
         if (denoResponse.status === 200) {
             const payload = await denoResponse.json();
-            return (payload?.files ?? [])
-                .map((entry) => String(entry?.name ?? entry ?? "").trim())
-                .filter((entry) => /\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i.test(entry));
+            return {
+                path: normalizeInputFolderPath(payload?.path ?? browserPath),
+                parent: normalizeInputFolderPath(payload?.parent ?? ""),
+                folders: (payload?.folders ?? []).map(normalizeInputFolderFolder).filter(Boolean),
+                files: (payload?.files ?? []).map(normalizeInputFolderFile).filter(Boolean),
+            };
+        }
+
+        if (browserPath) {
+            throw new Error(`Input folder list failed (${denoResponse.status})`);
         }
 
         const response = await api.fetchApi("/object_info/LoadImage", { cache: "no-store" });
@@ -667,10 +704,11 @@ function setupMultiImageLoader(node, options = {}) {
 
         const payload = await response.json();
         const imageOptions = payload?.LoadImage?.input?.required?.image?.[0] ?? [];
-        return imageOptions
+        const files = imageOptions
             .map((entry) => String(entry || "").trim())
             .filter((entry) => /\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i.test(entry))
             .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+        return { path: "", parent: "", folders: [], files };
     }
 
     function showInputFolderBrowser() {
@@ -690,11 +728,13 @@ function setupMultiImageLoader(node, options = {}) {
         modal.style.cssText = `
             width: min(760px, calc(100vw - 48px));
             max-height: min(720px, calc(100vh - 48px));
+            min-width: 0;
             display: flex;
             flex-direction: column;
             gap: 10px;
             padding: 16px;
             box-sizing: border-box;
+            overflow: hidden;
             border: 1px solid rgba(72, 255, 132, 0.42);
             border-radius: 16px;
             background: rgba(3, 12, 8, 0.98);
@@ -716,7 +756,7 @@ function setupMultiImageLoader(node, options = {}) {
 
         const search = document.createElement("input");
         search.type = "search";
-        search.placeholder = "Search input images...";
+        search.placeholder = "Search folders or input images...";
         search.style.cssText = `
             width: 100%;
             border: 1px solid rgba(72, 255, 132, 0.28);
@@ -729,6 +769,25 @@ function setupMultiImageLoader(node, options = {}) {
             font: 12px sans-serif;
         `;
 
+        const pathRow = document.createElement("div");
+        pathRow.style.cssText = "display:flex; gap:8px; align-items:center; min-height:28px;";
+
+        const upBtn = createActionButton("Up");
+        upBtn.disabled = true;
+        upBtn.style.opacity = "0.55";
+
+        const pathLabel = document.createElement("div");
+        pathLabel.style.cssText = `
+            flex: 1;
+            min-width: 0;
+            color: #9dffba;
+            font: 600 12px/1.35 sans-serif;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        `;
+        pathRow.append(upBtn, pathLabel);
+
         const status = document.createElement("div");
         status.textContent = "Loading input folder list...";
         status.style.cssText = "color:#91dca4; min-height:16px;";
@@ -736,8 +795,13 @@ function setupMultiImageLoader(node, options = {}) {
         const list = document.createElement("div");
         list.style.cssText = `
             flex: 1;
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
             min-height: 220px;
-            overflow: auto;
+            overflow-x: hidden;
+            overflow-y: auto;
+            scrollbar-gutter: stable;
             position: relative;
             padding: 4px;
             box-sizing: border-box;
@@ -746,16 +810,16 @@ function setupMultiImageLoader(node, options = {}) {
         `;
 
         const footer = document.createElement("div");
-        footer.style.cssText = "display:flex; gap:8px; align-items:center;";
+        footer.style.cssText = "display:flex; gap:8px; align-items:center; justify-content:flex-end; width:100%; min-width:0; box-sizing:border-box; flex:0 0 auto;";
         const addBtn = createActionButton("Add Selected");
         addBtn.disabled = true;
         addBtn.style.opacity = "0.55";
         const selectedLabel = document.createElement("div");
-        selectedLabel.style.cssText = "color:#9dffba; font:600 12px sans-serif;";
+        selectedLabel.style.cssText = "flex:1; color:#9dffba; font:600 12px sans-serif;";
         selectedLabel.textContent = "0 selected";
-        footer.append(addBtn, selectedLabel);
+        footer.append(selectedLabel, addBtn);
 
-        modal.append(header, search, status, list, footer);
+        modal.append(header, pathRow, search, status, list, footer);
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
@@ -770,12 +834,16 @@ function setupMultiImageLoader(node, options = {}) {
         });
 
         const selected = new Set();
+        let currentPath = "";
+        let currentParent = "";
+        let allFolders = [];
         let allFiles = [];
-        let filteredFiles = [];
+        let filteredEntries = [];
         let virtualRenderFrame = 0;
         const virtualGrid = {
             gap: 10,
             padding: 4,
+            scrollbarReserve: 18,
             minCardWidth: 132,
             cardHeight: 122,
             overscanRows: 3,
@@ -801,28 +869,41 @@ function setupMultiImageLoader(node, options = {}) {
         };
 
         const getVirtualMetrics = () => {
-            const availableWidth = Math.max(1, list.clientWidth - (virtualGrid.padding * 2));
+            const measuredScrollbar = Math.max(0, list.offsetWidth - list.clientWidth);
+            const rightReserve = Math.max(virtualGrid.scrollbarReserve, measuredScrollbar);
+            const availableWidth = Math.max(1, list.clientWidth - (virtualGrid.padding * 2) - rightReserve);
             const columns = Math.max(
                 1,
                 Math.floor((availableWidth + virtualGrid.gap) / (virtualGrid.minCardWidth + virtualGrid.gap))
             );
             const cardWidth = Math.floor((availableWidth - (virtualGrid.gap * (columns - 1))) / columns);
             const rowHeight = virtualGrid.cardHeight + virtualGrid.gap;
-            const rowCount = Math.ceil(filteredFiles.length / columns);
+            const rowCount = Math.ceil(filteredEntries.length / columns);
             return {
                 columns,
                 cardWidth,
                 rowHeight,
                 rowCount,
+                contentWidth: availableWidth + (virtualGrid.padding * 2),
                 totalHeight: (rowCount * rowHeight) + virtualGrid.padding,
             };
         };
 
-        const createInputFolderCard = (file, index, metrics) => {
+        const updateInputFolderCardSelection = (card, file) => {
+            const isSelected = selected.has(file);
+            card.style.borderColor = isSelected ? "rgba(72,255,132,0.9)" : "rgba(54,110,74,0.9)";
+            card.style.background = isSelected ? "rgba(21, 75, 39, 0.72)" : "rgba(8, 16, 13, 0.95)";
+            card.setAttribute("aria-pressed", String(isSelected));
+        };
+
+        const createInputFolderCard = (entry, index, metrics) => {
+            const isFolder = entry.type === "folder";
+            const file = entry.path;
             const column = index % metrics.columns;
             const row = Math.floor(index / metrics.columns);
             const card = document.createElement("button");
             card.type = "button";
+            card.title = isFolder ? "Double-click to open folder" : file;
             card.style.cssText = `
                 position: absolute;
                 left: ${virtualGrid.padding + (column * (metrics.cardWidth + virtualGrid.gap))}px;
@@ -832,35 +913,53 @@ function setupMultiImageLoader(node, options = {}) {
                 display: flex;
                 flex-direction: column;
                 gap: 6px;
-                border: 1px solid ${selected.has(file) ? "rgba(72,255,132,0.9)" : "rgba(54,110,74,0.9)"};
+                box-sizing: border-box;
+                border: 1px solid rgba(54,110,74,0.9);
                 border-radius: 10px;
                 padding: 6px;
-                background: ${selected.has(file) ? "rgba(21, 75, 39, 0.72)" : "rgba(8, 16, 13, 0.95)"};
+                background: rgba(8, 16, 13, 0.95);
                 color: #dfffea;
                 cursor: pointer;
                 text-align: left;
                 overflow: hidden;
             `;
 
-            const img = document.createElement("img");
-            img.src = `/api/view?filename=${encodeURIComponent(file)}&type=input`;
-            img.loading = "lazy";
-            img.decoding = "async";
-            if ("fetchPriority" in img) {
-                img.fetchPriority = "low";
+            const preview = isFolder ? document.createElement("div") : document.createElement("img");
+            if (isFolder) {
+                preview.textContent = "Folder";
+                preview.style.cssText = `
+                    width: 100%;
+                    height: 82px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 7px;
+                    border: 1px solid rgba(72, 255, 132, 0.24);
+                    background: linear-gradient(180deg, rgba(35, 83, 50, 0.92), rgba(7, 22, 14, 0.96));
+                    color: #9dffba;
+                    font: 700 14px sans-serif;
+                    pointer-events: none;
+                `;
+            } else {
+                setInputImageSource(preview, file);
+                preview.loading = "eager";
+                preview.decoding = "async";
+                if ("fetchPriority" in preview) {
+                    preview.fetchPriority = "low";
+                }
+                preview.style.cssText = `
+                    width: 100%;
+                    height: 82px;
+                    object-fit: cover;
+                    border-radius: 7px;
+                    background: #020403;
+                    pointer-events: none;
+                `;
             }
-            img.style.cssText = `
-                width: 100%;
-                height: 82px;
-                object-fit: cover;
-                border-radius: 7px;
-                background: #020403;
-                pointer-events: none;
-            `;
 
             const label = document.createElement("div");
-            label.textContent = file;
-            label.title = file;
+            label.textContent = isFolder ? entry.name : file;
+            label.title = isFolder ? entry.path : file;
             label.style.cssText = `
                 color: #dfffea;
                 font: 600 11px/1.25 sans-serif;
@@ -869,16 +968,25 @@ function setupMultiImageLoader(node, options = {}) {
                 white-space: nowrap;
             `;
 
+            if (isFolder) {
+                card.ondblclick = () => loadInputFolder(entry.path);
+            }
             card.onclick = () => {
+                if (isFolder) {
+                    return;
+                }
                 if (selected.has(file)) {
                     selected.delete(file);
                 } else {
                     selected.add(file);
                 }
                 refreshSelected();
-                renderVirtualGrid();
+                updateInputFolderCardSelection(card, file);
             };
-            card.append(img, label);
+            if (!isFolder) {
+                updateInputFolderCardSelection(card, file);
+            }
+            card.append(preview, label);
             return card;
         };
 
@@ -890,8 +998,8 @@ function setupMultiImageLoader(node, options = {}) {
         };
 
         const renderVirtualGrid = () => {
-            if (!filteredFiles.length) {
-                renderEmptyMessage(allFiles.length ? "No images match the search." : "No input images found.");
+            if (!filteredEntries.length) {
+                renderEmptyMessage((allFolders.length || allFiles.length) ? "No items match the search." : "No input images found.");
                 return;
             }
 
@@ -904,20 +1012,23 @@ function setupMultiImageLoader(node, options = {}) {
                 Math.ceil((scrollTop + viewportHeight) / metrics.rowHeight) + virtualGrid.overscanRows
             );
             const startIndex = startRow * metrics.columns;
-            const endIndex = Math.min(filteredFiles.length, endRow * metrics.columns);
+            const endIndex = Math.min(filteredEntries.length, endRow * metrics.columns);
 
             const spacer = document.createElement("div");
             spacer.dataset.denoVirtualGrid = "true";
             spacer.style.cssText = `
                 position: relative;
-                width: 100%;
+                width: ${metrics.contentWidth}px;
+                max-width: 100%;
+                box-sizing: border-box;
+                overflow: hidden;
                 height: ${Math.max(metrics.totalHeight, viewportHeight)}px;
                 min-height: ${viewportHeight}px;
             `;
 
             const cards = [];
             for (let index = startIndex; index < endIndex; index += 1) {
-                cards.push(createInputFolderCard(filteredFiles[index], index, metrics));
+                cards.push(createInputFolderCard(filteredEntries[index], index, metrics));
             }
             spacer.replaceChildren(...cards);
             list.replaceChildren(spacer);
@@ -934,39 +1045,74 @@ function setupMultiImageLoader(node, options = {}) {
             });
         };
 
+        const updatePathLabel = () => {
+            pathLabel.textContent = currentPath ? `input/${currentPath}` : "input";
+            pathLabel.title = pathLabel.textContent;
+            upBtn.disabled = !currentPath;
+            upBtn.style.opacity = currentPath ? "1" : "0.55";
+        };
+
         const applyInputFolderFilter = () => {
             const needle = search.value.trim().toLowerCase();
-            filteredFiles = allFiles.filter((file) => file.toLowerCase().includes(needle));
+            const folderEntries = allFolders.map((folder) => ({ type: "folder", ...folder }));
+            const fileEntries = allFiles.map((file) => ({ type: "file", name: file, path: file }));
+            filteredEntries = folderEntries.concat(fileEntries).filter((entry) => {
+                if (!needle) {
+                    return true;
+                }
+                return `${entry.name || ""} ${entry.path || ""}`.toLowerCase().includes(needle);
+            });
+            const totalEntries = allFolders.length + allFiles.length;
             status.textContent = needle
-                ? `${filteredFiles.length} of ${allFiles.length} input images shown`
-                : `${allFiles.length} input image${allFiles.length === 1 ? "" : "s"} found`;
+                ? `${filteredEntries.length} of ${totalEntries} input item${totalEntries === 1 ? "" : "s"} shown`
+                : `${allFolders.length} folder${allFolders.length === 1 ? "" : "s"}, ${allFiles.length} image${allFiles.length === 1 ? "" : "s"} found`;
             list.scrollTop = 0;
             renderVirtualGrid();
         };
 
+        const loadInputFolder = (path = "") => {
+            const nextPath = normalizeInputFolderPath(path);
+            status.textContent = "Loading input folder list...";
+            list.replaceChildren();
+            return fetchInputFolderImages(nextPath)
+                .then((payload) => {
+                    currentPath = normalizeInputFolderPath(payload.path ?? nextPath);
+                    currentParent = normalizeInputFolderPath(payload.parent ?? "");
+                    allFolders = payload.folders ?? [];
+                    allFiles = payload.files ?? [];
+                    updatePathLabel();
+                    applyInputFolderFilter();
+                    refreshSelected();
+                    search.focus();
+                })
+                .catch((error) => {
+                    status.textContent = `Failed to read input folder list: ${error.message || error}`;
+                    allFolders = [];
+                    allFiles = [];
+                    filteredEntries = [];
+                    updatePathLabel();
+                    list.replaceChildren();
+                });
+        };
+
         search.oninput = applyInputFolderFilter;
+        upBtn.onclick = () => {
+            if (currentPath) {
+                loadInputFolder(currentParent);
+            }
+        };
         list.addEventListener("scroll", scheduleVirtualRender, { passive: true });
         window.addEventListener("resize", scheduleVirtualRender);
         addBtn.onclick = () => {
             if (!selected.size) {
                 return;
             }
-            const selectedInOrder = allFiles.filter((file) => selected.has(file));
-            setPaths(getPaths().concat(selectedInOrder));
+            setPaths(getPaths().concat(Array.from(selected)));
             closeInputFolderBrowser();
         };
 
-        fetchInputFolderImages()
-            .then((files) => {
-                allFiles = files;
-                applyInputFolderFilter();
-                refreshSelected();
-                search.focus();
-            })
-            .catch((error) => {
-                status.textContent = `Failed to read input folder list: ${error.message || error}`;
-                list.replaceChildren();
-            });
+        updatePathLabel();
+        loadInputFolder();
     }
 
     uploadBtn.onclick = () => fileInput.click();
@@ -1074,14 +1220,72 @@ function dimensionsFromTuple(dims) {
 function readInputImageSize(path) {
     return new Promise((resolve) => {
         const image = new Image();
+        const urls = createInputImageViewUrls(path);
+        let urlIndex = 0;
         image.onload = () => {
             const width = Number(image.naturalWidth || image.width || 0);
             const height = Number(image.naturalHeight || image.height || 0);
             resolve(width > 0 && height > 0 ? { width, height } : null);
         };
-        image.onerror = () => resolve(null);
-        image.src = `/api/view?filename=${encodeURIComponent(path)}&type=input`;
+        image.onerror = () => {
+            urlIndex += 1;
+            if (urlIndex < urls.length) {
+                image.src = urls[urlIndex];
+                return;
+            }
+            resolve(null);
+        };
+        image.src = urls[urlIndex] || "";
     });
+}
+
+function createInputImageViewUrl(path) {
+    return createInputImageViewUrls(path)[0] || "/api/view?filename=&type=input";
+}
+
+function createInputImageViewUrls(path) {
+    const rawPath = String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    const parts = String(path || "")
+        .replace(/\\/g, "/")
+        .split("/")
+        .filter((part) => part !== "");
+    const filename = parts.pop() || "";
+    const subfolder = parts.join("/");
+    const urls = [];
+
+    const encodedFilename = encodeURIComponent(filename);
+    const encodedSubfolder = encodeURIComponent(subfolder);
+    urls.push(`/api/view?filename=${encodedFilename}&type=input${subfolder ? `&subfolder=${encodedSubfolder}` : ""}`);
+
+    const params = new URLSearchParams({ filename, type: "input" });
+    if (parts.length) {
+        params.set("subfolder", subfolder);
+    }
+    urls.push(`/api/view?${params.toString()}`);
+
+    if (subfolder) {
+        const viewParams = new URLSearchParams({ filename, type: "input", subfolder });
+        urls.push(`/view?filename=${encodedFilename}&type=input&subfolder=${encodedSubfolder}`);
+        urls.push(`/view?${viewParams.toString()}`);
+        urls.push(`/api/view?filename=${encodeURIComponent(rawPath)}&type=input`);
+    } else {
+        urls.push(`/view?filename=${encodedFilename}&type=input`);
+        urls.push(`/view?${params.toString()}`);
+    }
+
+    return Array.from(new Set(urls));
+}
+
+function setInputImageSource(image, path) {
+    const urls = createInputImageViewUrls(path);
+    let urlIndex = 0;
+    image.onerror = () => {
+        urlIndex += 1;
+        if (urlIndex < urls.length) {
+            image.src = urls[urlIndex];
+        }
+    };
+    image.src = urls[urlIndex] || "";
 }
 
 function computeLoaderPresetDims(ratioX, ratioY, megapixels, divisibleBy) {

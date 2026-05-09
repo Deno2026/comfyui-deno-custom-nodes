@@ -219,6 +219,40 @@ def test_multi_image_loader_input_browser_lists_newest_files_first():
     assert files[0]["mtime"] > files[1]["mtime"]
 
 
+def test_multi_image_loader_input_browser_lists_subfolders():
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_input_directory = folder_paths.get_input_directory
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        subfolder = Path(temp_dir) / "shots"
+        subfolder.mkdir()
+        root_file = Path(temp_dir) / "root.png"
+        nested_file = subfolder / "nested.webp"
+        ignored_file = subfolder / "note.txt"
+        root_file.write_bytes(b"root")
+        nested_file.write_bytes(b"nested")
+        ignored_file.write_text("ignore", encoding="utf-8")
+
+        folder_paths.get_input_directory = lambda: temp_dir
+        try:
+            root_listing = board._list_input_folder_entries()
+            nested_listing = board._list_input_folder_entries("shots")
+            traversal_listing = board._list_input_folder_entries("../outside")
+        finally:
+            folder_paths.get_input_directory = original_get_input_directory
+
+    assert root_listing["path"] == ""
+    assert [entry["path"] for entry in root_listing["folders"]] == ["shots"]
+    assert [entry["name"] for entry in root_listing["files"]] == ["root.png"]
+    assert nested_listing["path"] == "shots"
+    assert nested_listing["parent"] == ""
+    assert [entry["name"] for entry in nested_listing["files"]] == ["shots/nested.webp"]
+    assert traversal_listing["folders"] == []
+    assert traversal_listing["files"] == []
+
+
 def test_ltx_sequencer_declares_sync_controls():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXSequencer"]

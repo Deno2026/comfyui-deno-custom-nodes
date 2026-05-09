@@ -32,36 +32,113 @@ def _get_comfy_utils():
     return comfy_utils
 
 
-def _list_input_folder_images():
+def _normalize_input_browser_path(relative_path: str | None) -> str | None:
+    raw_path = str(relative_path or "").replace("\\", "/").strip().strip("/")
+    if not raw_path or raw_path == ".":
+        return ""
+
+    normalized = os.path.normpath(raw_path).replace("\\", "/")
+    if normalized in {"", "."}:
+        return ""
+    if os.path.isabs(raw_path) or ":" in normalized or normalized == ".." or normalized.startswith("../"):
+        return None
+    return normalized
+
+
+def _resolve_input_browser_dir(input_dir: str, relative_path: str) -> str | None:
+    base_dir = os.path.realpath(input_dir)
+    candidate_dir = os.path.realpath(os.path.join(base_dir, relative_path))
+
+    try:
+        common_path = os.path.commonpath([os.path.normcase(base_dir), os.path.normcase(candidate_dir)])
+    except ValueError:
+        return None
+
+    if common_path != os.path.normcase(base_dir):
+        return None
+    return candidate_dir if os.path.isdir(candidate_dir) else None
+
+
+def _to_input_relative_path(input_dir: str, full_path: str) -> str:
+    relative = os.path.relpath(full_path, input_dir)
+    if relative == ".":
+        return ""
+    return relative.replace("\\", "/")
+
+
+def _get_input_browser_parent(relative_path: str) -> str:
+    if not relative_path:
+        return ""
+    parent = os.path.dirname(relative_path).replace("\\", "/")
+    return "" if parent == "." else parent
+
+
+def _empty_input_folder_listing(relative_path: str = ""):
+    return {
+        "path": relative_path,
+        "parent": _get_input_browser_parent(relative_path),
+        "folders": [],
+        "files": [],
+    }
+
+
+def _list_input_folder_entries(relative_path: str | None = ""):
     folder_paths = _get_folder_paths()
     if folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
-        return []
+        return _empty_input_folder_listing()
 
     input_dir = folder_paths.get_input_directory()
+    browser_path = _normalize_input_browser_path(relative_path)
+    if browser_path is None:
+        return _empty_input_folder_listing()
+
+    current_dir = _resolve_input_browser_dir(input_dir, browser_path)
+    if current_dir is None:
+        return _empty_input_folder_listing(browser_path)
+
+    folders = []
     files = []
     try:
-        for name in os.listdir(input_dir):
-            full_path = os.path.join(input_dir, name)
-            if not os.path.isfile(full_path):
-                continue
-            if os.path.splitext(name)[1].lower() not in INPUT_BROWSER_IMAGE_EXTENSIONS:
-                continue
+        for name in os.listdir(current_dir):
+            full_path = os.path.join(current_dir, name)
             stat = os.stat(full_path)
-            files.append({
-                "name": name,
-                "mtime": stat.st_mtime,
-                "size": stat.st_size,
-            })
+            if os.path.isdir(full_path):
+                folders.append({
+                    "name": name,
+                    "path": _to_input_relative_path(input_dir, full_path),
+                    "mtime": stat.st_mtime,
+                })
+                continue
+            if os.path.isfile(full_path) and os.path.splitext(name)[1].lower() in INPUT_BROWSER_IMAGE_EXTENSIONS:
+                files.append({
+                    "name": _to_input_relative_path(input_dir, full_path),
+                    "display_name": name,
+                    "mtime": stat.st_mtime,
+                    "size": stat.st_size,
+                })
     except Exception as exc:
         print(f"[DenoMultiImageLoader] Failed to list input folder images: {exc}")
-        return []
+        return _empty_input_folder_listing(browser_path)
 
-    return sorted(files, key=lambda item: (-float(item["mtime"]), str(item["name"]).lower()))
+    return {
+        "path": browser_path,
+        "parent": _get_input_browser_parent(browser_path),
+        "folders": sorted(folders, key=lambda item: str(item["name"]).lower()),
+        "files": sorted(files, key=lambda item: (-float(item["mtime"]), str(item["name"]).lower())),
+    }
+
+
+def _list_input_folder_images(relative_path: str | None = ""):
+    return _list_input_folder_entries(relative_path)["files"]
 
 
 @PromptServer.instance.routes.get("/deno/input-folder-images")
-async def deno_input_folder_images(_request):
-    return web.json_response({"files": _list_input_folder_images()})
+async def deno_input_folder_images(request):
+    requested_path = request.query.get("path", "")
+    browser_path = _normalize_input_browser_path(requested_path)
+    if browser_path is None:
+        return web.json_response({"error": "Invalid input folder path."}, status=400)
+    return web.json_response(_list_input_folder_entries(browser_path))
 
 
 def _split_paths(image_paths: str) -> List[str]:
