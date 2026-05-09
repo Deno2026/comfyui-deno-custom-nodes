@@ -88,15 +88,15 @@ Main features:
 - opens official model links in the browser instead of downloading files in Python
 - shows detected ComfyUI model roots and lets users copy the selected root
 - supports saved creator presets inside the workflow
-- supports Hugging Face direct links and Civitai page/download links
+- supports Hugging Face direct links and Civitai page/download links without Python-side network requests
 - shows target ComfyUI model subfolders so viewers know exactly where files should go
 
 Creator preset link guide:
 
 - Hugging Face: right-click the small download icon next to the target file, choose `Copy link address`, then paste that direct file URL into the preset `URL` field.
-- Civitai: copy the model page URL from the browser address bar, paste it into the preset `URL` field, then press the `Civitai` button in the editor to fill the filename.
+- Civitai: copy the model page URL from the browser address bar, paste it into the preset `URL` field, then press the `Civitai` button in the editor to convert it to a direct browser download link. If the filename is not visible in the URL, enter the downloaded filename manually.
 - For Civitai pages, do not copy the blue `Download` button link unless you intentionally want to provide a direct API download URL.
-- `File name` is used only for the target-path check. It does not have to match the URL text exactly, especially for Civitai/API links.
+- `File name` is used only for the target-path check. It should match the downloaded file on disk, especially for Civitai/API links.
 
 ![Hugging Face link guide](docs/images/easy-model-download-helper-huggingface-link.png)
 

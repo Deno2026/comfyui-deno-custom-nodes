@@ -343,6 +343,8 @@ def test_ltx_model_setup_helper_has_no_backend_download_code():
     assert "subprocess" not in source
     assert "write_bytes(" not in source
     assert "shutil.copy" not in source
+    assert "ClientSession" not in source
+    assert "resolve_civitai" not in source
 
 
 def test_ltx_multi_lora_loader_declares_compact_av_controls():

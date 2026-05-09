@@ -3,11 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import unquote, urlsplit
 
 import folder_paths
 from aiohttp import web
@@ -484,47 +483,6 @@ def _build_payload(root_id: str | None, state_value=None, package_value=None, mo
     }
 
 
-def _extract_civitai_version_id(url: str) -> str:
-    parsed = urlsplit(str(url or "").strip())
-    if "civitai.com" not in parsed.netloc.lower():
-        return ""
-
-    query = parse_qs(parsed.query)
-    if query.get("modelVersionId"):
-        return str(query["modelVersionId"][0])
-
-    path = parsed.path.strip("/")
-    patterns = [
-        r"^api/download/models/(\d+)",
-        r"^api/v1/model-versions/(\d+)",
-        r"^model-versions/(\d+)",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, path)
-        if match:
-            return match.group(1)
-    return ""
-
-
-def _best_civitai_file(payload: Dict) -> Dict:
-    files = payload.get("files")
-    if not isinstance(files, list):
-        return {}
-
-    def score(item: Dict) -> Tuple[int, int]:
-        name = str(item.get("name") or "").lower()
-        file_type = str(item.get("type") or "").lower()
-        primary = bool(item.get("primary"))
-        model_ext = name.endswith((".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf"))
-        return (
-            0 if primary else 1,
-            0 if file_type == "model" or model_ext else 1,
-        )
-
-    candidates = [item for item in files if isinstance(item, dict) and item.get("name")]
-    return min(candidates, key=score) if candidates else {}
-
-
 @PromptServer.instance.routes.get(f"{ROUTE_PREFIX}/info")
 async def ltx_model_downloader_info(request):
     try:
@@ -550,45 +508,6 @@ async def ltx_model_downloader_check(request):
                 data.get("package"),
                 data.get("model_root"),
             )
-        )
-    except Exception as exc:  # noqa: BLE001
-        return web.json_response({"error": str(exc)}, status=400)
-
-
-@PromptServer.instance.routes.post(f"{ROUTE_PREFIX}/resolve_civitai")
-async def ltx_model_downloader_resolve_civitai(request):
-    try:
-        data = await request.json()
-        url = str(data.get("url") or "")
-        version_id = _extract_civitai_version_id(url)
-        if not version_id:
-            return web.json_response({"error": "No Civitai model version id found in URL."}, status=400)
-
-        import aiohttp
-
-        api_url = f"https://civitai.com/api/v1/model-versions/{version_id}"
-        timeout = aiohttp.ClientTimeout(total=12)
-        headers = {"User-Agent": "DenoCustomNodes/easy-model-download-helper"}
-        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-            async with session.get(api_url) as response:
-                if response.status != 200:
-                    return web.json_response(
-                        {"error": f"Civitai metadata lookup failed: HTTP {response.status}"},
-                        status=400,
-                    )
-                payload = await response.json()
-
-        file_info = _best_civitai_file(payload)
-        filename = str(file_info.get("name") or "")
-        size_kb = float(file_info.get("sizeKB") or 0)
-        return web.json_response(
-            {
-                "version_id": version_id,
-                "name": str(payload.get("name") or ""),
-                "filename": filename,
-                "size": int(size_kb * 1024) if size_kb > 0 else 0,
-                "download_url": str(payload.get("downloadUrl") or f"https://civitai.com/api/download/models/{version_id}"),
-            }
         )
     except Exception as exc:  # noqa: BLE001
         return web.json_response({"error": str(exc)}, status=400)

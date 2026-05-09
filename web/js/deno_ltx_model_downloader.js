@@ -592,7 +592,7 @@ function buildUi(node, rootWidget, presetsWidget) {
     }
 
     async function resolveCivitaiUrl(url) {
-        return postJson(`${ROUTE}/resolve_civitai`, { url });
+        return resolveCivitaiLocally(url);
     }
 
     function setProgress(existing, total) {
@@ -857,7 +857,7 @@ function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl =
     const urlRow = document.createElement("div");
     urlRow.style.cssText = "display:grid; grid-template-columns:1fr auto; gap:6px; align-items:end;";
     const civitaiButton = createMiniButton("Civitai");
-    civitaiButton.title = "Read Civitai metadata and fill file name.";
+    civitaiButton.title = "Convert a Civitai page or download URL into a direct browser download link.";
     civitaiButton.onclick = async () => {
         if (!resolveCivitaiUrl) {
             return;
@@ -880,13 +880,14 @@ function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl =
                 lastAutoFilename = result.filename;
                 filenameManuallyEdited = false;
             } else {
-                syncFilenameFromUrl();
+                filename.input.placeholder = "Enter the downloaded Civitai filename";
             }
             if (result.size) {
                 sizeInput.value = String(result.size);
             }
-            civitaiButton.textContent = "Done";
-        } catch (_error) {
+            civitaiButton.textContent = result.filename ? "Done" : "Link";
+        } catch (error) {
+            console.warn("[DENO] Civitai link conversion failed:", error);
             civitaiButton.textContent = "Fail";
         } finally {
             setTimeout(() => {
@@ -900,6 +901,36 @@ function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl =
     pathGrid.append(targetSubdir.root, filename.root);
     row.append(header, urlRow, pathGrid, sizeInput);
     return row;
+}
+
+function resolveCivitaiLocally(rawUrl) {
+    const url = String(rawUrl || "").trim();
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch {
+        throw new Error("Enter a valid Civitai URL.");
+    }
+
+    if (!/civitai\.com$/i.test(parsed.hostname) && !/\.civitai\.com$/i.test(parsed.hostname)) {
+        throw new Error("This is not a Civitai URL.");
+    }
+
+    const versionId = parsed.searchParams.get("modelVersionId")
+        || parsed.pathname.match(/\/api\/download\/models\/(\d+)/i)?.[1]
+        || parsed.pathname.match(/\/api\/v1\/model-versions\/(\d+)/i)?.[1]
+        || parsed.pathname.match(/\/model-versions\/(\d+)/i)?.[1];
+
+    if (!versionId) {
+        throw new Error("No Civitai modelVersionId found.");
+    }
+
+    return {
+        version_id: versionId,
+        filename: guessFilename(url),
+        size: 0,
+        download_url: `https://civitai.com/api/download/models/${versionId}`,
+    };
 }
 
 function createModelPathField(value, modelSubdirs = []) {
