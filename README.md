@@ -38,8 +38,10 @@ Main features:
 - drag reorder with stable placeholder insertion
 - upload button, drag-and-drop upload, and paste image support
 - `Input Folder` browser for reusing existing ComfyUI `input` images
+- input subfolder browsing with folder tiles, double-click navigation, and an `Up` button
+- nested input images can be added while preserving their ComfyUI subfolder paths
 - newest-first input image sorting based on file modified time
-- virtualized input-folder thumbnails for smoother browsing with many images
+- responsive input-folder thumbnails for smoother browsing with many images
 - `Keep Input Ratio`, `Preset Ratio`, or `Manual Input` size mode
 - ratio preset, megapixels, divisible-by sizing, or direct width/height control
 - resize method and interpolation selection
