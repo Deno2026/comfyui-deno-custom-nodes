@@ -89,8 +89,10 @@ Main features:
 
 - opens official model links in the browser instead of downloading files in Python
 - shows detected ComfyUI model roots and lets users copy the selected root
-- supports saved creator presets inside the workflow
+- supports saved creator presets inside the workflow and restores them from browser storage after a page reload
 - supports Hugging Face direct links and Civitai page/download links without Python-side network requests
+- checks ComfyUI-registered model folders, including custom folder names from `extra_model_paths`
+- can find matching files inside model subfolders when users organize large model libraries by project or model family
 - shows target ComfyUI model subfolders so viewers know exactly where files should go
 
 Creator preset link guide:

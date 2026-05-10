@@ -6,6 +6,7 @@ const ROUTE = "/deno/ltx_model_downloader";
 const MIN_SIZE = [560, 430];
 const PANEL_MIN_HEIGHT = 352;
 const NODE_CHROME_HEIGHT = 62;
+const PRESET_STORAGE_KEY = "deno_ltx_model_downloader_presets_v1";
 
 const DEFAULT_PACKAGE = {
     id: "ltx_23_8gb_vram",
@@ -416,6 +417,7 @@ function buildUi(node, rootWidget, presetsWidget) {
             const option = createMenuButton(item.title || "Custom Preset", () => {
                 state.presetsState.active_preset_id = item.id;
                 writePresetsState(presetsWidget, state.presetsState);
+                markWorkflowDirty();
                 presetMenu.style.display = "none";
                 setEditingMode(false);
                 editor.load(currentPackage(state.presetsState));
@@ -531,11 +533,12 @@ function buildUi(node, rootWidget, presetsWidget) {
 
             const label = document.createElement("div");
             label.style.cssText = "min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#eaffef; font-weight:800;";
-            label.textContent = file.target_subdir || file.label || folderFromRelative(file.relative_path) || "(set models subfolder)";
+            label.textContent = folderFromRelative(file.relative_path) || file.target_subdir || file.label || "(set models subfolder)";
 
             const target = document.createElement("div");
             target.style.cssText = "min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#96caa6; font-size:10px;";
-            target.textContent = file.error || [file.filename || filenameFromRelative(file.relative_path) || "(set filename)", prettyBytes(file.size)].filter(Boolean).join(" - ");
+            const foundSuffix = file.found_by === "subfolder" ? "found in subfolder" : "";
+            target.textContent = file.error || [file.filename || filenameFromRelative(file.relative_path) || "(set filename)", prettyBytes(file.size), foundSuffix].filter(Boolean).join(" - ");
             nameWrap.append(label, target);
 
             const badge = document.createElement("div");
@@ -623,10 +626,17 @@ function buildUi(node, rootWidget, presetsWidget) {
             presets,
         };
         writePresetsState(presetsWidget, state.presetsState);
+        markWorkflowDirty();
         state.editorPresetId = packageId;
         setEditingMode(false);
         refreshInfo(state.selectedRootId);
-        setStatus("Preset saved in this workflow.");
+        setStatus("Preset saved in this browser and workflow.");
+    }
+
+    function markWorkflowDirty() {
+        node.setDirtyCanvas?.(true, true);
+        node.graph?.setDirtyCanvas?.(true, true);
+        app.graph?.setDirtyCanvas?.(true, true);
     }
 
     rootSelect.addEventListener("change", () => {
@@ -1231,11 +1241,22 @@ function prettyBytes(value) {
 }
 
 function readPresetsState(widget) {
+    let widgetState = null;
     try {
-        return normalizePresetsState(JSON.parse(widget?.value || ""));
+        widgetState = normalizePresetsState(JSON.parse(widget?.value || ""));
     } catch (_error) {
-        return normalizePresetsState(DEFAULT_STATE);
+        widgetState = normalizePresetsState(DEFAULT_STATE);
     }
+    if (!hasCustomPresets(widgetState)) {
+        const storedState = readStoredPresetsState();
+        if (storedState && hasCustomPresets(storedState)) {
+            if (widget) {
+                widget.value = JSON.stringify(storedState, null, 2);
+            }
+            return storedState;
+        }
+    }
+    return widgetState;
 }
 
 function writePresetsState(widget, value) {
@@ -1244,7 +1265,32 @@ function writePresetsState(widget, value) {
         widget.value = JSON.stringify(normalized, null, 2);
         widget.callback?.(widget.value);
     }
+    writeStoredPresetsState(normalized);
     return normalized;
+}
+
+function readStoredPresetsState() {
+    try {
+        const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+        if (!raw) {
+            return null;
+        }
+        return normalizePresetsState(JSON.parse(raw));
+    } catch (_error) {
+        return null;
+    }
+}
+
+function writeStoredPresetsState(value) {
+    try {
+        localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(normalizePresetsState(value)));
+    } catch (_error) {
+        // Browser storage may be unavailable in hardened profiles; the workflow widget still saves.
+    }
+}
+
+function hasCustomPresets(state) {
+    return normalizePresetsState(state).presets.some((item) => item.id !== DEFAULT_PACKAGE.id);
 }
 
 function normalizePresetsState(value = {}) {

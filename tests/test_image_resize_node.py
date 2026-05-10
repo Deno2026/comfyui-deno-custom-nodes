@@ -369,6 +369,68 @@ def test_ltx_model_setup_helper_preserves_builtin_preset_for_old_workflows():
     assert parsed["active_preset_id"] == "custom_pack"
 
 
+def test_ltx_model_setup_helper_checks_registered_model_folder_names():
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_folder_map = folder_paths.folder_names_and_paths
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        models_root = Path(temp_dir) / "Models"
+        text_encoder_dir = models_root / "TextEncoders"
+        text_encoder_dir.mkdir(parents=True)
+        target_file = text_encoder_dir / "flux2-klein-9b-uncensored-q6_k.gguf"
+        target_file.write_bytes(b"ready")
+
+        folder_paths.folder_names_and_paths = {
+            "text_encoders": ([str(text_encoder_dir)], set()),
+        }
+        try:
+            result = module._public_custom_file(
+                str(models_root),
+                {
+                    "url": "https://example.com/flux2-klein-9b-uncensored-q6_k.gguf",
+                    "target_subdir": "text_encoders",
+                    "filename": "flux2-klein-9b-uncensored-q6_k.gguf",
+                    "size": 1,
+                },
+                0,
+            )
+        finally:
+            folder_paths.folder_names_and_paths = original_folder_map
+
+    assert result["status"] == "exists"
+    assert result["found_by"] == "registered"
+    assert result["relative_path"].replace("\\", "/") == "TextEncoders/flux2-klein-9b-uncensored-q6_k.gguf"
+
+
+def test_ltx_model_setup_helper_recursively_finds_files_in_model_subfolders():
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        models_root = Path(temp_dir) / "models"
+        nested_dir = models_root / "diffusion_models" / "Flux"
+        nested_dir.mkdir(parents=True)
+        target_file = nested_dir / "flux2-klein-9b-kv-fp8.safetensors"
+        target_file.write_bytes(b"ready")
+
+        result = module._public_custom_file(
+            str(models_root),
+            {
+                "url": "https://example.com/flux2-klein-9b-kv-fp8.safetensors",
+                "target_subdir": "diffusion_models",
+                "filename": "flux2-klein-9b-kv-fp8.safetensors",
+                "size": 1,
+            },
+            0,
+        )
+
+    assert result["status"] == "exists"
+    assert result["found_by"] == "subfolder"
+    assert result["relative_path"].replace("\\", "/") == "diffusion_models/Flux/flux2-klein-9b-kv-fp8.safetensors"
+
+
 def test_ltx_model_setup_helper_has_no_backend_download_code():
     source = (REPO_ROOT / "deno_ltx_model_downloader.py").read_text(encoding="utf-8")
 

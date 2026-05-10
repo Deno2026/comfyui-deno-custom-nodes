@@ -153,7 +153,7 @@ def _collect_model_roots() -> List[Dict]:
 
     for root in roots.values():
         root["existing_count"] = sum(
-            1 for item in MODEL_FILES if _is_complete(_target_path(root["path"], item), item["size"])
+            1 for item in MODEL_FILES if _public_file(root["path"], item)["status"] == "exists"
         )
 
     return sorted(
@@ -234,6 +234,152 @@ def _target_path(models_root: str, item: Dict) -> Path:
     return Path(models_root) / item["target_subdir"] / item["filename"]
 
 
+def _is_relative_to_or_same(path: Path, root: Path) -> bool:
+    try:
+        path_norm = os.path.normcase(str(path.expanduser().resolve()))
+        root_norm = os.path.normcase(str(root.expanduser().resolve()))
+        return os.path.commonpath([path_norm, root_norm]) == root_norm
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _relative_to_root_label(path: Path, root: Path, fallback: str) -> str:
+    try:
+        return path.expanduser().resolve().relative_to(root.expanduser().resolve()).as_posix()
+    except (OSError, RuntimeError, ValueError):
+        return fallback
+
+
+def _registered_model_dirs(folder_name: str) -> List[Path]:
+    candidates: List[Path] = []
+    seen = set()
+
+    def add(path: Path | str) -> None:
+        try:
+            resolved = Path(path).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return
+        key = os.path.normcase(str(resolved))
+        if key not in seen:
+            seen.add(key)
+            candidates.append(resolved)
+
+    folder_map = getattr(folder_paths, "folder_names_and_paths", {})
+    for raw_path in _paths_from_folder_paths_entry(folder_map.get(folder_name)):
+        add(raw_path)
+
+    get_folder_paths = getattr(folder_paths, "get_folder_paths", None)
+    if callable(get_folder_paths):
+        try:
+            for raw_path in get_folder_paths(folder_name):
+                add(raw_path)
+        except Exception:  # noqa: BLE001 - third-party folder_paths can raise custom errors
+            pass
+
+    return candidates
+
+
+def _target_path_candidates(models_root: str, target_subdir: str, filename: str) -> List[Path]:
+    relative_path, _relative_label = _safe_relative_path(target_subdir, filename)
+    root = Path(models_root)
+    candidates: List[Path] = []
+    seen = set()
+
+    def add(path: Path) -> None:
+        key = os.path.normcase(str(path))
+        if key not in seen:
+            seen.add(key)
+            candidates.append(path)
+
+    add(root / relative_path)
+
+    relative_parts = list(relative_path.parts)
+    if len(relative_parts) < 2:
+        return candidates
+
+    folder_type = relative_parts[0]
+    nested_parts = relative_parts[1:-1]
+    for model_dir in _registered_model_dirs(folder_type):
+        if _is_relative_to_or_same(model_dir, root):
+            add(model_dir.joinpath(*nested_parts, filename))
+
+    return candidates
+
+
+def _scan_for_filename(base_dirs: Iterable[Path], filename: str, expected_size: int) -> Optional[Path]:
+    if not filename:
+        return None
+    seen = set()
+    for base_dir in base_dirs:
+        try:
+            resolved_base = base_dir.expanduser().resolve()
+        except (OSError, RuntimeError):
+            continue
+        if not resolved_base.is_dir():
+            continue
+        base_key = os.path.normcase(str(resolved_base))
+        if base_key in seen:
+            continue
+        seen.add(base_key)
+        try:
+            matches = sorted(resolved_base.rglob(filename), key=lambda item: item.as_posix().casefold())
+        except OSError:
+            continue
+        for match in matches:
+            if match.is_file() and _is_complete(match, expected_size):
+                return match
+    return None
+
+
+def _resolve_target_file(models_root: str, target_subdir: str, filename: str, expected_size: int) -> Dict:
+    relative_path, configured_label = _safe_relative_path(target_subdir, filename)
+    root = Path(models_root)
+    candidates = _target_path_candidates(models_root, target_subdir, filename)
+    target = candidates[0] if candidates else root / relative_path
+    downloaded = 0
+    status = "missing"
+    found_by = "configured"
+
+    for candidate in candidates:
+        if _is_complete(candidate, expected_size):
+            target = candidate
+            downloaded = candidate.stat().st_size
+            status = "exists"
+            found_by = "registered" if candidate != candidates[0] else "configured"
+            break
+
+    if status == "missing":
+        scanned = _scan_for_filename((candidate.parent for candidate in candidates), filename, expected_size)
+        if scanned is not None:
+            target = scanned
+            downloaded = scanned.stat().st_size
+            status = "exists"
+            found_by = "subfolder"
+
+    if status == "missing":
+        for candidate in candidates:
+            part = candidate.with_suffix(candidate.suffix + ".part")
+            try:
+                if part.exists():
+                    target = candidate
+                    downloaded = part.stat().st_size
+                    status = "partial"
+                    break
+            except OSError:
+                continue
+
+    return {
+        "target": target,
+        "target_path": str(target),
+        "target_dir": str(target.parent),
+        "relative_path": _relative_to_root_label(target, root, configured_label),
+        "configured_relative_path": configured_label,
+        "downloaded": downloaded,
+        "status": status,
+        "found_by": found_by,
+    }
+
+
 def _is_complete(path: Path, expected_size: int) -> bool:
     try:
         size = path.stat().st_size
@@ -245,20 +391,8 @@ def _is_complete(path: Path, expected_size: int) -> bool:
 
 
 def _public_file(models_root: str, item: Dict) -> Dict:
-    target = _target_path(models_root, item)
-    part = target.with_suffix(target.suffix + ".part")
     expected_size = int(item["size"])
-    exists = _is_complete(target, expected_size)
-    partial = part.exists()
-    downloaded = 0
-    status = "missing"
-
-    if exists:
-        downloaded = target.stat().st_size
-        status = "exists"
-    elif partial:
-        downloaded = part.stat().st_size
-        status = "partial"
+    resolved = _resolve_target_file(models_root, str(item["target_subdir"]), str(item["filename"]), expected_size)
 
     return {
         "id": item["id"],
@@ -267,12 +401,14 @@ def _public_file(models_root: str, item: Dict) -> Dict:
         "repo_path": item["repo_path"],
         "url": _hf_file_url(item),
         "repo_url": _hf_repo_url(item),
-        "relative_path": f"{item['target_subdir']}/{item['filename']}",
-        "target_path": str(target),
-        "target_dir": str(target.parent),
+        "relative_path": resolved["relative_path"],
+        "configured_relative_path": resolved["configured_relative_path"],
+        "target_path": resolved["target_path"],
+        "target_dir": resolved["target_dir"],
         "size": expected_size,
-        "downloaded": downloaded,
-        "status": status,
+        "downloaded": resolved["downloaded"],
+        "status": resolved["status"],
+        "found_by": resolved["found_by"],
     }
 
 
@@ -405,6 +541,17 @@ def _model_subdirs(models_root: str) -> List[str]:
                 found.append(child.name)
     except OSError:
         pass
+    root = Path(models_root)
+    for folder_name, value in getattr(folder_paths, "folder_names_and_paths", {}).items():
+        if isinstance(folder_name, str):
+            found.append(folder_name)
+        for raw_path in _paths_from_folder_paths_entry(value):
+            try:
+                resolved = Path(raw_path).expanduser().resolve()
+            except (OSError, RuntimeError):
+                continue
+            if _is_relative_to_or_same(resolved, root):
+                found.append(_relative_to_root_label(resolved, root, resolved.name))
     return sorted(set(common + found), key=lambda item: (item.lower() not in common, item.casefold()))
 
 
@@ -417,17 +564,21 @@ def _public_custom_file(models_root: str, row: Dict, index: int) -> Dict:
     size = _expected_size(row)
 
     try:
-        relative_path, relative_label = _safe_relative_path(target_subdir, filename)
-        target = Path(models_root) / relative_path
-        status = "exists" if _is_complete(target, size) else "missing"
+        resolved = _resolve_target_file(models_root, target_subdir, filename, size)
+        relative_label = resolved["relative_path"]
         error = ""
-        target_path = str(target)
-        target_dir = str(target.parent)
+        target_path = resolved["target_path"]
+        target_dir = resolved["target_dir"]
+        status = resolved["status"]
+        downloaded = resolved["downloaded"]
+        found_by = resolved["found_by"]
     except ValueError as exc:
         relative_label = ""
         target_path = ""
         target_dir = ""
         status = "invalid"
+        downloaded = 0
+        found_by = ""
         error = str(exc)
 
     return {
@@ -440,7 +591,9 @@ def _public_custom_file(models_root: str, row: Dict, index: int) -> Dict:
         "target_path": target_path,
         "target_dir": target_dir,
         "size": size,
+        "downloaded": downloaded,
         "status": status,
+        "found_by": found_by,
         "error": error,
     }
 
