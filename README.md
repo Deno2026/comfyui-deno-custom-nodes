@@ -38,7 +38,7 @@ Main features:
 - drag reorder with stable placeholder insertion
 - upload button, drag-and-drop upload, and paste image support
 - `Input Folder` browser for reusing existing ComfyUI `input` images
-- input subfolder browsing with folder tiles, double-click navigation, and an `Up` button
+- input subfolder browsing with folder tiles, double-click navigation, and a `Parent` button
 - nested input images can be added while preserving their ComfyUI subfolder paths
 - newest-first input image sorting based on file modified time
 - responsive input-folder thumbnails for smoother browsing with many images
@@ -47,6 +47,34 @@ Main features:
 - resize method and interpolation selection
 - outputs: `multi_output`, `width`, `height`
 - optional crop or fit resizing during export
+
+### `(Deno) Advanced Image Source Loader`
+
+Advanced image source loader for workflows that need external folders, local file paths, web image URLs, and mixed-size image-list output.
+
+This is a separate advanced node. The standard `(Deno) Multi Image Loader` remains the simpler recommended option for normal ComfyUI `input` folder workflows.
+
+![Deno Advanced Image Source Loader](docs/images/advanced-image-source-loader.png)
+
+Main features:
+
+- keeps the familiar Deno image-loader gallery workflow
+- supports existing ComfyUI `input` folder browsing
+- supports external local folder paths outside the ComfyUI `input` folder
+- supports folder tiles, nested-folder browsing, and a `Parent` button
+- supports `URL / Path` input for web image URLs, absolute local image paths, and local folder paths
+- supports upload, drag-and-drop, paste, and browser folder upload where the browser allows it
+- `Load Path` reads an external folder directly without first importing it into ComfyUI `input`
+- `Upload Folder...` is an optional browser upload/import helper, not required for external path loading
+- `recursive_folders` option for loading nested folder images
+- `Keep Input Ratio`, `Preset Ratio`, or `Manual Input` size mode
+- ratio preset, megapixels, divisible-by sizing, or direct width/height control
+- resize method and interpolation selection
+- outputs a resized `batch` image tensor for normal batch workflows
+- outputs `image_list` for workflows that need per-image list handling
+- `Original Size` list mode can preserve mixed source resolutions in `image_list`
+- `Match Batch Size` list mode makes `image_list` match the resized batch dimensions
+- outputs: `batch`, `image_list`, `width`, `height`, `image_count`
 
 ### `(Deno) LTX Sequencer`
 
@@ -151,6 +179,9 @@ Try searching with:
 - `deno`
 - `resize`
 - `ltx`
+- `advanced`
+- `image source`
+- `external folder`
 - `(deno)`
 
 ## Install

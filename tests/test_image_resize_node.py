@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import types
+import urllib.error
 from pathlib import Path
 
 
@@ -158,6 +159,7 @@ def test_node_registration_exports_expected_nodes():
     assert list(package.NODE_CLASS_MAPPINGS.keys()) == [
         "DenoResolutionSetup",
         "DenoMultiImageLoader",
+        "DenoAdvancedImageSourceLoader",
         "DenoLTXSequencer",
         "DenoLTX23PresetLoader",
         "DenoLTXModelDownloader",
@@ -166,6 +168,7 @@ def test_node_registration_exports_expected_nodes():
     ]
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoAdvancedImageSourceLoader"] == "(Deno) Advanced Image Source Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX23PresetLoader"] == "(Deno) LTX Model Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXModelDownloader"] == "(Deno) Easy Model Download Helper"
@@ -189,6 +192,21 @@ def test_multi_image_loader_returns_batch_and_int_dimensions():
     assert input_types["required"]["interpolation"][0][0] == "lanczos"
     assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
     assert node_cls.RETURN_NAMES == ("multi_output", "width", "height")
+    assert node_cls.CATEGORY == "Deno/Image"
+
+
+def test_advanced_image_source_loader_declares_external_outputs():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoAdvancedImageSourceLoader"]
+    input_types = node_cls.INPUT_TYPES()
+
+    assert input_types["required"]["image_paths"][0] == "STRING"
+    assert input_types["required"]["mode"][0] == ["Keep Input Ratio", "Preset Ratio", "Manual Input"]
+    assert input_types["required"]["recursive_folders"][0] == "BOOLEAN"
+    assert input_types["required"]["list_output_mode"][0] == ["Original Size", "Match Batch Size"]
+    assert node_cls.RETURN_TYPES == ("IMAGE", "IMAGE", "INT", "INT", "INT")
+    assert node_cls.RETURN_NAMES == ("batch", "image_list", "width", "height", "image_count")
+    assert node_cls.OUTPUT_IS_LIST == (False, True, False, False, False)
     assert node_cls.CATEGORY == "Deno/Image"
 
 
@@ -251,6 +269,84 @@ def test_multi_image_loader_input_browser_lists_subfolders():
     assert [entry["name"] for entry in nested_listing["files"]] == ["shots/nested.webp"]
     assert traversal_listing["folders"] == []
     assert traversal_listing["files"] == []
+
+
+def test_advanced_image_source_loader_lists_and_expands_external_folders():
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        subfolder = Path(temp_dir) / "refs"
+        subfolder.mkdir()
+        root_file = Path(temp_dir) / "root.png"
+        nested_file = subfolder / "nested.webp"
+        ignored_file = subfolder / "note.txt"
+        root_file.write_bytes(b"root")
+        nested_file.write_bytes(b"nested")
+        ignored_file.write_text("ignore", encoding="utf-8")
+
+        root_listing = board._list_external_folder_entries(temp_dir)
+        nested_listing = board._list_external_folder_entries(temp_dir, "refs")
+        traversal_listing = board._list_external_folder_entries(temp_dir, "../outside")
+        flat_sources = board._expand_image_sources([temp_dir], recursive_folders=False)
+        recursive_sources = board._expand_image_sources([temp_dir], recursive_folders=True)
+        duplicate_sources = board._expand_image_sources([str(root_file), str(root_file)], recursive_folders=False)
+
+    assert root_listing["root"]
+    assert [entry["path"] for entry in root_listing["folders"]] == ["refs"]
+    assert [Path(entry["path"]).name for entry in root_listing["files"]] == ["root.png"]
+    assert nested_listing["path"] == "refs"
+    assert [Path(entry["path"]).name for entry in nested_listing["files"]] == ["nested.webp"]
+    assert traversal_listing["folders"] == []
+    assert [Path(path).name for path in flat_sources] == ["root.png"]
+    assert [Path(path).name for path in recursive_sources] == ["nested.webp", "root.png"]
+    assert [Path(path).name for path in duplicate_sources] == ["root.png", "root.png"]
+
+
+def test_advanced_image_source_loader_skips_unreadable_external_folder():
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    original_listdir = board.os.listdir
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        def deny_listdir(path):
+            if Path(path) == Path(temp_dir):
+                raise PermissionError("access denied")
+            return original_listdir(path)
+
+        board.os.listdir = deny_listdir
+        try:
+            sources = board._expand_image_sources([temp_dir], recursive_folders=False)
+        finally:
+            board.os.listdir = original_listdir
+
+    assert sources == []
+
+
+def test_advanced_remote_image_redirect_revalidates_target():
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+
+    class RedirectToLocalhostOpener:
+        def open(self, request, timeout):
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "Found",
+                {"Location": "http://127.0.0.1/private.png"},
+                None,
+            )
+
+    original_opener = board._REMOTE_IMAGE_OPENER
+    board._REMOTE_IMAGE_OPENER = RedirectToLocalhostOpener()
+    try:
+        try:
+            board._read_remote_image_bytes("http://8.8.8.8/image.png")
+            assert False, "redirect to localhost should be rejected"
+        except ValueError as exc:
+            assert "redirect target" in str(exc)
+    finally:
+        board._REMOTE_IMAGE_OPENER = original_opener
 
 
 def test_ltx_sequencer_declares_sync_controls():

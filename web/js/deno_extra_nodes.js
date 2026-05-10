@@ -2,9 +2,11 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const LOADER_NODE = "DenoMultiImageLoader";
+const ADVANCED_LOADER_NODE = "DenoAdvancedImageSourceLoader";
 const SEQUENCER_NODE = "DenoLTXSequencer";
 const LTX_PRESET_NODE = "DenoLTX23PresetLoader";
 const LOADER_MIN_SIZE = [360, 520];
+const ADVANCED_LOADER_MIN_SIZE = [540, 540];
 const LOADER_KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
 const LOADER_PRESET_MODE = "Preset Ratio";
 const LOADER_MANUAL_MODE = "Manual Input";
@@ -16,6 +18,14 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name === LOADER_NODE) {
             patchMultiImageLoader(nodeType, { inputFolderBrowser: true });
+        }
+        if (nodeData.name === ADVANCED_LOADER_NODE) {
+            patchMultiImageLoader(nodeType, {
+                inputFolderBrowser: true,
+                externalFolderBrowser: true,
+                sourceInput: true,
+                minSize: ADVANCED_LOADER_MIN_SIZE,
+            });
         }
         if (nodeData.name === SEQUENCER_NODE) {
             patchSequencer(nodeType);
@@ -368,6 +378,8 @@ function setupMultiImageLoader(node, options = {}) {
         return;
     }
 
+    const loaderMinSize = options.minSize || LOADER_MIN_SIZE;
+    const pathsWidgetIndex = node.widgets ? node.widgets.indexOf(pathsWidget) : -1;
     node.__denoLoaderReady = true;
     hideWidget(pathsWidget);
 
@@ -397,14 +409,22 @@ function setupMultiImageLoader(node, options = {}) {
     `;
 
     const topBar = document.createElement("div");
-    topBar.style.cssText = "display:flex; gap:8px; align-items:center;";
+    topBar.style.cssText = "display:flex; gap:8px; align-items:center; flex-wrap:wrap;";
 
     const uploadBtn = createActionButton("Upload");
     const inputFolderBtn = options.inputFolderBrowser ? createActionButton("Input Folder") : null;
+    const externalFolderBtn = options.externalFolderBrowser ? createActionButton("External Folder") : null;
+    const sourceInputBtn = options.sourceInput ? createActionButton("URL / Path") : null;
     const clearBtn = createActionButton("Clear", true);
     topBar.append(uploadBtn);
     if (inputFolderBtn) {
         topBar.append(inputFolderBtn);
+    }
+    if (externalFolderBtn) {
+        topBar.append(externalFolderBtn);
+    }
+    if (sourceInputBtn) {
+        topBar.append(sourceInputBtn);
     }
     topBar.append(clearBtn);
 
@@ -414,7 +434,9 @@ function setupMultiImageLoader(node, options = {}) {
 
     const hint = document.createElement("div");
     hint.style.cssText = "color:#7dcf92; font:11px sans-serif; opacity:0.85;";
-    hint.textContent = inputFolderBtn
+    hint.textContent = externalFolderBtn
+        ? "Add input images, external local folders, full file paths, web URLs, uploads, drops, or pasted images."
+        : inputFolderBtn
         ? "Drag files, press Ctrl+V, use Upload, or add existing input-folder images."
         : "Drag files, press Ctrl+V, or use Upload. Drag cards to reorder.";
 
@@ -438,11 +460,16 @@ function setupMultiImageLoader(node, options = {}) {
 
     container.append(topBar, hint, grid, fileInput);
     const widget = node.addDOMWidget("loader_panel", "deno_multi_image_loader", container, { serialize: false });
-    widget.computeSize = () => [Math.max(node.size?.[0] ?? 0, LOADER_MIN_SIZE[0]), 332];
+    widget.computeSize = () => [Math.max(node.size?.[0] ?? 0, loaderMinSize[0]), 332];
+    const panelWidgetIndex = node.widgets ? node.widgets.indexOf(widget) : -1;
+    if (pathsWidgetIndex >= 0 && panelWidgetIndex >= 0 && panelWidgetIndex !== pathsWidgetIndex + 1) {
+        node.widgets.splice(panelWidgetIndex, 1);
+        node.widgets.splice(pathsWidgetIndex + 1, 0, widget);
+    }
 
     node.size = [
-        Math.max(node.size?.[0] ?? 0, LOADER_MIN_SIZE[0]),
-        Math.max(node.size?.[1] ?? 0, LOADER_MIN_SIZE[1]),
+        Math.max(node.size?.[0] ?? 0, loaderMinSize[0]),
+        Math.max(node.size?.[1] ?? 0, loaderMinSize[1]),
     ];
 
     let draggedCard = null;
@@ -617,11 +644,24 @@ function setupMultiImageLoader(node, options = {}) {
         return card;
     }
 
-    async function uploadFiles(fileList) {
+    function isSupportedImageFile(file) {
+        const name = String(file?.name || "");
+        const type = String(file?.type || "");
+        return type.startsWith("image/") || /\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i.test(name);
+    }
+
+    async function uploadFiles(fileList, options = {}) {
         const uploaded = [];
         for (const file of Array.from(fileList || [])) {
+            if (!isSupportedImageFile(file)) {
+                continue;
+            }
             const body = new FormData();
             body.append("image", file);
+            const subfolder = options.subfolderForFile?.(file);
+            if (subfolder) {
+                body.append("subfolder", subfolder);
+            }
             const response = await api.fetchApi("/upload/image", { method: "POST", body });
             if (response.status !== 200) {
                 continue;
@@ -632,11 +672,13 @@ function setupMultiImageLoader(node, options = {}) {
         if (uploaded.length) {
             setPaths(getPaths().concat(uploaded));
         }
+        return uploaded;
     }
 
     function render() {
         const paths = getPaths();
-        countLabel.textContent = `${paths.length} image${paths.length === 1 ? "" : "s"}`;
+        const itemName = options.sourceInput ? "source" : "image";
+        countLabel.textContent = `${paths.length} ${itemName}${paths.length === 1 ? "" : "s"}`;
         grid.replaceChildren(...paths.map((path, index) => buildCard(path, index)));
     }
 
@@ -772,7 +814,7 @@ function setupMultiImageLoader(node, options = {}) {
         const pathRow = document.createElement("div");
         pathRow.style.cssText = "display:flex; gap:8px; align-items:center; min-height:28px;";
 
-        const upBtn = createActionButton("Up");
+        const upBtn = createActionButton("Parent");
         upBtn.disabled = true;
         upBtn.style.opacity = "0.55";
 
@@ -825,12 +867,21 @@ function setupMultiImageLoader(node, options = {}) {
 
         const stopCanvasEvent = (event) => event.stopPropagation();
         modal.addEventListener("pointerdown", stopCanvasEvent);
+        modal.addEventListener("pointerup", stopCanvasEvent);
         modal.addEventListener("mousedown", stopCanvasEvent);
+        modal.addEventListener("mouseup", stopCanvasEvent);
+        modal.addEventListener("click", stopCanvasEvent);
+        modal.addEventListener("dblclick", stopCanvasEvent);
         modal.addEventListener("wheel", stopCanvasEvent, { passive: false });
+        let overlayPointerStarted = false;
+        overlay.addEventListener("pointerdown", (event) => {
+            overlayPointerStarted = event.target === overlay;
+        });
         overlay.addEventListener("click", (event) => {
-            if (event.target === overlay) {
+            if (event.target === overlay && overlayPointerStarted) {
                 closeInputFolderBrowser();
             }
+            overlayPointerStarted = false;
         });
 
         const selected = new Set();
@@ -1115,9 +1166,586 @@ function setupMultiImageLoader(node, options = {}) {
         loadInputFolder();
     }
 
+    async function fetchExternalFolderImages(rootPath, folderPath = "") {
+        const params = new URLSearchParams({
+            root: String(rootPath || ""),
+            path: String(folderPath || ""),
+        });
+        const response = await api.fetchApi(`/deno/external-folder-images?${params.toString()}`, { cache: "no-store" });
+        if (response.status !== 200) {
+            let message = `External folder list failed (${response.status})`;
+            try {
+                const payload = await response.json();
+                message = payload?.error || message;
+            } catch (_err) {}
+            throw new Error(message);
+        }
+        const payload = await response.json();
+        const normalizeFolder = (entry) => {
+            const path = String(entry?.path ?? entry?.name ?? "").replace(/\\/g, "/").replace(/^\/+/, "");
+            if (!path || path.split("/").includes("..")) {
+                return null;
+            }
+            return {
+                name: String(entry?.name ?? path.split("/").pop() ?? path),
+                path,
+            };
+        };
+        const normalizeFile = (entry) => {
+            const path = String(entry?.path ?? "").trim();
+            if (!path || !/\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i.test(path)) {
+                return null;
+            }
+            return {
+                name: String(entry?.display_name ?? entry?.name ?? path.split(/[\\/]/).pop() ?? path),
+                path,
+            };
+        };
+        return {
+            root: String(payload?.root ?? rootPath ?? ""),
+            path: String(payload?.path ?? folderPath ?? "").replace(/\\/g, "/").replace(/^\/+/, ""),
+            parent: String(payload?.parent ?? "").replace(/\\/g, "/").replace(/^\/+/, ""),
+            folders: (payload?.folders ?? []).map(normalizeFolder).filter(Boolean),
+            files: (payload?.files ?? []).map(normalizeFile).filter(Boolean),
+        };
+    }
+
+    function showExternalFolderBrowser() {
+        const overlay = document.createElement("div");
+        overlay.style.cssText = `
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.46);
+            pointer-events: auto;
+        `;
+
+        const modal = document.createElement("div");
+        modal.style.cssText = `
+            width: min(820px, calc(100vw - 48px));
+            max-height: min(720px, calc(100vh - 48px));
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 16px;
+            box-sizing: border-box;
+            overflow: hidden;
+            border: 1px solid rgba(72, 255, 132, 0.42);
+            border-radius: 16px;
+            background: rgba(3, 12, 8, 0.98);
+            color: #dfffea;
+            box-shadow: 0 18px 64px rgba(0, 0, 0, 0.55);
+            font: 12px sans-serif;
+        `;
+
+        const header = document.createElement("div");
+        header.style.cssText = "display:flex; gap:10px; align-items:center;";
+        const title = document.createElement("div");
+        title.textContent = "Add images from an external folder";
+        title.style.cssText = "flex:1; color:#9dffba; font:700 15px sans-serif;";
+        const closeBtn = createActionButton("Close");
+        closeBtn.onclick = () => overlay.remove();
+        header.append(title, closeBtn);
+
+        const rootRow = document.createElement("div");
+        rootRow.style.cssText = "display:flex; gap:8px; align-items:center; min-width:0; flex-wrap:wrap;";
+        const rootInput = document.createElement("input");
+        rootInput.type = "text";
+        rootInput.placeholder = "Paste a folder path, then click Load Path. Example: D:\\Images\\Project";
+        rootInput.value = node.properties?.deno_external_root || "";
+        rootInput.style.cssText = `
+            flex: 1;
+            min-width: 260px;
+            border: 1px solid rgba(72, 255, 132, 0.28);
+            border-radius: 10px;
+            background: rgba(9, 18, 14, 0.96);
+            color: #dfffea;
+            padding: 8px 10px;
+            box-sizing: border-box;
+            outline: none;
+            font: 12px sans-serif;
+        `;
+        const loadPathBtn = createActionButton("Load Path");
+        const uploadFolderBtn = createActionButton("Upload Folder...");
+        rootRow.append(rootInput, loadPathBtn, uploadFolderBtn);
+
+        const folderInput = document.createElement("input");
+        folderInput.type = "file";
+        folderInput.multiple = true;
+        folderInput.accept = "image/*";
+        folderInput.webkitdirectory = true;
+        folderInput.setAttribute("directory", "");
+        folderInput.style.display = "none";
+
+        const pathRow = document.createElement("div");
+        pathRow.style.cssText = "display:flex; gap:8px; align-items:center; min-height:28px;";
+        const upBtn = createActionButton("Parent");
+        upBtn.disabled = true;
+        upBtn.style.opacity = "0.55";
+        const pathLabel = document.createElement("div");
+        pathLabel.style.cssText = "flex:1; min-width:0; color:#9dffba; font:600 12px/1.35 sans-serif; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;";
+        pathRow.append(upBtn, pathLabel);
+
+        const search = document.createElement("input");
+        search.type = "search";
+        search.placeholder = "Search folders or images...";
+        search.style.cssText = rootInput.style.cssText;
+
+        const status = document.createElement("div");
+        status.textContent = "Paste a folder path and click Load Path, or use Upload Folder... to pick a folder.";
+        status.style.cssText = "color:#91dca4; min-height:16px;";
+
+        const list = document.createElement("div");
+        list.style.cssText = `
+            flex: 1;
+            min-height: 240px;
+            overflow-y: auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+            gap: 10px;
+            align-content: start;
+            padding: 4px;
+            box-sizing: border-box;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.22);
+        `;
+
+        const footer = document.createElement("div");
+        footer.style.cssText = "display:flex; gap:8px; align-items:center; justify-content:flex-end;";
+        const selectedLabel = document.createElement("div");
+        selectedLabel.style.cssText = "flex:1; color:#9dffba; font:600 12px sans-serif;";
+        selectedLabel.textContent = "0 selected";
+        const addBtn = createActionButton("Add Selected");
+        addBtn.disabled = true;
+        addBtn.style.opacity = "0.55";
+        footer.append(selectedLabel, addBtn);
+
+        modal.append(header, rootRow, folderInput, pathRow, search, status, list, footer);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const stopCanvasEvent = (event) => event.stopPropagation();
+        modal.addEventListener("pointerdown", stopCanvasEvent);
+        modal.addEventListener("pointerup", stopCanvasEvent);
+        modal.addEventListener("mousedown", stopCanvasEvent);
+        modal.addEventListener("mouseup", stopCanvasEvent);
+        modal.addEventListener("click", stopCanvasEvent);
+        modal.addEventListener("dblclick", stopCanvasEvent);
+        modal.addEventListener("wheel", stopCanvasEvent, { passive: false });
+        let overlayPointerStarted = false;
+        overlay.addEventListener("pointerdown", (event) => {
+            overlayPointerStarted = event.target === overlay;
+        });
+        overlay.addEventListener("click", (event) => {
+            if (event.target === overlay && overlayPointerStarted) {
+                overlay.remove();
+            }
+            overlayPointerStarted = false;
+        });
+
+        const selected = new Set();
+        let currentRoot = rootInput.value.trim();
+        let currentPath = "";
+        let currentParent = "";
+        let allFolders = [];
+        let allFiles = [];
+
+        const refreshSelected = () => {
+            selectedLabel.textContent = `${selected.size} selected`;
+            addBtn.disabled = selected.size === 0;
+            addBtn.style.opacity = selected.size === 0 ? "0.55" : "1";
+        };
+
+        const updatePathLabel = () => {
+            const rootText = currentRoot || "external folder";
+            pathLabel.textContent = currentPath ? `${rootText}\\${currentPath}` : rootText;
+            pathLabel.title = pathLabel.textContent;
+            upBtn.disabled = !currentPath;
+            upBtn.style.opacity = currentPath ? "1" : "0.55";
+        };
+
+        const createExternalCard = (entry) => {
+            const isFolder = entry.type === "folder";
+            const card = document.createElement("button");
+            card.type = "button";
+            card.title = isFolder ? "Double-click to open folder" : entry.path;
+            card.style.cssText = `
+                min-height: 122px;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                box-sizing: border-box;
+                border: 1px solid rgba(54,110,74,0.9);
+                border-radius: 10px;
+                padding: 6px;
+                background: rgba(8, 16, 13, 0.95);
+                color: #dfffea;
+                cursor: pointer;
+                text-align: left;
+                overflow: hidden;
+            `;
+
+            const preview = isFolder ? document.createElement("div") : document.createElement("img");
+            if (isFolder) {
+                preview.textContent = "Folder";
+                preview.style.cssText = `
+                    width: 100%;
+                    height: 82px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 7px;
+                    border: 1px solid rgba(72, 255, 132, 0.24);
+                    background: linear-gradient(180deg, rgba(35, 83, 50, 0.92), rgba(7, 22, 14, 0.96));
+                    color: #9dffba;
+                    font: 700 14px sans-serif;
+                    pointer-events: none;
+                `;
+            } else {
+                setInputImageSource(preview, entry.path);
+                preview.loading = "eager";
+                preview.decoding = "async";
+                preview.style.cssText = "width:100%; height:82px; object-fit:cover; border-radius:7px; background:#020403; pointer-events:none;";
+            }
+
+            const label = document.createElement("div");
+            label.textContent = entry.name;
+            label.title = entry.path;
+            label.style.cssText = "color:#dfffea; font:600 11px/1.25 sans-serif; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;";
+
+            if (isFolder) {
+                card.ondblclick = () => loadExternalFolder(entry.path);
+            } else {
+                const updateSelection = () => {
+                    const isSelected = selected.has(entry.path);
+                    card.style.borderColor = isSelected ? "rgba(72,255,132,0.9)" : "rgba(54,110,74,0.9)";
+                    card.style.background = isSelected ? "rgba(21, 75, 39, 0.72)" : "rgba(8, 16, 13, 0.95)";
+                    card.setAttribute("aria-pressed", String(isSelected));
+                };
+                card.onclick = () => {
+                    if (selected.has(entry.path)) {
+                        selected.delete(entry.path);
+                    } else {
+                        selected.add(entry.path);
+                    }
+                    refreshSelected();
+                    updateSelection();
+                };
+                updateSelection();
+            }
+            card.append(preview, label);
+            return card;
+        };
+
+        const renderExternalItems = () => {
+            const needle = search.value.trim().toLowerCase();
+            const entries = allFolders.map((folder) => ({ type: "folder", ...folder }))
+                .concat(allFiles.map((file) => ({ type: "file", ...file })))
+                .filter((entry) => {
+                    if (!needle) {
+                        return true;
+                    }
+                    return `${entry.name || ""} ${entry.path || ""}`.toLowerCase().includes(needle);
+                });
+            if (!entries.length) {
+                const empty = document.createElement("div");
+                empty.textContent = (allFolders.length || allFiles.length) ? "No items match the search." : "No images found.";
+                empty.style.cssText = "color:#91dca4; padding:10px;";
+                list.replaceChildren(empty);
+                return;
+            }
+            list.replaceChildren(...entries.map(createExternalCard));
+            status.textContent = `${allFolders.length} folder${allFolders.length === 1 ? "" : "s"}, ${allFiles.length} image${allFiles.length === 1 ? "" : "s"} found`;
+        };
+
+        const sanitizeUploadPathPart = (value) => String(value || "")
+            .replace(/\\/g, "/")
+            .split("/")
+            .map((part) => part.trim().replace(/[<>:"|?*\x00-\x1F]/g, "_"))
+            .filter((part) => part && part !== "." && part !== "..");
+
+        const createFolderUploadSubfolder = (file, uploadRoot) => {
+            const relativeParts = sanitizeUploadPathPart(file.webkitRelativePath || file.name);
+            const nestedParts = relativeParts.length > 1 ? relativeParts.slice(1, -1) : [];
+            return [uploadRoot].concat(nestedParts).join("/");
+        };
+
+        const uploadSelectedFolderFiles = async (files, relativePathForFile, rootName = "selected-folder") => {
+            const imageFiles = Array.from(files || []).filter(isSupportedImageFile);
+            if (!imageFiles.length) {
+                status.textContent = "No supported image files were selected.";
+                return [];
+            }
+
+            const safeRootName = sanitizeUploadPathPart(rootName)[0] || "selected-folder";
+            const uploadRoot = `deno_folder_uploads/${Date.now()}_${safeRootName}`;
+            status.textContent = `Uploading ${imageFiles.length} image${imageFiles.length === 1 ? "" : "s"} from selected folder...`;
+
+            const uploaded = await uploadFiles(imageFiles, {
+                subfolderForFile: (file) => createFolderUploadSubfolder({
+                    name: file.name,
+                    webkitRelativePath: relativePathForFile(file) || file.webkitRelativePath || file.name,
+                }, uploadRoot),
+            });
+            status.textContent = uploaded.length
+                ? `Added ${uploaded.length} uploaded image${uploaded.length === 1 ? "" : "s"} from selected folder.`
+                : "No images were uploaded from the selected folder.";
+            if (uploaded.length) {
+                overlay.remove();
+            }
+            return uploaded;
+        };
+
+        const collectDirectoryPickerImages = async (directoryHandle) => {
+            const files = [];
+            const relativePaths = new WeakMap();
+
+            async function walk(handle, parts = []) {
+                for await (const [name, childHandle] of handle.entries()) {
+                    const nextParts = parts.concat(name);
+                    if (childHandle.kind === "directory") {
+                        await walk(childHandle, nextParts);
+                        continue;
+                    }
+                    if (childHandle.kind !== "file") {
+                        continue;
+                    }
+
+                    const file = await childHandle.getFile();
+                    if (!isSupportedImageFile(file)) {
+                        continue;
+                    }
+                    files.push(file);
+                    relativePaths.set(file, nextParts.join("/"));
+                }
+            }
+
+            await walk(directoryHandle);
+            return { files, relativePaths };
+        };
+
+        const pickFolderWithDirectoryPicker = async () => {
+            if (!window.showDirectoryPicker) {
+                return false;
+            }
+
+            let directoryHandle = null;
+            try {
+                directoryHandle = await window.showDirectoryPicker({ mode: "read" });
+            } catch (error) {
+                if (error?.name === "AbortError") {
+                    status.textContent = "Folder selection was cancelled.";
+                    return true;
+                }
+                throw error;
+            }
+
+            status.textContent = "Scanning selected folder for images...";
+            const { files, relativePaths } = await collectDirectoryPickerImages(directoryHandle);
+            await uploadSelectedFolderFiles(
+                files,
+                (file) => relativePaths.get(file),
+                directoryHandle.name || "selected-folder",
+            );
+            return true;
+        };
+
+        const loadExternalFolder = (folderPath = "") => {
+            currentRoot = rootInput.value.trim();
+            if (!currentRoot) {
+                status.textContent = "Paste a folder path first, or use Upload Folder... to pick a folder.";
+                return Promise.resolve();
+            }
+            status.textContent = "Loading external folder...";
+            list.replaceChildren();
+            return fetchExternalFolderImages(currentRoot, folderPath)
+                .then((payload) => {
+                    currentRoot = payload.root || currentRoot;
+                    currentPath = payload.path || "";
+                    currentParent = payload.parent || "";
+                    node.properties = node.properties || {};
+                    node.properties.deno_external_root = currentRoot;
+                    allFolders = payload.folders || [];
+                    allFiles = payload.files || [];
+                    updatePathLabel();
+                    renderExternalItems();
+                    refreshSelected();
+                    search.focus();
+                })
+                .catch((error) => {
+                    status.textContent = `Failed to read external folder: ${error.message || error}`;
+                    allFolders = [];
+                    allFiles = [];
+                    currentPath = "";
+                    currentParent = "";
+                    updatePathLabel();
+                    list.replaceChildren();
+                });
+        };
+
+        loadPathBtn.onclick = () => loadExternalFolder("");
+        uploadFolderBtn.onclick = async () => {
+            try {
+                const handled = await pickFolderWithDirectoryPicker();
+                if (!handled) {
+                    status.textContent = "Select a folder. Your browser may ask for upload permission.";
+                    folderInput.click();
+                }
+            } catch (error) {
+                status.textContent = `Folder selection failed: ${error.message || error}`;
+            }
+        };
+        folderInput.onchange = async (event) => {
+            try {
+                const files = Array.from(event.target.files || []);
+                const firstRelativePath = String(files[0]?.webkitRelativePath || "").replace(/\\/g, "/");
+                const rootName = sanitizeUploadPathPart(firstRelativePath)[0] || "selected-folder";
+                await uploadSelectedFolderFiles(files, (file) => file.webkitRelativePath || file.name, rootName);
+            } catch (error) {
+                status.textContent = `Folder upload failed: ${error.message || error}`;
+            } finally {
+                folderInput.value = "";
+            }
+        };
+        rootInput.onkeydown = (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                loadExternalFolder("");
+            }
+        };
+        upBtn.onclick = () => {
+            if (currentPath) {
+                loadExternalFolder(currentParent);
+            }
+        };
+        search.oninput = renderExternalItems;
+        addBtn.onclick = () => {
+            if (!selected.size) {
+                return;
+            }
+            setPaths(getPaths().concat(Array.from(selected)));
+            overlay.remove();
+        };
+        updatePathLabel();
+        if (currentRoot) {
+            loadExternalFolder("");
+        } else {
+            rootInput.focus();
+        }
+    }
+
+    function showSourceInputDialog() {
+        const overlay = document.createElement("div");
+        overlay.style.cssText = `
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.46);
+            pointer-events: auto;
+        `;
+
+        const modal = document.createElement("div");
+        modal.style.cssText = `
+            width: min(620px, calc(100vw - 48px));
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 16px;
+            box-sizing: border-box;
+            border: 1px solid rgba(72, 255, 132, 0.42);
+            border-radius: 16px;
+            background: rgba(3, 12, 8, 0.98);
+            color: #dfffea;
+            box-shadow: 0 18px 64px rgba(0, 0, 0, 0.55);
+            font: 12px sans-serif;
+        `;
+
+        const header = document.createElement("div");
+        header.style.cssText = "display:flex; gap:10px; align-items:center;";
+        const title = document.createElement("div");
+        title.textContent = "Add web URLs or local file paths";
+        title.style.cssText = "flex:1; color:#9dffba; font:700 15px sans-serif;";
+        const closeBtn = createActionButton("Close");
+        closeBtn.onclick = () => overlay.remove();
+        header.append(title, closeBtn);
+
+        const area = document.createElement("textarea");
+        area.placeholder = [
+            "Paste one source per line:",
+            "https://example.com/image.png",
+            "D:\\Images\\shot001.png",
+            "D:\\Images\\ProjectFolder",
+        ].join("\n");
+        area.style.cssText = `
+            width: 100%;
+            min-height: 180px;
+            resize: vertical;
+            border: 1px solid rgba(72, 255, 132, 0.28);
+            border-radius: 10px;
+            background: rgba(9, 18, 14, 0.96);
+            color: #dfffea;
+            padding: 10px;
+            box-sizing: border-box;
+            outline: none;
+            font: 12px/1.45 monospace;
+        `;
+
+        const footer = document.createElement("div");
+        footer.style.cssText = "display:flex; gap:8px; align-items:center; justify-content:flex-end;";
+        const addBtn = createActionButton("Add Sources");
+        footer.append(addBtn);
+        modal.append(header, area, footer);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const stopCanvasEvent = (event) => event.stopPropagation();
+        modal.addEventListener("pointerdown", stopCanvasEvent);
+        modal.addEventListener("pointerup", stopCanvasEvent);
+        modal.addEventListener("mousedown", stopCanvasEvent);
+        modal.addEventListener("mouseup", stopCanvasEvent);
+        modal.addEventListener("click", stopCanvasEvent);
+        modal.addEventListener("dblclick", stopCanvasEvent);
+        modal.addEventListener("wheel", stopCanvasEvent, { passive: false });
+        let overlayPointerStarted = false;
+        overlay.addEventListener("pointerdown", (event) => {
+            overlayPointerStarted = event.target === overlay;
+        });
+        overlay.addEventListener("click", (event) => {
+            if (event.target === overlay && overlayPointerStarted) {
+                overlay.remove();
+            }
+            overlayPointerStarted = false;
+        });
+
+        addBtn.onclick = () => {
+            const nextSources = area.value
+                .split("\n")
+                .map((entry) => entry.trim())
+                .filter(Boolean);
+            if (nextSources.length) {
+                setPaths(getPaths().concat(nextSources));
+            }
+            overlay.remove();
+        };
+        area.focus();
+    }
+
     uploadBtn.onclick = () => fileInput.click();
     if (inputFolderBtn) {
         inputFolderBtn.onclick = showInputFolderBrowser;
+    }
+    if (externalFolderBtn) {
+        externalFolderBtn.onclick = showExternalFolderBrowser;
+    }
+    if (sourceInputBtn) {
+        sourceInputBtn.onclick = showSourceInputDialog;
     }
     clearBtn.onclick = () => setPaths([]);
     fileInput.onchange = (event) => uploadFiles(event.target.files);
@@ -1220,7 +1848,7 @@ function dimensionsFromTuple(dims) {
 function readInputImageSize(path) {
     return new Promise((resolve) => {
         const image = new Image();
-        const urls = createInputImageViewUrls(path);
+        const urls = createDenoImageSourceUrls(path);
         let urlIndex = 0;
         image.onload = () => {
             const width = Number(image.naturalWidth || image.width || 0);
@@ -1240,7 +1868,30 @@ function readInputImageSize(path) {
 }
 
 function createInputImageViewUrl(path) {
-    return createInputImageViewUrls(path)[0] || "/api/view?filename=&type=input";
+    return createDenoImageSourceUrls(path)[0] || "/api/view?filename=&type=input";
+}
+
+function isRemoteImageSource(path) {
+    return /^https?:\/\//i.test(String(path || "").trim());
+}
+
+function isExternalLocalImageSource(path) {
+    const value = String(path || "").trim();
+    if (!value || isRemoteImageSource(value)) {
+        return false;
+    }
+    return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("\\\\") || value.startsWith("/");
+}
+
+function createDenoImageSourceUrls(path) {
+    const value = String(path || "").trim();
+    if (isRemoteImageSource(value)) {
+        return [value];
+    }
+    if (isExternalLocalImageSource(value)) {
+        return [`/deno/external-image-view?path=${encodeURIComponent(value)}`];
+    }
+    return createInputImageViewUrls(value);
 }
 
 function createInputImageViewUrls(path) {
@@ -1277,7 +1928,7 @@ function createInputImageViewUrls(path) {
 }
 
 function setInputImageSource(image, path) {
-    const urls = createInputImageViewUrls(path);
+    const urls = createDenoImageSourceUrls(path);
     let urlIndex = 0;
     image.onerror = () => {
         urlIndex += 1;
@@ -2419,6 +3070,7 @@ function createActionButton(label, danger = false) {
         padding:6px 10px;
         cursor:pointer;
         font:600 11px sans-serif;
+        white-space:nowrap;
         color:${danger ? "#ffd5d5" : "#d9ffe5"};
         background:${danger ? "rgba(119, 26, 26, 0.95)" : "rgba(22, 58, 35, 0.95)"};
     `;
