@@ -45,6 +45,7 @@ class DenoLTXMultiLoraLoader:
     DESCRIPTION = (
         "Stack multiple LTX LoRAs in one node with quick add/remove UX.\n"
         "Each slot controls overall, video, and audio strength in a compact Power LoRA Loader style UI.\n"
+        "Save per-slot trigger words and notes, then copy trigger words from the node UI.\n"
         "YouTube: https://www.youtube.com/@Denoise-AI"
     )
 
@@ -72,6 +73,10 @@ class DenoLTXMultiLoraLoader:
                 "FLOAT",
                 {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01},
             )
+
+        for index in range(1, MAX_LORA_SLOTS + 1):
+            required[_slot_key("trigger", index)] = ("STRING", {"default": "", "multiline": False})
+            required[_slot_key("description", index)] = ("STRING", {"default": "", "multiline": True})
 
         return {"required": required}
 

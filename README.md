@@ -117,8 +117,10 @@ Main features:
 - add multiple LoRAs in one compact node
 - per-slot enable toggle
 - per-slot `strength`, `video`, and `audio` strength controls
+- per-slot trigger word and LoRA note editor
+- copy saved trigger words from the LoRA row
 - outputs patched `model` and `clip`
-- designed to stay close to the familiar Power LoRA Loader workflow while adding LTX-friendly A/V controls
+- designed to stay close to the familiar Power LoRA Loader workflow while adding LTX-friendly A/V controls and lightweight LoRA reference notes
 
 ### `(Deno) LTX Prompt Guide`
 

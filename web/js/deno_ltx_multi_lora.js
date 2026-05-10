@@ -4,12 +4,17 @@ import { api } from "../../scripts/api.js";
 const NODE_NAME = "DenoLTXMultiLoraLoader";
 const UI_VERSION = "rgthree-style-draft-v2";
 const MAX_SLOTS = 8;
-const MIN_WIDTH = 390;
+const MIN_WIDTH = 450;
 const NONE_VALUE = "__none__";
 const GENERATED_PREFIX = "deno_ltx_multi_lora_";
 const MARGIN = 10;
+const ROW_HORIZONTAL_INSET = 15;
 const INNER_MARGIN = MARGIN * 0.33;
 const NUMBER_COLUMN_GAP = 3 + INNER_MARGIN * 2;
+const ICON_SIZE = 18;
+const ICON_GAP = 6;
+const ICON_RIGHT_PADDING = 18;
+const ICON_COLUMN_WIDTH = ICON_SIZE * 2 + ICON_GAP + ICON_RIGHT_PADDING + INNER_MARGIN * 2;
 let lastContextMenuEvent = null;
 let cachedLoraOptions = null;
 let loraOptionsPromise = null;
@@ -351,7 +356,7 @@ class DenoLoraHeaderWidget extends DenoBaseWidget {
         const lowQuality = isLowQuality();
         posY += 2;
         const midY = posY + height * 0.5;
-        let posX = MARGIN;
+        let posX = ROW_HORIZONTAL_INSET;
 
         ctx.save();
         this.hitAreas.toggle.bounds = drawTogglePart(ctx, {
@@ -408,6 +413,8 @@ class DenoLoraRowWidget extends DenoBaseWidget {
             audioVal: { bounds: [0, 0], onClick: this.onAudioVal },
             audioInc: { bounds: [0, 0], onClick: this.onAudioInc },
             audioAny: { bounds: [0, 0], onMove: this.onAudioMove },
+            info: { bounds: [0, 0], onClick: this.onInfoClick },
+            copy: { bounds: [0, 0], onClick: this.onCopyClick },
         };
     }
 
@@ -416,12 +423,12 @@ class DenoLoraRowWidget extends DenoBaseWidget {
         const lowQuality = isLowQuality();
         const enabled = Boolean(getValue(node, `enabled_${this.index}`, true));
         const midY = posY + height * 0.5;
-        let posX = MARGIN;
+        let posX = ROW_HORIZONTAL_INSET;
 
         ctx.save();
         drawRoundedRectangle(ctx, {
             pos: [posX, posY],
-            size: [node.size[0] - MARGIN * 2, height],
+            size: [width - ROW_HORIZONTAL_INSET * 2, height],
         });
         this.hitAreas.toggle.bounds = drawTogglePart(ctx, { posX, posY, height, value: enabled });
         posX += this.hitAreas.toggle.bounds[1] + INNER_MARGIN;
@@ -442,10 +449,14 @@ class DenoLoraRowWidget extends DenoBaseWidget {
         const loraWidth = loraRightX - posX;
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        const label = displayLora(getValue(node, `lora_${this.index}`, NONE_VALUE));
-        ctx.fillText(fitString(ctx, label, loraWidth), posX, midY);
+        const loraName = getValue(node, `lora_${this.index}`, NONE_VALUE);
+        const trigger = loraName && loraName !== NONE_VALUE ? String(getValue(node, `trigger_${this.index}`, "") || "").trim() : "";
+        const label = displayLora(loraName);
+        ctx.fillText(fitString(ctx, trigger ? `${label} / ${trigger}` : label, loraWidth), posX, midY);
         this.hitAreas.lora.bounds = [posX, loraWidth];
         ctx.globalAlpha = app.canvas?.editor_alpha ?? 1;
+        this.hitAreas.info.bounds = drawIconButton(ctx, iconX(node, 0), posY + 1, "info", Boolean(trigger || getValue(node, `description_${this.index}`, "")));
+        this.hitAreas.copy.bounds = drawIconButton(ctx, iconX(node, 1), posY + 1, "copy", Boolean(trigger));
         ctx.restore();
     }
 
@@ -533,6 +544,31 @@ class DenoLoraRowWidget extends DenoBaseWidget {
         this.drag(node, "audio", event.deltaX);
     }
 
+    onInfoClick(event, pos, node) {
+        openLoraInfoEditor(node, this.index);
+        this.cancelMouseDown();
+        return true;
+    }
+
+    onCopyClick(event, pos, node) {
+        const loraName = getValue(node, `lora_${this.index}`, NONE_VALUE);
+        if (!loraName || loraName === NONE_VALUE) {
+            showToast("Choose a LoRA first.");
+            this.cancelMouseDown();
+            return true;
+        }
+        const trigger = String(getValue(node, `trigger_${this.index}`, "") || "").trim();
+        if (!trigger) {
+            showToast("No trigger words saved yet.");
+            this.cancelMouseDown();
+            return true;
+        }
+        copyText(trigger);
+        showToast("Trigger words copied.");
+        this.cancelMouseDown();
+        return true;
+    }
+
     onContextMenu(event, pos, node) {
         showRemoveLoraMenu(event, node, this.index);
         return true;
@@ -579,7 +615,7 @@ class DenoAddLoraWidget extends DenoBaseWidget {
     }
 
     draw(ctx, node, width, y, height) {
-        drawWidgetButton(ctx, { size: [width - 30, height], pos: [15, y] }, "+ Add LoRA", this.isMouseDownedAndOver);
+        drawWidgetButton(ctx, { size: [width - ROW_HORIZONTAL_INSET * 2, height], pos: [ROW_HORIZONTAL_INSET, y] }, "+ Add LoRA", this.isMouseDownedAndOver);
     }
 
     onMouseClick(event, pos, node) {
@@ -642,15 +678,19 @@ function removeLoraSlot(node, index) {
 }
 
 function copySlotValues(node, fromIndex, toIndex) {
-    for (const prefix of ["enabled", "lora", "strength", "video", "audio"]) {
+    for (const prefix of slotValuePrefixes()) {
         setValue(node, `${prefix}_${toIndex}`, getValue(node, `${prefix}_${fromIndex}`, defaultSlotValue(prefix)));
     }
 }
 
 function resetSlotValues(node, index) {
-    for (const prefix of ["enabled", "lora", "strength", "video", "audio"]) {
+    for (const prefix of slotValuePrefixes()) {
         setValue(node, `${prefix}_${index}`, defaultSlotValue(prefix));
     }
+}
+
+function slotValuePrefixes() {
+    return ["enabled", "lora", "strength", "video", "audio", "trigger", "description"];
 }
 
 function defaultSlotValue(prefix) {
@@ -660,17 +700,18 @@ function defaultSlotValue(prefix) {
     if (prefix === "lora") {
         return NONE_VALUE;
     }
+    if (prefix === "trigger" || prefix === "description") {
+        return "";
+    }
     return 1.0;
 }
 
 function hideBackendWidgets(node) {
     hideWidget(getWidget(node, "active_loras"));
     for (let index = 1; index <= MAX_SLOTS; index += 1) {
-        hideWidget(getWidget(node, `enabled_${index}`));
-        hideWidget(getWidget(node, `lora_${index}`));
-        hideWidget(getWidget(node, `strength_${index}`));
-        hideWidget(getWidget(node, `video_${index}`));
-        hideWidget(getWidget(node, `audio_${index}`));
+        for (const prefix of slotValuePrefixes()) {
+            hideWidget(getWidget(node, `${prefix}_${index}`));
+        }
     }
 }
 
@@ -832,7 +873,7 @@ function clamp(value, min, max) {
 }
 
 function baseNumberRightX(node) {
-    return node.size[0] - MARGIN - INNER_MARGIN - INNER_MARGIN;
+    return rowRightX(node) - INNER_MARGIN - INNER_MARGIN - ICON_COLUMN_WIDTH;
 }
 
 function numberRightX(node, indexFromRight) {
@@ -841,6 +882,16 @@ function numberRightX(node, indexFromRight) {
 
 function numberLabelCenterX(node, indexFromRight) {
     return numberRightX(node, indexFromRight) - drawNumberWidgetPart.WIDTH_TOTAL / 2;
+}
+
+function rowRightX(node) {
+    return node.size[0] - ROW_HORIZONTAL_INSET;
+}
+
+function iconX(node, index) {
+    const iconPairWidth = ICON_SIZE * 2 + ICON_GAP;
+    const first = rowRightX(node) - ICON_RIGHT_PADDING - iconPairWidth;
+    return first + index * (ICON_SIZE + ICON_GAP);
 }
 
 function isLowQuality() {
@@ -991,4 +1042,258 @@ function drawWidgetButton(ctx, options, text = null, isMouseDownedAndOver = fals
         ctx.fillText(text, options.pos[0] + options.size[0] / 2, options.pos[1] + options.size[1] / 2 + (isMouseDownedAndOver ? 1 : 0));
     }
     ctx.restore();
+}
+
+function drawIconButton(ctx, x, y, kind, active) {
+    const lowQuality = isLowQuality();
+    ctx.save();
+    drawRoundedRectangle(ctx, {
+        pos: [x, y],
+        size: [ICON_SIZE, ICON_SIZE],
+        borderRadius: 5,
+        colorBackground: active ? LiteGraph.WIDGET_BGCOLOR : "#00000044",
+        colorStroke: LiteGraph.WIDGET_OUTLINE_COLOR,
+    });
+    if (!lowQuality) {
+        ctx.strokeStyle = active ? LiteGraph.WIDGET_TEXT_COLOR : "rgba(215,220,224,0.55)";
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.lineWidth = 1.2;
+        if (kind === "info") {
+            ctx.beginPath();
+            ctx.arc(x + ICON_SIZE * 0.5, y + ICON_SIZE * 0.5, 5.2, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.font = "700 9px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("i", x + ICON_SIZE * 0.5, y + ICON_SIZE * 0.5 + 0.4);
+        } else {
+            ctx.strokeRect(x + 7, y + 4.5, 6.5, 8);
+            ctx.strokeRect(x + 4.5, y + 6.5, 6.5, 8);
+        }
+    }
+    ctx.restore();
+    return [x, y, ICON_SIZE, ICON_SIZE];
+}
+
+function openLoraInfoEditor(node, index) {
+    ensureLoraInfoStyles();
+    const overlay = document.createElement("div");
+    overlay.className = "deno-ltx-lora-info-overlay";
+    const loraName = displayLora(getValue(node, `lora_${index}`, NONE_VALUE));
+
+    overlay.innerHTML = `
+        <div class="deno-ltx-lora-info-panel" role="dialog" aria-modal="true">
+            <div class="deno-ltx-lora-info-title">
+                <div>
+                    <strong>LoRA Slot ${index}</strong>
+                    <span>${escapeHtml(loraName)}</span>
+                </div>
+                <button type="button" data-action="close">Close</button>
+            </div>
+            <label>
+                <span>Trigger words</span>
+                <input data-field="trigger" type="text" autocomplete="off" spellcheck="false" />
+            </label>
+            <label>
+                <span>LoRA description</span>
+                <textarea data-field="description" rows="5" spellcheck="false"></textarea>
+            </label>
+            <div class="deno-ltx-lora-info-actions">
+                <button type="button" data-action="copy">Copy Trigger</button>
+                <button type="button" data-action="save">Save</button>
+            </div>
+        </div>
+    `;
+
+    const triggerInput = overlay.querySelector('[data-field="trigger"]');
+    const descriptionInput = overlay.querySelector('[data-field="description"]');
+    triggerInput.value = String(getValue(node, `trigger_${index}`, "") || "");
+    descriptionInput.value = String(getValue(node, `description_${index}`, "") || "");
+
+    const close = () => overlay.remove();
+    const save = () => {
+        setValue(node, `trigger_${index}`, triggerInput.value.trim());
+        setValue(node, `description_${index}`, descriptionInput.value.trim());
+        redraw(node);
+        close();
+    };
+
+    overlay.addEventListener("click", (event) => {
+        if (event.target?.dataset?.action === "close") {
+            close();
+        }
+        if (event.target?.dataset?.action === "save") {
+            save();
+        }
+        if (event.target?.dataset?.action === "copy") {
+            const text = triggerInput.value.trim();
+            if (text) {
+                copyText(text);
+                showToast("Trigger words copied.");
+            } else {
+                showToast("No trigger words saved yet.");
+            }
+        }
+    });
+
+    overlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            close();
+        }
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            save();
+        }
+    });
+
+    document.body.appendChild(overlay);
+    queueMicrotask(() => triggerInput.focus());
+}
+
+function copyText(text) {
+    if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+        return;
+    }
+    fallbackCopyText(text);
+}
+
+function fallbackCopyText(text) {
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    try {
+        document.execCommand("copy");
+    } catch (_error) {
+        // Clipboard availability depends on browser focus and permissions.
+    }
+    input.remove();
+}
+
+function ensureLoraInfoStyles() {
+    if (document.getElementById("deno-ltx-lora-info-styles")) {
+        return;
+    }
+    const style = document.createElement("style");
+    style.id = "deno-ltx-lora-info-styles";
+    style.textContent = `
+        .deno-ltx-lora-info-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 100000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.35);
+            pointer-events: auto;
+        }
+        .deno-ltx-lora-info-panel {
+            width: min(500px, calc(100vw - 36px));
+            border: 1px solid rgba(95, 105, 112, 0.95);
+            border-radius: 8px;
+            background: rgba(31, 33, 36, 0.98);
+            box-shadow: 0 20px 65px rgba(0, 0, 0, 0.55);
+            padding: 14px;
+            color: #d7dce0;
+            font: 12px/1.4 sans-serif;
+        }
+        .deno-ltx-lora-info-title {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .deno-ltx-lora-info-title strong {
+            display: block;
+            color: #d7dce0;
+            font-size: 14px;
+        }
+        .deno-ltx-lora-info-title span {
+            display: block;
+            max-width: 370px;
+            color: rgba(215, 220, 224, 0.62);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .deno-ltx-lora-info-panel label {
+            display: block;
+            margin-top: 10px;
+        }
+        .deno-ltx-lora-info-panel label span {
+            display: block;
+            margin-bottom: 5px;
+            color: rgba(215, 220, 224, 0.86);
+            font-weight: 700;
+        }
+        .deno-ltx-lora-info-panel input,
+        .deno-ltx-lora-info-panel textarea {
+            box-sizing: border-box;
+            width: 100%;
+            border: 1px solid rgba(95, 105, 112, 0.9);
+            border-radius: 6px;
+            background: rgba(16, 17, 19, 0.96);
+            color: #eef1f3;
+            outline: none;
+            padding: 8px 9px;
+            font: 12px/1.35 sans-serif;
+        }
+        .deno-ltx-lora-info-panel textarea {
+            resize: vertical;
+            min-height: 86px;
+        }
+        .deno-ltx-lora-info-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .deno-ltx-lora-info-panel button {
+            border: 1px solid rgba(95, 105, 112, 0.95);
+            border-radius: 6px;
+            background: rgba(47, 50, 54, 0.98);
+            color: #d7dce0;
+            cursor: pointer;
+            font: 700 11px/1 sans-serif;
+            padding: 8px 10px;
+        }
+        .deno-ltx-lora-info-panel button:hover {
+            background: rgba(63, 67, 72, 0.98);
+        }
+        .deno-ltx-lora-info-toast {
+            position: fixed;
+            left: 50%;
+            bottom: 32px;
+            z-index: 100001;
+            transform: translateX(-50%);
+            border: 1px solid rgba(95, 105, 112, 0.95);
+            border-radius: 999px;
+            background: rgba(31, 33, 36, 0.98);
+            color: #d7dce0;
+            padding: 8px 12px;
+            font: 700 12px/1 sans-serif;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+function showToast(message) {
+    ensureLoraInfoStyles();
+    document.querySelectorAll(".deno-ltx-lora-info-toast").forEach((toast) => toast.remove());
+    const toast = document.createElement("div");
+    toast.className = "deno-ltx-lora-info-toast";
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    window.setTimeout(() => toast.remove(), 1450);
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
 }

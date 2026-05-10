@@ -388,14 +388,24 @@ def test_ltx_multi_lora_loader_declares_compact_av_controls():
     required = input_types["required"]
 
     assert "advanced_mode" not in required
-    assert "trigger_1" not in required
     assert required["active_loras"][0] == "INT"
     assert required["lora_1"][0][0] == "__none__"
     assert required["strength_1"][0] == "FLOAT"
     assert required["video_1"][0] == "FLOAT"
     assert required["audio_1"][0] == "FLOAT"
+    assert required["trigger_1"][0] == "STRING"
+    assert required["description_1"][1]["multiline"] is True
+    assert list(required).index("trigger_1") > list(required).index("video_8")
     assert node_cls.RETURN_TYPES == ("MODEL", "CLIP")
     assert node_cls.RETURN_NAMES == ("model", "clip")
+
+
+def test_ltx_multi_lora_metadata_fields_do_not_affect_loading():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXMultiLoraLoader"]
+    model = object()
+    clip = object()
+    assert node_cls().load_multi_lora(model, clip, 1, lora_1="__none__", trigger_1="deno style") == (model, clip)
 
 
 def test_ltx_prompt_guide_encodes_prompts_and_outputs_integer_frame_rate():
