@@ -146,6 +146,7 @@ function setupLtxPresetLoader(node) {
     const modeDomWidget = node.addDOMWidget("pipeline_buttons", "deno_ltx_mode_buttons", modeContainer, {
         serialize: false,
     });
+    modeDomWidget.serialize = false;
     modeDomWidget.computeSize = () => [Math.max(node.size?.[0] ?? 0, 320), 30];
 
     const reorderWidgetSequence = () => {
@@ -191,6 +192,7 @@ function setupLtxPresetLoader(node) {
     }
     reorderWidgetSequence();
     migrateLegacyLtxPresetWidgetValues(node);
+    patchLtxPresetSerialization(node);
 
     const migrateLegacyWeightWidget = () => {
         const legacyWidget = getWidget(node, "split_weight_dtype");
@@ -405,19 +407,26 @@ function migrateLegacyLtxPresetWidgetValues(node) {
         return;
     }
 
+    const hasButtonPlaceholder = rawValues.length >= 11 && String(rawValues[1] ?? "").trim() === "";
+    const valueOffset = hasButtonPlaceholder ? 2 : 1;
+
     setWidgetRaw(node, "pipeline_mode", rawMode);
-    setWidgetRaw(node, "checkpoint_name", rawValues[1] ?? getWidget(node, "checkpoint_name")?.value);
-    setWidgetRaw(node, "diffusion_model_name", rawValues[2] ?? getWidget(node, "diffusion_model_name")?.value);
-    setWidgetRaw(node, "gguf_unet_name", rawValues[3] ?? getWidget(node, "gguf_unet_name")?.value);
-    setWidgetRaw(node, "video_vae_name", rawValues[4] ?? getWidget(node, "video_vae_name")?.value);
-    setWidgetRaw(node, "audio_vae_name", rawValues[5] ?? getWidget(node, "audio_vae_name")?.value);
-    setWidgetRaw(node, "text_encoder_name", rawValues[6] ?? getWidget(node, "text_encoder_name")?.value);
-    setWidgetRaw(node, "text_projection_name", rawValues[7] ?? getWidget(node, "text_projection_name")?.value);
-    setWidgetRaw(node, "clip_device", rawValues[8] ?? getWidget(node, "clip_device")?.value ?? "default");
-    setWidgetRaw(node, "weight_dtype", rawValues[9] ?? getWidget(node, "weight_dtype")?.value ?? "default");
+    setWidgetRaw(node, "checkpoint_name", rawValues[valueOffset] ?? getWidget(node, "checkpoint_name")?.value);
+    setWidgetRaw(node, "diffusion_model_name", rawValues[valueOffset + 1] ?? getWidget(node, "diffusion_model_name")?.value);
+    setWidgetRaw(node, "gguf_unet_name", rawValues[valueOffset + 2] ?? getWidget(node, "gguf_unet_name")?.value);
+    setWidgetRaw(node, "video_vae_name", rawValues[valueOffset + 3] ?? getWidget(node, "video_vae_name")?.value);
+    setWidgetRaw(node, "audio_vae_name", rawValues[valueOffset + 4] ?? getWidget(node, "audio_vae_name")?.value);
+    setWidgetRaw(node, "text_encoder_name", rawValues[valueOffset + 5] ?? getWidget(node, "text_encoder_name")?.value);
+    setWidgetRaw(node, "text_projection_name", rawValues[valueOffset + 6] ?? getWidget(node, "text_projection_name")?.value);
+    setWidgetRaw(node, "clip_device", rawValues[valueOffset + 7] ?? getWidget(node, "clip_device")?.value ?? "default");
+    setWidgetRaw(node, "weight_dtype", rawValues[valueOffset + 8] ?? getWidget(node, "weight_dtype")?.value ?? "default");
     node.properties = node.properties || {};
     node.properties.__deno_legacy_widget_migration = "ltx-preset-loader-buttons-v1";
-    node.widgets_values = [
+    node.widgets_values = getLtxPresetWidgetValues(node);
+}
+
+function getLtxPresetWidgetValues(node) {
+    return [
         getWidget(node, "pipeline_mode")?.value ?? "Checkpoint Style",
         getWidget(node, "checkpoint_name")?.value,
         getWidget(node, "diffusion_model_name")?.value,
@@ -429,6 +438,19 @@ function migrateLegacyLtxPresetWidgetValues(node) {
         getWidget(node, "clip_device")?.value ?? "default",
         getWidget(node, "weight_dtype")?.value ?? getWidget(node, "split_weight_dtype")?.value ?? "default",
     ];
+}
+
+function patchLtxPresetSerialization(node) {
+    if (node.__denoLtxPresetSerializePatched) {
+        return;
+    }
+    node.__denoLtxPresetSerializePatched = true;
+    const originalSerialize = node.serialize;
+    node.serialize = function () {
+        const data = originalSerialize?.apply(this, arguments) ?? {};
+        data.widgets_values = getLtxPresetWidgetValues(this);
+        return data;
+    };
 }
 
 function setupMultiImageLoader(node, options = {}) {

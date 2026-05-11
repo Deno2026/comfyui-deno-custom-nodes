@@ -456,6 +456,9 @@ def test_ltx_model_loader_frontend_repairs_legacy_widget_values_on_configure():
     assert "nodeType.prototype.onConfigure" in patch_body
     assert "queueMicrotask(() => setupLtxPresetLoader(this));" in patch_body
     assert "function migrateLegacyLtxPresetWidgetValues" in source
+    assert "hasButtonPlaceholder" in source
+    assert "function patchLtxPresetSerialization" in source
+    assert "data.widgets_values = getLtxPresetWidgetValues(this);" in source
     assert "ltx-preset-loader-buttons-v1" in source
 
 
