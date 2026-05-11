@@ -4,11 +4,6 @@ const NODE_NAME = "DenoResolutionSetup";
 const PRESET_MODE = "Preset Ratio";
 const MANUAL_MODE = "Manual Input";
 const KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
-const MODE_VALUES = [PRESET_MODE, MANUAL_MODE, KEEP_INPUT_RATIO_MODE];
-const RATIO_VALUES = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "16:9", "9:16", "16:10", "10:16", "21:9", "9:21"];
-const DIVISIBLE_BY_VALUES = ["1", "8", "16", "32", "64", "128"];
-const RESIZE_METHOD_VALUES = ["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"];
-const INTERPOLATION_VALUES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"];
 const SUMMARY_HEIGHT = 158;
 const MIN_NODE_WIDTH = 320;
 const MIN_NODE_HEIGHT = 460;
@@ -62,8 +57,6 @@ function enhanceResolutionNode(node) {
     if (!node || node.type !== NODE_NAME) {
         return;
     }
-
-    migrateLegacyResolutionWidgetValues(node);
 
     if (!node.__denoResDragPatched) {
         node.__denoResDragPatched = true;
@@ -155,81 +148,6 @@ function enhanceResolutionNode(node) {
     wrapWidgetCallbacks(node);
     updateWidgetVisibility(node);
     requestNodeRedraw(node);
-}
-
-function migrateLegacyResolutionWidgetValues(node) {
-    const modeWidget = getWidget(node, "mode");
-    const ratioWidget = getWidget(node, "ratio_preset");
-    const megapixelsWidget = getWidget(node, "megapixels");
-    const widthWidget = getWidget(node, "width");
-    const heightWidget = getWidget(node, "height");
-    const divisibleByWidget = getWidget(node, "divisible_by");
-    const resizeMethodWidget = getWidget(node, "resize_method");
-    const interpolationWidget = getWidget(node, "interpolation");
-
-    if (!modeWidget || !ratioWidget || !megapixelsWidget || !widthWidget || !heightWidget || !divisibleByWidget) {
-        return;
-    }
-
-    const modeValue = String(modeWidget.value ?? "").trim();
-    const ratioValue = String(ratioWidget.value ?? "").trim();
-    const rawValues = Array.isArray(node.widgets_values) ? node.widgets_values : [];
-    const rawLegacyNoMode = RATIO_VALUES.includes(String(rawValues[0] ?? "").trim());
-    const legacyNoMode = rawLegacyNoMode || (RATIO_VALUES.includes(modeValue) && !RATIO_VALUES.includes(ratioValue));
-
-    if (legacyNoMode) {
-        const legacyRatio = rawLegacyNoMode ? rawValues[0] : modeValue;
-        const legacyMegapixels = rawLegacyNoMode ? rawValues[1] : ratioWidget.value;
-        const legacyWidth = rawLegacyNoMode ? rawValues[2] : megapixelsWidget.value;
-        const legacyHeight = rawLegacyNoMode ? rawValues[3] : widthWidget.value;
-        const legacyDivisibleBy = rawLegacyNoMode ? rawValues[4] : heightWidget.value;
-        const shiftedAfterDivisible = String(rawLegacyNoMode ? rawValues[5] : divisibleByWidget.value ?? "").trim();
-        const shiftedAfterResize = String(rawLegacyNoMode ? rawValues[6] : resizeMethodWidget?.value ?? "").trim();
-        const shiftedAfterInterpolation = String(rawLegacyNoMode ? rawValues[7] : interpolationWidget?.value ?? "").trim();
-        let legacyResizeMethod = "Center Crop (Fill)";
-        let legacyInterpolation = "lanczos";
-
-        if (RESIZE_METHOD_VALUES.includes(shiftedAfterDivisible)) {
-            legacyResizeMethod = shiftedAfterDivisible;
-            legacyInterpolation = normalizeChoice(shiftedAfterResize, INTERPOLATION_VALUES, legacyInterpolation);
-        } else if (INTERPOLATION_VALUES.includes(shiftedAfterDivisible)) {
-            legacyInterpolation = shiftedAfterDivisible;
-            legacyResizeMethod = normalizeChoice(shiftedAfterResize, RESIZE_METHOD_VALUES, legacyResizeMethod);
-        } else {
-            legacyResizeMethod = normalizeChoice(shiftedAfterResize, RESIZE_METHOD_VALUES, legacyResizeMethod);
-            legacyInterpolation = normalizeChoice(shiftedAfterInterpolation, INTERPOLATION_VALUES, legacyInterpolation);
-        }
-
-        setWidgetValueSilently(node, "mode", PRESET_MODE);
-        setWidgetValueSilently(node, "ratio_preset", normalizeChoice(legacyRatio, RATIO_VALUES, "16:9"));
-        setWidgetValueSilently(node, "megapixels", normalizeNumber(legacyMegapixels, 1.0, 0.01, 10.0));
-        setWidgetValueSilently(node, "width", normalizeInteger(legacyWidth, 1024, MIN_DIMENSION, MAX_DIMENSION));
-        setWidgetValueSilently(node, "height", normalizeInteger(legacyHeight, 1024, MIN_DIMENSION, MAX_DIMENSION));
-        setWidgetValueSilently(node, "divisible_by", normalizeDivisibleBy(legacyDivisibleBy));
-        setWidgetValueSilently(node, "resize_method", legacyResizeMethod);
-        setWidgetValueSilently(node, "interpolation", legacyInterpolation);
-        node.properties = node.properties || {};
-        node.properties.__deno_legacy_widget_migration = "resize-box-no-mode-v1";
-    }
-
-    setWidgetValueSilently(node, "mode", normalizeChoice(getWidget(node, "mode")?.value, MODE_VALUES, PRESET_MODE));
-    setWidgetValueSilently(node, "ratio_preset", normalizeChoice(getWidget(node, "ratio_preset")?.value, RATIO_VALUES, "16:9"));
-    setWidgetValueSilently(node, "megapixels", normalizeNumber(getWidget(node, "megapixels")?.value, 1.0, 0.01, 10.0));
-    setWidgetValueSilently(node, "width", normalizeInteger(getWidget(node, "width")?.value, 1024, MIN_DIMENSION, MAX_DIMENSION));
-    setWidgetValueSilently(node, "height", normalizeInteger(getWidget(node, "height")?.value, 1024, MIN_DIMENSION, MAX_DIMENSION));
-    setWidgetValueSilently(node, "divisible_by", normalizeDivisibleBy(getWidget(node, "divisible_by")?.value));
-    setWidgetValueSilently(node, "resize_method", normalizeChoice(getWidget(node, "resize_method")?.value, RESIZE_METHOD_VALUES, "Center Crop (Fill)"));
-    setWidgetValueSilently(node, "interpolation", normalizeChoice(getWidget(node, "interpolation")?.value, INTERPOLATION_VALUES, "lanczos"));
-    node.widgets_values = [
-        getWidget(node, "mode")?.value ?? PRESET_MODE,
-        getWidget(node, "ratio_preset")?.value ?? "16:9",
-        getWidget(node, "megapixels")?.value ?? 1.0,
-        getWidget(node, "width")?.value ?? 1024,
-        getWidget(node, "height")?.value ?? 1024,
-        getWidget(node, "divisible_by")?.value ?? "32",
-        getWidget(node, "resize_method")?.value ?? "Center Crop (Fill)",
-        getWidget(node, "interpolation")?.value ?? "lanczos",
-    ];
 }
 
 function getNodeLocalPos(node, pos) {
@@ -577,46 +495,6 @@ function setWidgetValue(node, name, value) {
     node.properties = node.properties || {};
     node.properties[name] = value;
     widget.callback?.(value);
-}
-
-function setWidgetValueSilently(node, name, value) {
-    const widget = getWidget(node, name);
-    if (!widget) {
-        return;
-    }
-    widget.value = value;
-    node.properties = node.properties || {};
-    node.properties[name] = value;
-}
-
-function normalizeChoice(value, choices, fallback) {
-    const text = String(value ?? "").trim();
-    return choices.includes(text) ? text : fallback;
-}
-
-function normalizeNumber(value, fallback, min, max) {
-    const number = Number(value);
-    if (!Number.isFinite(number)) {
-        return fallback;
-    }
-    return Math.min(Math.max(number, min), max);
-}
-
-function normalizeInteger(value, fallback, min, max) {
-    const number = Number.parseInt(String(value ?? ""), 10);
-    if (!Number.isFinite(number)) {
-        return fallback;
-    }
-    return Math.min(Math.max(number, min), max);
-}
-
-function normalizeDivisibleBy(value, fallback = "32") {
-    const text = String(value ?? "").trim();
-    if (DIVISIBLE_BY_VALUES.includes(text)) {
-        return text;
-    }
-    const numberText = String(Number.parseInt(text, 10));
-    return DIVISIBLE_BY_VALUES.includes(numberText) ? numberText : fallback;
 }
 
 function calculateDisplayInfo(node) {

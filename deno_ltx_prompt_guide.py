@@ -17,33 +17,6 @@ LANGUAGES = [
     LANGUAGE_CHINESE,
 ]
 
-
-def _normalize_language(language) -> str:
-    value = str(language or LANGUAGE_AUTO)
-    return value if value in LANGUAGES else LANGUAGE_AUTO
-
-
-def _normalize_frame_rate(frame_rate) -> int:
-    try:
-        value = int(float(frame_rate))
-    except (TypeError, ValueError):
-        value = 25
-    return max(1, min(value, 1000))
-
-
-def _normalize_boolean(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    text = str(value or "").strip().lower()
-    if text in {"", "false", "0", "off", "no"}:
-        return False
-    if text in {"true", "1", "on", "yes"}:
-        return True
-    return bool(text)
-
-
 def _encode_text(clip, text: str):
     if clip is None:
         raise RuntimeError(
@@ -93,10 +66,6 @@ class DenoLTXPromptGuide:
     FUNCTION = "build"
     CATEGORY = "Deno/LTX"
 
-    @classmethod
-    def VALIDATE_INPUTS(cls, **kwargs):
-        return True
-
     def build(
         self,
         clip,
@@ -106,16 +75,10 @@ class DenoLTXPromptGuide:
         show_negative_prompt: bool,
         negative_prompt: str,
     ):
-        if isinstance(show_negative_prompt, str) and not str(negative_prompt or "").strip():
-            negative_prompt = show_negative_prompt
-        language = _normalize_language(language)
-        frame_rate = _normalize_frame_rate(frame_rate)
-        show_negative_prompt = _normalize_boolean(show_negative_prompt)
-        negative_prompt = str(negative_prompt or "")
-
         positive = _encode_text(clip, positive_prompt)
         negative = _encode_text(clip, negative_prompt)
 
+        frame_rate = int(frame_rate)
         positive = node_helpers.conditioning_set_values(positive, {"frame_rate": frame_rate})
         negative = node_helpers.conditioning_set_values(negative, {"frame_rate": frame_rate})
 

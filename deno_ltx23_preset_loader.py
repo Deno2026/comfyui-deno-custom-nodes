@@ -425,10 +425,6 @@ class DenoLTX23PresetLoader:
     FUNCTION = "load_ltx_model"
     CATEGORY = "Deno/LTX"
 
-    @classmethod
-    def VALIDATE_INPUTS(cls, **kwargs):
-        return True
-
     def _load_kj_vaes(self, video_vae_name: str, audio_vae_name: str):
         vae_loader_cls = _get_kj_vae_loader_class()
         vae_loader = vae_loader_cls()

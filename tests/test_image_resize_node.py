@@ -195,33 +195,6 @@ def test_multi_image_loader_returns_batch_and_int_dimensions():
     assert node_cls.CATEGORY == "Deno/Image"
 
 
-def test_multi_image_loader_repairs_legacy_workflow_values_shifted_by_mode_insert():
-    load_package()
-    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
-
-    normalized = board._normalize_loader_inputs(
-        mode="1:1",
-        ratio_preset=2,
-        megapixels=1024,
-        width=768,
-        height=32,
-        divisible_by="bicubic",
-        interpolation="Center Crop (Fill)",
-        resize_method="",
-    )
-
-    assert normalized == (
-        "Preset Ratio",
-        "1:1",
-        2.0,
-        1024,
-        768,
-        "32",
-        "bicubic",
-        "Center Crop (Fill)",
-    )
-
-
 def test_advanced_image_source_loader_declares_external_outputs():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoAdvancedImageSourceLoader"]
@@ -447,21 +420,6 @@ def test_ltx_model_loader_has_friendly_gguf_dependency_errors():
     assert "LTX23_audio_vae_bf16.safetensors" in str(audio_friendly)
 
 
-def test_ltx_model_loader_frontend_repairs_legacy_widget_values_on_configure():
-    source = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
-    patch_body = source[
-        source.index("function patchLtxPresetLoader") : source.index("function setupLtxPresetLoader")
-    ]
-
-    assert "nodeType.prototype.onConfigure" in patch_body
-    assert "queueMicrotask(() => setupLtxPresetLoader(this));" in patch_body
-    assert "function migrateLegacyLtxPresetWidgetValues" in source
-    assert "hasButtonPlaceholder" in source
-    assert "function patchLtxPresetSerialization" in source
-    assert "data.widgets_values = getLtxPresetWidgetValues(this);" in source
-    assert "ltx-preset-loader-buttons-v1" in source
-
-
 def test_ltx_model_setup_helper_declares_output_node_and_safe_root_widget():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
@@ -667,32 +625,6 @@ def test_resize_box_declares_comfyui_contract():
     assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
     assert node_cls.RETURN_NAMES == ("image", "width", "height")
     assert node_cls.FUNCTION == "setup_resolution"
-
-
-def test_resize_box_repairs_legacy_workflow_values_shifted_by_mode_insert():
-    package = load_package()
-
-    normalized = package._normalize_resolution_inputs(
-        mode="1:1",
-        ratio_preset=2,
-        megapixels=1024,
-        width=768,
-        height=32,
-        divisible_by="Center Crop (Fill)",
-        resize_method="bicubic",
-        interpolation="lanczos",
-    )
-
-    assert normalized == (
-        "Preset Ratio",
-        "1:1",
-        2.0,
-        1024,
-        768,
-        "32",
-        "Center Crop (Fill)",
-        "bicubic",
-    )
 
 
 def test_resize_box_calculates_aligned_dimensions_for_preset_mode():

@@ -55,7 +55,6 @@ function setupNode(node) {
         }
 
         removeGeneratedWidgets(node);
-        migrateLegacyPromptGuideWidgetValues(node);
         storeWidgetDefaults(node);
         normalizeLanguageWidget(node);
         setWidgetHidden(getWidget(node, "show_negative_prompt"), true);
@@ -150,43 +149,6 @@ class NegativeToggleWidget {
 
 function removeGeneratedWidgets(node) {
     node.widgets = (node.widgets || []).filter((widget) => !String(widget?.name || "").startsWith(GENERATED_PREFIX));
-}
-
-function migrateLegacyPromptGuideWidgetValues(node) {
-    const rawValues = Array.isArray(node.widgets_values) ? node.widgets_values : [];
-    if (rawValues.length < 3) {
-        return;
-    }
-
-    const rawPositive = rawValues[0] ?? getWidget(node, "positive_prompt")?.value ?? "";
-    const rawLanguage = rawValues[1] ?? getWidget(node, "language")?.value ?? LANGUAGE_AUTO;
-    const rawFrameRate = rawValues[2] ?? getWidget(node, "frame_rate")?.value ?? 25;
-    const rawShowNegative = rawValues[3];
-    const rawNegative = rawValues.length >= 5 ? rawValues[4] : rawValues[3];
-    const showNegativeIsBooleanish =
-        typeof rawShowNegative === "boolean" ||
-        rawShowNegative === 0 ||
-        rawShowNegative === 1 ||
-        ["true", "false", "0", "1", "on", "off", "yes", "no", ""].includes(String(rawShowNegative ?? "").trim().toLowerCase());
-    const nextNegative = rawValues.length >= 5 ? rawNegative : rawShowNegative;
-    const nextShowNegative = rawValues.length >= 5 && showNegativeIsBooleanish
-        ? normalizeBoolean(rawShowNegative)
-        : Boolean(String(nextNegative ?? "").trim());
-
-    setWidgetValue(node, "positive_prompt", String(rawPositive ?? ""));
-    setWidgetValue(node, "language", normalizeLanguage(rawLanguage));
-    setWidgetValue(node, "frame_rate", normalizeInteger(rawFrameRate, 25, 1, 1000));
-    setWidgetValue(node, "show_negative_prompt", nextShowNegative);
-    setWidgetValue(node, "negative_prompt", String(nextNegative ?? ""));
-    node.properties = node.properties || {};
-    node.properties.__deno_legacy_widget_migration = "ltx-prompt-guide-generated-widgets-v1";
-    node.widgets_values = [
-        getWidget(node, "positive_prompt")?.value ?? "",
-        getWidget(node, "language")?.value ?? LANGUAGE_AUTO,
-        getWidget(node, "frame_rate")?.value ?? 25,
-        getWidget(node, "show_negative_prompt")?.value ?? false,
-        getWidget(node, "negative_prompt")?.value ?? "",
-    ];
 }
 
 function storeWidgetDefaults(node) {
@@ -433,31 +395,6 @@ function normalizeLanguageWidget(node) {
 function normalizeLanguage(language) {
     const value = String(language || LANGUAGE_AUTO);
     return VALID_LANGUAGES.has(value) ? value : LANGUAGE_AUTO;
-}
-
-function normalizeInteger(value, fallback, min, max) {
-    const number = Number.parseInt(String(value ?? ""), 10);
-    if (!Number.isFinite(number)) {
-        return fallback;
-    }
-    return Math.min(Math.max(number, min), max);
-}
-
-function normalizeBoolean(value) {
-    if (typeof value === "boolean") {
-        return value;
-    }
-    if (typeof value === "number") {
-        return value !== 0;
-    }
-    const text = String(value ?? "").trim().toLowerCase();
-    if (["false", "0", "off", "no", ""].includes(text)) {
-        return false;
-    }
-    if (["true", "1", "on", "yes"].includes(text)) {
-        return true;
-    }
-    return Boolean(text);
 }
 
 function detectLanguage(text) {
