@@ -19,6 +19,7 @@ from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, RESIZE_M
 
 
 IMAGE_INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
+LOADER_MODES = ["Keep Input Ratio", "Preset Ratio", "Manual Input"]
 INPUT_BROWSER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 REMOTE_IMAGE_TIMEOUT_SECONDS = 20
 REMOTE_IMAGE_MAX_BYTES = 64 * 1024 * 1024
@@ -31,6 +32,84 @@ class _DenoNoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 _REMOTE_IMAGE_OPENER = urllib.request.build_opener(_DenoNoRedirectHandler)
+
+
+def _choice(value, choices, default):
+    text = str(value).strip()
+    return text if text in choices else default
+
+
+def _safe_float(value, default, minimum, maximum):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = float(default)
+    if not math.isfinite(number):
+        number = float(default)
+    return min(max(number, minimum), maximum)
+
+
+def _safe_int(value, default, minimum, maximum):
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        number = int(default)
+    return min(max(number, minimum), maximum)
+
+
+def _normalize_divisible_by(value, default="32"):
+    text = str(value).strip()
+    if text in DIVISIBLE_BY_VALUES:
+        return text
+    try:
+        text = str(int(float(text)))
+    except (TypeError, ValueError):
+        return default
+    return text if text in DIVISIBLE_BY_VALUES else default
+
+
+def _looks_like_legacy_loader_without_mode(mode, ratio_preset):
+    return str(mode).strip() in COMMON_RATIOS and str(ratio_preset).strip() not in COMMON_RATIOS
+
+
+def _normalize_loader_inputs(
+    mode,
+    ratio_preset,
+    megapixels,
+    width,
+    height,
+    divisible_by,
+    interpolation,
+    resize_method,
+):
+    if _looks_like_legacy_loader_without_mode(mode, ratio_preset):
+        legacy_ratio_preset = mode
+        legacy_megapixels = ratio_preset
+        legacy_width = megapixels
+        legacy_height = width
+        legacy_divisible_by = height
+        legacy_interpolation = divisible_by
+        legacy_resize_method = interpolation
+
+        mode = "Preset Ratio"
+        ratio_preset = legacy_ratio_preset
+        megapixels = legacy_megapixels
+        width = legacy_width
+        height = legacy_height
+        divisible_by = legacy_divisible_by
+        interpolation = legacy_interpolation
+        resize_method = legacy_resize_method
+
+    return (
+        _choice(mode, LOADER_MODES, "Keep Input Ratio"),
+        _choice(ratio_preset, COMMON_RATIOS, "16:9"),
+        _safe_float(megapixels, 1.0, 0.01, 10.0),
+        _safe_int(width, 1024, 64, 8192),
+        _safe_int(height, 1024, 64, 8192),
+        _normalize_divisible_by(divisible_by),
+        _choice(interpolation, IMAGE_INTERPOLATION_MODES, "lanczos"),
+        _choice(resize_method, RESIZE_METHODS, "Center Crop (Fill)"),
+    )
 
 
 def _get_folder_paths():
@@ -631,7 +710,7 @@ class DenoMultiImageLoader:
         return {
             "required": {
                 "image_paths": ("STRING", {"default": "", "multiline": True}),
-                "mode": (["Keep Input Ratio", "Preset Ratio", "Manual Input"], {"default": "Keep Input Ratio"}),
+                "mode": (LOADER_MODES, {"default": "Keep Input Ratio"}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "megapixels": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
@@ -646,6 +725,10 @@ class DenoMultiImageLoader:
     RETURN_NAMES = ("multi_output", "width", "height")
     FUNCTION = "load_images"
     CATEGORY = "Deno/Image"
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, **kwargs):
+        return True
 
     def _load_single_image(
         self,
@@ -683,6 +766,25 @@ class DenoMultiImageLoader:
         interpolation: str,
         resize_method: str,
     ):
+        (
+            mode,
+            ratio_preset,
+            megapixels,
+            width,
+            height,
+            divisible_by,
+            interpolation,
+            resize_method,
+        ) = _normalize_loader_inputs(
+            mode=mode,
+            ratio_preset=ratio_preset,
+            megapixels=megapixels,
+            width=width,
+            height=height,
+            divisible_by=divisible_by,
+            interpolation=interpolation,
+            resize_method=resize_method,
+        )
         paths = _split_paths(image_paths)
 
         if mode == "Preset Ratio":
@@ -732,7 +834,7 @@ class DenoAdvancedImageSourceLoader:
         return {
             "required": {
                 "image_paths": ("STRING", {"default": "", "multiline": True}),
-                "mode": (["Keep Input Ratio", "Preset Ratio", "Manual Input"], {"default": "Keep Input Ratio"}),
+                "mode": (LOADER_MODES, {"default": "Keep Input Ratio"}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "megapixels": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
@@ -751,6 +853,10 @@ class DenoAdvancedImageSourceLoader:
     FUNCTION = "load_images"
     CATEGORY = "Deno/Image"
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, **kwargs):
+        return True
+
     def load_images(
         self,
         image_paths: str,
@@ -765,6 +871,26 @@ class DenoAdvancedImageSourceLoader:
         recursive_folders: bool,
         list_output_mode: str,
     ):
+        (
+            mode,
+            ratio_preset,
+            megapixels,
+            width,
+            height,
+            divisible_by,
+            interpolation,
+            resize_method,
+        ) = _normalize_loader_inputs(
+            mode=mode,
+            ratio_preset=ratio_preset,
+            megapixels=megapixels,
+            width=width,
+            height=height,
+            divisible_by=divisible_by,
+            interpolation=interpolation,
+            resize_method=resize_method,
+        )
+        list_output_mode = _choice(list_output_mode, ["Original Size", "Match Batch Size"], "Original Size")
         sources = _expand_image_sources(_split_paths(image_paths), bool(recursive_folders))
         originals = []
         loaded_source_count = 0

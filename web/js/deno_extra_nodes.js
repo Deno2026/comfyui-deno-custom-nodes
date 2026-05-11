@@ -10,6 +10,12 @@ const ADVANCED_LOADER_MIN_SIZE = [540, 540];
 const LOADER_KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
 const LOADER_PRESET_MODE = "Preset Ratio";
 const LOADER_MANUAL_MODE = "Manual Input";
+const LOADER_MODE_VALUES = [LOADER_KEEP_INPUT_RATIO_MODE, LOADER_PRESET_MODE, LOADER_MANUAL_MODE];
+const LOADER_RATIO_VALUES = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "16:9", "9:16", "16:10", "10:16", "21:9", "9:21"];
+const LOADER_DIVISIBLE_VALUES = ["1", "8", "16", "32", "64", "128"];
+const LOADER_INTERPOLATION_VALUES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"];
+const LOADER_RESIZE_METHOD_VALUES = ["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"];
+const LTX_PIPELINE_MODE_VALUES = ["Checkpoint Style", "KJ Style", "GGUF Style"];
 
 window.__denoLtxSequencerNodes = window.__denoLtxSequencerNodes || new Set();
 
@@ -43,6 +49,13 @@ function patchMultiImageLoader(nodeType, options = {}) {
         setupMultiImageLoader(this, options);
         return result;
     };
+
+    const onConfigure = nodeType.prototype.onConfigure;
+    nodeType.prototype.onConfigure = function () {
+        const result = onConfigure?.apply(this, arguments);
+        queueMicrotask(() => setupMultiImageLoader(this, options));
+        return result;
+    };
 }
 
 function patchLtxPresetLoader(nodeType) {
@@ -52,10 +65,21 @@ function patchLtxPresetLoader(nodeType) {
         setupLtxPresetLoader(this);
         return result;
     };
+
+    const onConfigure = nodeType.prototype.onConfigure;
+    nodeType.prototype.onConfigure = function () {
+        const result = onConfigure?.apply(this, arguments);
+        queueMicrotask(() => setupLtxPresetLoader(this));
+        return result;
+    };
 }
 
 function setupLtxPresetLoader(node) {
     if (node.__denoLtxPresetReady) {
+        migrateLegacyLtxPresetWidgetValues(node);
+        node._denoUpdateLtxPresetVisibility?.();
+        node._denoRefreshLtxModeButtons?.();
+        requestAnimationFrame(() => node._denoEnsureLtxNodeHeight?.());
         return;
     }
     node.__denoLtxPresetReady = true;
@@ -166,6 +190,7 @@ function setupLtxPresetLoader(node) {
         }
     }
     reorderWidgetSequence();
+    migrateLegacyLtxPresetWidgetValues(node);
 
     const migrateLegacyWeightWidget = () => {
         const legacyWidget = getWidget(node, "split_weight_dtype");
@@ -360,6 +385,7 @@ function setupLtxPresetLoader(node) {
     }
 
     setTimeout(() => {
+        migrateLegacyLtxPresetWidgetValues(node);
         migrateLegacyWeightWidget();
         applyCompactLabels();
         node._denoUpdateLtxPresetVisibility?.();
@@ -372,9 +398,50 @@ function setupLtxPresetLoader(node) {
     }, 120);
 }
 
+function migrateLegacyLtxPresetWidgetValues(node) {
+    const rawValues = Array.isArray(node.widgets_values) ? node.widgets_values : [];
+    const rawMode = String(rawValues[0] ?? "").trim();
+    if (!LTX_PIPELINE_MODE_VALUES.includes(rawMode) || rawValues.length < 8 || !getWidget(node, "pipeline_buttons")) {
+        return;
+    }
+
+    setWidgetRaw(node, "pipeline_mode", rawMode);
+    setWidgetRaw(node, "checkpoint_name", rawValues[1] ?? getWidget(node, "checkpoint_name")?.value);
+    setWidgetRaw(node, "diffusion_model_name", rawValues[2] ?? getWidget(node, "diffusion_model_name")?.value);
+    setWidgetRaw(node, "gguf_unet_name", rawValues[3] ?? getWidget(node, "gguf_unet_name")?.value);
+    setWidgetRaw(node, "video_vae_name", rawValues[4] ?? getWidget(node, "video_vae_name")?.value);
+    setWidgetRaw(node, "audio_vae_name", rawValues[5] ?? getWidget(node, "audio_vae_name")?.value);
+    setWidgetRaw(node, "text_encoder_name", rawValues[6] ?? getWidget(node, "text_encoder_name")?.value);
+    setWidgetRaw(node, "text_projection_name", rawValues[7] ?? getWidget(node, "text_projection_name")?.value);
+    setWidgetRaw(node, "clip_device", rawValues[8] ?? getWidget(node, "clip_device")?.value ?? "default");
+    setWidgetRaw(node, "weight_dtype", rawValues[9] ?? getWidget(node, "weight_dtype")?.value ?? "default");
+    node.properties = node.properties || {};
+    node.properties.__deno_legacy_widget_migration = "ltx-preset-loader-buttons-v1";
+    node.widgets_values = [
+        getWidget(node, "pipeline_mode")?.value ?? "Checkpoint Style",
+        getWidget(node, "checkpoint_name")?.value,
+        getWidget(node, "diffusion_model_name")?.value,
+        getWidget(node, "gguf_unet_name")?.value,
+        getWidget(node, "video_vae_name")?.value,
+        getWidget(node, "audio_vae_name")?.value,
+        getWidget(node, "text_encoder_name")?.value,
+        getWidget(node, "text_projection_name")?.value,
+        getWidget(node, "clip_device")?.value ?? "default",
+        getWidget(node, "weight_dtype")?.value ?? getWidget(node, "split_weight_dtype")?.value ?? "default",
+    ];
+}
+
 function setupMultiImageLoader(node, options = {}) {
     const pathsWidget = getWidget(node, "image_paths");
-    if (!pathsWidget || node.__denoLoaderReady) {
+    if (!pathsWidget) {
+        return;
+    }
+
+    migrateLegacyLoaderWidgetValues(node);
+
+    if (node.__denoLoaderReady) {
+        node._denoUpdateLoaderVisibility?.();
+        node.setDirtyCanvas?.(true, true);
         return;
     }
 
@@ -1805,6 +1872,68 @@ function setupMultiImageLoader(node, options = {}) {
     refreshOutputSizeHint();
 }
 
+function migrateLegacyLoaderWidgetValues(node) {
+    const modeWidget = getWidget(node, "mode");
+    const ratioWidget = getWidget(node, "ratio_preset");
+    const megapixelsWidget = getWidget(node, "megapixels");
+    const widthWidget = getWidget(node, "width");
+    const heightWidget = getWidget(node, "height");
+    const divisibleByWidget = getWidget(node, "divisible_by");
+    const interpolationWidget = getWidget(node, "interpolation");
+    const resizeMethodWidget = getWidget(node, "resize_method");
+
+    if (!modeWidget || !ratioWidget || !megapixelsWidget || !widthWidget || !heightWidget || !divisibleByWidget) {
+        return;
+    }
+
+    const modeValue = String(modeWidget.value ?? "").trim();
+    const ratioValue = String(ratioWidget.value ?? "").trim();
+    const rawValues = Array.isArray(node.widgets_values) ? node.widgets_values : [];
+    const rawLegacyNoMode = LOADER_RATIO_VALUES.includes(String(rawValues[1] ?? "").trim());
+    const legacyNoMode = rawLegacyNoMode || (LOADER_RATIO_VALUES.includes(modeValue) && !LOADER_RATIO_VALUES.includes(ratioValue));
+
+    if (legacyNoMode) {
+        const legacyRatio = rawLegacyNoMode ? rawValues[1] : modeValue;
+        const legacyMegapixels = rawLegacyNoMode ? rawValues[2] : ratioWidget.value;
+        const legacyWidth = rawLegacyNoMode ? rawValues[3] : megapixelsWidget.value;
+        const legacyHeight = rawLegacyNoMode ? rawValues[4] : widthWidget.value;
+        const legacyDivisibleBy = rawLegacyNoMode ? rawValues[5] : heightWidget.value;
+        const legacyInterpolation = rawLegacyNoMode ? rawValues[6] : divisibleByWidget.value;
+        const legacyResizeMethod = rawLegacyNoMode ? rawValues[7] : interpolationWidget?.value;
+
+        setWidgetRaw(node, "mode", LOADER_PRESET_MODE);
+        setWidgetRaw(node, "ratio_preset", normalizeChoice(legacyRatio, LOADER_RATIO_VALUES, "16:9"));
+        setWidgetRaw(node, "megapixels", normalizeNumber(legacyMegapixels, 1.0, 0.01, 10.0));
+        setWidgetRaw(node, "width", normalizeInteger(legacyWidth, 1024, 64, 8192));
+        setWidgetRaw(node, "height", normalizeInteger(legacyHeight, 1024, 64, 8192));
+        setWidgetRaw(node, "divisible_by", normalizeDivisibleBy(legacyDivisibleBy));
+        setWidgetRaw(node, "interpolation", normalizeChoice(legacyInterpolation, LOADER_INTERPOLATION_VALUES, "lanczos"));
+        setWidgetRaw(node, "resize_method", normalizeChoice(legacyResizeMethod, LOADER_RESIZE_METHOD_VALUES, "Center Crop (Fill)"));
+        node.properties = node.properties || {};
+        node.properties.__deno_legacy_widget_migration = "multi-image-loader-no-mode-v1";
+    }
+
+    setWidgetRaw(node, "mode", normalizeChoice(getWidget(node, "mode")?.value, LOADER_MODE_VALUES, LOADER_KEEP_INPUT_RATIO_MODE));
+    setWidgetRaw(node, "ratio_preset", normalizeChoice(getWidget(node, "ratio_preset")?.value, LOADER_RATIO_VALUES, "16:9"));
+    setWidgetRaw(node, "megapixels", normalizeNumber(getWidget(node, "megapixels")?.value, 1.0, 0.01, 10.0));
+    setWidgetRaw(node, "width", normalizeInteger(getWidget(node, "width")?.value, 1024, 64, 8192));
+    setWidgetRaw(node, "height", normalizeInteger(getWidget(node, "height")?.value, 1024, 64, 8192));
+    setWidgetRaw(node, "divisible_by", normalizeDivisibleBy(getWidget(node, "divisible_by")?.value));
+    setWidgetRaw(node, "interpolation", normalizeChoice(getWidget(node, "interpolation")?.value, LOADER_INTERPOLATION_VALUES, "lanczos"));
+    setWidgetRaw(node, "resize_method", normalizeChoice(getWidget(node, "resize_method")?.value, LOADER_RESIZE_METHOD_VALUES, "Center Crop (Fill)"));
+    node.widgets_values = [
+        getWidget(node, "image_paths")?.value ?? "",
+        getWidget(node, "mode")?.value ?? LOADER_KEEP_INPUT_RATIO_MODE,
+        getWidget(node, "ratio_preset")?.value ?? "16:9",
+        getWidget(node, "megapixels")?.value ?? 1.0,
+        getWidget(node, "width")?.value ?? 1024,
+        getWidget(node, "height")?.value ?? 1024,
+        getWidget(node, "divisible_by")?.value ?? "32",
+        getWidget(node, "interpolation")?.value ?? "lanczos",
+        getWidget(node, "resize_method")?.value ?? "Center Crop (Fill)",
+    ];
+}
+
 async function calculateLoaderOutputSize(node, paths) {
     const mode = getWidget(node, "mode")?.value ?? LOADER_KEEP_INPUT_RATIO_MODE;
     const width = getWidgetNumber(node, "width", 1024);
@@ -1839,6 +1968,46 @@ async function calculateLoaderOutputSize(node, paths) {
 function getWidgetNumber(node, name, fallback) {
     const value = Number(getWidget(node, name)?.value ?? node.properties?.[name] ?? fallback);
     return Number.isFinite(value) ? value : fallback;
+}
+
+function setWidgetRaw(node, name, value) {
+    const widget = getWidget(node, name);
+    if (!widget) {
+        return;
+    }
+    widget.value = value;
+    node.properties = node.properties || {};
+    node.properties[name] = value;
+}
+
+function normalizeChoice(value, choices, fallback) {
+    const text = String(value ?? "").trim();
+    return choices.includes(text) ? text : fallback;
+}
+
+function normalizeNumber(value, fallback, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return fallback;
+    }
+    return Math.min(Math.max(number, min), max);
+}
+
+function normalizeInteger(value, fallback, min, max) {
+    const number = Number.parseInt(String(value ?? ""), 10);
+    if (!Number.isFinite(number)) {
+        return fallback;
+    }
+    return Math.min(Math.max(number, min), max);
+}
+
+function normalizeDivisibleBy(value, fallback = "32") {
+    const text = String(value ?? "").trim();
+    if (LOADER_DIVISIBLE_VALUES.includes(text)) {
+        return text;
+    }
+    const numberText = String(Number.parseInt(text, 10));
+    return LOADER_DIVISIBLE_VALUES.includes(numberText) ? numberText : fallback;
 }
 
 function dimensionsFromTuple(dims) {
