@@ -273,7 +273,7 @@ def test_multi_image_loader_input_browser_lists_subfolders():
 
 def test_advanced_image_source_loader_lists_and_expands_external_folders():
     load_package()
-    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
 
     with tempfile.TemporaryDirectory() as temp_dir:
         subfolder = Path(temp_dir) / "refs"
@@ -285,12 +285,12 @@ def test_advanced_image_source_loader_lists_and_expands_external_folders():
         nested_file.write_bytes(b"nested")
         ignored_file.write_text("ignore", encoding="utf-8")
 
-        root_listing = board._list_external_folder_entries(temp_dir)
-        nested_listing = board._list_external_folder_entries(temp_dir, "refs")
-        traversal_listing = board._list_external_folder_entries(temp_dir, "../outside")
-        flat_sources = board._expand_image_sources([temp_dir], recursive_folders=False)
-        recursive_sources = board._expand_image_sources([temp_dir], recursive_folders=True)
-        duplicate_sources = board._expand_image_sources([str(root_file), str(root_file)], recursive_folders=False)
+        root_listing = advanced._list_external_folder_entries(temp_dir)
+        nested_listing = advanced._list_external_folder_entries(temp_dir, "refs")
+        traversal_listing = advanced._list_external_folder_entries(temp_dir, "../outside")
+        flat_sources = advanced._expand_image_sources([temp_dir], recursive_folders=False)
+        recursive_sources = advanced._expand_image_sources([temp_dir], recursive_folders=True)
+        duplicate_sources = advanced._expand_image_sources([str(root_file), str(root_file)], recursive_folders=False)
 
     assert root_listing["root"]
     assert [entry["path"] for entry in root_listing["folders"]] == ["refs"]
@@ -305,8 +305,8 @@ def test_advanced_image_source_loader_lists_and_expands_external_folders():
 
 def test_advanced_image_source_loader_skips_unreadable_external_folder():
     load_package()
-    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
-    original_listdir = board.os.listdir
+    advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
+    original_listdir = advanced.os.listdir
 
     with tempfile.TemporaryDirectory() as temp_dir:
         def deny_listdir(path):
@@ -314,18 +314,18 @@ def test_advanced_image_source_loader_skips_unreadable_external_folder():
                 raise PermissionError("access denied")
             return original_listdir(path)
 
-        board.os.listdir = deny_listdir
+        advanced.os.listdir = deny_listdir
         try:
-            sources = board._expand_image_sources([temp_dir], recursive_folders=False)
+            sources = advanced._expand_image_sources([temp_dir], recursive_folders=False)
         finally:
-            board.os.listdir = original_listdir
+            advanced.os.listdir = original_listdir
 
     assert sources == []
 
 
 def test_advanced_remote_image_redirect_revalidates_target():
     load_package()
-    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
 
     class RedirectToLocalhostOpener:
         def open(self, request, timeout):
@@ -337,16 +337,16 @@ def test_advanced_remote_image_redirect_revalidates_target():
                 None,
             )
 
-    original_opener = board._REMOTE_IMAGE_OPENER
-    board._REMOTE_IMAGE_OPENER = RedirectToLocalhostOpener()
+    original_opener = advanced._REMOTE_IMAGE_OPENER
+    advanced._REMOTE_IMAGE_OPENER = RedirectToLocalhostOpener()
     try:
         try:
-            board._read_remote_image_bytes("http://8.8.8.8/image.png")
+            advanced._read_remote_image_bytes("http://8.8.8.8/image.png")
             assert False, "redirect to localhost should be rejected"
         except ValueError as exc:
             assert "redirect target" in str(exc)
     finally:
-        board._REMOTE_IMAGE_OPENER = original_opener
+        advanced._REMOTE_IMAGE_OPENER = original_opener
 
 
 def test_ltx_sequencer_declares_sync_controls():

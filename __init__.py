@@ -11,7 +11,8 @@ from .deno_ltx23_preset_loader import DenoLTX23PresetLoader
 from .deno_ltx_model_downloader import DenoLTXModelDownloader
 from .deno_ltx_multi_lora_loader import DenoLTXMultiLoraLoader
 from .deno_ltx_prompt_guide import DenoLTXPromptGuide
-from .deno_multi_image_board import DenoAdvancedImageSourceLoader, DenoMultiImageLoader
+from .deno_advanced_image_source_loader import DenoAdvancedImageSourceLoader
+from .deno_multi_image_board import DenoMultiImageLoader
 from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
 
 INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
