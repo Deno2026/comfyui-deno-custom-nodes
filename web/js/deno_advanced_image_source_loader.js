@@ -3,6 +3,13 @@ import { api } from "../../scripts/api.js";
 
 const ADVANCED_NODE = "DenoAdvancedImageSourceLoader";
 const MIN_SIZE = [520, 620];
+const PANEL_MIN_HEIGHT = 360;
+const PANEL_RESERVED_NODE_HEIGHT = 248;
+const PANEL_MAX_HEIGHT = 780;
+const MASONRY_ROW_HEIGHT = 8;
+const MASONRY_GAP = 10;
+const CARD_MIN_HEIGHT = 116;
+const CARD_MAX_HEIGHT = 320;
 const IMAGE_RE = /\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i;
 const KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
 const PRESET_MODE = "Preset Ratio";
@@ -26,12 +33,16 @@ app.registerExtension({
 
 function setupAdvancedImageSourceLoader(node) {
     const pathsWidget = getWidget(node, "image_paths");
+    const disabledWidget = getWidget(node, "disabled_image_paths");
     if (!pathsWidget || node.__denoAdvancedSourceReady) {
         return;
     }
 
     node.__denoAdvancedSourceReady = true;
     hideWidget(pathsWidget);
+    if (disabledWidget) {
+        hideWidget(disabledWidget);
+    }
 
     node._denoUpdateAdvancedSourceVisibility = function () {
         const mode = getWidget(this, "mode")?.value ?? KEEP_INPUT_RATIO_MODE;
@@ -56,12 +67,13 @@ function setupAdvancedImageSourceLoader(node) {
     }
 
     const container = document.createElement("div");
+    container.tabIndex = 0;
     container.style.cssText = `
         width: 100%;
-        height: 360px;
+        height: ${PANEL_MIN_HEIGHT}px;
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: ${MASONRY_GAP}px;
         padding: 10px;
         box-sizing: border-box;
         background: rgba(4, 8, 7, 0.96);
@@ -69,17 +81,19 @@ function setupAdvancedImageSourceLoader(node) {
         border-radius: 12px;
         pointer-events: auto;
         overflow: hidden;
+        outline: none;
     `;
 
     const topBar = document.createElement("div");
     topBar.style.cssText = "display:flex; gap:8px; align-items:center; flex-wrap:wrap;";
 
     const uploadBtn = createActionButton("Upload");
+    const pasteBtn = createActionButton("Paste");
     const inputFolderBtn = createActionButton("Input Folder");
     const externalFolderBtn = createActionButton("External Folder");
     const urlPathBtn = createActionButton("URL / Path");
     const clearBtn = createActionButton("Clear", true);
-    topBar.append(uploadBtn, inputFolderBtn, externalFolderBtn, urlPathBtn, clearBtn);
+    topBar.append(uploadBtn, pasteBtn, inputFolderBtn, externalFolderBtn, urlPathBtn, clearBtn);
 
     const countLabel = document.createElement("div");
     countLabel.style.cssText = "margin-left:auto; color:#94f7af; font:600 11px sans-serif;";
@@ -87,7 +101,10 @@ function setupAdvancedImageSourceLoader(node) {
 
     const hint = document.createElement("div");
     hint.style.cssText = "color:#7dcf92; font:11px sans-serif; opacity:0.9;";
-    hint.textContent = "Use this separate loader for input images, external folders, full paths, web URLs, or mixed-size image lists.";
+    hint.textContent = "Click a thumbnail to disable it; drag cards to reorder the output.";
+
+    const statusLabel = document.createElement("div");
+    statusLabel.style.cssText = "min-height:13px; color:#9dffba; font:700 10px sans-serif; opacity:0.95;";
 
     const grid = document.createElement("div");
     grid.style.cssText = `
@@ -95,9 +112,11 @@ function setupAdvancedImageSourceLoader(node) {
         min-height: 0;
         overflow-y: auto;
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+        grid-auto-rows: ${MASONRY_ROW_HEIGHT}px;
         gap: 10px;
         align-content: start;
+        align-items: start;
         padding-right: 4px;
     `;
 
@@ -115,15 +134,58 @@ function setupAdvancedImageSourceLoader(node) {
     folderUploadInput.setAttribute("directory", "");
     folderUploadInput.style.display = "none";
 
-    container.append(topBar, hint, grid, uploadInput, folderUploadInput);
+    container.append(topBar, hint, statusLabel, grid, uploadInput, folderUploadInput);
+
+    function panelHeight() {
+        const nodeHeight = Number(node.size?.[1]) || MIN_SIZE[1];
+        return Math.max(
+            PANEL_MIN_HEIGHT,
+            Math.min(PANEL_MAX_HEIGHT, nodeHeight - PANEL_RESERVED_NODE_HEIGHT)
+        );
+    }
+
+    function refreshPanelHeight() {
+        container.style.height = `${panelHeight()}px`;
+        requestAnimationFrame(refreshMasonrySpans);
+    }
 
     const widget = node.addDOMWidget("advanced_source_panel", "deno_advanced_image_source_loader", container, { serialize: false });
-    widget.computeSize = () => [Math.max(node.size?.[0] ?? 0, MIN_SIZE[0]), 372];
+    widget.computeSize = () => {
+        const height = panelHeight();
+        container.style.height = `${height}px`;
+        return [Math.max(node.size?.[0] ?? 0, MIN_SIZE[0]), height + 12];
+    };
 
     node.size = [
         Math.max(node.size?.[0] ?? 0, MIN_SIZE[0]),
         Math.max(node.size?.[1] ?? 0, MIN_SIZE[1]),
     ];
+
+    const originalOnResize = node.onResize;
+    node.onResize = function () {
+        const result = originalOnResize?.apply(this, arguments);
+        refreshPanelHeight();
+        return result;
+    };
+
+    let draggedCard = null;
+    let placeholder = null;
+    let isReordering = false;
+    let suppressToggleUntil = 0;
+
+    grid.addEventListener("mousemove", (event) => {
+        if (!isReordering) {
+            return;
+        }
+        updatePlaceholderFromPoint(event.clientX, event.clientY);
+    }, true);
+
+    grid.addEventListener("pointermove", (event) => {
+        if (!isReordering) {
+            return;
+        }
+        updatePlaceholderFromPoint(event.clientX, event.clientY);
+    }, true);
 
     function getPaths() {
         return (pathsWidget.value || "")
@@ -132,10 +194,38 @@ function setupAdvancedImageSourceLoader(node) {
             .filter(Boolean);
     }
 
-    function setPaths(paths) {
+    function getDisabledPaths() {
+        return (disabledWidget?.value || "")
+            .split("\n")
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+    }
+
+    function setDisabledPaths(paths) {
+        if (!disabledWidget) {
+            return;
+        }
+        const activePaths = new Set(getPaths());
+        const cleaned = Array.from(new Set(paths.map((entry) => String(entry || "").trim()).filter(Boolean)))
+            .filter((entry) => activePaths.has(entry));
+        disabledWidget.value = cleaned.join("\n");
+        disabledWidget.callback?.(disabledWidget.value);
+        render();
+        node.setDirtyCanvas?.(true, true);
+        app.graph?.setDirtyCanvas?.(true, true);
+    }
+
+    function setPaths(paths, disabledPaths = getDisabledPaths()) {
         const cleaned = Array.from(new Set(paths.map((entry) => String(entry || "").trim()).filter(Boolean)));
         pathsWidget.value = cleaned.join("\n");
         pathsWidget.callback?.(pathsWidget.value);
+        if (disabledWidget) {
+            const activePaths = new Set(cleaned);
+            const cleanedDisabled = Array.from(new Set(disabledPaths.map((entry) => String(entry || "").trim()).filter(Boolean)))
+                .filter((entry) => activePaths.has(entry));
+            disabledWidget.value = cleanedDisabled.join("\n");
+            disabledWidget.callback?.(disabledWidget.value);
+        }
         render();
         node.setDirtyCanvas?.(true, true);
         app.graph?.setDirtyCanvas?.(true, true);
@@ -143,26 +233,37 @@ function setupAdvancedImageSourceLoader(node) {
 
     function render() {
         const paths = getPaths();
-        countLabel.textContent = `${paths.length} source${paths.length === 1 ? "" : "s"}`;
-        grid.replaceChildren(...paths.map((path, index) => buildCard(path, index)));
+        const disabled = new Set(getDisabledPaths());
+        const enabledCount = paths.filter((path) => !disabled.has(path)).length;
+        countLabel.textContent = `${enabledCount}/${paths.length} enabled`;
+        grid.replaceChildren(...paths.map((path, index) => buildCard(path, index, disabled.has(path))));
+        requestAnimationFrame(refreshMasonrySpans);
     }
 
-    function buildCard(path, index) {
+    function buildCard(path, index, isDisabled) {
         const card = document.createElement("div");
+        card.draggable = false;
+        card.dataset.path = path;
+        card.dataset.sourceIndex = String(index);
         card.style.cssText = `
             position: relative;
             min-width: 0;
-            height: 116px;
+            height: 100%;
             display: flex;
             flex-direction: column;
             gap: 5px;
             padding: 6px;
+            box-sizing: border-box;
             border: 1px solid rgba(72,255,132,0.32);
             border-radius: 8px;
-            background: rgba(13, 31, 20, 0.9);
+            background: ${isDisabled ? "rgba(5, 8, 7, 0.86)" : "rgba(13, 31, 20, 0.9)"};
             color: #d9ffe5;
+            cursor: grab;
             overflow: hidden;
+            contain: content;
+            content-visibility: auto;
         `;
+        applyCardSpan(card, CARD_MIN_HEIGHT);
 
         const preview = document.createElement("div");
         preview.style.cssText = `
@@ -181,11 +282,12 @@ function setupAdvancedImageSourceLoader(node) {
         const previewUrl = getPreviewUrl(path);
         if (previewUrl) {
             const image = document.createElement("img");
-            image.loading = "eager";
+            image.loading = "lazy";
             image.decoding = "async";
             image.src = previewUrl;
             image.alt = "";
-            image.style.cssText = "width:100%; height:100%; object-fit:cover;";
+            image.style.cssText = `width:100%; height:100%; object-fit:contain; opacity:${isDisabled ? "0.38" : "1"}; pointer-events:none;`;
+            image.onload = () => applyMasonrySpanForImage(card, image);
             image.onerror = () => {
                 preview.textContent = getSourceKind(path);
                 image.remove();
@@ -203,7 +305,40 @@ function setupAdvancedImageSourceLoader(node) {
             overflow: hidden;
             text-overflow: ellipsis;
             font: 700 10px sans-serif;
-            color: #d9ffe5;
+            color: ${isDisabled ? "#7d917f" : "#d9ffe5"};
+        `;
+
+        const badge = document.createElement("div");
+        badge.textContent = String(index + 1);
+        badge.style.cssText = `
+            position: absolute;
+            left: 6px;
+            top: 6px;
+            min-width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: rgba(0,0,0,0.68);
+            color: #d7ffe3;
+            font: 800 10px sans-serif;
+            pointer-events: none;
+        `;
+
+        const disabledOverlay = document.createElement("div");
+        disabledOverlay.textContent = "Disabled";
+        disabledOverlay.style.cssText = `
+            position: absolute;
+            inset: 0;
+            display: ${isDisabled ? "flex" : "none"};
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.58);
+            color: #dfffea;
+            font: 900 12px sans-serif;
+            letter-spacing: 0;
+            pointer-events: none;
         `;
 
         const remove = document.createElement("button");
@@ -227,12 +362,358 @@ function setupAdvancedImageSourceLoader(node) {
             event.preventDefault();
             event.stopPropagation();
             const paths = getPaths();
+            const disabledPaths = getDisabledPaths();
             paths.splice(index, 1);
-            setPaths(paths);
+            setPaths(paths, disabledPaths.filter((entry) => entry !== path));
         };
 
-        card.append(preview, name, remove);
+        let pointerState = null;
+        card.addEventListener("pointerdown", (event) => {
+            if (event.button !== 0 || event.target === remove) {
+                return;
+            }
+            const onPointerMove = (moveEvent) => {
+                if (!pointerState || pointerState.id !== moveEvent.pointerId) {
+                    return;
+                }
+                const distance = Math.hypot(moveEvent.clientX - pointerState.startX, moveEvent.clientY - pointerState.startY);
+                if (!pointerState.active && distance < 7) {
+                    return;
+                }
+                if (!pointerState.active) {
+                    pointerState.active = true;
+                    startReorder(card);
+                }
+                updatePlaceholderFromPoint(moveEvent.clientX, moveEvent.clientY);
+                moveEvent.preventDefault();
+                moveEvent.stopPropagation();
+            };
+            const onPointerUp = (upEvent) => {
+                if (!pointerState || pointerState.id !== upEvent.pointerId) {
+                    return;
+                }
+                window.removeEventListener("pointermove", pointerState.onMove, true);
+                window.removeEventListener("pointerup", pointerState.onUp, true);
+                const wasActive = pointerState.active;
+                pointerState = null;
+                card.releasePointerCapture?.(upEvent.pointerId);
+                if (wasActive) {
+                    updatePlaceholderFromPoint(upEvent.clientX, upEvent.clientY);
+                    finalizeReorder();
+                    upEvent.preventDefault();
+                    upEvent.stopPropagation();
+                }
+            };
+            pointerState = {
+                id: event.pointerId,
+                startX: event.clientX,
+                startY: event.clientY,
+                active: false,
+                onMove: onPointerMove,
+                onUp: onPointerUp,
+            };
+            card.setPointerCapture?.(event.pointerId);
+            window.addEventListener("pointermove", onPointerMove, true);
+            window.addEventListener("pointerup", onPointerUp, true);
+        });
+
+        card.addEventListener("pointermove", (event) => {
+            if (!pointerState || pointerState.id !== event.pointerId) {
+                return;
+            }
+            const distance = Math.hypot(event.clientX - pointerState.startX, event.clientY - pointerState.startY);
+            if (!pointerState.active && distance < 7) {
+                return;
+            }
+            if (!pointerState.active) {
+                pointerState.active = true;
+                startReorder(card);
+            }
+            updatePlaceholderFromPoint(event.clientX, event.clientY);
+            event.preventDefault();
+            event.stopPropagation();
+        });
+
+        card.addEventListener("pointerup", (event) => {
+            if (!pointerState || pointerState.id !== event.pointerId) {
+                return;
+            }
+            window.removeEventListener("pointermove", pointerState.onMove, true);
+            window.removeEventListener("pointerup", pointerState.onUp, true);
+            const wasActive = pointerState.active;
+            pointerState = null;
+            card.releasePointerCapture?.(event.pointerId);
+            if (wasActive) {
+                updatePlaceholderFromPoint(event.clientX, event.clientY);
+                finalizeReorder();
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        });
+
+        card.addEventListener("pointercancel", (event) => {
+            if (!pointerState || pointerState.id !== event.pointerId) {
+                return;
+            }
+            window.removeEventListener("pointermove", pointerState.onMove, true);
+            window.removeEventListener("pointerup", pointerState.onUp, true);
+            pointerState = null;
+            resetReorder();
+        });
+
+        card.addEventListener("mousedown", (event) => {
+            if (event.button !== 0 || event.target === remove) {
+                return;
+            }
+            const mouseState = {
+                startX: event.clientX,
+                startY: event.clientY,
+                active: false,
+            };
+            const onMouseMove = (moveEvent) => {
+                const distance = Math.hypot(moveEvent.clientX - mouseState.startX, moveEvent.clientY - mouseState.startY);
+                if (!mouseState.active && distance < 7) {
+                    return;
+                }
+                if (!mouseState.active) {
+                    mouseState.active = true;
+                    startReorder(card);
+                }
+                updatePlaceholderFromPoint(moveEvent.clientX, moveEvent.clientY);
+                moveEvent.preventDefault();
+                moveEvent.stopPropagation();
+            };
+            const onMouseUp = (upEvent) => {
+                window.removeEventListener("mousemove", onMouseMove, true);
+                window.removeEventListener("mouseup", onMouseUp, true);
+                if (mouseState.active) {
+                    updatePlaceholderFromPoint(upEvent.clientX, upEvent.clientY);
+                    finalizeReorder();
+                    upEvent.preventDefault();
+                    upEvent.stopPropagation();
+                }
+            };
+            window.addEventListener("mousemove", onMouseMove, true);
+            window.addEventListener("mouseup", onMouseUp, true);
+        });
+
+        card.onclick = (event) => {
+            if (Date.now() < suppressToggleUntil || event.defaultPrevented) {
+                return;
+            }
+            event.preventDefault();
+            const disabledPaths = getDisabledPaths();
+            if (disabledPaths.includes(path)) {
+                setDisabledPaths(disabledPaths.filter((entry) => entry !== path));
+            } else {
+                setDisabledPaths(disabledPaths.concat(path));
+            }
+        };
+
+        card.addEventListener("dragstart", (event) => {
+            draggedCard = card;
+            placeholder = createPlaceholder();
+            isReordering = true;
+            card.style.opacity = "0.35";
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", path);
+            setTimeout(() => {
+                if (card.parentElement) {
+                    card.parentElement.insertBefore(placeholder, card.nextSibling);
+                }
+            }, 0);
+        });
+
+        card.addEventListener("dragend", finalizeReorder);
+
+        card.addEventListener("drop", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!draggedCard || draggedCard === card || !placeholder) {
+                return;
+            }
+            const rect = card.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const dx = event.clientX - centerX;
+            const dy = event.clientY - centerY;
+            const horizontalDominant = Math.abs(dx) >= Math.abs(dy);
+            const insertAfter = horizontalDominant
+                ? event.clientX > rect.left + rect.width * 0.42
+                : event.clientY > rect.top + rect.height * 0.42;
+            grid.insertBefore(placeholder, insertAfter ? card.nextSibling : card);
+        });
+
+        card.addEventListener("dragover", (event) => {
+            event.preventDefault();
+            if (!draggedCard || draggedCard === card || !placeholder) {
+                return;
+            }
+            const rect = card.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const dx = event.clientX - centerX;
+            const dy = event.clientY - centerY;
+            const horizontalDominant = Math.abs(dx) >= Math.abs(dy);
+            const insertAfter = horizontalDominant
+                ? event.clientX > rect.left + rect.width * 0.42
+                : event.clientY > rect.top + rect.height * 0.42;
+            grid.insertBefore(placeholder, insertAfter ? card.nextSibling : card);
+        });
+
+        card.append(preview, name, remove, badge, disabledOverlay);
         return card;
+    }
+
+    function createPlaceholder() {
+        const placeholderElement = document.createElement("div");
+        placeholderElement.style.cssText = `
+            min-width: 0;
+            height: 100%;
+            border: 1px dashed rgba(126,255,166,0.74);
+            border-radius: 8px;
+            background: rgba(28,68,42,0.34);
+            box-sizing: border-box;
+        `;
+        applyCardSpan(placeholderElement, CARD_MIN_HEIGHT);
+        return placeholderElement;
+    }
+
+    function startReorder(card) {
+        if (isReordering) {
+            return;
+        }
+        draggedCard = card;
+        placeholder = createPlaceholder();
+        isReordering = true;
+        card.style.opacity = "0.35";
+        card.style.cursor = "grabbing";
+        if (card.parentElement) {
+            card.parentElement.insertBefore(placeholder, card.nextSibling);
+        }
+    }
+
+    function resetReorder() {
+        if (draggedCard) {
+            draggedCard.style.opacity = "1";
+            draggedCard.style.cursor = "grab";
+        }
+        placeholder?.remove();
+        placeholder = null;
+        draggedCard = null;
+        isReordering = false;
+    }
+
+    function finalizeReorder() {
+        if (draggedCard) {
+            draggedCard.style.opacity = "1";
+            draggedCard.style.cursor = "grab";
+        }
+        if (placeholder?.parentElement && draggedCard) {
+            placeholder.parentElement.insertBefore(draggedCard, placeholder);
+        }
+        const newOrder = Array.from(grid.children)
+            .filter((child) => child.dataset?.path)
+            .map((child) => child.dataset.path);
+        placeholder?.remove();
+        placeholder = null;
+        draggedCard = null;
+        isReordering = false;
+        suppressToggleUntil = Date.now() + 180;
+        if (newOrder.length) {
+            setPaths(newOrder);
+        }
+    }
+
+    function updatePlaceholderFromPoint(clientX, clientY) {
+        if (!draggedCard || !placeholder) {
+            return;
+        }
+        const previousPointerEvents = draggedCard.style.pointerEvents;
+        draggedCard.style.pointerEvents = "none";
+        const target = document.elementFromPoint(clientX, clientY)?.closest("[data-source-index]");
+        draggedCard.style.pointerEvents = previousPointerEvents;
+        if (!target || target === draggedCard || !grid.contains(target)) {
+            return;
+        }
+        const rect = target.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const dx = clientX - centerX;
+        const dy = clientY - centerY;
+        const horizontalDominant = Math.abs(dx) >= Math.abs(dy);
+        const insertAfter = horizontalDominant
+            ? clientX > rect.left + rect.width * 0.42
+            : clientY > rect.top + rect.height * 0.42;
+        grid.insertBefore(placeholder, insertAfter ? target.nextSibling : target);
+    }
+
+    function applyCardSpan(card, height) {
+        const safeHeight = Math.max(CARD_MIN_HEIGHT, Math.min(CARD_MAX_HEIGHT, Number(height) || CARD_MIN_HEIGHT));
+        const span = Math.ceil((safeHeight + MASONRY_GAP) / (MASONRY_ROW_HEIGHT + MASONRY_GAP));
+        card.style.gridRowEnd = `span ${Math.max(1, span)}`;
+    }
+
+    function applyMasonrySpanForImage(card, image) {
+        if (!image?.naturalWidth || !image?.naturalHeight) {
+            applyCardSpan(card, CARD_MIN_HEIGHT);
+            return;
+        }
+        const cardWidth = Math.max(96, card.offsetWidth || card.clientWidth || parseFloat(getComputedStyle(card).width) || 112);
+        const imageRatio = image.naturalHeight / Math.max(1, image.naturalWidth);
+        const previewHeight = Math.max(96, Math.min(282, Math.round(cardWidth * imageRatio)));
+        applyCardSpan(card, previewHeight + 38);
+    }
+
+    function refreshMasonrySpans() {
+        for (const card of grid.querySelectorAll("[data-source-index]")) {
+            const image = card.querySelector("img");
+            if (image?.complete && image.naturalWidth) {
+                applyMasonrySpanForImage(card, image);
+            } else {
+                applyCardSpan(card, CARD_MIN_HEIGHT);
+            }
+        }
+    }
+
+    function setStatus(message) {
+        statusLabel.textContent = message || "";
+    }
+
+    function clipboardFilesFromData(clipboardData) {
+        const files = Array.from(clipboardData?.files || []).filter((file) => IMAGE_RE.test(file.name || "") || /^image\//i.test(file.type || ""));
+        if (files.length) {
+            return files;
+        }
+        return Array.from(clipboardData?.items || [])
+            .filter((item) => /^image\//i.test(item.type || ""))
+            .map((item, index) => item.getAsFile?.() || null)
+            .filter(Boolean)
+            .map((file, index) => file.name ? file : new File([file], `clipboard-${Date.now()}-${index}.png`, { type: file.type || "image/png" }));
+    }
+
+    async function readClipboardImageFiles() {
+        if (!navigator.clipboard?.read) {
+            return [];
+        }
+        const items = await navigator.clipboard.read();
+        const files = [];
+        for (const item of items) {
+            for (const type of item.types || []) {
+                if (!/^image\//i.test(type)) {
+                    continue;
+                }
+                const blob = await item.getType(type);
+                const extension = type.split("/").pop()?.replace("jpeg", "jpg") || "png";
+                files.push(new File([blob], `clipboard-${Date.now()}-${files.length}.${extension}`, { type }));
+            }
+        }
+        return files;
+    }
+
+    function focusPanelForPaste() {
+        container.focus({ preventScroll: true });
+        setStatus("Press Ctrl+V while the panel is focused.");
     }
 
     async function uploadFiles(fileList, subfolderForFile = null) {
@@ -256,11 +737,26 @@ function setupAdvancedImageSourceLoader(node) {
         }
         if (uploaded.length) {
             setPaths(getPaths().concat(uploaded));
+            setStatus(`${uploaded.length} image${uploaded.length === 1 ? "" : "s"} added.`);
+        } else {
+            setStatus("No image file found.");
         }
         return uploaded;
     }
 
     uploadBtn.onclick = () => uploadInput.click();
+    pasteBtn.onclick = async () => {
+        try {
+            const files = await readClipboardImageFiles();
+            if (files.length) {
+                await uploadFiles(files);
+                return;
+            }
+        } catch (error) {
+            console.warn("[DenoAdvancedImageSourceLoader] Clipboard read failed.", error);
+        }
+        focusPanelForPaste();
+    };
     uploadInput.onchange = async (event) => {
         await uploadFiles(event.target.files);
         uploadInput.value = "";
@@ -272,26 +768,120 @@ function setupAdvancedImageSourceLoader(node) {
     urlPathBtn.onclick = () => showSourceTextDialog(setPaths, getPaths);
 
     container.ondragover = (event) => {
+        if (isReordering) {
+            return;
+        }
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
     };
     container.ondrop = async (event) => {
+        if (isReordering) {
+            return;
+        }
         event.preventDefault();
         if (event.dataTransfer?.files?.length) {
             await uploadFiles(event.dataTransfer.files);
         }
     };
     container.addEventListener("paste", async (event) => {
-        const files = Array.from(event.clipboardData?.files || []);
+        const files = clipboardFilesFromData(event.clipboardData);
         if (files.length) {
+            event.preventDefault();
             await uploadFiles(files);
+        } else {
+            setStatus("Clipboard does not contain an image.");
         }
     });
 
+    installMiddleMouseCanvasPan(container);
+
     setTimeout(() => {
         node._denoUpdateAdvancedSourceVisibility?.();
+        refreshPanelHeight();
         render();
     }, 0);
+}
+
+function installMiddleMouseCanvasPan(root) {
+    let forwardingPan = false;
+
+    const forward = (event) => {
+        const canvas = app.canvas?.canvas;
+        if (!canvas) {
+            return false;
+        }
+        const forwarded = new MouseEvent(event.type, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            detail: event.detail,
+            screenX: event.screenX,
+            screenY: event.screenY,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey,
+            shiftKey: event.shiftKey,
+            metaKey: event.metaKey,
+            button: event.button,
+            buttons: event.buttons,
+            relatedTarget: event.relatedTarget,
+        });
+        canvas.dispatchEvent(forwarded);
+        return true;
+    };
+
+    const shouldForward = (event) => event.button === 1 || forwardingPan || (event.buttons & 4) === 4;
+    const consume = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    root.addEventListener("mousedown", (event) => {
+        if (!shouldForward(event)) {
+            return;
+        }
+        forwardingPan = true;
+        if (forward(event)) {
+            consume(event);
+        }
+    }, true);
+
+    root.addEventListener("mousemove", (event) => {
+        if (!shouldForward(event)) {
+            return;
+        }
+        if (forward(event)) {
+            consume(event);
+        }
+    }, true);
+
+    window.addEventListener("mousemove", (event) => {
+        if (!forwardingPan) {
+            return;
+        }
+        if (forward(event)) {
+            consume(event);
+        }
+    }, true);
+
+    window.addEventListener("mouseup", (event) => {
+        if (!forwardingPan) {
+            return;
+        }
+        if (forward(event)) {
+            consume(event);
+        }
+        if (event.button === 1 || (event.buttons & 4) !== 4) {
+            forwardingPan = false;
+        }
+    }, true);
+
+    root.addEventListener("auxclick", (event) => {
+        if (event.button === 1) {
+            consume(event);
+        }
+    }, true);
 }
 
 function showInputFolderBrowser(setPaths, getPaths) {
@@ -509,7 +1099,7 @@ function showBrowserModal(options) {
                     image.decoding = "async";
                     image.src = previewUrl;
                     image.alt = "";
-                    image.style.cssText = "width:100%; height:100%; object-fit:cover;";
+                    image.style.cssText = "width:100%; height:100%; object-fit:contain;";
                     image.onerror = () => {
                         preview.textContent = "Image";
                         image.remove();

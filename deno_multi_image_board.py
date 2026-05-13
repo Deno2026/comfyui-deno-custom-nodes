@@ -255,13 +255,19 @@ def _resize_tensor(
             ),
             value=0.0,
         )
-    elif resize_method == "Center Crop (Fill)":
+    elif resize_method in {"Center Crop (Fill)", "Top Crop (Fill)", "Bottom Crop (Fill)"}:
         scale = max(width / source_width, height / source_height)
         target_width = max(1, int(round(source_width * scale)))
         target_height = max(1, int(round(source_height * scale)))
         resized = _interpolate_tensor(image_nchw, target_height, target_width, interpolation)
         crop_x = max(0, (target_width - width) // 2)
-        crop_y = max(0, (target_height - height) // 2)
+        vertical_overflow = max(0, target_height - height)
+        if resize_method == "Top Crop (Fill)":
+            crop_y = 0
+        elif resize_method == "Bottom Crop (Fill)":
+            crop_y = vertical_overflow
+        else:
+            crop_y = vertical_overflow // 2
         resized = resized[:, :, crop_y:crop_y + height, crop_x:crop_x + width]
     else:
         resized = _interpolate_tensor(image_nchw, height, width, interpolation)

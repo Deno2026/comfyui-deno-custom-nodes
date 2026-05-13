@@ -291,12 +291,29 @@ def test_advanced_image_source_loader_declares_external_outputs():
 
     assert input_types["required"]["image_paths"][0] == "STRING"
     assert input_types["required"]["mode"][0] == ["Keep Input Ratio", "Preset Ratio", "Manual Input"]
+    assert input_types["required"]["disabled_image_paths"][0] == "STRING"
+    assert input_types["required"]["resize_method"][0] == [
+        "Center Crop (Fill)",
+        "Fit (Letterbox/Pillarbox)",
+        "Top Crop (Fill)",
+        "Bottom Crop (Fill)",
+    ]
     assert input_types["required"]["recursive_folders"][0] == "BOOLEAN"
     assert input_types["required"]["list_output_mode"][0] == ["Original Size", "Match Batch Size"]
+    assert input_types["optional"]["images"][0] == "IMAGE"
     assert node_cls.RETURN_TYPES == ("IMAGE", "IMAGE", "INT", "INT", "INT")
     assert node_cls.RETURN_NAMES == ("batch", "image_list", "width", "height", "image_count")
     assert node_cls.OUTPUT_IS_LIST == (False, True, False, False, False)
     assert node_cls.CATEGORY == "Deno/Image"
+
+
+def test_advanced_image_source_loader_filters_disabled_sources():
+    load_package()
+    advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
+
+    sources = ["keep.png", "skip.png", "folder"]
+
+    assert advanced._filter_disabled_sources(sources, "skip.png\nmissing.png") == ["keep.png", "folder"]
 
 
 def test_multi_image_loader_input_browser_lists_newest_files_first():

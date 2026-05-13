@@ -66,12 +66,18 @@ Main features:
 - supports folder tiles, nested-folder browsing, and a `Parent` button
 - supports `URL / Path` input for web image URLs, absolute local image paths, and local folder paths
 - supports upload, drag-and-drop, paste, and browser folder upload where the browser allows it
+- includes a visible `Paste` button plus normal Ctrl+V image paste
+- click thumbnails to disable/enable sources without deleting them
+- drag thumbnail cards to reorder output sequence
+- the gallery expands vertically when the ComfyUI node is resized
+- thumbnails use a masonry-style flow so mixed portrait/landscape references are easier to scan
 - `Load Path` reads an external folder directly without first importing it into ComfyUI `input`
 - `Upload Folder...` is an optional browser upload/import helper, not required for external path loading
 - `recursive_folders` option for loading nested folder images
 - `Keep Input Ratio`, `Preset Ratio`, or `Manual Input` size mode
 - ratio preset, megapixels, divisible-by sizing, or direct width/height control
-- resize method and interpolation selection
+- resize method and interpolation selection, including center, top, or bottom crop fill modes
+- optional `images` input can chain an upstream image batch/list into the same output stream
 - outputs a resized `batch` image tensor for normal batch workflows
 - outputs `image_list` for workflows that need per-image list handling
 - `Original Size` list mode can preserve mixed source resolutions in `image_list`

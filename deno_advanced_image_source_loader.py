@@ -27,6 +27,11 @@ from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, RESIZE_M
 REMOTE_IMAGE_TIMEOUT_SECONDS = 20
 REMOTE_IMAGE_MAX_BYTES = 64 * 1024 * 1024
 REMOTE_IMAGE_MAX_REDIRECTS = 5
+ADVANCED_RESIZE_METHODS = list(dict.fromkeys([
+    *RESIZE_METHODS,
+    "Top Crop (Fill)",
+    "Bottom Crop (Fill)",
+]))
 
 
 class _DenoNoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -352,6 +357,31 @@ def _image_source_to_tensor(source: str) -> torch.Tensor | None:
         return None
 
 
+def _filter_disabled_sources(sources: List[str], disabled_image_paths: str) -> List[str]:
+    disabled = set(_split_paths(disabled_image_paths))
+    if not disabled:
+        return sources
+    return [source for source in sources if source not in disabled]
+
+
+def _split_input_image_batch(images) -> List[torch.Tensor]:
+    if images is None:
+        return []
+    if isinstance(images, torch.Tensor) and hasattr(images, "ndim"):
+        image_tensor = images
+        if image_tensor.ndim == 3:
+            image_tensor = image_tensor.unsqueeze(0)
+        if image_tensor.ndim != 4:
+            return []
+        return [image_tensor[index:index + 1] for index in range(int(image_tensor.shape[0]))]
+    if isinstance(images, (list, tuple)):
+        split_images = []
+        for image in images:
+            split_images.extend(_split_input_image_batch(image))
+        return split_images
+    return []
+
+
 class DenoAdvancedImageSourceLoader:
     DESCRIPTION = (
         "Advanced image source loader for users who need external folders, "
@@ -372,9 +402,13 @@ class DenoAdvancedImageSourceLoader:
                 "height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
                 "divisible_by": (DIVISIBLE_BY_VALUES, {"default": "32"}),
                 "interpolation": (IMAGE_INTERPOLATION_MODES, {"default": "lanczos"}),
-                "resize_method": (RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
+                "resize_method": (ADVANCED_RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
                 "recursive_folders": ("BOOLEAN", {"default": False}),
                 "list_output_mode": (["Original Size", "Match Batch Size"], {"default": "Original Size"}),
+                "disabled_image_paths": ("STRING", {"default": "", "multiline": True}),
+            },
+            "optional": {
+                "images": ("IMAGE",),
             }
         }
 
@@ -397,16 +431,19 @@ class DenoAdvancedImageSourceLoader:
         resize_method: str,
         recursive_folders: bool,
         list_output_mode: str,
+        disabled_image_paths: str = "",
+        images=None,
     ):
-        sources = _expand_image_sources(_split_paths(image_paths), bool(recursive_folders))
-        originals = []
-        loaded_source_count = 0
+        source_inputs = _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths)
+        sources = _expand_image_sources(source_inputs, bool(recursive_folders))
+        originals = _split_input_image_batch(images)
+        loaded_image_count = len(originals)
 
         for source in sources:
             image_tensor = _image_source_to_tensor(source)
             if image_tensor is not None:
                 originals.append(image_tensor)
-                loaded_source_count += 1
+                loaded_image_count += 1
 
         if mode == "Preset Ratio":
             width, height = compute_aligned_ratio_dims(ratio_preset, megapixels, int(divisible_by))
@@ -438,4 +475,4 @@ class DenoAdvancedImageSourceLoader:
         else:
             image_list = originals
 
-        return (batch, image_list, int(width), int(height), loaded_source_count)
+        return (batch, image_list, int(width), int(height), loaded_image_count)
