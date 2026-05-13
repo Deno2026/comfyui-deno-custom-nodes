@@ -38,11 +38,38 @@ if "%PYTHON_EXE%"=="" (
   exit /b 1
 )
 
-echo [1/4] Using Python:
+echo [1/5] Using Python:
 echo %PYTHON_EXE%
 echo.
 
-echo [2/4] Checking NVIDIA GPU...
+echo [2/5] Making sure ComfyUI is closed...
+set "RUNNING_LOG=%TEMP%\deno_rtx_running_comfyui.txt"
+if exist "%RUNNING_LOG%" del /f /q "%RUNNING_LOG%" >nul 2>nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $target=[System.IO.Path]::GetFullPath($env:PYTHON_EXE); $hits=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) -and ($_.CommandLine -match '(^|[\\\/])main\.py(\s|$)' -or $_.CommandLine -match 'ComfyUI') }); if ($hits.Count -gt 0) { $lines=[string[]]($hits | ForEach-Object { 'PID=' + $_.ProcessId + ' ' + $_.CommandLine }); $encoding=New-Object System.Text.UTF8Encoding($false); [System.IO.File]::WriteAllLines($env:RUNNING_LOG, $lines, $encoding); exit 2 }" >> "%LOG%" 2>&1
+if errorlevel 2 (
+  echo [FAIL] ComfyUI is still running with this Python.
+  echo.
+  echo Close ComfyUI completely, then run this BAT again.
+  echo.
+  echo Detected process:
+  type "%RUNNING_LOG%"
+  echo.
+  pause
+  exit /b 1
+)
+if errorlevel 1 (
+  echo [FAIL] Could not verify that ComfyUI is closed.
+  echo.
+  echo Close ComfyUI completely, then run this BAT again.
+  echo See log:
+  echo %LOG%
+  pause
+  exit /b 1
+)
+echo OK - ComfyUI is not running with the selected Python.
+echo.
+
+echo [3/5] Checking NVIDIA GPU...
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader > "%TEMP%\deno_rtx_gpu.txt" 2>> "%LOG%"
 if errorlevel 1 (
   echo [WARN] nvidia-smi was not found or no NVIDIA GPU is visible.
@@ -52,7 +79,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo [3/4] Installing nvidia-vfx from NVIDIA official package index...
+echo [4/5] Installing nvidia-vfx from NVIDIA official package index...
 echo This uses force reinstall, so a broken existing install is overwritten.
 echo This can take 1-5 minutes. The window may look still while downloading.
 echo.
@@ -80,7 +107,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [4/4] Verifying import...
+echo [5/5] Verifying import...
 "%PYTHON_EXE%" -c "import nvvfx; from nvvfx import VideoSuperRes; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('VideoSuperRes ready')" >> "%LOG%" 2>&1
 if errorlevel 1 (
   echo [FAIL] Install finished, but nvvfx import failed.

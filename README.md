@@ -108,6 +108,7 @@ Main features:
 
 - uses NVIDIA's official `nvidia-vfx` / `nvvfx.VideoSuperRes` package
 - installer targets the Python used by the current ComfyUI install
+- installer refuses to continue if ComfyUI is still running with that Python
 - exposes four clear effect buttons for VSR, High Bitrate, Denoise, and Deblur
 - shows a compact mode coach line that explains the selected effect in plain language
 - keeps Low, Medium, High, and Ultra quality as a separate selector

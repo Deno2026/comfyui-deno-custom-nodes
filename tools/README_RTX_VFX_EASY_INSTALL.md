@@ -29,6 +29,31 @@ This optional helper is for users who want to use NVIDIA RTX Video Super Resolut
 
 The BAT file installs NVIDIA's official `nvidia-vfx` Python package into the Python used by this ComfyUI install. It does not install random DLL files and does not ask for passwords.
 
+The BAT intentionally refuses to continue if ComfyUI is still running with the selected Python. Close ComfyUI first, then run it again.
+
+## ComfyUI Desktop and Stability Matrix
+
+The installer tries these common Python locations automatically:
+
+- Windows Portable: `ComfyUI_windows_portable/python_embeded/python.exe`
+- ComfyUI Desktop: `ComfyUI/.venv/Scripts/python.exe`
+- Stability Matrix: `ComfyUI/venv/Scripts/python.exe`
+
+If your node folder is outside the normal ComfyUI folder, set `COMFYUI_PYTHON` to the Python path that actually launches ComfyUI.
+
+ComfyUI Desktop users can open the Desktop Terminal and run:
+
+```bat
+python -c "import sys; print(sys.executable)"
+```
+
+Stability Matrix users usually need:
+
+```bat
+set COMFYUI_PYTHON=...\StabilityMatrix\Packages\ComfyUI\venv\Scripts\python.exe
+install_rtx_vfx.bat
+```
+
 ## If it fails
 
 Open the log file next to the BAT:
