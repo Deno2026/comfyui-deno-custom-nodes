@@ -5,7 +5,8 @@ chcp 65001 >nul
 set "TOOL_DIR=%~dp0"
 set "LOG=%TOOL_DIR%DENO_RTX_VFX_install_log.txt"
 set "PYTHON_EXE="
-set "PIP_REPAIR_ARGS="
+set "PYTHON_SOURCE="
+set "PIP_INSTALL_ARGS=--force-reinstall --no-build-isolation"
 
 echo ============================================================
 echo  DENO RTX VFX Easy Install
@@ -13,6 +14,7 @@ echo ============================================================
 echo.
 echo This installs NVIDIA's official nvidia-vfx Python package
 echo into the Python used by this ComfyUI install.
+echo If nvidia-vfx is already installed, it will be reinstalled cleanly.
 echo.
 echo It does not ask for passwords and does not download random DLLs.
 echo Log file:
@@ -20,13 +22,36 @@ echo %LOG%
 echo.
 
 if not "%COMFYUI_PYTHON%"=="" (
-  if exist "%COMFYUI_PYTHON%" set "PYTHON_EXE=%COMFYUI_PYTHON%"
+  if exist "%COMFYUI_PYTHON%" (
+    set "PYTHON_EXE=%COMFYUI_PYTHON%"
+    set "PYTHON_SOURCE=COMFYUI_PYTHON custom path"
+  ) else (
+    echo [FAIL] COMFYUI_PYTHON is set, but that file was not found:
+    echo "%COMFYUI_PYTHON%"
+    echo.
+    echo Remove the wrong COMFYUI_PYTHON value, or set it to the python.exe
+    echo that actually launches your ComfyUI.
+    pause
+    exit /b 1
+  )
 )
 
-if "%PYTHON_EXE%"=="" if exist "%TOOL_DIR%..\..\..\..\python_embeded\python.exe" set "PYTHON_EXE=%TOOL_DIR%..\..\..\..\python_embeded\python.exe"
-if "%PYTHON_EXE%"=="" if exist "%TOOL_DIR%..\..\..\.venv\Scripts\python.exe" set "PYTHON_EXE=%TOOL_DIR%..\..\..\.venv\Scripts\python.exe"
-if "%PYTHON_EXE%"=="" if exist "%TOOL_DIR%..\..\..\venv\Scripts\python.exe" set "PYTHON_EXE=%TOOL_DIR%..\..\..\venv\Scripts\python.exe"
-if "%PYTHON_EXE%"=="" if exist "%TOOL_DIR%..\..\..\ComfyUI.venv\Scripts\python.exe" set "PYTHON_EXE=%TOOL_DIR%..\..\..\ComfyUI.venv\Scripts\python.exe"
+if "%PYTHON_EXE%"=="" if exist "%TOOL_DIR%..\..\..\..\python_embeded\python.exe" (
+  set "PYTHON_EXE=%TOOL_DIR%..\..\..\..\python_embeded\python.exe"
+  set "PYTHON_SOURCE=auto-detected ComfyUI Portable python_embeded"
+)
+if "%PYTHON_EXE%"=="" if exist "%TOOL_DIR%..\..\..\.venv\Scripts\python.exe" (
+  set "PYTHON_EXE=%TOOL_DIR%..\..\..\.venv\Scripts\python.exe"
+  set "PYTHON_SOURCE=auto-detected ComfyUI .venv"
+)
+if "%PYTHON_EXE%"=="" if exist "%TOOL_DIR%..\..\..\venv\Scripts\python.exe" (
+  set "PYTHON_EXE=%TOOL_DIR%..\..\..\venv\Scripts\python.exe"
+  set "PYTHON_SOURCE=auto-detected ComfyUI venv"
+)
+if "%PYTHON_EXE%"=="" if exist "%TOOL_DIR%..\..\..\ComfyUI.venv\Scripts\python.exe" (
+  set "PYTHON_EXE=%TOOL_DIR%..\..\..\ComfyUI.venv\Scripts\python.exe"
+  set "PYTHON_SOURCE=auto-detected ComfyUI.venv"
+)
 
 if "%PYTHON_EXE%"=="" (
   echo [FAIL] Could not find ComfyUI Python.
@@ -39,8 +64,9 @@ if "%PYTHON_EXE%"=="" (
   exit /b 1
 )
 
-echo [1/5] Using Python:
-echo %PYTHON_EXE%
+echo [1/5] Install target:
+echo %PYTHON_SOURCE%
+echo "%PYTHON_EXE%"
 echo.
 
 echo [2/5] Making sure ComfyUI is closed...
@@ -94,25 +120,30 @@ if errorlevel 1 (
 echo.
 
 if not "%DENO_RTX_VFX_YES%"=="1" (
-  echo This will install NVIDIA VFX into this exact Python:
-  echo %PYTHON_EXE%
+  echo Ready to install RTX VFX into this ComfyUI Python:
+  echo "%PYTHON_EXE%"
   echo.
-  echo If this is not the Python used by your ComfyUI, choose N and set COMFYUI_PYTHON first.
-  choice /C YN /N /M "Continue installation? [Y/N] "
+  echo Choose Y if this is the ComfyUI you just closed.
+  echo Choose N if this path looks wrong, or if you use a different ComfyUI app.
+  echo.
+  echo Tip: If this BAT is inside the ComfyUI you want to use,
+  echo      this is normally the correct Python.
+  echo.
+  choice /C YN /N /M "Install RTX VFX here?  Y=Install / N=Cancel: "
   if errorlevel 2 (
     echo [CANCELLED] No changes were made.
+    echo.
+    echo To target another ComfyUI, run this from Command Prompt:
+    echo set COMFYUI_PYTHON=C:\path\to\your\ComfyUI\python.exe
+    echo "%~f0"
+    echo.
     pause
     exit /b 1
   )
 )
 
 echo [4/5] Installing nvidia-vfx from NVIDIA official package index...
-if "%DENO_RTX_VFX_REPAIR%"=="1" (
-  set "PIP_REPAIR_ARGS=--force-reinstall --no-build-isolation"
-  echo Repair mode is ON. A broken existing nvidia-vfx install will be overwritten.
-) else (
-  echo Repair mode is OFF. Existing working installs will not be force-reinstalled.
-)
+echo Reinstall mode is ON. Existing nvidia-vfx files will be overwritten cleanly.
 echo This can take 1-5 minutes. The window may look still while downloading.
 echo.
 
@@ -122,7 +153,7 @@ echo.
   echo Python: %PYTHON_EXE%
   "%PYTHON_EXE%" -V
   echo.
-  "%PYTHON_EXE%" -m pip install --upgrade %PIP_REPAIR_ARGS% --index-url https://pypi.nvidia.com nvidia-vfx
+  "%PYTHON_EXE%" -m pip install --upgrade %PIP_INSTALL_ARGS% --index-url https://pypi.nvidia.com nvidia-vfx
 ) > "%LOG%" 2>&1
 
 if errorlevel 1 (

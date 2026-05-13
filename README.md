@@ -117,7 +117,7 @@ Main features:
 - installer refuses to continue if ComfyUI is still running with that Python
 - installer asks before installing into the detected Python
 - installer stops if no NVIDIA GPU is detected unless the user explicitly overrides the check
-- installer uses force reinstall only when `DENO_RTX_VFX_REPAIR=1` is set
+- installer reinstalls `nvidia-vfx` cleanly when the user confirms the target Python
 - manual installer scripts are kept out of the Comfy Registry package and remain available from the GitHub repository
 - exposes four clear effect buttons for VSR, High Bitrate, Denoise, and Deblur
 - shows a compact mode coach line that explains the selected effect in plain language

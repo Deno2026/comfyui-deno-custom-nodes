@@ -33,7 +33,12 @@ For ComfyUI Manager / Registry installs, manual installer scripts may be exclude
 
 The BAT intentionally refuses to continue if ComfyUI is still running with the selected Python. Close ComfyUI first, then run it again.
 
-The BAT asks before installing into the detected Python. If the shown path is not the Python used by your ComfyUI, choose `N`, set `COMFYUI_PYTHON`, and run it again.
+The BAT shows the exact Python it will modify and asks `Install RTX VFX here?`.
+
+- Choose `Y` if the shown path belongs to the ComfyUI you just closed.
+- Choose `N` if the path looks wrong or you use a different ComfyUI app. Nothing is changed when you choose `N`.
+- For custom installs, set `COMFYUI_PYTHON` to the correct `python.exe` path and run the BAT again.
+- When you choose `Y`, the BAT reinstalls `nvidia-vfx` into that Python so old or broken files are overwritten cleanly.
 
 The BAT stops if no NVIDIA GPU is detected. Only advanced users should bypass that check:
 
@@ -42,12 +47,7 @@ set DENO_RTX_VFX_SKIP_GPU_CHECK=1
 install_rtx_vfx.bat
 ```
 
-By default, the BAT upgrades or installs `nvidia-vfx` without force-reinstalling a working package. If you need to repair a broken install, run:
-
-```bat
-set DENO_RTX_VFX_REPAIR=1
-install_rtx_vfx.bat
-```
+The BAT uses a clean reinstall by default. Running it again is safe when you want to repair or refresh the NVIDIA VFX package for the same ComfyUI install.
 
 ## ComfyUI Desktop and Stability Matrix
 
