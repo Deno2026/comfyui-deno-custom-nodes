@@ -28,6 +28,8 @@ This optional helper is for users who want to use NVIDIA RTX Video Super Resolut
 6. Add `(Deno Test) RTX VFX Easy Upscale` and run it again.
 
 The BAT file installs NVIDIA's official `nvidia-vfx` Python package into the Python used by this ComfyUI install. It does not install random DLL files and does not ask for passwords.
+It also copies the NVIDIA VFX Python runtime to `C:\Users\Public\DENO\nvvfx_runtime` and records that path for the node. This avoids native NVIDIA DLL path issues on Windows installs that live under non-English user folders.
+After install, it also checks whether NVIDIA's `VideoSuperRes` effect can actually be created on this PC. If that check fails, the package may be installed correctly but the GPU, driver, or selected Python environment is not usable for RTX VFX.
 
 For ComfyUI Manager / Registry installs, manual installer scripts may be excluded from the packaged install on purpose. If `install_rtx_vfx.bat` is not present in your local node folder, download it from the GitHub repository and place it in `ComfyUI/custom_nodes/deno-custom-nodes/tools`.
 
@@ -84,6 +86,8 @@ Common causes:
 - Windows security or network software blocked `https://pypi.nvidia.com`
 - the BAT could not find the ComfyUI Python
 - this PC does not have a supported NVIDIA RTX GPU
+- NVIDIA VFX installed, but `VideoSuperRes` cannot be created on this GPU/driver combination
+- Windows or the NVIDIA runtime blocked the native VFX DLLs from the original install path
 
 If your ComfyUI uses a custom Python path, set `COMFYUI_PYTHON` to that `python.exe` path and run the BAT again.
 

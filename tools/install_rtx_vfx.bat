@@ -4,6 +4,8 @@ chcp 65001 >nul
 
 set "TOOL_DIR=%~dp0"
 set "LOG=%TOOL_DIR%DENO_RTX_VFX_install_log.txt"
+set "RUNTIME_PATH_FILE=%TOOL_DIR%DENO_RTX_VFX_runtime_path.txt"
+set "RUNTIME_PATH_TMP=%TEMP%\deno_nvvfx_runtime_path.txt"
 set "PYTHON_EXE="
 set "PYTHON_SOURCE="
 set "PIP_INSTALL_ARGS=--force-reinstall --no-build-isolation"
@@ -15,6 +17,7 @@ echo.
 echo This installs NVIDIA's official nvidia-vfx Python package
 echo into the Python used by this ComfyUI install.
 echo If nvidia-vfx is already installed, it will be reinstalled cleanly.
+echo It also prepares an ASCII runtime copy for NVIDIA's native VFX DLLs.
 echo.
 echo It does not ask for passwords and does not download random DLLs.
 echo Log file:
@@ -170,12 +173,42 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [5/5] Verifying import...
-"%PYTHON_EXE%" -c "import nvvfx; from nvvfx import VideoSuperRes; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('VideoSuperRes ready')" >> "%LOG%" 2>&1
+echo Preparing NVIDIA VFX runtime path...
+if exist "%RUNTIME_PATH_TMP%" del /f /q "%RUNTIME_PATH_TMP%" >nul 2>nul
+set "DENO_NVVFX_RUNTIME_ROOT=%PUBLIC%\DENO\nvvfx_runtime"
+"%PYTHON_EXE%" -c "import os, sys, shutil; from pathlib import Path; import nvvfx; root=Path(os.environ['DENO_NVVFX_RUNTIME_ROOT']); src=Path(nvvfx.__path__[0]); dest=root / ('py%%d%%d' %% sys.version_info[:2]) / 'nvidia_vfx_0_1_0_1'; package=dest / 'nvvfx'; shutil.rmtree(dest, ignore_errors=True); shutil.copytree(src, package); print(str(dest))" > "%RUNTIME_PATH_TMP%" 2>> "%LOG%"
 if errorlevel 1 (
-  echo [FAIL] Install finished, but nvvfx import failed.
+  echo [FAIL] Could not prepare NVIDIA VFX runtime copy.
   echo See log:
   echo %LOG%
+  pause
+  exit /b 1
+)
+set /p DENO_NVVFX_RUNTIME_PATH=<"%RUNTIME_PATH_TMP%"
+if "%DENO_NVVFX_RUNTIME_PATH%"=="" (
+  echo [FAIL] Could not read NVIDIA VFX runtime path.
+  echo See log:
+  echo %LOG%
+  pause
+  exit /b 1
+)
+>"%RUNTIME_PATH_FILE%" echo %DENO_NVVFX_RUNTIME_PATH%
+echo Runtime path:
+echo %DENO_NVVFX_RUNTIME_PATH%
+echo.
+
+echo [5/5] Verifying NVIDIA VFX runtime...
+"%PYTHON_EXE%" -c "import os, sys; sys.path.insert(0, os.environ['DENO_NVVFX_RUNTIME_PATH']); import torch, nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('nvvfx path', nvvfx.__path__[0]); print('bundled libs', loader.get_libs_directory()); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); effect = VideoSuperRes(quality=VideoSuperRes.QualityLevel.LOW, device=0); effect.close(); print('VideoSuperRes create ready')" >> "%LOG%" 2>&1
+if errorlevel 1 (
+  echo [FAIL] Install finished, but NVIDIA VFX runtime is not usable on this PC.
+  echo See log:
+  echo %LOG%
+  echo.
+  echo Common causes:
+  echo - NVIDIA driver is too old
+  echo - this GPU does not support NVIDIA VFX Video Super Resolution
+  echo - CUDA is not visible from this ComfyUI Python
+  echo - the selected Python belongs to a different ComfyUI install
   pause
   exit /b 1
 )

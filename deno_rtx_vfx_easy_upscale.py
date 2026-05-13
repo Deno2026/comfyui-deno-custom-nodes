@@ -1,4 +1,6 @@
 import math
+import sys
+from pathlib import Path
 from typing import Tuple
 
 import torch
@@ -178,6 +180,13 @@ def _fit_frame_to_target_aspect(frame, target_width: int, target_height: int, re
 
 
 def _import_vfx():
+    runtime_path_file = Path(__file__).resolve().parent / "tools" / "DENO_RTX_VFX_runtime_path.txt"
+    if runtime_path_file.exists():
+        runtime_path = runtime_path_file.read_text(encoding="utf-8").strip().strip('"')
+        runtime_package = Path(runtime_path) / "nvvfx"
+        if runtime_path and runtime_package.exists() and runtime_path not in sys.path:
+            sys.path.insert(0, runtime_path)
+
     try:
         from nvvfx import VideoSuperRes
     except Exception as exc:
@@ -187,6 +196,40 @@ def _import_vfx():
             f"Original import error: {type(exc).__name__}: {exc}"
         ) from exc
     return VideoSuperRes
+
+
+def _vfx_runtime_error_message(exc: Exception, mode: str, device_index: int) -> str:
+    try:
+        gpu_name = torch.cuda.get_device_name(device_index)
+    except Exception:
+        gpu_name = f"CUDA device {device_index}"
+
+    original = f"{type(exc).__name__}: {exc}"
+    lowered = str(exc).lower()
+    common_hint = (
+        "NVIDIA RTX VFX is installed, but this PC could not create the VideoSuperRes effect. "
+        f"Selected mode: {mode}. Selected GPU: {gpu_name} (device {device_index}). "
+        "This usually means the GPU or driver does not support the NVIDIA VFX Video Super Resolution runtime on this machine. "
+        "Check that the PC has an NVIDIA RTX GPU with Tensor Cores, Windows 10/11, and NVIDIA driver 570.65 or newer "
+        "(595 or newer for TCC devices). If the PC has multiple NVIDIA GPUs, try the correct device index. "
+        "Original NVIDIA VFX error: "
+    )
+
+    if "not yet implemented" in lowered or "unimplemented" in lowered or "code -2" in lowered:
+        return (
+            common_hint
+            + original
+            + " This specific error means NVIDIA's runtime reported that the requested VFX feature is not implemented/available on the current system."
+        )
+
+    return common_hint + original
+
+
+def _create_vfx_effect(VideoSuperRes, quality, device_index: int, mode: str):
+    try:
+        return VideoSuperRes(quality=quality, device=device_index)
+    except Exception as exc:
+        raise RuntimeError(_vfx_runtime_error_message(exc, mode, device_index)) from exc
 
 
 def _safe_cuda_device_index(device: int) -> int:
@@ -284,7 +327,7 @@ class DenoRTXVFXEasyUpscale:
 
         outputs = []
         with torch.inference_mode():
-            with VideoSuperRes(quality=quality, device=device_index) as effect:
+            with _create_vfx_effect(VideoSuperRes, quality, device_index, mode) as effect:
                 effect.output_width = int(target_width)
                 effect.output_height = int(target_height)
                 effect.load()

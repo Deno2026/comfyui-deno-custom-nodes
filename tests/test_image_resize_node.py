@@ -266,6 +266,28 @@ def test_rtx_vfx_target_size_modes_match_visible_resize_choices():
     assert abs((preset_width / preset_height) - (9 / 16)) < 0.01
 
 
+def test_rtx_vfx_create_effect_error_is_user_readable():
+    load_package()
+    vfx_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_easy_upscale"]
+
+    class BrokenVideoSuperRes:
+        def __init__(self, *_args, **_kwargs):
+            raise RuntimeError("NvVFX_CreateEffect failed: The requested feature is not yet implemented (code -2)")
+
+    try:
+        vfx_module._create_vfx_effect(BrokenVideoSuperRes, object(), 0, "VSR Medium")
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected user-readable NVIDIA VFX runtime error")
+
+    assert "NVIDIA RTX VFX is installed" in message
+    assert "VideoSuperRes" in message
+    assert "driver" in message
+    assert "RTX GPU" in message
+    assert "code -2" in message
+
+
 def test_multi_image_loader_returns_batch_and_int_dimensions():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]

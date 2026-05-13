@@ -37,6 +37,7 @@ node.zip
 pip-log.txt
 pip-delete-this-directory.txt
 tools/DENO_RTX_VFX_install_log.txt
+tools/DENO_RTX_VFX_runtime_path.txt
 
 # Unit test / coverage reports
 htmlcov/
