@@ -41,6 +41,10 @@ def _is_relative_to(child: Path, parent: Path) -> bool:
     return True
 
 
+def is_path_relative_to(child: Path, parent: Path) -> bool:
+    return _is_relative_to(child, parent)
+
+
 def current_nvvfx_package_path() -> Optional[Path]:
     module = sys.modules.get("nvvfx")
     if module is None:
@@ -58,10 +62,23 @@ def current_nvvfx_package_path() -> Optional[Path]:
     return None
 
 
-def _purge_nvvfx_modules() -> None:
-    for module_name in list(sys.modules):
-        if module_name == "nvvfx" or module_name.startswith("nvvfx."):
-            del sys.modules[module_name]
+def loaded_nvvfx_module_paths() -> dict[str, str]:
+    module_paths = {}
+    for module_name in ("nvvfx", "nvvfx._ext", "nvvfx._lib_loader"):
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+
+        module_file = getattr(module, "__file__", None)
+        module_path = getattr(module, "__path__", None)
+        if module_file:
+            module_paths[module_name] = str(module_file)
+        elif module_path:
+            module_paths[module_name] = ";".join(str(path) for path in module_path)
+        else:
+            module_paths[module_name] = "loaded"
+
+    return module_paths
 
 
 def _move_to_front(runtime_path: Path) -> None:
@@ -73,7 +90,6 @@ def _move_to_front(runtime_path: Path) -> None:
 
 def prefer_rtx_vfx_runtime_path(
     package_dir: Optional[Path] = None,
-    reload_existing: bool = False,
 ) -> Optional[Path]:
     runtime_path = read_rtx_vfx_runtime_path(package_dir)
     if runtime_path is None:
@@ -81,10 +97,4 @@ def prefer_rtx_vfx_runtime_path(
 
     _move_to_front(runtime_path)
     os.environ["DENO_NVVFX_RUNTIME_PATH"] = str(runtime_path)
-
-    loaded_path = current_nvvfx_package_path()
-    expected_package_path = runtime_path / "nvvfx"
-    if reload_existing and loaded_path is not None and not _is_relative_to(loaded_path, expected_package_path):
-        _purge_nvvfx_modules()
-
     return runtime_path

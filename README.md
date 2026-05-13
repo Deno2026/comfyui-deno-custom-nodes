@@ -120,6 +120,7 @@ Main features:
 - installer reinstalls `nvidia-vfx` cleanly when the user confirms the target Python
 - installer mirrors NVIDIA VFX runtime files to an ASCII Windows path to avoid native DLL issues under non-English user folders
 - node startup prefers that recorded ASCII runtime path before other `nvvfx` imports can lock the old package path
+- if another NVIDIA VFX native module is already loaded from a conflicting path, the node stops and asks for a full ComfyUI restart instead of trying to reload the native extension
 - installer verifies that NVIDIA's `VideoSuperRes` effect can actually be created after install
 - if NVIDIA VFX reports an unsupported runtime feature, the node shows a readable GPU/driver/runtime-path message instead of a raw stack trace
 - manual installer scripts are kept out of the Comfy Registry package and remain available from the GitHub repository

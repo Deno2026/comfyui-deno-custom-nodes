@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from .deno_resolution_common import COMMON_RATIOS, RESIZE_METHODS, compute_aligned_ratio_dims, round_up
 from .deno_rtx_vfx_runtime import (
     current_nvvfx_package_path,
+    is_path_relative_to,
+    loaded_nvvfx_module_paths,
     prefer_rtx_vfx_runtime_path,
     read_rtx_vfx_runtime_path,
 )
@@ -183,14 +185,38 @@ def _fit_frame_to_target_aspect(frame, target_width: int, target_height: int, re
 
 
 def _import_vfx():
-    prefer_rtx_vfx_runtime_path(reload_existing=True)
+    runtime_path = prefer_rtx_vfx_runtime_path()
+    loaded_path = current_nvvfx_package_path()
+    native_modules = loaded_nvvfx_module_paths()
+    native_ext_loaded = "nvvfx._ext" in native_modules
+
+    if runtime_path is not None and loaded_path is not None and not is_path_relative_to(
+        loaded_path,
+        runtime_path / "nvvfx",
+    ):
+        raise RuntimeError(
+            "NVIDIA RTX VFX is already loaded from another nvvfx path in this ComfyUI process. "
+            + _vfx_runtime_status_note()
+            + " This cannot be safely switched while ComfyUI is running because NVIDIA VFX uses a native extension. "
+            "Close every ComfyUI window/process completely, then start ComfyUI again."
+        )
+
+    if native_ext_loaded and loaded_path is None:
+        raise RuntimeError(
+            "NVIDIA RTX VFX native extension is already partially loaded in this ComfyUI process. "
+            + _vfx_runtime_status_note()
+            + " This cannot be repaired inside a running ComfyUI session. "
+            "Close every ComfyUI window/process completely, then start ComfyUI again."
+        )
 
     try:
         from nvvfx import VideoSuperRes
     except Exception as exc:
         raise RuntimeError(
-            "NVIDIA RTX VFX is not installed in this ComfyUI Python. "
-            "Close ComfyUI, follow the RTX VFX install guide in the DENO README, restart ComfyUI, then try again. "
+            "NVIDIA RTX VFX could not be imported in this ComfyUI Python. "
+            + _vfx_runtime_status_note()
+            + " Close ComfyUI completely, run the latest DENO RTX VFX installer from GitHub if needed, "
+            "restart ComfyUI, then try again. "
             f"Original import error: {type(exc).__name__}: {exc}"
         ) from exc
     return VideoSuperRes
@@ -199,9 +225,11 @@ def _import_vfx():
 def _vfx_runtime_status_note() -> str:
     runtime_path = read_rtx_vfx_runtime_path()
     loaded_path = current_nvvfx_package_path()
+    native_modules = loaded_nvvfx_module_paths()
     runtime_text = str(runtime_path) if runtime_path is not None else "not prepared"
     loaded_text = str(loaded_path) if loaded_path is not None else "unknown"
-    return f" DENO runtime path: {runtime_text}. Loaded nvvfx path: {loaded_text}."
+    native_text = ", ".join(f"{name}={path}" for name, path in native_modules.items()) or "none"
+    return f" DENO runtime path: {runtime_text}. Loaded nvvfx path: {loaded_text}. Loaded native modules: {native_text}."
 
 
 def _vfx_runtime_error_message(exc: Exception, mode: str, device_index: int) -> str:

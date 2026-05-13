@@ -290,7 +290,7 @@ def test_rtx_vfx_create_effect_error_is_user_readable():
     assert "code -2" in message
 
 
-def test_rtx_vfx_runtime_marker_prefers_ascii_copy_and_reloads_old_module():
+def test_rtx_vfx_runtime_marker_prefers_ascii_copy_without_reloading_native_module():
     load_package()
     runtime_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_runtime"]
 
@@ -312,16 +312,58 @@ def test_rtx_vfx_runtime_marker_prefers_ascii_copy_and_reloads_old_module():
                 encoding="utf-8",
             )
 
-            preferred = runtime_module.prefer_rtx_vfx_runtime_path(package_dir, reload_existing=True)
+            preferred = runtime_module.prefer_rtx_vfx_runtime_path(package_dir)
 
             assert preferred == runtime_path
             assert sys.path[0] == str(runtime_path)
-            assert "nvvfx" not in sys.modules
-            assert "nvvfx.effects" not in sys.modules
+            assert sys.modules["nvvfx"] is old_module
+            assert "nvvfx.effects" in sys.modules
     finally:
         sys.path[:] = original_sys_path
         sys.modules.pop("nvvfx", None)
         sys.modules.pop("nvvfx.effects", None)
+
+
+def test_rtx_vfx_import_stops_if_another_nvvfx_path_is_already_loaded():
+    load_package()
+    vfx_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_easy_upscale"]
+    runtime_path = REPO_ROOT / "DENO" / "nvvfx_runtime" / "py312" / "nvidia_vfx_0_1_0_1"
+    loaded_path = REPO_ROOT / "python_embeded" / "Lib" / "site-packages" / "nvvfx"
+
+    originals = (
+        vfx_module.prefer_rtx_vfx_runtime_path,
+        vfx_module.current_nvvfx_package_path,
+        vfx_module.loaded_nvvfx_module_paths,
+        vfx_module.read_rtx_vfx_runtime_path,
+    )
+
+    try:
+        vfx_module.prefer_rtx_vfx_runtime_path = lambda: runtime_path
+        vfx_module.current_nvvfx_package_path = lambda: loaded_path
+        vfx_module.loaded_nvvfx_module_paths = lambda: {
+            "nvvfx": str(loaded_path),
+            "nvvfx._ext": str(loaded_path / "_ext.pyd"),
+        }
+        vfx_module.read_rtx_vfx_runtime_path = lambda: runtime_path
+
+        try:
+            vfx_module._import_vfx()
+        except RuntimeError as exc:
+            message = str(exc)
+        else:
+            raise AssertionError("expected path-conflict RuntimeError")
+
+        assert "already loaded from another nvvfx path" in message
+        assert "cannot be safely switched" in message
+        assert "Loaded native modules" in message
+        assert "nvvfx._ext" in message
+    finally:
+        (
+            vfx_module.prefer_rtx_vfx_runtime_path,
+            vfx_module.current_nvvfx_package_path,
+            vfx_module.loaded_nvvfx_module_paths,
+            vfx_module.read_rtx_vfx_runtime_path,
+        ) = originals
 
 
 def test_multi_image_loader_returns_batch_and_int_dimensions():
