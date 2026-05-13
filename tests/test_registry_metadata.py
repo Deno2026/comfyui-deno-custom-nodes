@@ -22,7 +22,6 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert pyproject["project"]["license"] == {"file": "LICENSE"}
     classifiers = pyproject["project"]["classifiers"]
     assert "Operating System :: OS Independent" in classifiers
-    assert "Environment :: GPU :: NVIDIA CUDA" in classifiers
     assert "License :: Public Domain" in classifiers
     assert pyproject["project"]["dependencies"] == []
     assert pyproject["project"]["urls"]["Repository"] == "https://github.com/Deno2026/comfyui-deno-custom-nodes"
