@@ -165,6 +165,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoLTXModelDownloader",
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
+        "DenoRTXVFXEasyUpscale",
     ]
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
@@ -174,7 +175,95 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXModelDownloader"] == "(Deno) Easy Model Download Helper"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno Test) RTX VFX Easy Upscale"
     assert package.WEB_DIRECTORY == "./web/js"
+
+
+def test_rtx_vfx_preflight_node_is_not_registered():
+    package = load_package()
+
+    assert "DenoRTXVFXPreflight" not in package.NODE_CLASS_MAPPINGS
+    assert "DenoRTXVFXPreflight" not in package.NODE_DISPLAY_NAME_MAPPINGS
+
+
+def test_rtx_vfx_node_is_optional_until_execution():
+    package = load_package()
+    node = package.NODE_CLASS_MAPPINGS["DenoRTXVFXEasyUpscale"]
+    inputs = node.INPUT_TYPES()["required"]
+
+    assert inputs["mode"][1]["default"] == "VSR Medium"
+    assert inputs["resize_type"][0] == ["Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
+    assert inputs["resize_type"][1]["default"] == "Keep Ratio"
+    assert inputs["ratio_preset"][0][:3] == ["1:1", "4:5", "5:4"]
+    assert "16:9" in inputs["ratio_preset"][0]
+    assert "9:16" in inputs["ratio_preset"][0]
+    assert inputs["resize_method"][0] == ["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"]
+    assert inputs["resize_method"][1]["default"] == "Center Crop (Fill)"
+    assert inputs["scale"][1]["default"] == 2.0
+    assert inputs["divisible_by"][0] == ["8", "16", "32", "64", "128"]
+    assert inputs["divisible_by"][1]["default"] == "32"
+    assert inputs["device"][1]["default"] == 0
+    assert node.RETURN_TYPES == ("IMAGE",)
+    assert node.RETURN_NAMES == ("images",)
+
+
+def test_rtx_vfx_target_size_modes_match_visible_resize_choices():
+    load_package()
+    vfx_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_easy_upscale"]
+
+    assert vfx_module._safe_divisible_by("1") == 32
+    assert vfx_module._safe_divisible_by("32") == 32
+    assert vfx_module._safe_divisible_by("bad") == 32
+
+    assert vfx_module._target_size(1920, 1080, "VSR Medium", "Manual", 2.0, 2.0, 1234, 777, 1, "16:9") == (
+        1248,
+        800,
+    )
+    assert vfx_module._target_size(1920, 1080, "VSR Medium", "Manual", 2.0, 2.0, 1234, 777, 32, "16:9") == (
+        1248,
+        800,
+    )
+    assert vfx_module._target_size(1920, 1080, "Denoise Medium", "Manual", 2.0, 2.0, 1234, 777, 1, "16:9") == (
+        1920,
+        1080,
+    )
+
+    keep_width, keep_height = vfx_module._target_size(1920, 1080, "VSR Medium", "Keep Ratio", 2.0, 2.0, 0, 0, 1, "16:9")
+    keep_aligned_width, keep_aligned_height = vfx_module._target_size(
+        1920,
+        1080,
+        "VSR Medium",
+        "Keep Ratio",
+        2.0,
+        2.0,
+        0,
+        0,
+        32,
+        "16:9",
+    )
+    preset_width, preset_height = vfx_module._target_size(
+        1920,
+        1080,
+        "VSR Medium",
+        "Preset Ratio",
+        2.0,
+        2.0,
+        0,
+        0,
+        1,
+        "9:16",
+    )
+
+    assert keep_width > keep_height
+    assert (keep_width, keep_height) == (keep_aligned_width, keep_aligned_height)
+    assert keep_width % 32 == 0
+    assert keep_height % 32 == 0
+    assert abs((keep_width / keep_height) - (16 / 9)) / (16 / 9) < 0.01
+    assert keep_aligned_width % 32 == 0
+    assert keep_aligned_height % 32 == 0
+    assert abs((keep_aligned_width / keep_aligned_height) - (16 / 9)) / (16 / 9) < 0.01
+    assert preset_height > preset_width
+    assert abs((preset_width / preset_height) - (9 / 16)) < 0.01
 
 
 def test_multi_image_loader_returns_batch_and_int_dimensions():

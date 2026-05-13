@@ -14,6 +14,7 @@ from .deno_ltx_prompt_guide import DenoLTXPromptGuide
 from .deno_advanced_image_source_loader import DenoAdvancedImageSourceLoader
 from .deno_multi_image_board import DenoMultiImageLoader
 from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
+from .deno_rtx_vfx_easy_upscale import DenoRTXVFXEasyUpscale
 
 INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
 
@@ -357,6 +358,7 @@ NODE_CLASS_MAPPINGS = {
     "DenoLTXModelDownloader": DenoLTXModelDownloader,
     "DenoLTXMultiLoraLoader": DenoLTXMultiLoraLoader,
     "DenoLTXPromptGuide": DenoLTXPromptGuide,
+    "DenoRTXVFXEasyUpscale": DenoRTXVFXEasyUpscale,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -368,6 +370,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoLTXModelDownloader": "(Deno) Easy Model Download Helper",
     "DenoLTXMultiLoraLoader": "(Deno) LTX Multi LoRA Loader",
     "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
+    "DenoRTXVFXEasyUpscale": "(Deno Test) RTX VFX Easy Upscale",
 }
 
 WEB_DIRECTORY = "./web/js"

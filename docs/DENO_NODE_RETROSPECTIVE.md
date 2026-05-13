@@ -2,17 +2,23 @@
 
 This note is the pre-flight checklist for DENO ComfyUI node work. Read it before creating or changing nodes.
 
+For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
+
 ## 1. Start From The User Outcome
 
 - Confirm what counts as success in ComfyUI, not just what code should exist.
 - Preserve existing behavior unless the user explicitly asks to remove it.
 - When the user says "add and make default", do not replace old options.
+- Confirm the finished node still matches the user's intended workflow, not only the implementation plan.
 - Keep DENO's visual identity consistent: black plus neon green, clean ComfyUI-native controls, no random custom styling unless it improves usability.
+- Use the established DENO node visual language from `docs/DENO_NODE_VISUAL_IDENTITY.md`; do not treat experimental nodes as the default style reference.
 
 ## 2. Source And Active Install Are Separate
 
-- Main source repo: `.disabled/deno-custom-nodes@nightly/comfyui-deno-custom-nodes`.
-- Active install: `custom_nodes/deno-custom-nodes`.
+- Main source repo: `E:\DENO-Repos\comfyui-deno-custom-nodes`.
+- Legacy copied source location: `D:\Codex\DENO\comfyui-deno-custom-nodes`.
+- Legacy Easy Install copied source location: `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\.disabled\deno-custom-nodes@nightly\comfyui-deno-custom-nodes`.
+- Active install: `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`.
 - Patch the source repo first.
 - Copy only changed files into the active install.
 - Compare file hashes before trusting ComfyUI runtime behavior.
@@ -24,7 +30,14 @@ This note is the pre-flight checklist for DENO ComfyUI node work. Read it before
 - Check `/object_info/<NodeName>` after restart to confirm ComfyUI sees the expected contract.
 - Do not rely on the canvas screenshot alone; check the backend contract too.
 
-## 4. LiteGraph UI Pitfalls We Already Hit
+## 4. README And Visual Proof Are Part Of The Product
+
+- A shipped node must be understandable from the GitHub README, not only from source code or text release notes.
+- When a new node is complete and released, open it in the real ComfyUI frontend, capture an actual screenshot, add the image under `docs/images/`, and update the README so users can visually understand the node from the repository page.
+- When a feature changes, update the README at the same time: node name, display name, inputs, outputs, buttons, install notes, limitations, optional dependencies, and screenshots if the UI changed.
+- Treat README accuracy as part of release quality. A public node with stale docs or missing visuals is not finished.
+
+## 5. LiteGraph UI Pitfalls We Already Hit
 
 - Arrow-click numeric widgets can fail when custom drawing/event handling blocks default LiteGraph behavior.
 - Right-click and drag events often need explicit canvas-coordinate handling.
@@ -33,14 +46,14 @@ This note is the pre-flight checklist for DENO ComfyUI node work. Read it before
 - Expanding/collapsing one area must not accidentally resize unrelated text areas.
 - If a value should persist across workflow reloads, do not normalize it back to defaults during frontend setup.
 
-## 5. Dynamic Lists And Refresh Behavior
+## 6. Dynamic Lists And Refresh Behavior
 
 - For file lists such as LoRAs, do not trust stale widget options after ComfyUI `R` refresh.
 - Fetch fresh `/object_info/<NodeName>` when opening a chooser if the list can change at runtime.
 - Never wipe saved selections just because the old frontend cache does not know the value yet.
 - Keep a safe fallback to existing widget options if the live refresh fails.
 
-## 6. Resize And Image Batch Rules
+## 7. Resize And Image Batch Rules
 
 - Batch image outputs must have consistent dimensions.
 - `Keep Input Ratio` should use the first input image as the batch reference unless a different rule is explicitly designed.
@@ -48,7 +61,7 @@ This note is the pre-flight checklist for DENO ComfyUI node work. Read it before
 - Alignment options should include `1` for no forced divisibility and sensible defaults such as `32`.
 - Prefer Lanczos for resize quality when appropriate, but preserve user-selectable interpolation.
 
-## 7. LTX Sequencer Rules
+## 8. LTX Sequencer Rules
 
 - Bypass must be a true pass-through: no prompt, latent, VAE, or guide mutation.
 - If a parameter is wired as input, verify which value wins: connected input should be explicit and predictable.
@@ -56,14 +69,14 @@ This note is the pre-flight checklist for DENO ComfyUI node work. Read it before
 - Insert frame and seconds widgets must clamp and display cleanly.
 - Numeric display should avoid floating garbage like `0.05300000000000002`.
 
-## 8. Loader And Downloader Rules
+## 9. Loader And Downloader Rules
 
 - Model loader nodes should mirror the official or proven node behavior internally before adding convenience UI.
 - Do not invent hidden model-loading semantics when the user wants wrapper convenience.
 - Downloader nodes have higher registry/security risk. Keep risky downloader behavior isolated from the main node package when needed.
 - If extra model paths exist, prefer the user's real model path over the default ComfyUI `models` folder.
 
-## 9. Verification Routine
+## 10. Verification Routine
 
 Run this before saying a node is done:
 
@@ -76,12 +89,16 @@ Run this before saying a node is done:
 7. Restart ComfyUI.
 8. Confirm `/object_info` for changed nodes.
 9. If frontend changed, confirm served JS contains the new behavior.
-10. Explain what was verified and what still requires browser-side user confirmation.
+10. Open the node in the real ComfyUI frontend when the change affects UI or user interaction.
+11. Check for clipped text, broken layout, awkward sizing, unreadable labels, asymmetric UI, and buttons/toggles/dropdowns that do not respond.
+12. For complex multi-part nodes, test each major function and make sure one fix did not break another feature.
+13. Explain what was verified and what still requires browser-side user confirmation.
 
-## 10. Deployment Routine
+## 11. Deployment Routine
 
 - Local success is not the same as public release.
 - For release work, update GitHub and ComfyUI Registry together.
+- README updates and node screenshots are part of the release, not optional cleanup.
 - Check GitHub Actions or registry publish status after pushing.
+- Confirm the live Registry latest version, install endpoint, and local Manager cache when visibility matters.
 - If registry review/cache delay is expected, state that clearly and keep follow-up monitoring separate.
-

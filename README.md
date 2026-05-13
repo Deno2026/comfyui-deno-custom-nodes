@@ -5,6 +5,8 @@
 Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
+Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas.
+
 ## Included Nodes
 
 ### `(Deno) Resize Box`
@@ -75,6 +77,50 @@ Main features:
 - `Original Size` list mode can preserve mixed source resolutions in `image_list`
 - `Match Batch Size` list mode makes `image_list` match the resized batch dimensions
 - outputs: `batch`, `image_list`, `width`, `height`, `image_count`
+
+### `(Deno Test) RTX VFX Easy Upscale`
+
+Optional NVIDIA RTX Video Super Resolution helper node for users who want to try NVIDIA VFX inside ComfyUI without manually hunting for the right Python environment.
+
+This node is intentionally separate from the core Deno nodes. It only imports NVIDIA VFX during upscale execution, so normal Deno node installs do not require NVIDIA VFX.
+
+![Deno RTX VFX Easy Upscale](docs/images/rtx-vfx-easy-upscale-node.png)
+
+Beginner install flow:
+
+- add `(Deno Test) RTX VFX Easy Upscale`
+- run it once with an image
+- if NVIDIA VFX is missing, close ComfyUI
+- run `tools/install_rtx_vfx.bat`
+- restart ComfyUI
+- use `(Deno Test) RTX VFX Easy Upscale` again
+
+Mode guide:
+
+| If your image is... | Use |
+| --- | --- |
+| small, low-res, or compressed | `VSR` |
+| already clean, but needs a larger sharper output | `High Bitrate` |
+| noisy or grainy | `Denoise` |
+| soft, out of focus, or mildly blurred | `Deblur` |
+
+Main features:
+
+- uses NVIDIA's official `nvidia-vfx` / `nvvfx.VideoSuperRes` package
+- installer targets the Python used by the current ComfyUI install
+- exposes four clear effect buttons for VSR, High Bitrate, Denoise, and Deblur
+- shows a compact mode coach line that explains the selected effect in plain language
+- keeps Low, Medium, High, and Ultra quality as a separate selector
+- for VSR and High Bitrate, supports `Keep Ratio`, `Manual`, and `Preset Ratio` resize choices
+- `Keep Ratio` and `Preset Ratio` use target megapixels; `Manual` uses width and height
+- exposes `divisible_by` alignment for resizable modes, with `32` as the safe default for NVIDIA VFX output
+- does not expose unrestricted `1` alignment in RTX VFX, because arbitrary unaligned sizes can corrupt the NVIDIA VFX result
+- shows `Center Crop (Fill)` / `Fit (Letterbox/Pillarbox)` when a manual, preset-ratio, or aligned keep-ratio resize can change aspect ratio
+- `Denoise` and `Deblur` keep the original size and hide resize controls
+- shows resize controls only when they apply to the selected effect
+- Easy Upscale outputs: `images`
+
+For beginner install notes, see `tools/README_RTX_VFX_EASY_INSTALL.md`.
 
 ### `(Deno) LTX Sequencer`
 
