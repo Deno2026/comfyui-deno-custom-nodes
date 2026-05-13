@@ -304,7 +304,13 @@ def test_rtx_vfx_runtime_marker_prefers_ascii_copy_without_reloading_native_modu
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             package_dir = temp_root / "deno-custom-nodes"
-            runtime_path = temp_root / "DENO" / "nvvfx_runtime" / "py312" / "nvidia_vfx_0_1_0_1"
+            runtime_path = (
+                temp_root
+                / "DENO"
+                / "nvvfx_runtime"
+                / runtime_module.expected_python_runtime_segment()
+                / "nvidia_vfx_0_1_0_1"
+            )
             (package_dir / "tools").mkdir(parents=True)
             (runtime_path / "nvvfx").mkdir(parents=True)
             (package_dir / "tools" / "DENO_RTX_VFX_runtime_path.txt").write_text(
