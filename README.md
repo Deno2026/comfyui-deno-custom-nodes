@@ -80,9 +80,9 @@ Main features:
 
 ### `(Deno Test) RTX VFX Easy Upscale`
 
-Optional NVIDIA RTX Video Super Resolution helper node for users who want to try NVIDIA VFX inside ComfyUI without manually hunting for the right Python environment.
+Optional Windows/NVIDIA RTX Video Super Resolution helper node for users who want to try NVIDIA VFX inside ComfyUI without manually hunting for the right Python environment.
 
-This node is intentionally separate from the core Deno nodes. It only imports NVIDIA VFX during upscale execution, so normal Deno node installs do not require NVIDIA VFX.
+This node is intentionally separate from the core Deno nodes. It only imports NVIDIA VFX during upscale execution, so normal Deno node installs do not require NVIDIA VFX. ComfyUI Manager installs the node pack without auto-installing NVIDIA VFX.
 
 ![Deno RTX VFX Easy Upscale](docs/images/rtx-vfx-easy-upscale-node.png)
 
@@ -91,7 +91,7 @@ Beginner install flow:
 - add `(Deno Test) RTX VFX Easy Upscale`
 - run it once with an image
 - if NVIDIA VFX is missing, close ComfyUI
-- run `tools/install_rtx_vfx.bat`
+- use the manual RTX VFX guide in `tools/README_RTX_VFX_EASY_INSTALL.md`
 - restart ComfyUI
 - use `(Deno Test) RTX VFX Easy Upscale` again
 
@@ -109,6 +109,10 @@ Main features:
 - uses NVIDIA's official `nvidia-vfx` / `nvvfx.VideoSuperRes` package
 - installer targets the Python used by the current ComfyUI install
 - installer refuses to continue if ComfyUI is still running with that Python
+- installer asks before installing into the detected Python
+- installer stops if no NVIDIA GPU is detected unless the user explicitly overrides the check
+- installer uses force reinstall only when `DENO_RTX_VFX_REPAIR=1` is set
+- manual installer scripts are kept out of the Comfy Registry package and remain available from the GitHub repository
 - exposes four clear effect buttons for VSR, High Bitrate, Denoise, and Deblur
 - shows a compact mode coach line that explains the selected effect in plain language
 - keeps Low, Medium, High, and Ultra quality as a separate selector

@@ -1,0 +1,14 @@
+# Keep the Registry/Manager package focused on runtime node files.
+# Manual installers and local test harnesses stay available on GitHub,
+# but are intentionally excluded from the packaged Manager install.
+
+.github/
+.pytest_cache/
+__pycache__/
+*.pyc
+tests/
+
+tools/install_rtx_vfx.bat
+tools/test_portable_baseline.ps1
+tools/DENO_RTX_VFX_install_log.txt
+docs/PORTABLE_TEST_BASELINE.md

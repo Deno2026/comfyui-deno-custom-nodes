@@ -55,6 +55,7 @@ Verified:
   - `DenoRTXVFXEasyUpscale`
 - `web/js/deno_node_help.js` served from the portable install
 - RTX VFX installer installed `nvidia-vfx 0.1.0.1` into the portable Python
+- later installer hardening changed default behavior to avoid force reinstall unless `DENO_RTX_VFX_REPAIR=1` is set
 - actual RTX VFX runtime smoke passed:
   - `Denoise Low`: `64x64 -> 64x64`
   - `VSR Low`: `64x64 -> 128x128`

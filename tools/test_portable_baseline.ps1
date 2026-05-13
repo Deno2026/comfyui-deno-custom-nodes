@@ -62,6 +62,7 @@ if ($InstallRtxVfx) {
   $installer = Join-Path $NodeDest "tools\install_rtx_vfx.bat"
   if (-not (Test-Path $installer)) { throw "RTX VFX installer not found after sync: $installer" }
   $env:COMFYUI_PYTHON = $PythonExe
+  $env:DENO_RTX_VFX_YES = "1"
   cmd.exe /c "`"$installer`" <NUL"
   if ($LASTEXITCODE -ne 0) {
     throw "RTX VFX installer failed with exit code $LASTEXITCODE"

@@ -183,7 +183,7 @@ def _import_vfx():
     except Exception as exc:
         raise RuntimeError(
             "NVIDIA RTX VFX is not installed in this ComfyUI Python. "
-            "Run tools\\install_rtx_vfx.bat from the deno-custom-nodes folder, restart ComfyUI, then try again. "
+            "Close ComfyUI, follow the RTX VFX install guide in the DENO README, restart ComfyUI, then try again. "
             f"Original import error: {type(exc).__name__}: {exc}"
         ) from exc
     return VideoSuperRes
@@ -213,7 +213,7 @@ class DenoRTXVFXEasyUpscale:
         "- `Denoise`: noisy or grainy source -> same-size cleanup.\n"
         "- `Deblur`: soft or blurry source -> same-size fix.\n"
         "- RTX VFX uses `32` as the safe divisible-by default; legacy `1` values are automatically corrected.\n"
-        "- If NVIDIA VFX is missing, run `tools/install_rtx_vfx.bat`, restart ComfyUI, then try again."
+        "- If NVIDIA VFX is missing, close ComfyUI and follow the RTX VFX install guide in the DENO README."
     )
 
     @classmethod
