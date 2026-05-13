@@ -6,6 +6,7 @@ set "TOOL_DIR=%~dp0"
 set "LOG=%TOOL_DIR%DENO_RTX_VFX_install_log.txt"
 set "RUNTIME_PATH_FILE=%TOOL_DIR%DENO_RTX_VFX_runtime_path.txt"
 set "RUNTIME_PATH_TMP=%TEMP%\deno_nvvfx_runtime_path.txt"
+set "PRESTARTUP_SCRIPT=%TOOL_DIR%..\prestartup_script.py"
 set "PYTHON_EXE="
 set "PYTHON_SOURCE="
 set "PIP_INSTALL_ARGS=--force-reinstall --no-build-isolation"
@@ -22,6 +23,39 @@ echo.
 echo It does not ask for passwords and does not download random DLLs.
 echo Log file:
 echo %LOG%
+echo.
+
+echo [1/6] Checking DENO node startup hook...
+if not exist "%PRESTARTUP_SCRIPT%" (
+  echo [FAIL] This deno-custom-nodes install is too old for RTX VFX setup.
+  echo.
+  echo Missing:
+  echo %PRESTARTUP_SCRIPT%
+  echo.
+  echo Update deno-custom-nodes from GitHub or ComfyUI Manager first,
+  echo then run this BAT again from deno-custom-nodes\tools.
+  pause
+  exit /b 1
+)
+findstr /C:"DENO_RTX_VFX_runtime_path.txt" "%PRESTARTUP_SCRIPT%" >nul
+if errorlevel 1 (
+  echo [FAIL] This deno-custom-nodes startup hook is not the RTX VFX aware version.
+  echo.
+  echo Update deno-custom-nodes from GitHub or ComfyUI Manager first,
+  echo then run this BAT again from deno-custom-nodes\tools.
+  pause
+  exit /b 1
+)
+findstr /C:"DENO_NVVFX_RUNTIME_PATH" "%PRESTARTUP_SCRIPT%" >nul
+if errorlevel 1 (
+  echo [FAIL] This deno-custom-nodes startup hook is not the RTX VFX aware version.
+  echo.
+  echo Update deno-custom-nodes from GitHub or ComfyUI Manager first,
+  echo then run this BAT again from deno-custom-nodes\tools.
+  pause
+  exit /b 1
+)
+echo Node startup hook ready.
 echo.
 
 if not "%COMFYUI_PYTHON%"=="" (
@@ -67,12 +101,12 @@ if "%PYTHON_EXE%"=="" (
   exit /b 1
 )
 
-echo [1/5] Install target:
+echo [2/6] Install target:
 echo %PYTHON_SOURCE%
 echo "%PYTHON_EXE%"
 echo.
 
-echo [2/5] Making sure ComfyUI is closed...
+echo [3/6] Making sure ComfyUI is closed...
 set "RUNNING_LOG=%TEMP%\deno_rtx_running_comfyui.txt"
 if exist "%RUNNING_LOG%" del /f /q "%RUNNING_LOG%" >nul 2>nul
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $target=[System.IO.Path]::GetFullPath($env:PYTHON_EXE); $hits=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) -and ($_.CommandLine -match '(^|[\\\/])main\.py(\s|$)' -or $_.CommandLine -match 'ComfyUI') }); if ($hits.Count -gt 0) { $lines=[string[]]($hits | ForEach-Object { 'PID=' + $_.ProcessId + ' ' + $_.CommandLine }); $encoding=New-Object System.Text.UTF8Encoding($false); [System.IO.File]::WriteAllLines($env:RUNNING_LOG, $lines, $encoding); exit 2 }" >> "%LOG%" 2>&1
@@ -99,7 +133,7 @@ if errorlevel 1 (
 echo OK - ComfyUI is not running with the selected Python.
 echo.
 
-echo [3/5] Checking NVIDIA GPU...
+echo [4/6] Checking NVIDIA GPU...
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader > "%TEMP%\deno_rtx_gpu.txt" 2>> "%LOG%"
 if errorlevel 1 (
   echo [FAIL] nvidia-smi was not found or no NVIDIA GPU is visible.
@@ -145,7 +179,7 @@ if not "%DENO_RTX_VFX_YES%"=="1" (
   )
 )
 
-echo [4/5] Installing nvidia-vfx from NVIDIA official package index...
+echo [5/6] Installing nvidia-vfx from NVIDIA official package index...
 echo Reinstall mode is ON. Existing nvidia-vfx files will be overwritten cleanly.
 echo This can take 1-5 minutes. The window may look still while downloading.
 echo.
@@ -197,8 +231,8 @@ echo Runtime path:
 echo %DENO_NVVFX_RUNTIME_PATH%
 echo.
 
-echo [5/5] Verifying NVIDIA VFX runtime...
-"%PYTHON_EXE%" -c "import os, sys; sys.path.insert(0, os.environ['DENO_NVVFX_RUNTIME_PATH']); import torch, nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('nvvfx path', nvvfx.__path__[0]); print('bundled libs', loader.get_libs_directory()); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); effect = VideoSuperRes(quality=VideoSuperRes.QualityLevel.LOW, device=0); effect.close(); print('VideoSuperRes create ready')" >> "%LOG%" 2>&1
+echo [6/6] Verifying NVIDIA VFX runtime...
+"%PYTHON_EXE%" -c "import os, sys; sys.path.insert(0, os.environ['DENO_NVVFX_RUNTIME_PATH']); import torch, nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; expected=os.environ['DENO_NVVFX_RUNTIME_PATH']; actual=nvvfx.__path__[0]; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('nvvfx path', actual); print('expected path', expected); print('bundled libs', loader.get_libs_directory()); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); assert os.path.normcase(os.path.abspath(actual)).startswith(os.path.normcase(os.path.abspath(expected))), 'DENO runtime path was not used during verification'; effect = VideoSuperRes(quality=VideoSuperRes.QualityLevel.LOW, device=0); effect.close(); print('VideoSuperRes create ready')" >> "%LOG%" 2>&1
 if errorlevel 1 (
   echo [FAIL] Install finished, but NVIDIA VFX runtime is not usable on this PC.
   echo See log:

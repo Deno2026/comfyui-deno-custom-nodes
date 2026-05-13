@@ -29,6 +29,9 @@ This optional helper is for users who want to use NVIDIA RTX Video Super Resolut
 
 The BAT file installs NVIDIA's official `nvidia-vfx` Python package into the Python used by this ComfyUI install. It does not install random DLL files and does not ask for passwords.
 It also copies the NVIDIA VFX Python runtime to `C:\Users\Public\DENO\nvvfx_runtime` and records that path for the node. This avoids native NVIDIA DLL path issues on Windows installs that live under non-English user folders.
+The DENO node includes a ComfyUI `prestartup_script.py` hook. When ComfyUI starts, that hook reads the recorded runtime path and prefers it before any RTX node can lock a different `nvvfx` package path.
+The BAT checks that this startup hook exists before it reports success. If it says the DENO node install is too old, update `deno-custom-nodes` first and run the latest BAT again.
+The recorded runtime path is guarded by the ComfyUI Python version. For example, Python 3.12 only accepts the prepared `py312` runtime path and ignores stale paths made for another Python version.
 After install, it also checks whether NVIDIA's `VideoSuperRes` effect can actually be created on this PC. If that check fails, the package may be installed correctly but the GPU, driver, or selected Python environment is not usable for RTX VFX.
 When ComfyUI starts, the DENO node now prefers the recorded `C:\Users\Public\DENO\nvvfx_runtime` path before any other `nvvfx` package path. If an error report still says `Loaded nvvfx path` is under `python_embeded\Lib\site-packages`, update the DENO node from GitHub or ComfyUI Manager, run this BAT again, and restart ComfyUI.
 The node never tries to unload and reload NVIDIA's native extension inside a running ComfyUI process. If another extension already loaded `nvvfx` from a conflicting path, close every ComfyUI window/process completely and start ComfyUI again.
@@ -91,6 +94,7 @@ Common causes:
 - NVIDIA VFX installed, but `VideoSuperRes` cannot be created on this GPU/driver combination
 - Windows or the NVIDIA runtime blocked the native VFX DLLs from the original install path
 - the DENO runtime path was not prepared, or ComfyUI was not restarted after running the BAT
+- another RTX node imported `nvvfx` before the DENO prestartup hook was active; update the node, run the latest BAT, and restart ComfyUI completely
 
 If your ComfyUI uses a custom Python path, set `COMFYUI_PYTHON` to that `python.exe` path and run the BAT again.
 

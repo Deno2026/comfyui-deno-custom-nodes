@@ -324,6 +324,29 @@ def test_rtx_vfx_runtime_marker_prefers_ascii_copy_without_reloading_native_modu
         sys.modules.pop("nvvfx.effects", None)
 
 
+def test_rtx_vfx_runtime_marker_ignores_wrong_python_version():
+    load_package()
+    runtime_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_runtime"]
+    current_segment = runtime_module.expected_python_runtime_segment()
+    wrong_segment = "py999" if current_segment != "py999" else "py998"
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        package_dir = temp_root / "deno-custom-nodes"
+        wrong_runtime = temp_root / "DENO" / "nvvfx_runtime" / wrong_segment / "nvidia_vfx_0_1_0_1"
+        right_runtime = temp_root / "DENO" / "nvvfx_runtime" / current_segment / "nvidia_vfx_0_1_0_1"
+        (package_dir / "tools").mkdir(parents=True)
+        (wrong_runtime / "nvvfx").mkdir(parents=True)
+        (right_runtime / "nvvfx").mkdir(parents=True)
+        marker = package_dir / "tools" / "DENO_RTX_VFX_runtime_path.txt"
+
+        marker.write_text(str(wrong_runtime), encoding="utf-8")
+        assert runtime_module.read_rtx_vfx_runtime_path(package_dir) is None
+
+        marker.write_text(str(right_runtime), encoding="utf-8")
+        assert runtime_module.read_rtx_vfx_runtime_path(package_dir) == right_runtime
+
+
 def test_rtx_vfx_import_stops_if_another_nvvfx_path_is_already_loaded():
     load_package()
     vfx_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_easy_upscale"]

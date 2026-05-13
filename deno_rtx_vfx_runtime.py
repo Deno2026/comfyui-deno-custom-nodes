@@ -7,6 +7,15 @@ from typing import Optional
 RUNTIME_MARKER_NAME = "DENO_RTX_VFX_runtime_path.txt"
 
 
+def expected_python_runtime_segment() -> str:
+    return f"py{sys.version_info[0]}{sys.version_info[1]}"
+
+
+def runtime_path_matches_current_python(runtime_path: Path) -> bool:
+    expected_segment = expected_python_runtime_segment()
+    return any(part.lower() == expected_segment for part in runtime_path.parts)
+
+
 def runtime_marker_path(package_dir: Optional[Path] = None) -> Path:
     root = Path(package_dir) if package_dir is not None else Path(__file__).resolve().parent
     return root / "tools" / RUNTIME_MARKER_NAME
@@ -24,6 +33,8 @@ def read_rtx_vfx_runtime_path(package_dir: Optional[Path] = None) -> Optional[Pa
 
     runtime_path = Path(os.path.expandvars(raw_path))
     if not (runtime_path / "nvvfx").is_dir():
+        return None
+    if not runtime_path_matches_current_python(runtime_path):
         return None
 
     return runtime_path

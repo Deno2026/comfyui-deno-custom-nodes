@@ -1,12 +1,18 @@
 from pathlib import Path
+import importlib.util
+import os
 import tomllib
 import re
+import sys
+import tempfile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 PUBLISH_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "publish_registry.yml"
 COMFYIGNORE_PATH = REPO_ROOT / ".comfyignore"
+PRESTARTUP_PATH = REPO_ROOT / "prestartup_script.py"
+INSTALL_BAT_PATH = REPO_ROOT / "tools" / "install_rtx_vfx.bat"
 
 
 def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
@@ -54,3 +60,89 @@ def test_registry_package_excludes_manual_installers_and_local_harnesses():
     assert "tools/test_portable_baseline.ps1" in comfyignore
     assert "docs/PORTABLE_TEST_BASELINE.md" in comfyignore
     assert "tools/DENO_RTX_VFX_runtime_path.txt" in comfyignore
+
+
+def test_prestartup_script_prefers_rtx_runtime_without_importing_nvvfx():
+    comfyignore = COMFYIGNORE_PATH.read_text()
+    prestartup = PRESTARTUP_PATH.read_text()
+
+    assert PRESTARTUP_PATH.exists()
+    assert "prestartup_script.py" not in comfyignore
+    assert "import nvvfx" not in prestartup
+    assert "del sys.modules" not in prestartup
+    assert "DENO_RTX_VFX_runtime_path.txt" in prestartup
+    assert "DENO_NVVFX_RUNTIME_PATH" in prestartup
+    assert "_runtime_path_matches_current_python" in prestartup
+
+
+def test_rtx_vfx_installer_requires_prestartup_hook_before_success():
+    install_bat = INSTALL_BAT_PATH.read_text()
+
+    assert "PRESTARTUP_SCRIPT" in install_bat
+    assert "prestartup_script.py" in install_bat
+    assert "DENO_RTX_VFX_runtime_path.txt" in install_bat
+    assert "DENO_NVVFX_RUNTIME_PATH" in install_bat
+    assert "too old for RTX VFX setup" in install_bat
+
+
+def test_prestartup_runtime_path_rejects_wrong_python_version():
+    spec = importlib.util.spec_from_file_location("deno_prestartup_test", PRESTARTUP_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    current_segment = f"py{sys.version_info[0]}{sys.version_info[1]}"
+    wrong_segment = "py999" if current_segment != "py999" else "py998"
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        package_dir = temp_root / "deno-custom-nodes"
+        wrong_runtime = temp_root / "DENO" / "nvvfx_runtime" / wrong_segment / "nvidia_vfx_0_1_0_1"
+        right_runtime = temp_root / "DENO" / "nvvfx_runtime" / current_segment / "nvidia_vfx_0_1_0_1"
+        (package_dir / "tools").mkdir(parents=True)
+        (wrong_runtime / "nvvfx").mkdir(parents=True)
+        (right_runtime / "nvvfx").mkdir(parents=True)
+        marker = package_dir / "tools" / "DENO_RTX_VFX_runtime_path.txt"
+
+        marker.write_text(str(wrong_runtime), encoding="utf-8")
+        assert module._runtime_path_from_marker(package_dir) is None
+
+        marker.write_text(str(right_runtime), encoding="utf-8")
+        assert module._runtime_path_from_marker(package_dir) == right_runtime
+
+
+def test_prestartup_runtime_path_is_preferred_before_existing_paths():
+    spec = importlib.util.spec_from_file_location("deno_prestartup_path_test", PRESTARTUP_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    current_segment = f"py{sys.version_info[0]}{sys.version_info[1]}"
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        package_dir = temp_root / "deno-custom-nodes"
+        runtime = temp_root / "DENO" / "nvvfx_runtime" / current_segment / "nvidia_vfx_0_1_0_1"
+        other_site_packages = temp_root / "python_embeded" / "Lib" / "site-packages"
+        (package_dir / "tools").mkdir(parents=True)
+        (runtime / "nvvfx").mkdir(parents=True)
+        (other_site_packages / "nvvfx").mkdir(parents=True)
+        marker = package_dir / "tools" / "DENO_RTX_VFX_runtime_path.txt"
+        marker.write_text(str(runtime), encoding="utf-8")
+
+        old_sys_path = list(sys.path)
+        old_env = os.environ.get("DENO_NVVFX_RUNTIME_PATH")
+        try:
+            sys.path[:] = [str(other_site_packages), str(runtime), *old_sys_path]
+
+            assert module._prefer_runtime_path(package_dir) == runtime
+            assert sys.path[0] == str(runtime)
+            assert sys.path.count(str(runtime)) == 1
+            assert os.environ["DENO_NVVFX_RUNTIME_PATH"] == str(runtime)
+            assert "nvvfx" not in sys.modules
+        finally:
+            sys.path[:] = old_sys_path
+            if old_env is None:
+                os.environ.pop("DENO_NVVFX_RUNTIME_PATH", None)
+            else:
+                os.environ["DENO_NVVFX_RUNTIME_PATH"] = old_env

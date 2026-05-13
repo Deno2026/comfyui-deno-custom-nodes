@@ -1,7 +1,7 @@
 [project]
 name = "deno-custom-nodes"
 description = "DENO ComfyUI utility nodes. Core nodes are OS-independent; optional RTX VFX helper requires Windows, NVIDIA CUDA, and manual NVIDIA VFX setup."
-version = "0.5.5"
+version = "0.5.6"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
