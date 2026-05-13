@@ -24,12 +24,13 @@ This optional helper is for users who want to use NVIDIA RTX Video Super Resolut
 3. Double-click:
    `install_rtx_vfx.bat`
 4. Wait until it says `[OK] NVIDIA RTX VFX is installed`.
-5. Start ComfyUI again.
+5. Start ComfyUI again. A full restart is required.
 6. Add `(Deno Test) RTX VFX Easy Upscale` and run it again.
 
 The BAT file installs NVIDIA's official `nvidia-vfx` Python package into the Python used by this ComfyUI install. It does not install random DLL files and does not ask for passwords.
 It also copies the NVIDIA VFX Python runtime to `C:\Users\Public\DENO\nvvfx_runtime` and records that path for the node. This avoids native NVIDIA DLL path issues on Windows installs that live under non-English user folders.
 After install, it also checks whether NVIDIA's `VideoSuperRes` effect can actually be created on this PC. If that check fails, the package may be installed correctly but the GPU, driver, or selected Python environment is not usable for RTX VFX.
+When ComfyUI starts, the DENO node now prefers the recorded `C:\Users\Public\DENO\nvvfx_runtime` path before any other `nvvfx` package path. If an error report still says `Loaded nvvfx path` is under `python_embeded\Lib\site-packages`, update the DENO node from GitHub or ComfyUI Manager, run this BAT again, and restart ComfyUI.
 
 For ComfyUI Manager / Registry installs, manual installer scripts may be excluded from the packaged install on purpose. If `install_rtx_vfx.bat` is not present in your local node folder, download it from the GitHub repository and place it in `ComfyUI/custom_nodes/deno-custom-nodes/tools`.
 
@@ -88,6 +89,7 @@ Common causes:
 - this PC does not have a supported NVIDIA RTX GPU
 - NVIDIA VFX installed, but `VideoSuperRes` cannot be created on this GPU/driver combination
 - Windows or the NVIDIA runtime blocked the native VFX DLLs from the original install path
+- the DENO runtime path was not prepared, or ComfyUI was not restarted after running the BAT
 
 If your ComfyUI uses a custom Python path, set `COMFYUI_PYTHON` to that `python.exe` path and run the BAT again.
 

@@ -1,12 +1,15 @@
 import math
-import sys
-from pathlib import Path
 from typing import Tuple
 
 import torch
 import torch.nn.functional as F
 
 from .deno_resolution_common import COMMON_RATIOS, RESIZE_METHODS, compute_aligned_ratio_dims, round_up
+from .deno_rtx_vfx_runtime import (
+    current_nvvfx_package_path,
+    prefer_rtx_vfx_runtime_path,
+    read_rtx_vfx_runtime_path,
+)
 
 
 QUALITY_LEVELS = [
@@ -180,12 +183,7 @@ def _fit_frame_to_target_aspect(frame, target_width: int, target_height: int, re
 
 
 def _import_vfx():
-    runtime_path_file = Path(__file__).resolve().parent / "tools" / "DENO_RTX_VFX_runtime_path.txt"
-    if runtime_path_file.exists():
-        runtime_path = runtime_path_file.read_text(encoding="utf-8").strip().strip('"')
-        runtime_package = Path(runtime_path) / "nvvfx"
-        if runtime_path and runtime_package.exists() and runtime_path not in sys.path:
-            sys.path.insert(0, runtime_path)
+    prefer_rtx_vfx_runtime_path(reload_existing=True)
 
     try:
         from nvvfx import VideoSuperRes
@@ -196,6 +194,14 @@ def _import_vfx():
             f"Original import error: {type(exc).__name__}: {exc}"
         ) from exc
     return VideoSuperRes
+
+
+def _vfx_runtime_status_note() -> str:
+    runtime_path = read_rtx_vfx_runtime_path()
+    loaded_path = current_nvvfx_package_path()
+    runtime_text = str(runtime_path) if runtime_path is not None else "not prepared"
+    loaded_text = str(loaded_path) if loaded_path is not None else "unknown"
+    return f" DENO runtime path: {runtime_text}. Loaded nvvfx path: {loaded_text}."
 
 
 def _vfx_runtime_error_message(exc: Exception, mode: str, device_index: int) -> str:
@@ -212,6 +218,9 @@ def _vfx_runtime_error_message(exc: Exception, mode: str, device_index: int) -> 
         "This usually means the GPU or driver does not support the NVIDIA VFX Video Super Resolution runtime on this machine. "
         "Check that the PC has an NVIDIA RTX GPU with Tensor Cores, Windows 10/11, and NVIDIA driver 570.65 or newer "
         "(595 or newer for TCC devices). If the PC has multiple NVIDIA GPUs, try the correct device index. "
+        + _vfx_runtime_status_note()
+        + " If DENO runtime path is not prepared, close ComfyUI, run the latest DENO RTX VFX installer from the GitHub repository, "
+        "then restart ComfyUI before testing again. "
         "Original NVIDIA VFX error: "
     )
 

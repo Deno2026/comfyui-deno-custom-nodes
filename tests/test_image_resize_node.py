@@ -285,7 +285,43 @@ def test_rtx_vfx_create_effect_error_is_user_readable():
     assert "VideoSuperRes" in message
     assert "driver" in message
     assert "RTX GPU" in message
+    assert "DENO runtime path" in message
+    assert "Loaded nvvfx path" in message
     assert "code -2" in message
+
+
+def test_rtx_vfx_runtime_marker_prefers_ascii_copy_and_reloads_old_module():
+    load_package()
+    runtime_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_runtime"]
+
+    old_module = types.ModuleType("nvvfx")
+    old_module.__path__ = [str(REPO_ROOT / "python_embeded" / "Lib" / "site-packages" / "nvvfx")]
+    sys.modules["nvvfx"] = old_module
+    sys.modules["nvvfx.effects"] = types.ModuleType("nvvfx.effects")
+    original_sys_path = list(sys.path)
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = temp_root / "deno-custom-nodes"
+            runtime_path = temp_root / "DENO" / "nvvfx_runtime" / "py312" / "nvidia_vfx_0_1_0_1"
+            (package_dir / "tools").mkdir(parents=True)
+            (runtime_path / "nvvfx").mkdir(parents=True)
+            (package_dir / "tools" / "DENO_RTX_VFX_runtime_path.txt").write_text(
+                str(runtime_path),
+                encoding="utf-8",
+            )
+
+            preferred = runtime_module.prefer_rtx_vfx_runtime_path(package_dir, reload_existing=True)
+
+            assert preferred == runtime_path
+            assert sys.path[0] == str(runtime_path)
+            assert "nvvfx" not in sys.modules
+            assert "nvvfx.effects" not in sys.modules
+    finally:
+        sys.path[:] = original_sys_path
+        sys.modules.pop("nvvfx", None)
+        sys.modules.pop("nvvfx.effects", None)
 
 
 def test_multi_image_loader_returns_batch_and_int_dimensions():

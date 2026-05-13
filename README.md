@@ -119,8 +119,9 @@ Main features:
 - installer stops if no NVIDIA GPU is detected unless the user explicitly overrides the check
 - installer reinstalls `nvidia-vfx` cleanly when the user confirms the target Python
 - installer mirrors NVIDIA VFX runtime files to an ASCII Windows path to avoid native DLL issues under non-English user folders
+- node startup prefers that recorded ASCII runtime path before other `nvvfx` imports can lock the old package path
 - installer verifies that NVIDIA's `VideoSuperRes` effect can actually be created after install
-- if NVIDIA VFX reports an unsupported runtime feature, the node shows a readable GPU/driver support message instead of a raw stack trace
+- if NVIDIA VFX reports an unsupported runtime feature, the node shows a readable GPU/driver/runtime-path message instead of a raw stack trace
 - manual installer scripts are kept out of the Comfy Registry package and remain available from the GitHub repository
 - exposes four clear effect buttons for VSR, High Bitrate, Denoise, and Deblur
 - shows a compact mode coach line that explains the selected effect in plain language

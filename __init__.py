@@ -6,6 +6,7 @@ from typing import Tuple
 import torch
 import torch.nn.functional as F
 
+from .deno_rtx_vfx_runtime import prefer_rtx_vfx_runtime_path
 from .deno_ltx_sequencer_plus import DenoLTXSequencer
 from .deno_ltx23_preset_loader import DenoLTX23PresetLoader
 from .deno_ltx_model_downloader import DenoLTXModelDownloader
@@ -17,6 +18,9 @@ from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRE
 from .deno_rtx_vfx_easy_upscale import DenoRTXVFXEasyUpscale
 
 INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
+
+
+prefer_rtx_vfx_runtime_path(reload_existing=True)
 
 
 def _get_torch():

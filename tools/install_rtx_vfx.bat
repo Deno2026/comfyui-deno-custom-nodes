@@ -214,7 +214,17 @@ if errorlevel 1 (
 )
 
 echo [OK] NVIDIA RTX VFX is installed for this ComfyUI Python.
-echo Restart ComfyUI and use:
+echo.
+echo IMPORTANT:
+echo Restart ComfyUI completely before testing the node again.
+echo The node will load NVIDIA VFX from:
+echo %DENO_NVVFX_RUNTIME_PATH%
+echo.
+echo If a later ComfyUI error still says Loaded nvvfx path is under
+echo python_embeded\Lib\site-packages, update deno-custom-nodes from GitHub
+echo and run this BAT again from deno-custom-nodes\tools.
+echo.
+echo Then use:
 echo (Deno Test) RTX VFX Easy Upscale
 echo.
 echo Log file:
