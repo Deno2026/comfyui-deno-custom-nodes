@@ -293,7 +293,8 @@ class DenoRTXVFXEasyUpscale:
         "- `Denoise`: noisy or grainy source -> same-size cleanup.\n"
         "- `Deblur`: soft or blurry source -> same-size fix.\n"
         "- RTX VFX uses `32` as the safe divisible-by default; legacy `1` values are automatically corrected.\n"
-        "- If NVIDIA VFX is missing, close ComfyUI and follow the RTX VFX install guide in the DENO README."
+        "- If NVIDIA VFX is missing, close ComfyUI and follow the RTX VFX install guide in the DENO README.\n"
+        "- Installer BAT: https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/tools/install_rtx_vfx.bat"
     )
 
     @classmethod
