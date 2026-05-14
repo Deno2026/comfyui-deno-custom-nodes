@@ -96,6 +96,15 @@ def test_rtx_vfx_installer_requires_prestartup_hook_before_success():
     assert "Tee-Object" not in install_bat
     assert "DENO_PYTHON_OK" in install_bat
     assert "Python 3.10+" in install_bat
+    assert "SUCCESS_BANNER" in install_bat
+    assert "INSTALL COMPLETE - NVIDIA RTX VFX is ready for ComfyUI" in install_bat
+    assert "FAIL_CODE" in install_bat
+    assert "INSTALL FAILED - error code:" in install_bat
+    assert "INSTALL CANCELLED - no changes were made" in install_bat
+    assert "exit /b 0" in install_bat
+    assert "call :COLOR_LINE Green" in install_bat
+    assert "call :COLOR_LINE Red" in install_bat
+    assert "ForegroundColor $color" in install_bat
 
 
 def test_rtx_vfx_docs_use_direct_installer_download_link():
@@ -105,10 +114,23 @@ def test_rtx_vfx_docs_use_direct_installer_download_link():
 
     assert DIRECT_INSTALLER_URL in readme
     assert DIRECT_INSTALLER_URL in install_guide
-    assert DIRECT_INSTALLER_URL in node_source
+    assert DIRECT_INSTALLER_URL not in node_source
     assert "blob/main/tools/install_rtx_vfx.bat" not in readme
     assert "blob/main/tools/install_rtx_vfx.bat" not in install_guide
     assert "blob/main/tools/install_rtx_vfx.bat" not in node_source
+
+
+def test_rtx_vfx_node_info_prefers_install_steps_over_mode_repeats():
+    node_source = (REPO_ROOT / "deno_rtx_vfx_easy_upscale.py").read_text()
+
+    assert "RTX VFX install steps" in node_source
+    assert "Close every ComfyUI window first" in node_source
+    assert "Run `install_rtx_vfx.bat`" in node_source
+    assert "green `INSTALL COMPLETE` message" in node_source
+    assert "Easy install steps:" in node_source
+    assert "If the BAT file is missing, open the install guide" in node_source
+    assert "- `VSR`: low-res or compressed source -> larger image." not in node_source
+    assert "- `High Bitrate`: cleaner source -> sharper upscale." not in node_source
 
 
 def test_prestartup_runtime_path_rejects_wrong_python_version():

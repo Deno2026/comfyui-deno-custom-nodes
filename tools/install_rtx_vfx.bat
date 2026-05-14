@@ -38,6 +38,7 @@ if not exist "%PRESTARTUP_SCRIPT%" (
   echo.
   echo Update deno-custom-nodes from GitHub or ComfyUI Manager first,
   echo then run this BAT again from deno-custom-nodes\tools.
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -47,6 +48,7 @@ if errorlevel 1 (
   echo.
   echo Update deno-custom-nodes from GitHub or ComfyUI Manager first,
   echo then run this BAT again from deno-custom-nodes\tools.
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -56,6 +58,7 @@ if errorlevel 1 (
   echo.
   echo Update deno-custom-nodes from GitHub or ComfyUI Manager first,
   echo then run this BAT again from deno-custom-nodes\tools.
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -73,6 +76,7 @@ if not "%COMFYUI_PYTHON%"=="" (
     echo.
     echo Remove the wrong COMFYUI_PYTHON value, or set it to the python.exe
     echo that actually launches your ComfyUI.
+    call :FAIL_CODE 1
     pause
     exit /b 1
   )
@@ -102,6 +106,7 @@ if "%PYTHON_EXE%"=="" (
   echo ComfyUI\custom_nodes\deno-custom-nodes\tools
   echo.
   echo Or set COMFYUI_PYTHON to your ComfyUI python.exe path and run again.
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -126,6 +131,7 @@ if errorlevel 1 (
   echo.
   echo Set COMFYUI_PYTHON to the python.exe that actually launches your ComfyUI,
   echo or run this BAT from ComfyUI\custom_nodes\deno-custom-nodes\tools.
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -139,6 +145,7 @@ if errorlevel 1 (
   if exist "%PYTHON_CHECK%" type "%PYTHON_CHECK%"
   echo.
   echo Set COMFYUI_PYTHON to the python.exe that actually launches your ComfyUI.
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -158,6 +165,7 @@ if errorlevel 2 (
   echo Detected process:
   type "%RUNNING_LOG%"
   echo.
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -167,6 +175,7 @@ if errorlevel 1 (
   echo Close ComfyUI completely, then run this BAT again.
   echo See log:
   echo %LOG%
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -189,6 +198,7 @@ if errorlevel 1 (
   echo install_rtx_vfx.bat
   echo.
   if not "%DENO_RTX_VFX_SKIP_GPU_CHECK%"=="1" (
+    call :FAIL_CODE 1
     pause
     exit /b 1
   )
@@ -212,13 +222,14 @@ if not "%DENO_RTX_VFX_YES%"=="1" (
   choice /C YN /N /M "Install RTX VFX here?  Y=Install / N=Cancel: "
   if errorlevel 2 (
     echo [CANCELLED] No changes were made.
+    call :COLOR_LINE Yellow "INSTALL CANCELLED - no changes were made"
     echo.
     echo To target another ComfyUI, run this from Command Prompt:
     echo set COMFYUI_PYTHON=C:\path\to\your\ComfyUI\python.exe
     echo "%~f0"
     echo.
     pause
-    exit /b 1
+    exit /b 0
   )
 )
 
@@ -239,6 +250,7 @@ echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Continue'; $installArgs=@('-m','pip','install','--upgrade') + (($env:PIP_INSTALL_ARGS -split ' ') | Where-Object { $_ }) + @('--index-url','https://pypi.nvidia.com','nvidia-vfx'); & $env:PYTHON_EXE @installArgs 2>&1 | ForEach-Object { $line = [string]$_; Write-Host $line; [System.IO.File]::AppendAllText($env:LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false)) }; exit $LASTEXITCODE"
 
 if errorlevel 1 (
+  set "PIP_EXIT_CODE=!ERRORLEVEL!"
   echo [FAIL] nvidia-vfx install failed.
   echo See log:
   echo %LOG%
@@ -248,8 +260,9 @@ if errorlevel 1 (
   echo - The selected Python is not ComfyUI's Python
   echo - Python is older than 3.10
   echo - NVIDIA driver is too old
+  call :FAIL_CODE !PIP_EXIT_CODE!
   pause
-  exit /b 1
+  exit /b !PIP_EXIT_CODE!
 )
 echo Progress [################----] 80%% Package install complete.
 echo.
@@ -278,6 +291,7 @@ if errorlevel 1 (
   echo [FAIL] Could not prepare NVIDIA VFX runtime copy.
   echo See log:
   echo %LOG%
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -286,6 +300,7 @@ if "%DENO_NVVFX_RUNTIME_PATH%"=="" (
   echo [FAIL] Could not read NVIDIA VFX runtime path.
   echo See log:
   echo %LOG%
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -307,6 +322,7 @@ if errorlevel 1 (
   echo - CUDA is not visible from this ComfyUI Python
   echo - the selected Python belongs to a different ComfyUI install
   echo - NVIDIA's nvidia-vfx package cannot create VideoSuperRes on this GPU/driver combination
+  call :FAIL_CODE 1
   pause
   exit /b 1
 )
@@ -314,6 +330,7 @@ echo Progress [###################-] 95%% Fallback runtime verified.
 
 :INSTALL_OK_DENO
 
+call :SUCCESS_BANNER
 echo [OK] NVIDIA RTX VFX is installed for this ComfyUI Python.
 echo Progress [####################] 100%% Done.
 echo.
@@ -335,6 +352,7 @@ pause
 exit /b 0
 
 :INSTALL_OK_NATIVE
+call :SUCCESS_BANNER
 echo [OK] NVIDIA RTX VFX is installed for this ComfyUI Python.
 echo Progress [####################] 100%% Done.
 echo.
@@ -351,4 +369,22 @@ echo.
 echo Log file:
 echo %LOG%
 pause
+exit /b 0
+
+:SUCCESS_BANNER
+call :COLOR_LINE Green "============================================================"
+call :COLOR_LINE Green " INSTALL COMPLETE - NVIDIA RTX VFX is ready for ComfyUI"
+call :COLOR_LINE Green "============================================================"
+exit /b 0
+
+:FAIL_CODE
+set "DENO_INSTALL_ERROR_CODE=%~1"
+if "%DENO_INSTALL_ERROR_CODE%"=="" set "DENO_INSTALL_ERROR_CODE=1"
+call :COLOR_LINE Red "INSTALL FAILED - error code: %DENO_INSTALL_ERROR_CODE%"
+exit /b 0
+
+:COLOR_LINE
+set "DENO_COLOR_NAME=%~1"
+set "DENO_COLOR_TEXT=%~2"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$color=$env:DENO_COLOR_NAME; $text=$env:DENO_COLOR_TEXT; if ([string]::IsNullOrWhiteSpace($color)) { $color='White' }; Write-Host $text -ForegroundColor $color"
 exit /b 0

@@ -37,6 +37,10 @@ QUALITY_LEVELS = [
 RESIZE_TYPES = ["Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
 RTX_VFX_DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"]
 RTX_VFX_DEFAULT_DIVISIBLE_BY = "32"
+RTX_VFX_INSTALL_GUIDE_URL = (
+    "https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/tools/README_RTX_VFX_EASY_INSTALL.md"
+)
+RTX_VFX_INSTALLER_LOCAL_HINT = r"custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat"
 
 
 def _safe_divisible_by(divisible_by) -> int:
@@ -216,11 +220,21 @@ def _import_vfx():
         raise RuntimeError(
             "NVIDIA RTX VFX could not be imported in this ComfyUI Python. "
             + _vfx_runtime_status_note()
-            + " Close ComfyUI completely, run the latest DENO RTX VFX installer from GitHub if needed, "
-            "restart ComfyUI, then try again. "
+            + " "
+            + _rtx_vfx_easy_install_note()
+            + " "
             f"Original import error: {type(exc).__name__}: {exc}"
         ) from exc
     return VideoSuperRes
+
+
+def _rtx_vfx_easy_install_note() -> str:
+    return (
+        "Easy install steps: close every ComfyUI window, run "
+        f"{RTX_VFX_INSTALLER_LOCAL_HINT}, wait for the green INSTALL COMPLETE message, "
+        "then start ComfyUI again. "
+        f"If the BAT is missing, open the install guide: {RTX_VFX_INSTALL_GUIDE_URL}."
+    )
 
 
 def _vfx_runtime_status_note() -> str:
@@ -269,8 +283,9 @@ def _vfx_runtime_error_message(exc: Exception, mode: str, device_index: int) -> 
         "Check that the PC has an NVIDIA RTX GPU with Tensor Cores, Windows 10/11, and NVIDIA driver 570.65 or newer "
         "(595 or newer for TCC devices). If the PC has multiple NVIDIA GPUs, try the correct device index. "
         + _vfx_runtime_status_note()
-        + " If DENO runtime path is not prepared, close ComfyUI, run the latest DENO RTX VFX installer from the GitHub repository, "
-        "then restart ComfyUI before testing again. "
+        + " If DENO runtime path is not prepared, "
+        + _rtx_vfx_easy_install_note()
+        + " "
         "Original NVIDIA VFX error: "
     )
 
@@ -309,15 +324,14 @@ def _safe_cuda_device_index(device: int) -> int:
 
 class DenoRTXVFXEasyUpscale:
     DESCRIPTION = (
-        "Optional NVIDIA RTX Video Super Resolution helper.\n\n"
-        "- `VSR`: low-res or compressed source -> larger image.\n"
-        "- `High Bitrate`: cleaner source -> sharper upscale.\n"
-        "- `Denoise`: noisy or grainy source -> same-size cleanup.\n"
-        "- `Deblur`: soft or blurry source -> same-size fix.\n"
-        "- RTX VFX uses `32` as the safe divisible-by default; legacy `1` values are automatically corrected.\n"
-        "- If NVIDIA VFX is missing, close ComfyUI, download the installer BAT, run it, then restart ComfyUI.\n"
-        "- Download installer BAT: https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat\n"
-        "- Install guide: https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/tools/README_RTX_VFX_EASY_INSTALL.md"
+        "RTX VFX install steps.\n\n"
+        "1. Close every ComfyUI window first.\n"
+        f"2. Open `{RTX_VFX_INSTALLER_LOCAL_HINT}`.\n"
+        "3. Run `install_rtx_vfx.bat`.\n"
+        "4. Wait until the BAT shows the green `INSTALL COMPLETE` message.\n"
+        "5. Start ComfyUI again, then run this node.\n\n"
+        "If the BAT file is missing, open the install guide:\n"
+        f"{RTX_VFX_INSTALL_GUIDE_URL}"
     )
 
     @classmethod
