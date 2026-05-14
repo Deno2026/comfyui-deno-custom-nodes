@@ -2,8 +2,13 @@ import { app } from "../../scripts/app.js";
 
 const EASY_NODE_NAME = "DenoRTXVFXEasyUpscale";
 
-const MIN_EASY_WIDTH = 500;
+const MIN_EASY_WIDTH = 560;
 const MIN_EASY_HEIGHT = 340;
+const MIN_EASY_SAME_SIZE_HEIGHT = 280;
+const NODE_WIDGET_SIDE_MARGIN = 30;
+const PANEL_MIN_WIDTH = MIN_EASY_WIDTH - NODE_WIDGET_SIDE_MARGIN;
+const PANEL_HEIGHT_RESIZABLE = 210;
+const PANEL_HEIGHT_SAME_SIZE = 158;
 
 const EFFECTS = ["VSR", "High Bitrate", "Denoise", "Deblur"];
 const QUALITIES = ["Low", "Medium", "High", "Ultra"];
@@ -102,6 +107,7 @@ function setupEasyUpscaleNode(node) {
     prepareBackendWidgets(node);
     ensureSingleImageOutput(node);
     ensureEasyControlPanel(node);
+    wrapComputeSize(node);
     sanitizeBackendWidgetValues(node);
     updateWidgetVisibility(node);
 
@@ -112,7 +118,7 @@ function setupEasyUpscaleNode(node) {
             rememberCurrentResize(node);
             updateWidgetVisibility(node);
             syncEasyControlPanel(node);
-            resizeNodeToContent(node, MIN_EASY_WIDTH, MIN_EASY_HEIGHT);
+            resizeNodeToContent(node, MIN_EASY_WIDTH, minEasyHeight(node));
             requestNodeRedraw(node);
         });
     }
@@ -125,7 +131,7 @@ function setupEasyUpscaleNode(node) {
         syncEasyControlPanel(node);
         requestNodeRedraw(node);
     };
-    node.__denoRtxVfxResize = () => resizeNodeToContent(node, MIN_EASY_WIDTH, MIN_EASY_HEIGHT);
+    node.__denoRtxVfxResize = () => resizeNodeToContent(node, MIN_EASY_WIDTH, minEasyHeight(node));
     node.__denoRtxVfxRefresh();
     node.__denoRtxVfxResize();
 }
@@ -140,7 +146,10 @@ function ensureEasyControlPanel(node) {
     const domWidget = node.addDOMWidget("rtx_vfx_controls", "deno_rtx_vfx_controls", ui.root, {
         serialize: false,
     });
-    domWidget.computeSize = () => [Math.max(Number(node.size?.[0]) || 0, MIN_EASY_WIDTH), ui.height];
+    domWidget.computeSize = () => {
+        ui.applySize();
+        return [Math.max(Number(node.size?.[0]) || 0, MIN_EASY_WIDTH), ui.height()];
+    };
     node.__denoRtxVfxUi = ui;
 
     if (Array.isArray(node.widgets)) {
@@ -161,7 +170,8 @@ function ensureEasyControlPanel(node) {
 function buildEasyControlPanel(node) {
     const root = document.createElement("div");
     root.style.cssText = `
-        width:100%;
+        width:${PANEL_MIN_WIDTH}px;
+        min-width:${PANEL_MIN_WIDTH}px;
         box-sizing:border-box;
         padding:12px;
         border-radius:12px;
@@ -269,9 +279,24 @@ function buildEasyControlPanel(node) {
 
     root.append(header, effectGrid, coach, resizeSection);
 
+    const panelHeight = () => {
+        const { effect } = getCurrentMode(node);
+        return SAME_SIZE_EFFECTS.has(effect) ? PANEL_HEIGHT_SAME_SIZE : PANEL_HEIGHT_RESIZABLE;
+    };
+    const applySize = () => {
+        const width = Math.max(
+            PANEL_MIN_WIDTH,
+            (Number(node.size?.[0]) || MIN_EASY_WIDTH) - NODE_WIDGET_SIDE_MARGIN
+        );
+        root.style.width = `${width}px`;
+        root.style.minWidth = `${PANEL_MIN_WIDTH}px`;
+        root.style.height = `${panelHeight()}px`;
+    };
+
     return {
         root,
-        height: 210,
+        height: panelHeight,
+        applySize,
         qualitySelect,
         effectButtons,
         coach,
@@ -293,6 +318,7 @@ function buildEasyControlPanel(node) {
 
             coach.innerHTML = `<strong>${effect}</strong><span> | ${MODE_COACH[effect] || EFFECT_COPY[effect] || ""}</span>`;
             resizeSection.style.display = sameSizeOnly ? "none" : "flex";
+            applySize();
         },
     };
 }
@@ -338,7 +364,7 @@ function setEffectAndQuality(node, effect, quality) {
     rememberCurrentResize(node);
     updateWidgetVisibility(node);
     syncEasyControlPanel(node);
-    resizeNodeToContent(node, MIN_EASY_WIDTH, MIN_EASY_HEIGHT);
+    resizeNodeToContent(node, MIN_EASY_WIDTH, minEasyHeight(node));
     requestNodeRedraw(node);
 }
 
@@ -354,7 +380,7 @@ function setResizeType(node, resizeType) {
     rememberCurrentResize(node);
     updateWidgetVisibility(node);
     syncEasyControlPanel(node);
-    resizeNodeToContent(node, MIN_EASY_WIDTH, MIN_EASY_HEIGHT);
+    resizeNodeToContent(node, MIN_EASY_WIDTH, minEasyHeight(node));
     requestNodeRedraw(node);
 }
 
@@ -377,9 +403,18 @@ function getCurrentResizeType(node) {
     return DEFAULT_RESIZABLE_RESIZE;
 }
 
+function minEasyHeight(node) {
+    return SAME_SIZE_EFFECTS.has(getCurrentMode(node).effect)
+        ? MIN_EASY_SAME_SIZE_HEIGHT
+        : MIN_EASY_HEIGHT;
+}
+
 function resizeNodeToContent(node, minWidth, minHeight) {
     const computed = node.computeSize?.();
-    const targetWidth = Math.max(minWidth, Number(node.size?.[0]) || 0);
+    const computedWidth = Array.isArray(computed) && Number.isFinite(Number(computed[0]))
+        ? Number(computed[0])
+        : 0;
+    const targetWidth = Math.max(minWidth, Number(node.size?.[0]) || 0, computedWidth);
     const computedHeight = Array.isArray(computed) && Number.isFinite(Number(computed[1]))
         ? Number(computed[1])
         : 0;
@@ -398,6 +433,24 @@ function resizeNodeToContent(node, minWidth, minHeight) {
         node.size = [targetWidth, targetHeight];
     }
     requestNodeRedraw(node);
+}
+
+function wrapComputeSize(node) {
+    if (node.__denoRtxVfxComputeWrapped) {
+        return;
+    }
+    const originalComputeSize = node.computeSize;
+    node.computeSize = function () {
+        const size = originalComputeSize?.apply(this, arguments) || [MIN_EASY_WIDTH, MIN_EASY_HEIGHT];
+        const width = Array.isArray(size) && Number.isFinite(Number(size[0]))
+            ? Number(size[0])
+            : MIN_EASY_WIDTH;
+        const height = Array.isArray(size) && Number.isFinite(Number(size[1]))
+            ? Number(size[1])
+            : MIN_EASY_HEIGHT;
+        return [Math.max(width, MIN_EASY_WIDTH), height];
+    };
+    node.__denoRtxVfxComputeWrapped = true;
 }
 
 function sanitizeBackendWidgetValues(node) {
