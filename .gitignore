@@ -38,6 +38,7 @@ pip-log.txt
 pip-delete-this-directory.txt
 tools/DENO_RTX_VFX_install_log.txt
 tools/DENO_RTX_VFX_runtime_path.txt
+tools/rtx_vfx_env_report_*.json
 
 # Unit test / coverage reports
 htmlcov/

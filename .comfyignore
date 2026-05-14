@@ -9,7 +9,9 @@ __pycache__/
 tests/
 
 tools/install_rtx_vfx.bat
+tools/compare_rtx_vfx_env.ps1
 tools/test_portable_baseline.ps1
+tools/rtx_vfx_env_report_*.json
 tools/DENO_RTX_VFX_install_log.txt
 tools/DENO_RTX_VFX_runtime_path.txt
 docs/PORTABLE_TEST_BASELINE.md
