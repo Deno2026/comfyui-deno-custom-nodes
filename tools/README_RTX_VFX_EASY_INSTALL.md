@@ -1,6 +1,8 @@
 # DENO RTX VFX Easy Install
 
-This optional helper is for users who want to use NVIDIA RTX Video Super Resolution from ComfyUI without manually finding the right Python environment.
+This optional helper is for users who want to use `(Deno) RTX Video Super Resolution` from ComfyUI without manually finding the right Python environment.
+
+The DENO node uses NVIDIA's official `nvidia-vfx` / `nvvfx.VideoSuperRes` path. The installer only prepares that optional NVIDIA dependency for the ComfyUI Python you choose.
 
 ## Who can use this
 
@@ -12,9 +14,10 @@ This optional helper is for users who want to use NVIDIA RTX Video Super Resolut
 ## Easiest install flow
 
 1. Start ComfyUI.
-2. Add `(Deno Test) RTX VFX Easy Upscale`.
+2. Add `(Deno) RTX Video Super Resolution`.
 3. Run it once with an image.
-4. If NVIDIA VFX is missing, continue below.
+4. If NVIDIA VFX is already available, you are done.
+5. If NVIDIA VFX is missing, close every ComfyUI window/process and continue below.
 
 ## How to install NVIDIA VFX
 
@@ -25,9 +28,10 @@ This optional helper is for users who want to use NVIDIA RTX Video Super Resolut
    `install_rtx_vfx.bat`
 4. Wait until it says `[OK] NVIDIA RTX VFX is installed`.
 5. Start ComfyUI again. A full restart is required.
-6. Add `(Deno Test) RTX VFX Easy Upscale` and run it again.
+6. Add `(Deno) RTX Video Super Resolution` and run it again.
 
 The BAT file installs NVIDIA's official `nvidia-vfx` Python package into the Python used by this ComfyUI install. It does not install random DLL files and does not ask for passwords.
+It downloads from NVIDIA's package index at `https://pypi.nvidia.com`.
 It first verifies the normal `nvvfx` package path used by that ComfyUI Python. If that normal path can create NVIDIA's `VideoSuperRes` effect, DENO does not force any custom runtime path.
 If the normal path fails, the BAT copies the NVIDIA VFX Python runtime to `C:\Users\Public\DENO\nvvfx_runtime` and records that path for the node. This fallback avoids native NVIDIA DLL path issues on Windows installs that live under non-English user folders.
 The DENO node includes a ComfyUI `prestartup_script.py` hook. When ComfyUI starts, that hook reads the recorded fallback runtime path and prefers it before any RTX node can lock a different `nvvfx` package path. If the BAT verified the normal ComfyUI Python path, the marker is left empty and no override is used.
@@ -62,6 +66,31 @@ install_rtx_vfx.bat
 ```
 
 The BAT uses a clean reinstall by default. Running it again is safe when you want to repair or refresh the NVIDIA VFX package for the same ComfyUI install.
+
+## What the node UI shows
+
+The current public node name is `(Deno) RTX Video Super Resolution`.
+
+The node UI has:
+
+- effect buttons: `Video SR`, `High Bitrate`, `Denoise`, `Deblur`
+- a separate `Quality` selector: `Low`, `Medium`, `High`, `Ultra`
+- a short mode-coach line explaining the selected effect
+- a link to NVIDIA's official Video Super Resolution documentation
+- resize buttons for upscaling modes: `Keep Ratio`, `Manual`, `Preset Ratio`
+
+`Denoise` and `Deblur` keep the original size, so the node hides resize controls for those modes.
+
+If you see an older test name such as `(Deno Test) RTX VFX Easy Upscale` in notes or installer output, search for `(Deno) RTX Video Super Resolution` in ComfyUI. That is the current user-facing node name.
+
+## Official NVIDIA references
+
+- Video Super Resolution filter: <https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html>
+- NVIDIA VFX Python bindings: <https://docs.nvidia.com/maxine/vfx-python/latest/index.html>
+- VideoSuperRes Python API: <https://docs.nvidia.com/maxine/vfx-python/latest/api.html>
+- Windows VFX SDK install reference: <https://docs.nvidia.com/maxine/vfx/latest/WindowsVFXSDK/InstalltheVFXSDK.html>
+
+The DENO BAT does not require users to manually install the full VFX SDK through NGC. It uses the `nvidia-vfx` Python package path first, then prepares the DENO ASCII runtime fallback only if the normal package path fails verification.
 
 ## ComfyUI Desktop and Stability Matrix
 
@@ -100,6 +129,7 @@ Common causes:
 - this PC does not have a supported NVIDIA RTX GPU
 - NVIDIA VFX installed, but `VideoSuperRes` cannot be created on this GPU/driver combination
 - another RTX node loaded NVIDIA Broadcast/NGX VFX DLLs before DENO's `VideoSuperRes` path ran
+- another Broadcast-based RTX node still works because it uses a different NVIDIA Broadcast/Upscale path; this can still block DENO's `nvidia-vfx` `VideoSuperRes` path inside the same ComfyUI process
 - Windows or the NVIDIA runtime blocked the native VFX DLLs from the original install path
 - the DENO runtime path was not prepared, or ComfyUI was not restarted after running the BAT
 - another RTX node imported `nvvfx` before the DENO prestartup hook was active; update the node, run the latest BAT, and restart ComfyUI completely

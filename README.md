@@ -94,13 +94,20 @@ This node is intentionally separate from the core Deno nodes. It only imports NV
 
 Beginner install flow:
 
-- add `(Deno) RTX Video Super Resolution`
-- run it once with an image
-- if NVIDIA VFX is missing, close ComfyUI
-- download the installer BAT directly: [install_rtx_vfx.bat](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat)
-- if you want the step-by-step notes, open the [RTX VFX install guide](tools/README_RTX_VFX_EASY_INSTALL.md)
-- restart ComfyUI
-- use `(Deno) RTX Video Super Resolution` again
+1. Install or update `deno-custom-nodes`, then start ComfyUI.
+2. Add `(Deno) RTX Video Super Resolution` and run it once with an image.
+3. If NVIDIA VFX is missing, close every ComfyUI window/process.
+4. If `tools/install_rtx_vfx.bat` is missing from your local node folder, download it directly: [install_rtx_vfx.bat](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat)
+5. Run `install_rtx_vfx.bat`, confirm the shown ComfyUI Python, and wait for the green `INSTALL COMPLETE` message.
+6. Restart ComfyUI completely, then use `(Deno) RTX Video Super Resolution` again.
+
+For the full beginner walkthrough, see [`tools/README_RTX_VFX_EASY_INSTALL.md`](tools/README_RTX_VFX_EASY_INSTALL.md).
+
+Official NVIDIA references:
+
+- [Video Super Resolution filter](https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html)
+- [NVIDIA VFX Python bindings](https://docs.nvidia.com/maxine/vfx-python/latest/index.html)
+- [VideoSuperRes Python API](https://docs.nvidia.com/maxine/vfx-python/latest/api.html)
 
 Mode guide:
 
@@ -113,7 +120,9 @@ Mode guide:
 
 Main features:
 
-- uses NVIDIA's official `nvidia-vfx` / `nvvfx.VideoSuperRes` package
+- uses NVIDIA's official `nvidia-vfx` / `nvvfx.VideoSuperRes` package path
+- links from the node UI to NVIDIA's official Video Super Resolution documentation
+- shows a compact RTX panel with effect buttons, a separate quality selector, a mode-coach line, and only the resize controls that apply to the selected effect
 - installer targets the Python used by the current ComfyUI install
 - installer refuses to continue if ComfyUI is still running with that Python
 - installer asks before installing into the detected Python
@@ -126,8 +135,9 @@ Main features:
 - installer verifies that NVIDIA's `VideoSuperRes` effect can actually be created after install
 - if NVIDIA VFX reports an unsupported runtime feature, the node shows a readable GPU/driver/runtime-path message instead of a raw stack trace
 - if NVIDIA Broadcast/NGX VFX DLLs from another RTX node are already loaded, the node reports that native runtime conflict separately from GPU/driver support
+- if another Broadcast-based RTX node works while DENO fails, treat it as a native runtime conflict, not proof that the DENO install is broken
 - manual installer scripts are kept out of the Comfy Registry package and remain available as a direct [installer BAT download](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat)
-- exposes four clear effect buttons for VSR, High Bitrate, Denoise, and Deblur
+- exposes four clear effect buttons: Video SR, High Bitrate, Denoise, and Deblur
 - shows a compact mode coach line that explains the selected effect in plain language
 - keeps Low, Medium, High, and Ultra quality as a separate selector
 - for VSR and High Bitrate, supports `Keep Ratio`, `Manual`, and `Preset Ratio` resize choices
@@ -135,11 +145,10 @@ Main features:
 - exposes `divisible_by` alignment for resizable modes, with `32` as the safe default for NVIDIA VFX output
 - does not expose unrestricted `1` alignment in RTX VFX, because arbitrary unaligned sizes can corrupt the NVIDIA VFX result
 - shows `Center Crop (Fill)` / `Fit (Letterbox/Pillarbox)` when a manual, preset-ratio, or aligned keep-ratio resize can change aspect ratio
-- `Denoise` and `Deblur` keep the original size and hide resize controls
+- `Denoise` and `Deblur` keep the original size and hide resize controls, matching NVIDIA's same-size VSR modes
 - shows resize controls only when they apply to the selected effect
 - Easy Upscale outputs: `images`
 
-For beginner install notes, see [`tools/README_RTX_VFX_EASY_INSTALL.md`](tools/README_RTX_VFX_EASY_INSTALL.md).
 Latest installer BAT direct download: <https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat>
 
 ### `(Deno) LTX Sequencer`
