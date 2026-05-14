@@ -83,7 +83,8 @@ def test_rtx_vfx_installer_requires_prestartup_hook_before_success():
     assert "PRESTARTUP_SCRIPT" in install_bat
     assert "prestartup_script.py" in install_bat
     assert "DENO_RTX_VFX_runtime_path.txt" in install_bat
-    assert "Preferred NVIDIA VFX runtime path" in install_bat
+    assert "normal ComfyUI Python package path" in install_bat
+    assert "DENO ASCII runtime fallback" in install_bat
     assert "too old for RTX VFX setup" in install_bat
 
 

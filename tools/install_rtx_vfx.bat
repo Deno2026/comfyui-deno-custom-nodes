@@ -18,7 +18,8 @@ echo.
 echo This installs NVIDIA's official nvidia-vfx Python package
 echo into the Python used by this ComfyUI install.
 echo If nvidia-vfx is already installed, it will be reinstalled cleanly.
-echo It also prepares an ASCII runtime copy for NVIDIA's native VFX DLLs.
+echo It uses the normal ComfyUI Python package path when possible.
+echo If that path fails verification, it prepares an ASCII runtime fallback.
 echo.
 echo It does not ask for passwords and does not download random DLLs.
 echo Log file:
@@ -207,7 +208,20 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Preparing NVIDIA VFX runtime path...
+echo [6/6] Verifying NVIDIA VFX runtime from normal ComfyUI Python...
+"%PYTHON_EXE%" -c "import os, torch, nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('nvvfx path', nvvfx.__path__[0]); print('bundled libs', loader.get_libs_directory()); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); names=('LOW','MEDIUM','HIGH','ULTRA'); [(print('checking VSR', name), (lambda effect: (effect.close(), print('VideoSuperRes create ready', name)))(VideoSuperRes(quality=getattr(VideoSuperRes.QualityLevel, name), device=0))) for name in names]; print('Native nvvfx runtime ready')" >> "%LOG%" 2>&1
+if not errorlevel 1 (
+  type nul > "%RUNTIME_PATH_FILE%"
+  echo Native nvvfx runtime is usable.
+  echo DENO runtime override is disabled for this ComfyUI Python.
+  echo.
+  goto INSTALL_OK_NATIVE
+)
+
+echo Native nvvfx runtime failed verification.
+echo Trying DENO ASCII runtime fallback...
+echo.
+
 if exist "%RUNTIME_PATH_TMP%" del /f /q "%RUNTIME_PATH_TMP%" >nul 2>nul
 set "DENO_NVVFX_RUNTIME_ROOT=%PUBLIC%\DENO\nvvfx_runtime"
 "%PYTHON_EXE%" -c "import os, sys, shutil; from pathlib import Path; import nvvfx; root=Path(os.environ['DENO_NVVFX_RUNTIME_ROOT']); src=Path(nvvfx.__path__[0]); dest=root / ('py%%d%%d' %% sys.version_info[:2]) / 'nvidia_vfx_0_1_0_1'; package=dest / 'nvvfx'; shutil.rmtree(dest, ignore_errors=True); shutil.copytree(src, package); print(str(dest))" > "%RUNTIME_PATH_TMP%" 2>> "%LOG%"
@@ -231,8 +245,8 @@ echo Runtime path:
 echo %DENO_NVVFX_RUNTIME_PATH%
 echo.
 
-echo [6/6] Verifying NVIDIA VFX runtime...
-"%PYTHON_EXE%" -c "import os, sys; sys.path.insert(0, os.environ['DENO_NVVFX_RUNTIME_PATH']); import torch, nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; expected=os.environ['DENO_NVVFX_RUNTIME_PATH']; actual=nvvfx.__path__[0]; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('nvvfx path', actual); print('expected path', expected); print('bundled libs', loader.get_libs_directory()); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); assert os.path.normcase(os.path.abspath(actual)).startswith(os.path.normcase(os.path.abspath(expected))), 'DENO runtime path was not used during verification'; effect = VideoSuperRes(quality=VideoSuperRes.QualityLevel.LOW, device=0); effect.close(); print('VideoSuperRes create ready')" >> "%LOG%" 2>&1
+echo Verifying DENO ASCII NVIDIA VFX runtime fallback...
+"%PYTHON_EXE%" -c "import os, sys, torch; sys.path.insert(0, os.environ['DENO_NVVFX_RUNTIME_PATH']); import nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; expected=os.environ['DENO_NVVFX_RUNTIME_PATH']; actual=nvvfx.__path__[0]; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('nvvfx path', actual); print('expected path', expected); print('bundled libs', loader.get_libs_directory()); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); assert os.path.normcase(os.path.abspath(actual)).startswith(os.path.normcase(os.path.abspath(expected))), 'DENO runtime path was not used during verification'; names=('LOW','MEDIUM','HIGH','ULTRA'); [(print('checking VSR', name), (lambda effect: (effect.close(), print('VideoSuperRes create ready', name)))(VideoSuperRes(quality=getattr(VideoSuperRes.QualityLevel, name), device=0))) for name in names]; print('DENO ASCII nvvfx runtime ready')" >> "%LOG%" 2>&1
 if errorlevel 1 (
   echo [FAIL] Install finished, but NVIDIA VFX runtime is not usable on this PC.
   echo See log:
@@ -243,9 +257,12 @@ if errorlevel 1 (
   echo - this GPU does not support NVIDIA VFX Video Super Resolution
   echo - CUDA is not visible from this ComfyUI Python
   echo - the selected Python belongs to a different ComfyUI install
+  echo - NVIDIA's nvidia-vfx package cannot create VideoSuperRes on this GPU/driver combination
   pause
   exit /b 1
 )
+
+:INSTALL_OK_DENO
 
 echo [OK] NVIDIA RTX VFX is installed for this ComfyUI Python.
 echo.
@@ -257,6 +274,24 @@ echo.
 echo If a later ComfyUI error still says Loaded nvvfx path is under
 echo python_embeded\Lib\site-packages, update deno-custom-nodes from GitHub
 echo and run this BAT again from deno-custom-nodes\tools.
+echo.
+echo Then use:
+echo (Deno Test) RTX VFX Easy Upscale
+echo.
+echo Log file:
+echo %LOG%
+pause
+exit /b 0
+
+:INSTALL_OK_NATIVE
+echo [OK] NVIDIA RTX VFX is installed for this ComfyUI Python.
+echo.
+echo IMPORTANT:
+echo Restart ComfyUI completely before testing the node again.
+echo The node will load NVIDIA VFX from the normal ComfyUI Python package path.
+echo.
+echo If a later ComfyUI error mentions the DENO runtime path under
+echo C:\Users\Public\DENO, run this BAT again and restart ComfyUI.
 echo.
 echo Then use:
 echo (Deno Test) RTX VFX Easy Upscale
