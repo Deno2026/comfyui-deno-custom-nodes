@@ -92,6 +92,62 @@ def loaded_nvvfx_module_paths() -> dict[str, str]:
     return module_paths
 
 
+def loaded_process_module_paths() -> list[str]:
+    if sys.platform != "win32":
+        return []
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        hmodule = getattr(wintypes, "HMODULE", wintypes.HANDLE)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)
+        psapi.EnumProcessModulesEx.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(hmodule),
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            wintypes.DWORD,
+        ]
+        psapi.EnumProcessModulesEx.restype = wintypes.BOOL
+        psapi.GetModuleFileNameExW.argtypes = [wintypes.HANDLE, hmodule, wintypes.LPWSTR, wintypes.DWORD]
+        psapi.GetModuleFileNameExW.restype = wintypes.DWORD
+        handle = kernel32.GetCurrentProcess()
+
+        list_modules_all = 0x03
+        needed = wintypes.DWORD()
+        modules = (hmodule * 2048)()
+        if not psapi.EnumProcessModulesEx(
+            handle,
+            modules,
+            ctypes.sizeof(modules),
+            ctypes.byref(needed),
+            list_modules_all,
+        ):
+            return []
+
+        count = min(int(needed.value / ctypes.sizeof(hmodule)), len(modules))
+        paths = []
+        for module in modules[:count]:
+            buffer = ctypes.create_unicode_buffer(32768)
+            length = psapi.GetModuleFileNameExW(handle, module, buffer, len(buffer))
+            if length:
+                paths.append(buffer.value)
+        return paths
+    except Exception:
+        return []
+
+
+def loaded_broadcast_vfx_module_paths() -> list[str]:
+    broadcast_paths = []
+    for path in loaded_process_module_paths():
+        lowered = _norm_path(Path(path))
+        if "\\programdata\\nvidia\\ngx\\models\\nvbcast\\" in lowered or "\\nvbcast\\versions\\" in lowered:
+            broadcast_paths.append(path)
+    return broadcast_paths
+
+
 def _move_to_front(runtime_path: Path) -> None:
     runtime_path_text = str(runtime_path)
     runtime_key = _norm_path(runtime_path)

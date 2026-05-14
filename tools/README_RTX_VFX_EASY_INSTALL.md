@@ -99,6 +99,7 @@ Common causes:
 - the BAT could not find the ComfyUI Python
 - this PC does not have a supported NVIDIA RTX GPU
 - NVIDIA VFX installed, but `VideoSuperRes` cannot be created on this GPU/driver combination
+- another RTX node loaded NVIDIA Broadcast/NGX VFX DLLs before DENO's `VideoSuperRes` path ran
 - Windows or the NVIDIA runtime blocked the native VFX DLLs from the original install path
 - the DENO runtime path was not prepared, or ComfyUI was not restarted after running the BAT
 - another RTX node imported `nvvfx` before the DENO prestartup hook was active; update the node, run the latest BAT, and restart ComfyUI completely

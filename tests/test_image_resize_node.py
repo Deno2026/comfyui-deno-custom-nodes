@@ -290,6 +290,34 @@ def test_rtx_vfx_create_effect_error_is_user_readable():
     assert "code -2" in message
 
 
+def test_rtx_vfx_code_minus_two_reports_broadcast_runtime_conflict():
+    load_package()
+    vfx_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_easy_upscale"]
+
+    class BrokenVideoSuperRes:
+        def __init__(self, *_args, **_kwargs):
+            raise RuntimeError("NvVFX_CreateEffect failed: The requested feature is not yet implemented (code -2)")
+
+    original_loader = vfx_module.loaded_broadcast_vfx_module_paths
+    try:
+        vfx_module.loaded_broadcast_vfx_module_paths = lambda: [
+            r"C:\ProgramData\NVIDIA\NGX\models\nvbcast\versions\2309\files\170_E658703\NVVideoEffects.dll"
+        ]
+        try:
+            vfx_module._create_vfx_effect(BrokenVideoSuperRes, object(), 0, "VSR Medium")
+        except RuntimeError as exc:
+            message = str(exc)
+        else:
+            raise AssertionError("expected Broadcast conflict NVIDIA VFX runtime error")
+    finally:
+        vfx_module.loaded_broadcast_vfx_module_paths = original_loader
+
+    assert "NVIDIA Broadcast/NGX VFX DLLs" in message
+    assert "Broadcast's Upscale effect" in message
+    assert "disable the Broadcast-based RTX node" in message
+    assert "code -2" in message
+
+
 def test_rtx_vfx_runtime_marker_prefers_ascii_copy_without_reloading_native_module():
     load_package()
     runtime_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_runtime"]

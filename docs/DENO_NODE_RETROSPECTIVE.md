@@ -75,6 +75,7 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
 - Do not invent hidden model-loading semantics when the user wants wrapper convenience.
 - Downloader nodes have higher registry/security risk. Keep risky downloader behavior isolated from the main node package when needed.
 - If extra model paths exist, prefer the user's real model path over the default ComfyUI `models` folder.
+- RTX/VFX nodes can conflict at the native DLL level. If another node loads NVIDIA Broadcast/NGX VFX DLLs first, `nvidia-vfx` `VideoSuperRes` can fail with `code -2` even when a Broadcast-based RTX Upscale node still works. Detect and report this separately from install, GPU, or driver failures.
 
 ## 10. Verification Routine
 

@@ -8,6 +8,7 @@ from .deno_resolution_common import COMMON_RATIOS, RESIZE_METHODS, compute_align
 from .deno_rtx_vfx_runtime import (
     current_nvvfx_package_path,
     is_path_relative_to,
+    loaded_broadcast_vfx_module_paths,
     loaded_nvvfx_module_paths,
     prefer_rtx_vfx_runtime_path,
     read_rtx_vfx_runtime_path,
@@ -226,10 +227,15 @@ def _vfx_runtime_status_note() -> str:
     runtime_path = read_rtx_vfx_runtime_path()
     loaded_path = current_nvvfx_package_path()
     native_modules = loaded_nvvfx_module_paths()
+    broadcast_modules = loaded_broadcast_vfx_module_paths()
     runtime_text = str(runtime_path) if runtime_path is not None else "not prepared"
     loaded_text = str(loaded_path) if loaded_path is not None else "unknown"
     native_text = ", ".join(f"{name}={path}" for name, path in native_modules.items()) or "none"
-    return f" DENO runtime path: {runtime_text}. Loaded nvvfx path: {loaded_text}. Loaded native modules: {native_text}."
+    broadcast_text = "; ".join(broadcast_modules[:5]) if broadcast_modules else "none"
+    return (
+        f" DENO runtime path: {runtime_text}. Loaded nvvfx path: {loaded_text}. "
+        f"Loaded native modules: {native_text}. Loaded NVIDIA Broadcast VFX DLLs: {broadcast_text}."
+    )
 
 
 def _vfx_runtime_error_message(exc: Exception, mode: str, device_index: int) -> str:
@@ -240,6 +246,22 @@ def _vfx_runtime_error_message(exc: Exception, mode: str, device_index: int) -> 
 
     original = f"{type(exc).__name__}: {exc}"
     lowered = str(exc).lower()
+    broadcast_modules = loaded_broadcast_vfx_module_paths()
+
+    if broadcast_modules and ("not yet implemented" in lowered or "unimplemented" in lowered or "code -2" in lowered):
+        return (
+            "NVIDIA RTX VFX is installed, but VideoSuperRes could not be created because NVIDIA Broadcast/NGX VFX "
+            "DLLs are already loaded in this ComfyUI process. "
+            f"Selected mode: {mode}. Selected GPU: {gpu_name} (device {device_index}). "
+            "Another RTX/Broadcast-based node can still work because it may use NVIDIA Broadcast's Upscale effect, "
+            "but DENO's nvidia-vfx VideoSuperRes path cannot safely use that mixed native runtime. "
+            + _vfx_runtime_status_note()
+            + " Close ComfyUI, disable the Broadcast-based RTX node, then start ComfyUI again; or use that RTX node "
+            "for this workflow until DENO adds a dedicated Broadcast fallback engine. "
+            "Original NVIDIA VFX error: "
+            + original
+        )
+
     common_hint = (
         "NVIDIA RTX VFX is installed, but this PC could not create the VideoSuperRes effect. "
         f"Selected mode: {mode}. Selected GPU: {gpu_name} (device {device_index}). "
