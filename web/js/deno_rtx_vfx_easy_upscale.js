@@ -9,6 +9,7 @@ const NODE_WIDGET_SIDE_MARGIN = 30;
 const PANEL_MIN_WIDTH = MIN_EASY_WIDTH - NODE_WIDGET_SIDE_MARGIN;
 const PANEL_HEIGHT_RESIZABLE = 210;
 const PANEL_HEIGHT_SAME_SIZE = 158;
+const PANEL_BOTTOM_GAP = 10;
 
 const EFFECTS = ["VSR", "High Bitrate", "Denoise", "Deblur"];
 const QUALITIES = ["Low", "Medium", "High", "Ultra"];
@@ -148,7 +149,7 @@ function ensureEasyControlPanel(node) {
     });
     domWidget.computeSize = () => {
         ui.applySize();
-        return [Math.max(Number(node.size?.[0]) || 0, MIN_EASY_WIDTH), ui.height()];
+        return [Math.max(Number(node.size?.[0]) || 0, MIN_EASY_WIDTH), ui.height() + PANEL_BOTTOM_GAP];
     };
     node.__denoRtxVfxUi = ui;
 
@@ -184,6 +185,7 @@ function buildEasyControlPanel(node) {
         gap:10px;
         overflow:hidden;
         font:11px sans-serif;
+        margin-bottom:${PANEL_BOTTOM_GAP}px;
     `;
 
     const header = document.createElement("div");

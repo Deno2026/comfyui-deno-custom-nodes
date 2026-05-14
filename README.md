@@ -97,8 +97,8 @@ Beginner install flow:
 - add `(Deno Test) RTX VFX Easy Upscale`
 - run it once with an image
 - if NVIDIA VFX is missing, close ComfyUI
-- use the manual RTX VFX guide in `tools/README_RTX_VFX_EASY_INSTALL.md`
-- if the BAT is not included in your Manager install, download it from [GitHub](https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/tools/install_rtx_vfx.bat)
+- download the installer BAT directly: [install_rtx_vfx.bat](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat)
+- if you want the step-by-step notes, open the [RTX VFX install guide](tools/README_RTX_VFX_EASY_INSTALL.md)
 - restart ComfyUI
 - use `(Deno Test) RTX VFX Easy Upscale` again
 
@@ -126,7 +126,7 @@ Main features:
 - installer verifies that NVIDIA's `VideoSuperRes` effect can actually be created after install
 - if NVIDIA VFX reports an unsupported runtime feature, the node shows a readable GPU/driver/runtime-path message instead of a raw stack trace
 - if NVIDIA Broadcast/NGX VFX DLLs from another RTX node are already loaded, the node reports that native runtime conflict separately from GPU/driver support
-- manual installer scripts are kept out of the Comfy Registry package and remain available from the [GitHub repository](https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/tools/install_rtx_vfx.bat)
+- manual installer scripts are kept out of the Comfy Registry package and remain available as a direct [installer BAT download](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat)
 - exposes four clear effect buttons for VSR, High Bitrate, Denoise, and Deblur
 - shows a compact mode coach line that explains the selected effect in plain language
 - keeps Low, Medium, High, and Ultra quality as a separate selector
@@ -139,8 +139,8 @@ Main features:
 - shows resize controls only when they apply to the selected effect
 - Easy Upscale outputs: `images`
 
-For beginner install notes, see `tools/README_RTX_VFX_EASY_INSTALL.md`.
-Latest installer BAT: <https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/tools/install_rtx_vfx.bat>
+For beginner install notes, see [`tools/README_RTX_VFX_EASY_INSTALL.md`](tools/README_RTX_VFX_EASY_INSTALL.md).
+Latest installer BAT direct download: <https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat>
 
 ### `(Deno) LTX Sequencer`
 

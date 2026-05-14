@@ -37,12 +37,12 @@ After install, it checks whether NVIDIA's `VideoSuperRes` effect can actually be
 When ComfyUI starts, the DENO node prefers the recorded `C:\Users\Public\DENO\nvvfx_runtime` path only if the fallback marker is active. If the normal ComfyUI Python path works, DENO uses the same `nvvfx` package path as other RTX nodes.
 The node never tries to unload and reload NVIDIA's native extension inside a running ComfyUI process. If another extension already loaded `nvvfx` from a conflicting path, close every ComfyUI window/process completely and start ComfyUI again.
 
-For ComfyUI Manager / Registry installs, manual installer scripts may be excluded from the packaged install on purpose. If `install_rtx_vfx.bat` is not present in your local node folder, download the latest BAT from GitHub and place it in `ComfyUI/custom_nodes/deno-custom-nodes/tools`.
+For ComfyUI Manager / Registry installs, manual installer scripts may be excluded from the packaged install on purpose. If `install_rtx_vfx.bat` is not present in your local node folder, download the latest BAT directly and place it in `ComfyUI/custom_nodes/deno-custom-nodes/tools`.
 
-Installer page:
-<https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/tools/install_rtx_vfx.bat>
+Direct BAT download:
+<https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat>
 
-Direct raw download:
+Raw text fallback:
 <https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/tools/install_rtx_vfx.bat>
 
 The BAT intentionally refuses to continue if ComfyUI is still running with the selected Python. Close ComfyUI first, then run it again.

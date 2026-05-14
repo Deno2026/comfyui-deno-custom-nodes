@@ -212,9 +212,11 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
 
     assert "const MIN_EASY_WIDTH = 560;" in script
     assert "const PANEL_MIN_WIDTH = MIN_EASY_WIDTH - NODE_WIDGET_SIDE_MARGIN;" in script
+    assert "const PANEL_BOTTOM_GAP = 10;" in script
     assert "wrapComputeSize(node);" in script
     assert "node.__denoRtxVfxComputeWrapped" in script
     assert "root.style.width = `${width}px`;" in script
+    assert "ui.height() + PANEL_BOTTOM_GAP" in script
 
 
 def test_rtx_vfx_target_size_modes_match_visible_resize_choices():

@@ -12,6 +12,9 @@ PUBLISH_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "publish_registry.
 COMFYIGNORE_PATH = REPO_ROOT / ".comfyignore"
 PRESTARTUP_PATH = REPO_ROOT / "prestartup_script.py"
 INSTALL_BAT_PATH = REPO_ROOT / "tools" / "install_rtx_vfx.bat"
+README_PATH = REPO_ROOT / "README.md"
+RTX_INSTALL_GUIDE_PATH = REPO_ROOT / "tools" / "README_RTX_VFX_EASY_INSTALL.md"
+DIRECT_INSTALLER_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat"
 
 
 def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
@@ -86,6 +89,26 @@ def test_rtx_vfx_installer_requires_prestartup_hook_before_success():
     assert "normal ComfyUI Python package path" in install_bat
     assert "DENO ASCII runtime fallback" in install_bat
     assert "too old for RTX VFX setup" in install_bat
+    assert "Progress [" in install_bat
+    assert "Live pip output" in install_bat
+    assert "AppendAllText" in install_bat
+    assert "UTF8Encoding" in install_bat
+    assert "Tee-Object" not in install_bat
+    assert "DENO_PYTHON_OK" in install_bat
+    assert "Python 3.10+" in install_bat
+
+
+def test_rtx_vfx_docs_use_direct_installer_download_link():
+    readme = README_PATH.read_text()
+    install_guide = RTX_INSTALL_GUIDE_PATH.read_text()
+    node_source = (REPO_ROOT / "deno_rtx_vfx_easy_upscale.py").read_text()
+
+    assert DIRECT_INSTALLER_URL in readme
+    assert DIRECT_INSTALLER_URL in install_guide
+    assert DIRECT_INSTALLER_URL in node_source
+    assert "blob/main/tools/install_rtx_vfx.bat" not in readme
+    assert "blob/main/tools/install_rtx_vfx.bat" not in install_guide
+    assert "blob/main/tools/install_rtx_vfx.bat" not in node_source
 
 
 def test_prestartup_runtime_path_rejects_wrong_python_version():

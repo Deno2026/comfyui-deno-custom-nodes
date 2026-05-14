@@ -25,8 +25,11 @@ echo It does not ask for passwords and does not download random DLLs.
 echo Log file:
 echo %LOG%
 echo.
+echo Progress [--------------------] 0%% Starting.
+echo.
 
 echo [1/6] Checking DENO node startup hook...
+echo Progress [###-----------------] 15%% Checking node files.
 if not exist "%PRESTARTUP_SCRIPT%" (
   echo [FAIL] This deno-custom-nodes install is too old for RTX VFX setup.
   echo.
@@ -57,6 +60,7 @@ if errorlevel 1 (
   exit /b 1
 )
 echo Node startup hook ready.
+echo Progress [#####---------------] 25%% Node files ready.
 echo.
 
 if not "%COMFYUI_PYTHON%"=="" (
@@ -103,11 +107,46 @@ if "%PYTHON_EXE%"=="" (
 )
 
 echo [2/6] Install target:
+echo Progress [#######-------------] 35%% ComfyUI Python found.
 echo %PYTHON_SOURCE%
 echo "%PYTHON_EXE%"
 echo.
 
+echo Checking selected Python...
+set "PYTHON_CHECK=%TEMP%\deno_rtx_python_check.txt"
+if exist "%PYTHON_CHECK%" del /f /q "%PYTHON_CHECK%" >nul 2>nul
+"%PYTHON_EXE%" -c "import sys; print('DENO_PYTHON_OK', sys.version_info[0], sys.version_info[1]); raise SystemExit(0 if sys.version_info >= (3, 10) else 12)" > "%PYTHON_CHECK%" 2>> "%LOG%"
+if errorlevel 1 (
+  echo [FAIL] The selected file is not a supported Python 3.10+ executable.
+  echo.
+  echo Selected path:
+  echo "%PYTHON_EXE%"
+  echo.
+  if exist "%PYTHON_CHECK%" type "%PYTHON_CHECK%"
+  echo.
+  echo Set COMFYUI_PYTHON to the python.exe that actually launches your ComfyUI,
+  echo or run this BAT from ComfyUI\custom_nodes\deno-custom-nodes\tools.
+  pause
+  exit /b 1
+)
+findstr /C:"DENO_PYTHON_OK" "%PYTHON_CHECK%" >nul
+if errorlevel 1 (
+  echo [FAIL] The selected file did not behave like Python.
+  echo.
+  echo Selected path:
+  echo "%PYTHON_EXE%"
+  echo.
+  if exist "%PYTHON_CHECK%" type "%PYTHON_CHECK%"
+  echo.
+  echo Set COMFYUI_PYTHON to the python.exe that actually launches your ComfyUI.
+  pause
+  exit /b 1
+)
+type "%PYTHON_CHECK%"
+echo.
+
 echo [3/6] Making sure ComfyUI is closed...
+echo Progress [#########-----------] 45%% Checking running processes.
 set "RUNNING_LOG=%TEMP%\deno_rtx_running_comfyui.txt"
 if exist "%RUNNING_LOG%" del /f /q "%RUNNING_LOG%" >nul 2>nul
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $target=[System.IO.Path]::GetFullPath($env:PYTHON_EXE); $hits=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) -and ($_.CommandLine -match '(^|[\\\/])main\.py(\s|$)' -or $_.CommandLine -match 'ComfyUI') }); if ($hits.Count -gt 0) { $lines=[string[]]($hits | ForEach-Object { 'PID=' + $_.ProcessId + ' ' + $_.CommandLine }); $encoding=New-Object System.Text.UTF8Encoding($false); [System.IO.File]::WriteAllLines($env:RUNNING_LOG, $lines, $encoding); exit 2 }" >> "%LOG%" 2>&1
@@ -132,9 +171,11 @@ if errorlevel 1 (
   exit /b 1
 )
 echo OK - ComfyUI is not running with the selected Python.
+echo Progress [###########---------] 55%% ComfyUI is closed.
 echo.
 
 echo [4/6] Checking NVIDIA GPU...
+echo Progress [############--------] 60%% Checking NVIDIA GPU.
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader > "%TEMP%\deno_rtx_gpu.txt" 2>> "%LOG%"
 if errorlevel 1 (
   echo [FAIL] nvidia-smi was not found or no NVIDIA GPU is visible.
@@ -155,6 +196,7 @@ if errorlevel 1 (
 ) else (
   type "%TEMP%\deno_rtx_gpu.txt"
 )
+echo Progress [#############-------] 65%% GPU check complete.
 echo.
 
 if not "%DENO_RTX_VFX_YES%"=="1" (
@@ -182,7 +224,8 @@ if not "%DENO_RTX_VFX_YES%"=="1" (
 
 echo [5/6] Installing nvidia-vfx from NVIDIA official package index...
 echo Reinstall mode is ON. Existing nvidia-vfx files will be overwritten cleanly.
-echo This can take 1-5 minutes. The window may look still while downloading.
+echo This can take 1-5 minutes. Live pip output is shown below and saved to the log.
+echo Progress [##############------] 70%% Download and install started.
 echo.
 
 (
@@ -191,8 +234,9 @@ echo.
   echo Python: %PYTHON_EXE%
   "%PYTHON_EXE%" -V
   echo.
-  "%PYTHON_EXE%" -m pip install --upgrade %PIP_INSTALL_ARGS% --index-url https://pypi.nvidia.com nvidia-vfx
 ) > "%LOG%" 2>&1
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Continue'; $installArgs=@('-m','pip','install','--upgrade') + (($env:PIP_INSTALL_ARGS -split ' ') | Where-Object { $_ }) + @('--index-url','https://pypi.nvidia.com','nvidia-vfx'); & $env:PYTHON_EXE @installArgs 2>&1 | ForEach-Object { $line = [string]$_; Write-Host $line; [System.IO.File]::AppendAllText($env:LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false)) }; exit $LASTEXITCODE"
 
 if errorlevel 1 (
   echo [FAIL] nvidia-vfx install failed.
@@ -207,19 +251,24 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+echo Progress [################----] 80%% Package install complete.
+echo.
 
 echo [6/6] Verifying NVIDIA VFX runtime from normal ComfyUI Python...
+echo Progress [#################---] 85%% Verifying NVIDIA VFX runtime.
 "%PYTHON_EXE%" -c "import os, torch, nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('nvvfx path', nvvfx.__path__[0]); print('bundled libs', loader.get_libs_directory()); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); names=('LOW','MEDIUM','HIGH','ULTRA'); [(print('checking VSR', name), (lambda effect: (effect.close(), print('VideoSuperRes create ready', name)))(VideoSuperRes(quality=getattr(VideoSuperRes.QualityLevel, name), device=0))) for name in names]; print('Native nvvfx runtime ready')" >> "%LOG%" 2>&1
 if not errorlevel 1 (
   type nul > "%RUNTIME_PATH_FILE%"
   echo Native nvvfx runtime is usable.
   echo DENO runtime override is disabled for this ComfyUI Python.
+  echo Progress [###################-] 95%% Native runtime verified.
   echo.
   goto INSTALL_OK_NATIVE
 )
 
 echo Native nvvfx runtime failed verification.
 echo Trying DENO ASCII runtime fallback...
+echo Progress [##################--] 90%% Preparing fallback runtime.
 echo.
 
 if exist "%RUNTIME_PATH_TMP%" del /f /q "%RUNTIME_PATH_TMP%" >nul 2>nul
@@ -261,10 +310,12 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+echo Progress [###################-] 95%% Fallback runtime verified.
 
 :INSTALL_OK_DENO
 
 echo [OK] NVIDIA RTX VFX is installed for this ComfyUI Python.
+echo Progress [####################] 100%% Done.
 echo.
 echo IMPORTANT:
 echo Restart ComfyUI completely before testing the node again.
@@ -285,6 +336,7 @@ exit /b 0
 
 :INSTALL_OK_NATIVE
 echo [OK] NVIDIA RTX VFX is installed for this ComfyUI Python.
+echo Progress [####################] 100%% Done.
 echo.
 echo IMPORTANT:
 echo Restart ComfyUI completely before testing the node again.
