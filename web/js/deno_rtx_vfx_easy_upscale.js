@@ -3,13 +3,14 @@ import { app } from "../../scripts/app.js";
 const EASY_NODE_NAME = "DenoRTXVFXEasyUpscale";
 
 const MIN_EASY_WIDTH = 560;
-const MIN_EASY_HEIGHT = 340;
-const MIN_EASY_SAME_SIZE_HEIGHT = 280;
+const MIN_EASY_HEIGHT = 370;
+const MIN_EASY_SAME_SIZE_HEIGHT = 310;
 const NODE_WIDGET_SIDE_MARGIN = 30;
 const PANEL_MIN_WIDTH = MIN_EASY_WIDTH - NODE_WIDGET_SIDE_MARGIN;
-const PANEL_HEIGHT_RESIZABLE = 210;
-const PANEL_HEIGHT_SAME_SIZE = 158;
+const PANEL_HEIGHT_RESIZABLE = 240;
+const PANEL_HEIGHT_SAME_SIZE = 188;
 const PANEL_BOTTOM_GAP = 10;
+const NVIDIA_VSR_DOCS_URL = "https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html";
 
 const EFFECTS = ["VSR", "High Bitrate", "Denoise", "Deblur"];
 const QUALITIES = ["Low", "Medium", "High", "Ultra"];
@@ -195,7 +196,7 @@ function buildEasyControlPanel(node) {
     titleWrap.style.cssText = "display:flex; flex-direction:column; gap:2px; min-width:0;";
     const title = document.createElement("div");
     title.style.cssText = "font:800 14px sans-serif; color:#9dffba;";
-    title.textContent = "RTX VFX";
+    title.textContent = "RTX Video Super Resolution";
     const subtitle = document.createElement("div");
     subtitle.style.cssText = "font:10px sans-serif; color:#8fcfa4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
     subtitle.textContent = "Choose effect, quality, then resize.";
@@ -253,6 +254,39 @@ function buildEasyControlPanel(node) {
         text-overflow:ellipsis;
     `;
 
+    const docsLink = document.createElement("a");
+    docsLink.href = NVIDIA_VSR_DOCS_URL;
+    docsLink.target = "_blank";
+    docsLink.rel = "noopener noreferrer";
+    docsLink.textContent = "NVIDIA official docs: Video Super Resolution";
+    docsLink.title = NVIDIA_VSR_DOCS_URL;
+    docsLink.onclick = (event) => {
+        event.stopPropagation();
+    };
+    docsLink.style.cssText = `
+        min-height:20px;
+        box-sizing:border-box;
+        padding:4px 8px;
+        border-radius:8px;
+        border:1px solid rgba(72,255,132,0.18);
+        background:rgba(0,0,0,0.20);
+        color:#9dffba;
+        font:800 10px/1.2 sans-serif;
+        text-decoration:none;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        cursor:pointer;
+    `;
+    docsLink.onmouseenter = () => {
+        docsLink.style.borderColor = "rgba(72,255,132,0.46)";
+        docsLink.style.background = "rgba(25,70,38,0.36)";
+    };
+    docsLink.onmouseleave = () => {
+        docsLink.style.borderColor = "rgba(72,255,132,0.18)";
+        docsLink.style.background = "rgba(0,0,0,0.20)";
+    };
+
     const resizeSection = document.createElement("div");
     resizeSection.style.cssText = "display:flex; flex-direction:column; gap:7px;";
 
@@ -279,7 +313,7 @@ function buildEasyControlPanel(node) {
         setEffectAndQuality(node, getCurrentMode(node).effect, qualitySelect.value);
     };
 
-    root.append(header, effectGrid, coach, resizeSection);
+    root.append(header, effectGrid, coach, docsLink, resizeSection);
 
     const panelHeight = () => {
         const { effect } = getCurrentMode(node);
@@ -302,6 +336,7 @@ function buildEasyControlPanel(node) {
         qualitySelect,
         effectButtons,
         coach,
+        docsLink,
         resizeSection,
         resizeButtons,
         sync: () => {

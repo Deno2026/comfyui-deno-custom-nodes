@@ -175,7 +175,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXModelDownloader"] == "(Deno) Easy Model Download Helper"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
-    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno Test) RTX VFX Easy Upscale"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno) RTX Video Super Resolution"
     assert package.WEB_DIRECTORY == "./web/js"
 
 
@@ -213,6 +213,10 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "const MIN_EASY_WIDTH = 560;" in script
     assert "const PANEL_MIN_WIDTH = MIN_EASY_WIDTH - NODE_WIDGET_SIDE_MARGIN;" in script
     assert "const PANEL_BOTTOM_GAP = 10;" in script
+    assert "const NVIDIA_VSR_DOCS_URL" in script
+    assert "NVIDIA official docs: Video Super Resolution" in script
+    assert 'target = "_blank"' in script
+    assert "RTX Video Super Resolution" in script
     assert "wrapComputeSize(node);" in script
     assert "node.__denoRtxVfxComputeWrapped" in script
     assert "root.style.width = `${width}px`;" in script

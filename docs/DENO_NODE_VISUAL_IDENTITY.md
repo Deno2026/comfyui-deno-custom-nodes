@@ -99,7 +99,7 @@ Use these values as the starting point unless ComfyUI itself provides a better n
 
 ## RTX VFX Test Node Direction
 
-When revisiting `(Deno Test) RTX VFX Easy Upscale`, align it with the established DENO node identity:
+When revisiting `(Deno) RTX Video Super Resolution`, align it with the established DENO node identity:
 
 - Keep the optional NVIDIA dependency clear, but do not require a separate diagnostic node before the user can try the actual tool.
 - If setup is missing, the Easy Upscale execution error and README/install helper should tell the user what to do next.

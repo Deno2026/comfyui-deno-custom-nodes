@@ -374,7 +374,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoLTXModelDownloader": "(Deno) Easy Model Download Helper",
     "DenoLTXMultiLoraLoader": "(Deno) LTX Multi LoRA Loader",
     "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
-    "DenoRTXVFXEasyUpscale": "(Deno Test) RTX VFX Easy Upscale",
+    "DenoRTXVFXEasyUpscale": "(Deno) RTX Video Super Resolution",
 }
 
 WEB_DIRECTORY = "./web/js"

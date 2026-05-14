@@ -84,23 +84,23 @@ Main features:
 - `Match Batch Size` list mode makes `image_list` match the resized batch dimensions
 - outputs: `batch`, `image_list`, `width`, `height`, `image_count`
 
-### `(Deno Test) RTX VFX Easy Upscale`
+### `(Deno) RTX Video Super Resolution`
 
 Optional Windows/NVIDIA RTX Video Super Resolution helper node for users who want to try NVIDIA VFX inside ComfyUI without manually hunting for the right Python environment.
 
 This node is intentionally separate from the core Deno nodes. It only imports NVIDIA VFX during upscale execution, so normal Deno node installs do not require NVIDIA VFX. ComfyUI Manager installs the node pack without auto-installing NVIDIA VFX.
 
-![Deno RTX VFX Easy Upscale](docs/images/rtx-vfx-easy-upscale-node.png)
+![Deno RTX Video Super Resolution](docs/images/rtx-vfx-easy-upscale-node.png)
 
 Beginner install flow:
 
-- add `(Deno Test) RTX VFX Easy Upscale`
+- add `(Deno) RTX Video Super Resolution`
 - run it once with an image
 - if NVIDIA VFX is missing, close ComfyUI
 - download the installer BAT directly: [install_rtx_vfx.bat](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat)
 - if you want the step-by-step notes, open the [RTX VFX install guide](tools/README_RTX_VFX_EASY_INSTALL.md)
 - restart ComfyUI
-- use `(Deno Test) RTX VFX Easy Upscale` again
+- use `(Deno) RTX Video Super Resolution` again
 
 Mode guide:
 
