@@ -214,7 +214,13 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "const PANEL_MIN_WIDTH = MIN_EASY_WIDTH - NODE_WIDGET_SIDE_MARGIN;" in script
     assert "const PANEL_BOTTOM_GAP = 10;" in script
     assert "const NVIDIA_VSR_DOCS_URL" in script
-    assert "NVIDIA official docs: Video Super Resolution" in script
+    assert 'VSR: "Video SR"' in script
+    assert "Video Super Resolution | Low-res/compressed -> larger, cleaner, sharper" not in script
+    assert "Low-res/compressed -> larger, cleaner, sharper" in script
+    assert "Clean source -> crisp detail-preserving upscale" in script
+    assert "Noise/grain -> smoother, cleaner same-size image" in script
+    assert "Soft/blurred -> clearer, sharper same-size image" in script
+    assert "Link : NVIDIA official docs: Video Super Resolution" in script
     assert 'target = "_blank"' in script
     assert "RTX Video Super Resolution" in script
     assert "wrapComputeSize(node);" in script

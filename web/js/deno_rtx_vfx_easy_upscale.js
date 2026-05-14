@@ -13,6 +13,12 @@ const PANEL_BOTTOM_GAP = 10;
 const NVIDIA_VSR_DOCS_URL = "https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html";
 
 const EFFECTS = ["VSR", "High Bitrate", "Denoise", "Deblur"];
+const EFFECT_LABELS = {
+    VSR: "Video SR",
+    "High Bitrate": "High Bitrate",
+    Denoise: "Denoise",
+    Deblur: "Deblur",
+};
 const QUALITIES = ["Low", "Medium", "High", "Ultra"];
 const SAME_SIZE_EFFECTS = new Set(["Denoise", "Deblur"]);
 const RESIZE_TYPES = ["Keep Ratio", "Manual", "Preset Ratio", "Same Size"];
@@ -68,10 +74,16 @@ const EFFECT_COPY = {
     Deblur: "Same-size enhancement for soft or blurred images.",
 };
 const MODE_COACH = {
-    VSR: "Low-res or compressed source -> larger image",
-    "High Bitrate": "Clean source -> sharper upscale",
-    Denoise: "Noisy or grainy image -> same-size cleanup",
-    Deblur: "Soft or blurry image -> same-size fix",
+    VSR: "Low-res/compressed -> larger, cleaner, sharper",
+    "High Bitrate": "Clean source -> crisp detail-preserving upscale",
+    Denoise: "Noise/grain -> smoother, cleaner same-size image",
+    Deblur: "Soft/blurred -> clearer, sharper same-size image",
+};
+const MODE_COACH_LABELS = {
+    VSR: "Video Super Resolution",
+    "High Bitrate": "High Bitrate",
+    Denoise: "Denoise",
+    Deblur: "Deblur",
 };
 
 app.registerExtension({
@@ -231,7 +243,7 @@ function buildEasyControlPanel(node) {
 
     const effectButtons = new Map();
     for (const effect of EFFECTS) {
-        const button = createPillButton(effect, EFFECT_COPY[effect], 30, 10);
+        const button = createPillButton(EFFECT_LABELS[effect] || effect, EFFECT_COPY[effect], 30, 10);
         button.onclick = () => {
             setEffectAndQuality(node, effect, getCurrentMode(node).quality);
         };
@@ -258,7 +270,7 @@ function buildEasyControlPanel(node) {
     docsLink.href = NVIDIA_VSR_DOCS_URL;
     docsLink.target = "_blank";
     docsLink.rel = "noopener noreferrer";
-    docsLink.textContent = "NVIDIA official docs: Video Super Resolution";
+    docsLink.textContent = "Link : NVIDIA official docs: Video Super Resolution";
     docsLink.title = NVIDIA_VSR_DOCS_URL;
     docsLink.onclick = (event) => {
         event.stopPropagation();
@@ -353,7 +365,8 @@ function buildEasyControlPanel(node) {
                 setButtonSelected(button, buttonResizeType === resizeType);
             }
 
-            coach.innerHTML = `<strong>${effect}</strong><span> | ${MODE_COACH[effect] || EFFECT_COPY[effect] || ""}</span>`;
+            const coachLabel = MODE_COACH_LABELS[effect] || effect;
+            coach.innerHTML = `<strong>${coachLabel}</strong><span> | ${MODE_COACH[effect] || EFFECT_COPY[effect] || ""}</span>`;
             resizeSection.style.display = sameSizeOnly ? "none" : "flex";
             applySize();
         },
