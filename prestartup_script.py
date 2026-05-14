@@ -54,7 +54,6 @@ def _prefer_runtime_path(package_dir: Optional[Path] = None) -> Optional[Path]:
     runtime_key = _norm_path(runtime_path)
     sys.path[:] = [entry for entry in sys.path if _norm_path(Path(entry or os.curdir)) != runtime_key]
     sys.path.insert(0, runtime_path_text)
-    os.environ["DENO_NVVFX_RUNTIME_PATH"] = runtime_path_text
     print(f"[DENO RTX VFX] Preferred NVIDIA VFX runtime path: {runtime_path_text}")
     return runtime_path
 

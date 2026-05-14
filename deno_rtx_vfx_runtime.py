@@ -107,5 +107,4 @@ def prefer_rtx_vfx_runtime_path(
         return None
 
     _move_to_front(runtime_path)
-    os.environ["DENO_NVVFX_RUNTIME_PATH"] = str(runtime_path)
     return runtime_path

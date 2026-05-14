@@ -46,7 +46,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-findstr /C:"DENO_NVVFX_RUNTIME_PATH" "%PRESTARTUP_SCRIPT%" >nul
+findstr /C:"Preferred NVIDIA VFX runtime path" "%PRESTARTUP_SCRIPT%" >nul
 if errorlevel 1 (
   echo [FAIL] This deno-custom-nodes startup hook is not the RTX VFX aware version.
   echo.

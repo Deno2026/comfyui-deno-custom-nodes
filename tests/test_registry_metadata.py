@@ -1,6 +1,5 @@
 from pathlib import Path
 import importlib.util
-import os
 import tomllib
 import re
 import sys
@@ -65,13 +64,16 @@ def test_registry_package_excludes_manual_installers_and_local_harnesses():
 def test_prestartup_script_prefers_rtx_runtime_without_importing_nvvfx():
     comfyignore = COMFYIGNORE_PATH.read_text()
     prestartup = PRESTARTUP_PATH.read_text()
+    runtime_helper = (REPO_ROOT / "deno_rtx_vfx_runtime.py").read_text()
 
     assert PRESTARTUP_PATH.exists()
     assert "prestartup_script.py" not in comfyignore
     assert "import nvvfx" not in prestartup
     assert "del sys.modules" not in prestartup
+    assert "os.environ[" not in prestartup
+    assert "os.environ[" not in runtime_helper
     assert "DENO_RTX_VFX_runtime_path.txt" in prestartup
-    assert "DENO_NVVFX_RUNTIME_PATH" in prestartup
+    assert "Preferred NVIDIA VFX runtime path" in prestartup
     assert "_runtime_path_matches_current_python" in prestartup
 
 
@@ -81,7 +83,7 @@ def test_rtx_vfx_installer_requires_prestartup_hook_before_success():
     assert "PRESTARTUP_SCRIPT" in install_bat
     assert "prestartup_script.py" in install_bat
     assert "DENO_RTX_VFX_runtime_path.txt" in install_bat
-    assert "DENO_NVVFX_RUNTIME_PATH" in install_bat
+    assert "Preferred NVIDIA VFX runtime path" in install_bat
     assert "too old for RTX VFX setup" in install_bat
 
 
@@ -131,18 +133,12 @@ def test_prestartup_runtime_path_is_preferred_before_existing_paths():
         marker.write_text(str(runtime), encoding="utf-8")
 
         old_sys_path = list(sys.path)
-        old_env = os.environ.get("DENO_NVVFX_RUNTIME_PATH")
         try:
             sys.path[:] = [str(other_site_packages), str(runtime), *old_sys_path]
 
             assert module._prefer_runtime_path(package_dir) == runtime
             assert sys.path[0] == str(runtime)
             assert sys.path.count(str(runtime)) == 1
-            assert os.environ["DENO_NVVFX_RUNTIME_PATH"] == str(runtime)
             assert "nvvfx" not in sys.modules
         finally:
             sys.path[:] = old_sys_path
-            if old_env is None:
-                os.environ.pop("DENO_NVVFX_RUNTIME_PATH", None)
-            else:
-                os.environ["DENO_NVVFX_RUNTIME_PATH"] = old_env
