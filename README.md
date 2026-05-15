@@ -84,6 +84,19 @@ Main features:
 - `Match Batch Size` list mode makes `image_list` match the resized batch dimensions
 - outputs: `batch`, `image_list`, `width`, `height`, `image_count`
 
+### `(Deno) Image Compare`
+
+Visual A/B comparison node for quickly checking two images on the ComfyUI canvas.
+
+Main features:
+
+- compares `image_a` and `image_b` directly inside the node
+- modes: `Slider`, `Side by Side`, `Difference`, and `Toggle`
+- hover-move slider interaction for fast before/after inspection
+- visible A/B labels and a `Swap` button for checking either direction
+- resizes the internal preview area with the node so portrait and landscape images stay readable
+- visual-only node with no output socket, keeping the graph cleaner when the comparison is just for inspection
+
 ### `(Deno) RTX Video Super Resolution`
 
 Optional Windows/NVIDIA RTX Video Super Resolution helper node for users who want to try NVIDIA VFX inside ComfyUI without manually hunting for the right Python environment.

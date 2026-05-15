@@ -112,7 +112,8 @@ try {
     "DenoResolutionSetup",
     "DenoMultiImageLoader",
     "DenoAdvancedImageSourceLoader",
-    "DenoRTXVFXEasyUpscale"
+    "DenoRTXVFXEasyUpscale",
+    "DenoImageCompare"
   )
   foreach ($node in $requiredNodes) {
     Invoke-RestMethod -Uri "$url/object_info/$node" -TimeoutSec 10 | Out-Null

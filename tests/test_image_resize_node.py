@@ -86,9 +86,24 @@ def install_comfyui_dependency_stubs():
             def load_clip(self, clip_name1, clip_name2, clip_type, device="default"):
                 return ("clip",)
 
+        class PreviewImage:
+            OUTPUT_NODE = True
+
+            def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+                return {
+                    "ui": {
+                        "images": [{
+                            "filename": f"{filename_prefix}00001_.png",
+                            "subfolder": "",
+                            "type": "temp",
+                        }]
+                    }
+                }
+
         nodes_stub.CheckpointLoaderSimple = CheckpointLoaderSimple
         nodes_stub.UNETLoader = UNETLoader
         nodes_stub.DualCLIPLoader = DualCLIPLoader
+        nodes_stub.PreviewImage = PreviewImage
         nodes_stub.NODE_CLASS_MAPPINGS = {}
         sys.modules["nodes"] = nodes_stub
 
@@ -166,6 +181,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
         "DenoRTXVFXEasyUpscale",
+        "DenoImageCompare",
     ]
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
@@ -176,6 +192,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno) RTX Video Super Resolution"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoImageCompare"] == "(Deno) Image Compare"
     assert package.WEB_DIRECTORY == "./web/js"
 
 
@@ -227,6 +244,168 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "node.__denoRtxVfxComputeWrapped" in script
     assert "root.style.width = `${width}px`;" in script
     assert "ui.height() + PANEL_BOTTOM_GAP" in script
+
+
+def test_deno_image_compare_contract_and_frontend_copy():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoImageCompare"]
+    inputs = node_cls.INPUT_TYPES()
+
+    assert list(inputs["required"].keys()) == ["mode", "split_position", "toggle_image", "swap"]
+    assert inputs["required"]["mode"][0] == ["Slider", "Side by Side", "Difference", "Toggle"]
+    assert inputs["required"]["mode"][1]["default"] == "Slider"
+    assert inputs["required"]["split_position"][1]["default"] == 0.5
+    assert inputs["required"]["toggle_image"][0] == ["A", "B"]
+    assert inputs["required"]["toggle_image"][1]["default"] == "B"
+    assert inputs["required"]["swap"][1]["default"] is False
+    assert list(inputs["optional"].keys()) == ["image_a", "image_b"]
+    assert node_cls.RETURN_TYPES == ()
+    assert node_cls.RETURN_NAMES == ()
+    assert node_cls.FUNCTION == "compare_images"
+    assert node_cls.CATEGORY == "Deno/Image"
+    assert node_cls.OUTPUT_NODE is True
+
+    script = (REPO_ROOT / "web" / "js" / "deno_image_compare.js").read_text(encoding="utf-8")
+    assert 'const NODE_NAME = "DenoImageCompare";' in script
+    assert "removeCompareOutputs(node);" in script
+    assert "ensureSaveImageOutput" not in script
+    assert 'name: "save_image"' not in script
+    assert '"Slider", "Side by Side", "Difference", "Toggle"' in script
+    assert '"Swap"' in script
+    assert '"A"' in script
+    assert '"B"' in script
+    assert "normalizeBoolean" in script
+    assert 'const WIDGET_NAME = "deno_image_compare_canvas";' in script
+    assert "const DEFAULT_NODE_HEIGHT = 520;" in script
+    assert "const IMAGE_NODE_MIN_HEIGHT = 520;" in script
+    assert "const PREVIEW_MIN_HEIGHT = 300;" in script
+    assert "const PREVIEW_MAX_HEIGHT = 760;" in script
+    assert "const NODE_VERTICAL_CHROME = 110;" in script
+    assert "node.addCustomWidget(widget);" in script
+    assert 'widget?.name !== WIDGET_NAME && widget?.name !== "deno_image_compare_panel"' in script
+    assert "removeExistingCompareWidgets(node);" in script
+    assert "serializeValue()" in script
+    assert "return this._value;" in script
+    assert "hydratePreviewFromWidgetValue" in script
+    assert "getWidgetHeightFromNode" in script
+    assert "normalizeImageDescriptor" in script
+    assert "descriptor: item.descriptor" in script
+    assert "nodeHeight - y - 12" in script
+    assert "nodeType.prototype.onMouseMove" in script
+    assert "updateSliderFromPointer" in script
+    assert 'event.type === "pointermove" || event.type === "mousemove"' in script
+    assert 'event.type === "pointerdown" || event.type === "mousedown" || event.type === "click"' in script
+    assert 'isMoveEvent && mode === "Slider"' in script
+    assert "drawFitImage" in script
+    assert "drawBadgeAtBounds" in script
+    assert "aLabel: \"B\", bLabel: \"A\"" in script
+    assert "drawCoverImage" not in script
+    assert "drawContainedImage" not in script
+    assert "drawLowZoomFallback" in script
+    assert "getCanvasScale" in script
+    assert "resizeNodeToImage(node);" in script
+    assert "ctx.lineWidth = 1;" in script
+    assert "ctx.arc(centerX, centerY, 9" in script
+    assert 'ctx.textBaseline = "middle";' in script
+    assert "addDOMWidget" not in script
+    assert "forwardWheelToCanvas" not in script
+    assert "object-fit:cover;" not in script
+    assert "draggingSlider" not in script
+    assert "height:230px;" not in script
+    assert "for SaveImage" not in script
+    assert "save the selected view" not in script
+    assert "Compare A and B with live visual modes." in script
+
+
+def test_deno_image_compare_runtime_semantics_when_torch_available():
+    saved_torch_modules = {name: sys.modules.get(name) for name in ("torch", "torch.nn", "torch.nn.functional")}
+    for name in saved_torch_modules:
+        sys.modules.pop(name, None)
+
+    try:
+        import torch
+    except ImportError:
+        for name, module in saved_torch_modules.items():
+            if module is not None:
+                sys.modules[name] = module
+        return
+
+    if not hasattr(torch, "zeros"):
+        return
+
+    nodes_previous = sys.modules.get("nodes")
+    nodes_stub = types.ModuleType("nodes")
+
+    class PreviewImage:
+        OUTPUT_NODE = True
+
+        def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+            return {
+                "ui": {
+                    "images": [{
+                        "filename": f"{filename_prefix}00001_.png",
+                        "subfolder": "",
+                        "type": "temp",
+                    }]
+                }
+            }
+
+    nodes_stub.PreviewImage = PreviewImage
+    sys.modules["nodes"] = nodes_stub
+
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "deno_image_compare_runtime", REPO_ROOT / "deno_image_compare.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        node = module.DenoImageCompare()
+        image_a = torch.zeros((1, 8, 8, 3), dtype=torch.float32)
+        image_b = torch.ones((1, 4, 4, 3), dtype=torch.float32) * 0.7
+
+        slider = node.compare_images("Slider", 0.5, "B", "false", image_a=image_a, image_b=image_b)
+        assert "result" not in slider
+        assert slider["ui"]["a_images"][0]["filename"] == "deno.compare.a.00001_.png"
+        assert slider["ui"]["b_images"][0]["filename"] == "deno.compare.b.00001_.png"
+        assert slider["ui"]["compare_meta"][0]["mode"] == "Slider"
+        assert slider["ui"]["compare_meta"][0]["split_position"] == 0.5
+        assert slider["ui"]["compare_meta"][0]["toggle_image"] == "B"
+        assert slider["ui"]["compare_meta"][0]["swap"] is False
+        assert slider["ui"]["compare_meta"][0]["a_width"] == 8
+        assert slider["ui"]["compare_meta"][0]["a_height"] == 8
+        assert slider["ui"]["compare_meta"][0]["b_width"] == 4
+        assert slider["ui"]["compare_meta"][0]["b_height"] == 4
+
+        toggled = node.compare_images("Toggle", 0.5, "A", False, image_a=image_a, image_b=image_b)
+        assert toggled["ui"]["compare_meta"][0]["mode"] == "Toggle"
+        assert toggled["ui"]["compare_meta"][0]["toggle_image"] == "A"
+
+        difference = node.compare_images("Difference", 0.5, "B", False, image_a=image_a, image_b=image_b)
+        assert difference["ui"]["compare_meta"][0]["mode"] == "Difference"
+
+        side_by_side = node.compare_images("Side by Side", 0.5, "B", False, image_a=image_a, image_b=image_b)
+        assert side_by_side["ui"]["compare_meta"][0]["mode"] == "Side by Side"
+
+        swapped = node.compare_images("Slider", 0.5, "B", True, image_a=image_a, image_b=image_b)
+        assert swapped["ui"]["compare_meta"][0]["swap"] is True
+        assert swapped["ui"]["compare_meta"][0]["a_width"] == 8
+        assert swapped["ui"]["compare_meta"][0]["b_width"] == 4
+
+        normalized = node.compare_images("Bad Mode", "bad", "Z", "yes", image_a=None, image_b=None)
+        assert normalized["ui"]["a_images"] == []
+        assert normalized["ui"]["b_images"] == []
+        assert normalized["ui"]["compare_meta"][0]["mode"] == "Slider"
+        assert normalized["ui"]["compare_meta"][0]["split_position"] == 0.5
+        assert normalized["ui"]["compare_meta"][0]["toggle_image"] == "B"
+        assert normalized["ui"]["compare_meta"][0]["swap"] is True
+        assert normalized["ui"]["compare_meta"][0]["a_width"] == 0
+        assert normalized["ui"]["compare_meta"][0]["b_width"] == 0
+    finally:
+        if nodes_previous is None:
+            sys.modules.pop("nodes", None)
+        else:
+            sys.modules["nodes"] = nodes_previous
 
 
 def test_rtx_vfx_target_size_modes_match_visible_resize_choices():
