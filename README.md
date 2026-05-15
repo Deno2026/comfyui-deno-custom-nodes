@@ -88,6 +88,8 @@ Main features:
 
 Visual A/B comparison node for quickly checking two images on the ComfyUI canvas.
 
+![Deno Image Compare](docs/images/image-compare.jpg)
+
 Main features:
 
 - compares `image_a` and `image_b` directly inside the node
