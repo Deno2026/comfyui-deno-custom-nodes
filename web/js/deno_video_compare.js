@@ -315,8 +315,10 @@ function buildDom(node) {
     hideOnZoom: false,
     getMinHeight: () => 360,
   });
-  widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W),
-                               Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90, 320)];
+  // Fixed height — NOT node.size[1] (self-reference grows the node every
+  // layout pass; harmless when a video sets s.ar because fitNode then
+  // governs height, but with no video fitNode is a no-op -> runaway).
+  widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W), 360];
   node.__dvcWidget = widget;
 
   wireInteractions(node, dom, {
@@ -611,8 +613,10 @@ function wireInteractions(node, d, btns) {
   stage.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
     e.stopPropagation();
+    const firstGesture = !s.gestured;
     markGesture(node);
-    s.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+    s.down = { x: e.clientX, y: e.clientY, t: performance.now(),
+               moved: false, unlock: firstGesture };
     if (s.mode === "Slider" && s.zoom === 1) {
       s.draggingSplit = true; s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split));
@@ -646,14 +650,26 @@ function wireInteractions(node, d, btns) {
     stage.classList.remove("grabbing");
     if (!(e && e.type === "pointerup" && dn && !dn.moved &&
       (performance.now() - dn.t) < 350 && (s.haveA || s.haveB))) return;
+    if (dn.unlock) return;          // first click only unlocks audio
     if (s.mode === "Toggle") {
       s.tgl = s.tgl === "A" ? "B" : "A"; applyTgl(node);
     } else togglePlay(node);
   };
   stage.addEventListener("pointerup", endPtr);
   stage.addEventListener("pointercancel", endPtr);
-  // Wheel over the node is intentionally NOT handled here: let it pass
-  // through so ComfyUI's canvas zoom takes priority (user request).
+  // Forward wheel to ComfyUI's canvas so it owns zoom over the node
+  // (the DOM overlay would otherwise swallow it; removing the listener
+  // is not enough because the canvas is a separate element).
+  stage.addEventListener("wheel", (e) => {
+    const cv = app.canvas && app.canvas.canvas;
+    if (!cv) return;
+    e.preventDefault();
+    cv.dispatchEvent(new WheelEvent("wheel", {
+      deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode,
+      clientX: e.clientX, clientY: e.clientY,
+      bubbles: true, cancelable: true,
+    }));
+  }, { passive: false });
 
   d.scrub.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
