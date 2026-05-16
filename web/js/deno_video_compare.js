@@ -71,13 +71,20 @@ const CSS = `
 .dvc .badge{position:absolute;z-index:6;top:10px;width:22px;height:22px;
   border-radius:50%;background:#117638;border:1.5px solid #bfffd0;
   color:#effff4;font-weight:900;font-size:11px;display:flex;
-  align-items:center;justify-content:center;pointer-events:none}
+  align-items:center;justify-content:center;line-height:1;
+  text-align:center;pointer-events:none}
 .dvc .bA{left:10px}.dvc .bB{right:10px}
 .dvc.m-tgl .bA,.dvc.m-tgl .bB{display:none}
+.dvc .sinfo{position:absolute;z-index:6;top:13px;font-size:10px;
+  font-weight:800;color:#9dffba;background:rgba(7,16,11,.72);
+  padding:3px 8px;border-radius:8px;pointer-events:none;white-space:nowrap}
+.dvc .sinfo.a{left:40px}
+.dvc .sinfo.b{right:40px}
+.dvc.m-tgl .sinfo{display:none}
 .dvc .tgl{display:none;position:absolute;z-index:6;top:10px;left:50%;
   transform:translateX(-50%);padding:5px 16px;border-radius:999px;
   background:rgba(7,16,11,.9);border:1.5px solid #48ff84;color:#48ff84;
-  font-weight:900;font-size:13px}
+  font-weight:900;font-size:13px;line-height:1}
 .dvc.m-tgl .tgl{display:block}
 .dvc .hint{position:absolute;inset:0;display:flex;align-items:center;
   justify-content:center;color:#7fb893;font-size:13px;text-align:center;
@@ -265,7 +272,9 @@ function buildDom(node) {
   const badgeB = el("div", "badge bB", "B");
   const tglBadge = el("div", "tgl", st.tgl);
   const hint = el("div", "hint", "Run the workflow to preview");
-  stage.append(badgeA, badgeB, tglBadge, hint);
+  const sinfoA = el("div", "sinfo a", "");
+  const sinfoB = el("div", "sinfo b", "");
+  stage.append(badgeA, badgeB, tglBadge, sinfoA, sinfoB, hint);
   const pop = el("div", "pop",
     `<b>(Deno) Video Compare</b><br>그래프 마지막 출력 옆에 붙여 비포/애프터를 ` +
     `같은 타임라인으로 동기 재생합니다. 입력을 압축 프리뷰 클립으로 인코딩하므로 ` +
@@ -305,8 +314,8 @@ function buildDom(node) {
 
   const dom = {
     root, stage, frame, vidA, vidB, divider, badgeA, badgeB, tglBadge,
-    hint, fill, head, scrub, time, meta, playBtn, loopBtn, spdBtn,
-    zl, modeBtns, audN, audA, audB,
+    sinfoA, sinfoB, hint, fill, head, scrub, time, meta, playBtn,
+    loopBtn, spdBtn, zl, modeBtns, audN, audA, audB,
   };
   st.dom = dom;
 
@@ -561,9 +570,12 @@ function handleExecuted(node, output) {
 
   const aAud = meta.a_has_audio ? "🔊" : "—";
   const bAud = meta.b_has_audio ? "🔊" : "—";
-  d.meta.innerHTML =
-    (meta.a_count ? `<span title="A audio: ${meta.a_audio || "?"}"><b>A</b> ${meta.a_width}×${meta.a_height} · ${meta.a_count}f · ${aAud}</span>` : "") +
-    (meta.b_count ? `<span title="B audio: ${meta.b_audio || "?"}"><b>B</b> ${meta.b_width}×${meta.b_height} · ${meta.b_count}f · ${bAud}</span>` : "");
+  // per-side info grouped at the top corners next to the A/B badges
+  d.sinfoA.textContent = meta.a_count
+    ? `${meta.a_width}×${meta.a_height} · ${meta.a_count}f · ${aAud}` : "";
+  d.sinfoB.textContent = meta.b_count
+    ? `${meta.b_width}×${meta.b_height} · ${meta.b_count}f · ${bAud}` : "";
+  if (d.meta) d.meta.innerHTML = "";
   d.audA.title = "A 사운드 (" + (meta.a_audio || "?") + ")";
   d.audB.title = "B 사운드 (" + (meta.b_audio || "?") + ")";
 
@@ -670,24 +682,25 @@ function wireInteractions(node, d, btns) {
       bubbles: true, cancelable: true,
     }));
   }, { passive: false });
-  // Middle-button (wheel click) drag -> forward to ComfyUI canvas so the
-  // canvas pans, like the wheel zoom does. Capture phase so it pre-empts
+  // Middle-button (wheel click) drag -> pan the ComfyUI canvas directly
+  // via its DragAndScale offset (synthetic events don't drive LiteGraph
+  // reliably; this is version-robust). Capture phase so it pre-empts
   // the stage handler's stopPropagation.
   d.root.addEventListener("pointerdown", (e) => {
     if (e.button !== 1) return;
     e.preventDefault(); e.stopPropagation();
-    const cv = app.canvas && app.canvas.canvas;
-    if (!cv) return;
-    const mk = (type, ev) => cv.dispatchEvent(new PointerEvent(type, {
-      pointerId: ev.pointerId, pointerType: ev.pointerType || "mouse",
-      button: 1, buttons: ev.buttons,
-      clientX: ev.clientX, clientY: ev.clientY,
-      bubbles: true, cancelable: true,
-    }));
-    mk("pointerdown", e);
-    const mv = (ev) => mk("pointermove", ev);
-    const up = (ev) => {
-      mk("pointerup", ev);
+    const cv = app.canvas;
+    if (!cv || !cv.ds || !cv.ds.offset) return;
+    let lx = e.clientX, ly = e.clientY;
+    const mv = (ev) => {
+      const sc = cv.ds.scale || 1;
+      cv.ds.offset[0] += (ev.clientX - lx) / sc;
+      cv.ds.offset[1] += (ev.clientY - ly) / sc;
+      lx = ev.clientX; ly = ev.clientY;
+      (cv.setDirty ? cv.setDirty(true, true)
+        : app.graph?.setDirtyCanvas(true, true));
+    };
+    const up = () => {
       window.removeEventListener("pointermove", mv, true);
       window.removeEventListener("pointerup", up, true);
     };
