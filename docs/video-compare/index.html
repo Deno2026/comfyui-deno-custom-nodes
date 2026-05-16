@@ -239,10 +239,10 @@
   <div class="slots">
     <div class="slot" id="slotA"><b>A</b><span class="name">Load video…</span>
       <button data-pick="A">choose</button>
-      <button class="clr" data-clear="A" title="A 제거">✕</button></div>
+      <button class="clr" data-clear="A" title="Remove A">✕</button></div>
     <div class="slot" id="slotB"><b>B</b><span class="name">Load video…</span>
       <button data-pick="B">choose</button>
-      <button class="clr" data-clear="B" title="B 제거">✕</button></div>
+      <button class="clr" data-clear="B" title="Remove B">✕</button></div>
   </div>
   <button class="btn" id="swapBtn" title="Swap A/B (S)">⇄ Swap</button>
   <div class="modes">
@@ -252,7 +252,7 @@
     <button class="btn mode" data-mode="tgl">Toggle</button>
   </div>
   <a class="yt" href="https://www.youtube.com/@Denoise-AI" target="_blank"
-     rel="noopener noreferrer" title="Denoise AI · YouTube 채널">
+     rel="noopener noreferrer" title="Denoise AI · YouTube channel">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path fill="#ff3b3b" d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12 31 31 0 0 0 1 16.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6A3 3 0 0 0 23 16.8 31 31 0 0 0 23.5 12 31 31 0 0 0 23 7.2Z"/>
       <path fill="#050906" d="M9.8 15.3V8.7L15.5 12Z"/>
@@ -274,36 +274,36 @@
     <div class="dz" id="dz">
       <div class="dz-half" data-pick="A">
         <div class="in"><span class="big">A</span>
-          <span class="sub">영상 A · 왼쪽</span>
-          <span class="tip">드롭 / 클릭</span></div>
+          <span class="sub">Video A · left</span>
+          <span class="tip">drop / click</span></div>
       </div>
       <div class="dz-half" data-pick="B">
         <div class="in"><span class="big">B</span>
-          <span class="sub">영상 B · 오른쪽</span>
-          <span class="tip">하나 더 넣어야 비교됩니다</span></div>
+          <span class="sub">Video B · right</span>
+          <span class="tip">add one more to compare</span></div>
       </div>
     </div>
 
     <div class="hint" id="hint">
       <h2>Video Compare</h2>
-      <p>두 영상을 넣으면 같은 타임라인으로 동기 재생됩니다. 업스케일·보간 결과 비교에 최적. 파일은 브라우저에서만 열리며 어디로도 업로드되지 않습니다.</p>
+      <p>Drop two videos to play them back on one synced timeline. Ideal for comparing upscale / interpolation results. Files open only in your browser and are never uploaded anywhere.</p>
       <p style="font-size:14px;color:var(--txt-strong);line-height:1.9">
-        화면 <b style="color:var(--accent)">왼쪽 절반 전체 = A</b> ·
-        <b style="color:var(--accent)">오른쪽 절반 전체 = B</b><br>
-        그 영역 아무 데나 드래그&드롭 하거나 클릭하세요</p>
-      <p style="font-size:12px">단축키: <kbd>?</kbd> 도움말 · <kbd>Space</kbd> 재생 · <kbd>←/→</kbd> 탐색 · 휠 확대</p>
+        <b style="color:var(--accent)">Left half = A</b> ·
+        <b style="color:var(--accent)">Right half = B</b><br>
+        Drag &amp; drop anywhere on that side, or click it</p>
+      <p style="font-size:12px">Shortcuts: <kbd>?</kbd> help · <kbd>Space</kbd> play · <kbd>←/→</kbd> seek · wheel zoom</p>
     </div>
 
     <div class="help" id="help">
-      <h3>단축키</h3>
-      <kbd>Space</kbd> 재생/정지 · <kbd>K</kbd> 동일<br>
-      <kbd>←</kbd><kbd>→</kbd> 1프레임 · <kbd>Shift</kbd>+ 1초<br>
-      <kbd>,</kbd><kbd>.</kbd> 프레임 스텝(정지 중)<br>
-      <kbd>M</kbd> 모드 순환 · <kbd>S</kbd> A/B 교체<br>
-      <kbd>L</kbd> 루프 · <kbd>0–9</kbd> 위치 점프<br>
-      <kbd>F</kbd> 전체화면 · <kbd>R</kbd> 줌 리셋<br>
-      <kbd>휠</kbd> 확대 · 드래그 이동(줌 시)<br>
-      <kbd>?</kbd> 이 도움말
+      <h3>Shortcuts</h3>
+      <kbd>Space</kbd> play/pause · <kbd>K</kbd> same<br>
+      <kbd>←</kbd><kbd>→</kbd> 1 frame · <kbd>Shift</kbd>+ 1 sec<br>
+      <kbd>,</kbd><kbd>.</kbd> frame step (while paused)<br>
+      <kbd>M</kbd> cycle mode · <kbd>S</kbd> swap A/B<br>
+      <kbd>L</kbd> loop · <kbd>0–9</kbd> jump to position<br>
+      <kbd>F</kbd> fullscreen · <kbd>R</kbd> reset zoom<br>
+      <kbd>wheel</kbd> zoom · drag to pan (when zoomed)<br>
+      <kbd>?</kbd> this help
     </div>
     <div class="toast" id="toast"></div>
   </div>
@@ -374,7 +374,7 @@
     if(!file) return;
     if(file.type && !file.type.startsWith("video/") &&
        !/\.(mp4|webm|mov|mkv|m4v|ogv)$/i.test(file.name)){
-      toast("영상 파일이 아닙니다: "+file.name); return;
+      toast("Not a video file: "+file.name); return;
     }
     const v = which==="A" ? vidA : vidB;
     if(v.src) URL.revokeObjectURL(v.src);
@@ -423,7 +423,7 @@
     slot.querySelector(".name").textContent="Load video…";
     S.time=0; S._down=null; S._starting=false;
     refreshDropState(); updateMeta(); applyAudio(); render();
-    toast(which+" 제거됨");
+    toast(which+" removed");
   }
   function applyAudio(){
     vidA.muted = !(S.haveA && S.audio==="A");
@@ -580,7 +580,7 @@
     // auto enable ratio sync if durations differ noticeably
     if(S.haveA && S.haveB && Math.abs(S.durA-S.durB)>0.25 && !S._ratioPrompted){
       S._ratioPrompted=true;
-      toast("길이가 다릅니다 — 'Sync: Ratio' 권장");
+      toast("Different lengths — 'Sync: Ratio' recommended");
     }
   }
   function fmt(s){
@@ -743,7 +743,7 @@
   };
   function setAudio(which){
     S.audio=which; applyAudio();
-    toast(which==="none"?"음소거":(which+" 사운드만"));
+    toast(which==="none"?"Muted":(which+" audio only"));
   }
   $("audN").onclick=()=>setAudio("none");
   $("audA").onclick=()=>setAudio("A");
@@ -756,10 +756,10 @@
     syncBtn.textContent="Sync: "+(S.syncRatio?"Ratio":"Time");
     syncBtn.classList.toggle("on",S.syncRatio);
     syncOther(true); toast(S.syncRatio
-      ?"비율 동기 — 길이 달라도 정규화":"시간 동기 — 동일 길이용");
+      ?"Ratio sync — normalized across lengths":"Time sync — for equal length");
   };
   $("swapBtn").onclick=()=>{
-    if(!S.haveA || !S.haveB){ toast("A·B 둘 다 있어야 교체"); return; }
+    if(!S.haveA || !S.haveB){ toast("Need both A and B to swap"); return; }
     S.swapped=!S.swapped;
     stage.classList.toggle("swapped", S.swapped);
     updateLabels(); render();           // sides flip; playback/sync intact
