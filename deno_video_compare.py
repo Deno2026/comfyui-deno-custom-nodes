@@ -63,12 +63,50 @@ def _find_ffmpeg():
     return None
 
 
-def _encode_video(video, ffmpeg_exe, out_path, enc_fps):
+def _has_audio(audio) -> bool:
+    try:
+        wf = audio.get("waveform") if isinstance(audio, dict) else None
+        return wf is not None and int(wf.shape[-1]) > 0
+    except Exception:
+        return False
+
+
+def _write_wav(audio, path) -> bool:
+    """Write a ComfyUI AUDIO dict to a 16-bit PCM WAV with stdlib only."""
+    import wave
+
+    import numpy as np
+    import torch
+
+    wf = audio.get("waveform")
+    sr = int(audio.get("sample_rate") or 44100)
+    t = wf
+    if t.dim() == 3:
+        t = t[0]
+    if t.dim() == 1:
+        t = t.unsqueeze(0)
+    channels = int(t.shape[0])
+    if channels <= 0 or int(t.shape[1]) <= 0:
+        return False
+    pcm = (
+        t.detach().clamp(-1.0, 1.0).mul(32767.0).round()
+        .to(torch.int16).cpu().numpy()
+    )  # [C, N]
+    interleaved = np.ascontiguousarray(pcm.T).reshape(-1)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(interleaved.tobytes())
+    return True
+
+
+def _encode_video(video, ffmpeg_exe, out_path, enc_fps, audio_wav=None):
     """Stream an IMAGE batch frame-by-frame into ffmpeg as H.264/yuv420p.
 
     Frames are converted one at a time so a 4K clip never materialises a
-    full float copy of the whole batch in RAM (the old PNG-sequence path
-    did, which is why it could need 100GB+).
+    full float copy of the whole batch in RAM. When ``audio_wav`` is given
+    it is muxed as an AAC track aligned to the (shared) clip duration.
     """
     import subprocess
 
@@ -84,14 +122,24 @@ def _encode_video(video, ffmpeg_exe, out_path, enc_fps):
     args = [
         ffmpeg_exe, "-y", "-loglevel", "error",
         "-f", "rawvideo", "-pix_fmt", "rgb24",
-        "-s", f"{w}x{h}", "-r", f"{enc_fps:.6f}",
-        "-i", "-", "-an",
+        "-s", f"{w}x{h}", "-r", f"{enc_fps:.6f}", "-i", "-",
+    ]
+    if audio_wav:
+        args += ["-i", audio_wav]
+    args += [
         "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2",
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-preset", "veryfast", "-crf", "20",
-        "-movflags", "+faststart",
-        out_path,
     ]
+    if audio_wav:
+        args += [
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:a", "aac", "-b:a", "192k", "-shortest",
+        ]
+    else:
+        args += ["-an"]
+    args += ["-movflags", "+faststart", out_path]
+
     proc = subprocess.Popen(
         args,
         stdin=subprocess.PIPE,
@@ -126,8 +174,8 @@ class DenoVideoCompare(PreviewImage):
         "DENO A/B video comparison node with synced playback, Slider, Side by Side, "
         "Difference, Toggle, Swap, and a shared timeline so upscale and FPS-interpolation "
         "results stay the same length while frame-rate differences show as smoothness. "
-        "Encodes each input to a compressed preview clip so high-res / long batches "
-        "stay light instead of writing a full PNG sequence."
+        "Encodes each input to a compressed preview clip (optionally with its audio) so "
+        "high-res / long batches stay light instead of writing a full PNG sequence."
     )
 
     @classmethod
@@ -143,6 +191,8 @@ class DenoVideoCompare(PreviewImage):
             "optional": {
                 "video_a": ("IMAGE",),
                 "video_b": ("IMAGE",),
+                "audio_a": ("AUDIO",),
+                "audio_b": ("AUDIO",),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -156,10 +206,10 @@ class DenoVideoCompare(PreviewImage):
     CATEGORY = "Deno/Image"
     OUTPUT_NODE = True
 
-    def _preview_clip(self, video, side, enc_fps, ffmpeg_exe):
-        """Encode one IMAGE batch to a temp mp4; return a [entry] list or []."""
+    def _preview_clip(self, video, side, enc_fps, ffmpeg_exe, audio):
+        """Encode one IMAGE batch (+ optional audio) to a temp mp4."""
         if video is None or len(video) <= 0 or not ffmpeg_exe:
-            return []
+            return [], False
 
         import os
         import uuid
@@ -168,10 +218,26 @@ class DenoVideoCompare(PreviewImage):
 
         temp_dir = folder_paths.get_temp_directory()
         os.makedirs(temp_dir, exist_ok=True)
-        filename = f"deno.vcompare.{side}.{uuid.uuid4().hex[:10]}.mp4"
+        token = uuid.uuid4().hex[:10]
+        filename = f"deno.vcompare.{side}.{token}.mp4"
         out_path = os.path.join(temp_dir, filename)
-        _encode_video(video, ffmpeg_exe, out_path, enc_fps)
-        return [{"filename": filename, "subfolder": "", "type": "temp"}]
+
+        wav_path = None
+        has_audio = False
+        try:
+            if _has_audio(audio):
+                wav_path = os.path.join(temp_dir, f"deno.vcompare.{side}.{token}.wav")
+                has_audio = _write_wav(audio, wav_path)
+                if not has_audio:
+                    wav_path = None
+            _encode_video(video, ffmpeg_exe, out_path, enc_fps, wav_path)
+        finally:
+            if wav_path:
+                try:
+                    os.remove(wav_path)
+                except Exception:
+                    pass
+        return [{"filename": filename, "subfolder": "", "type": "temp"}], has_audio
 
     def compare_videos(
         self,
@@ -182,6 +248,8 @@ class DenoVideoCompare(PreviewImage):
         fps: float,
         video_a=None,
         video_b=None,
+        audio_a=None,
+        audio_b=None,
         prompt=None,
         extra_pnginfo=None,
     ):
@@ -205,15 +273,19 @@ class DenoVideoCompare(PreviewImage):
         ffmpeg_exe = _find_ffmpeg()
         error = None
         a_video, b_video = [], []
+        a_has_audio = b_has_audio = False
         if ffmpeg_exe is None:
             error = "ffmpeg_not_found"
         else:
             try:
-                a_video = self._preview_clip(video_a, "a", fps_a, ffmpeg_exe)
-                b_video = self._preview_clip(video_b, "b", fps_b, ffmpeg_exe)
+                a_video, a_has_audio = self._preview_clip(
+                    video_a, "a", fps_a, ffmpeg_exe, audio_a)
+                b_video, b_has_audio = self._preview_clip(
+                    video_b, "b", fps_b, ffmpeg_exe, audio_b)
             except Exception as exc:  # encoding failure -> show message, no crash
                 error = f"encode_failed: {exc}"
                 a_video, b_video = [], []
+                a_has_audio = b_has_audio = False
 
         meta = {
             "mode": mode,
@@ -225,10 +297,12 @@ class DenoVideoCompare(PreviewImage):
             "a_height": height_a,
             "a_count": count_a,
             "a_fps": round(fps_a, 4),
+            "a_has_audio": bool(a_has_audio),
             "b_width": width_b,
             "b_height": height_b,
             "b_count": count_b,
             "b_fps": round(fps_b, 4),
+            "b_has_audio": bool(b_has_audio),
             "duration": round(duration, 4),
         }
         if error:

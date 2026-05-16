@@ -426,9 +426,11 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert inputs["required"]["fps"][1]["default"] == 24.0
     assert inputs["required"]["fps"][1]["min"] == 1.0
     assert inputs["required"]["fps"][1]["max"] == 240.0
-    assert list(inputs["optional"].keys()) == ["video_a", "video_b"]
+    assert list(inputs["optional"].keys()) == ["video_a", "video_b", "audio_a", "audio_b"]
     assert inputs["optional"]["video_a"][0] == "IMAGE"
     assert inputs["optional"]["video_b"][0] == "IMAGE"
+    assert inputs["optional"]["audio_a"][0] == "AUDIO"
+    assert inputs["optional"]["audio_b"][0] == "AUDIO"
     assert node_cls.RETURN_TYPES == ()
     assert node_cls.RETURN_NAMES == ()
     assert node_cls.FUNCTION == "compare_videos"
@@ -526,6 +528,7 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
         assert meta["b_width"] == 16
         assert meta["b_height"] == 16
         assert "duration" in meta and "a_fps" in meta and "b_fps" in meta
+        assert meta["a_has_audio"] is False and meta["b_has_audio"] is False
         # mp4 entries are environment-dependent (ffmpeg); when present they
         # must be temp .mp4 references. When ffmpeg is absent the lists are
         # empty and meta carries an error flag.

@@ -11,7 +11,8 @@
 
 ## 커밋 상태 (브랜치 `claude/review-project-repo-mQQtO`)
 
-- (이번 세션 신규) Rebuild Video Compare node: mp4 backend + web-tool UX
+- (이번 세션 신규-2) Video Compare: add audio inputs + layout/gesture pass
+- `a62ce1f` Rebuild Video Compare node: mp4 backend + web-tool UX
 - `32bb8ea` Add SESSION_HANDOFF after migrating work to E: origin
 - `740acd2` Add standalone Video Compare web tool
 - `e86f792` Add (Deno) Video Compare node (원격 푸시됨, main 미반영)
@@ -21,6 +22,13 @@
 
 1. **(Deno) Video Compare 노드** — **이번 세션에 mp4 백엔드로 재구현**. 백엔드(`deno_video_compare.py`)는 더 이상 PNG 시퀀스를 저장하지 않고, A·B IMAGE 배치를 **프레임 스트리밍으로 ffmpeg에 흘려 각각 temp mp4 1개로 인코딩**(풀배치 float 복사 제거 → 메모리 스파이크 해소). 프론트(`web/js/deno_video_compare.js`)는 웹툴 엔진을 ComfyUI **DOM 위젯**으로 이식: `<video>` 2개 코덱 디코드, rate 기반 동기, 줌/팬, 4모드, 재로드 없는 Swap, DENO 다크/그린 + `i` 정보 버튼. **소켓 계약(INPUT_TYPES/RETURN/FUNCTION/CATEGORY/OUTPUT_NODE) 불변** → 저장 workflow 안전. `ui` 프리뷰 페이로드만 `a_video/b_video/compare_meta`로 변경, 테스트도 동기 갱신. ffmpeg는 무의존성 원칙대로 런타임 탐지(imageio_ffmpeg→PATH); 없으면 meta.error로 안내. 공유 타임라인은 양쪽 mp4를 동일 duration으로 인코딩해 보존.
 2. **Standalone Video Compare 웹툴** (`docs/video-compare/index.html`) — 커밋 `740acd2`. 단일 파일, 무설치/오프라인, 4K 무렉. 별도 구독자 배포용으로 유지.
+
+## 오디오 + 레이아웃 패스 (이번 세션 신규-2)
+
+- **AUDIO 입력 추가**: optional `audio_a`, `audio_b` (`"AUDIO"`). additive라 기존 저장 workflow 호환. ffmpeg가 영상 mp4에 AAC로 먹싱(stdlib `wave`로 임시 WAV 생성 → 추가 의존성 0). 양쪽 mp4가 공유 duration이라 오디오도 자동 정렬. meta에 `a_has_audio/b_has_audio` 추가.
+- **브라우저 자동재생 정책 대응**: `<video>`는 사용자 제스처 전까지 무음 유지(자동재생 차단 회피). stage/scrub pointerdown·Play·오디오 버튼 클릭 시 unmute 허용(`markGesture`). 오디오 없는 쪽 버튼은 disable, 한쪽만 오디오면 그쪽으로 자동 선택.
+- **레이아웃 정리**: 상단 Swap 절대중앙 제거(좁은 노드 겹침 해소) → modes 옆 인라인 배치. 타이틀 태그라인 축약(긴 문구는 info 버튼 tooltip로). `i` 정보 버튼 DENO 그린 유지.
+- `/object_info/DenoVideoCompare` 재확인: required `mode,split_position,toggle_image,swap,fps` / optional `video_a,video_b,audio_a,audio_b`(AUDIO) / Deno/Image / output_node True. ComfyUI 재시작(Sage bat, 유휴 확인) 후 로드 정상.
 
 ## 검증 (이번 세션, 전역설정.md §4)
 

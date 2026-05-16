@@ -42,8 +42,7 @@ const CSS = `
   box-shadow:0 0 8px #48ff84}
 .dvc .title small{font-weight:600;font-size:10px;color:#7fb893}
 .dvc .modes{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap}
-.dvc .swap{position:absolute;left:50%;top:7px;transform:translateX(-50%);
-  border-color:#48ff84;color:#48ff84;font-weight:900}
+.dvc .swap{border-color:#48ff84;color:#48ff84;font-weight:900;margin-left:6px}
 .dvc .info{width:22px;height:22px;border-radius:50%;border:1.5px solid #48ff84;
   color:#48ff84;font-weight:900;font-size:12px;display:flex;align-items:center;
   justify-content:center;background:rgba(7,16,11,.85)}
@@ -149,6 +148,7 @@ function getState(node) {
       haveA: false, haveB: false, scrubbing: false,
       draggingSplit: false, panning: false, panStart: null,
       down: null, starting: false, raf: 0, dom: null,
+      gestured: false, aHasAudio: false, bHasAudio: false,
     };
   }
   return node.__dvc;
@@ -221,9 +221,7 @@ function buildDom(node) {
 
   const top = el("div", "bar top");
   top.appendChild(el("div", "title",
-    `<span class="dot"></span>Video Compare <small>· ${TAGLINE}</small>`));
-  const swapBtn = el("button", "btn swap", "⇄ Swap");
-  top.appendChild(swapBtn);
+    `<span class="dot"></span>Video Compare <small>· synced A/B</small>`));
   const modes = el("div", "modes");
   const modeBtns = {};
   for (const m of MODES) {
@@ -231,9 +229,12 @@ function buildDom(node) {
     b.onclick = () => setMode(node, m);
     modeBtns[m] = b; modes.appendChild(b);
   }
-  const infoBtn = el("button", "btn icn info", "i");
-  modes.appendChild(infoBtn);
   top.appendChild(modes);
+  const swapBtn = el("button", "btn swap", "⇄ Swap");
+  top.appendChild(swapBtn);
+  const infoBtn = el("button", "btn icn info", "i");
+  infoBtn.title = TAGLINE;
+  top.appendChild(infoBtn);
   root.appendChild(top);
 
   const stage = el("div", "stage");
@@ -475,11 +476,21 @@ function updateLabels(node) {
 }
 function applyAudio(node) {
   const s = getState(node), d = s.dom;
-  d.vidA.muted = !(s.haveA && s.audio === "A");
-  d.vidB.muted = !(s.haveB && s.audio === "B");
+  const aOk = s.haveA && s.aHasAudio, bOk = s.haveB && s.bHasAudio;
+  // browsers block audible autoplay until a user gesture
+  d.vidA.muted = !(s.gestured && aOk && s.audio === "A");
+  d.vidB.muted = !(s.gestured && bOk && s.audio === "B");
+  d.audA.disabled = !aOk;
+  d.audB.disabled = !bOk;
   d.audN.classList.toggle("on", s.audio === "none");
   d.audA.classList.toggle("on", s.audio === "A");
   d.audB.classList.toggle("on", s.audio === "B");
+}
+function markGesture(node) {
+  const s = getState(node);
+  if (s.gestured) return;
+  s.gestured = true;
+  applyAudio(node);
 }
 
 /* ---------- executed: feed mp4 urls ---------- */
@@ -491,6 +502,11 @@ function handleExecuted(node, output) {
   const meta = Array.isArray(output.compare_meta) ? output.compare_meta[0] || {} : {};
   s.haveA = !!(a && a.filename);
   s.haveB = !!(b && b.filename);
+  s.aHasAudio = !!meta.a_has_audio;
+  s.bHasAudio = !!meta.b_has_audio;
+  // default the audio toggle to whichever side actually carries sound
+  if (s.audio === "A" && !(s.haveA && s.aHasAudio) && (s.haveB && s.bHasAudio)) s.audio = "B";
+  else if (s.audio === "B" && !(s.haveB && s.bHasAudio) && (s.haveA && s.aHasAudio)) s.audio = "A";
   d.vidA.src = s.haveA ? viewUrl(a) : "";
   d.vidB.src = s.haveB ? viewUrl(b) : "";
   if (s.haveA) d.vidA.load();
@@ -555,6 +571,7 @@ function wireInteractions(node, d, btns) {
 
   stage.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
+    markGesture(node);
     s.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
     if (s.mode === "Slider" && s.zoom === 1) {
       s.draggingSplit = true; s.split = frameFrac(node, e.clientX);
@@ -600,6 +617,7 @@ function wireInteractions(node, d, btns) {
 
   d.scrub.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
+    markGesture(node);
     s.scrubbing = true; s._wasPlaying = s.playing; pausePlayback(node);
     d.scrub.setPointerCapture(e.pointerId); scrubTo(node, e.clientX);
   });
@@ -611,7 +629,7 @@ function wireInteractions(node, d, btns) {
     s.scrubbing = false; if (s._wasPlaying) startPlayback(node);
   });
 
-  btns.playBtn.onclick = () => togglePlay(node);
+  btns.playBtn.onclick = () => { markGesture(node); togglePlay(node); };
   btns.loopBtn.onclick = () => {
     s.loop = !s.loop; btns.loopBtn.classList.toggle("on", s.loop);
   };
@@ -623,7 +641,7 @@ function wireInteractions(node, d, btns) {
     d.vidA.playbackRate = s.speed; d.vidB.playbackRate = s.speed;
     btns.spdBtn.textContent = s.speed.toFixed(2).replace(/0$/, "") + "×";
   };
-  const setAud = (a) => { s.audio = a; applyAudio(node); };
+  const setAud = (a) => { markGesture(node); s.audio = a; applyAudio(node); };
   btns.audN.onclick = () => setAud("none");
   btns.audA.onclick = () => setAud("A");
   btns.audB.onclick = () => setAud("B");
