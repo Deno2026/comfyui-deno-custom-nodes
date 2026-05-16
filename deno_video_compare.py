@@ -207,9 +207,15 @@ class DenoVideoCompare(PreviewImage):
     OUTPUT_NODE = True
 
     def _preview_clip(self, video, side, enc_fps, ffmpeg_exe, audio):
-        """Encode one IMAGE batch (+ optional audio) to a temp mp4."""
-        if video is None or len(video) <= 0 or not ffmpeg_exe:
-            return [], False
+        """Encode one IMAGE batch (+ optional audio) to a temp mp4.
+
+        Returns (entries, has_audio, note) where note is a short diagnostic
+        string so the frontend can show why audio is / isn't present.
+        """
+        if not ffmpeg_exe:
+            return [], False, "no_ffmpeg"
+        if video is None or len(video) <= 0:
+            return [], False, "no_video"
 
         import os
         import uuid
@@ -224,20 +230,32 @@ class DenoVideoCompare(PreviewImage):
 
         wav_path = None
         has_audio = False
+        note = "no_input"
         try:
-            if _has_audio(audio):
+            if audio is None:
+                note = "no_input"
+            elif not _has_audio(audio):
+                note = "no_waveform"
+            else:
                 wav_path = os.path.join(temp_dir, f"deno.vcompare.{side}.{token}.wav")
-                has_audio = _write_wav(audio, wav_path)
-                if not has_audio:
+                try:
+                    has_audio = _write_wav(audio, wav_path)
+                    note = "muxed" if has_audio else "empty_audio"
+                except Exception as exc:
+                    has_audio = False
                     wav_path = None
-            _encode_video(video, ffmpeg_exe, out_path, enc_fps, wav_path)
+                    note = f"write_failed: {exc}"[:120]
+            _encode_video(
+                video, ffmpeg_exe, out_path, enc_fps,
+                wav_path if has_audio else None,
+            )
         finally:
             if wav_path:
                 try:
                     os.remove(wav_path)
                 except Exception:
                     pass
-        return [{"filename": filename, "subfolder": "", "type": "temp"}], has_audio
+        return [{"filename": filename, "subfolder": "", "type": "temp"}], has_audio, note
 
     def compare_videos(
         self,
@@ -274,13 +292,14 @@ class DenoVideoCompare(PreviewImage):
         error = None
         a_video, b_video = [], []
         a_has_audio = b_has_audio = False
+        a_note = b_note = ""
         if ffmpeg_exe is None:
             error = "ffmpeg_not_found"
         else:
             try:
-                a_video, a_has_audio = self._preview_clip(
+                a_video, a_has_audio, a_note = self._preview_clip(
                     video_a, "a", fps_a, ffmpeg_exe, audio_a)
-                b_video, b_has_audio = self._preview_clip(
+                b_video, b_has_audio, b_note = self._preview_clip(
                     video_b, "b", fps_b, ffmpeg_exe, audio_b)
             except Exception as exc:  # encoding failure -> show message, no crash
                 error = f"encode_failed: {exc}"
@@ -298,11 +317,13 @@ class DenoVideoCompare(PreviewImage):
             "a_count": count_a,
             "a_fps": round(fps_a, 4),
             "a_has_audio": bool(a_has_audio),
+            "a_audio": a_note,
             "b_width": width_b,
             "b_height": height_b,
             "b_count": count_b,
             "b_fps": round(fps_b, 4),
             "b_has_audio": bool(b_has_audio),
+            "b_audio": b_note,
             "duration": round(duration, 4),
         }
         if error:

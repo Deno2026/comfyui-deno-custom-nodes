@@ -134,9 +134,12 @@ function setWidget(node, name, value) {
 function hideWidget(w) {
   if (!w || w.__dvcHidden) return;
   w.__dvcHidden = true;
-  w.__t = w.type; w.__cs = w.computeSize;
+  w.hidden = true;
   w.type = "converted-widget";
   w.computeSize = () => [0, -4];
+  w.draw = () => {};
+  const e = w.element;
+  if (e) { e.hidden = true; e.style.display = "none"; }
 }
 
 function getState(node) {
@@ -521,9 +524,13 @@ function handleExecuted(node, output) {
   d.hint.textContent = info || "Run the workflow to preview";
   d.hint.classList.toggle("hide", (s.haveA || s.haveB) && !meta.error);
 
+  const aAud = meta.a_has_audio ? "🔊" : "—";
+  const bAud = meta.b_has_audio ? "🔊" : "—";
   d.meta.innerHTML =
-    (meta.a_count ? `<span><b>A</b> ${meta.a_width}×${meta.a_height} · ${meta.a_count}f</span>` : "") +
-    (meta.b_count ? `<span><b>B</b> ${meta.b_width}×${meta.b_height} · ${meta.b_count}f</span>` : "");
+    (meta.a_count ? `<span title="A audio: ${meta.a_audio || "?"}"><b>A</b> ${meta.a_width}×${meta.a_height} · ${meta.a_count}f · ${aAud}</span>` : "") +
+    (meta.b_count ? `<span title="B audio: ${meta.b_audio || "?"}"><b>B</b> ${meta.b_width}×${meta.b_height} · ${meta.b_count}f · ${bAud}</span>` : "");
+  d.audA.title = "A 사운드 (" + (meta.a_audio || "?") + ")";
+  d.audB.title = "B 사운드 (" + (meta.b_audio || "?") + ")";
 
   d.playBtn.disabled = !(s.haveA || s.haveB);
   applyTgl(node); updateLabels(node); applyAudio(node);
