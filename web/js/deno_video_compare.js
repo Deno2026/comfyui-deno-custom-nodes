@@ -15,7 +15,6 @@ const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap", "fps"]
 const TAGLINE = "Synced A/B playback on a shared timeline.";
 const NODE_MIN_W = 260;
 const NODE_DEFAULT_H = 620;
-const NODE_VCHROME = 196; // header + hidden widgets + top/bottom bars (fixed)
 
 const CSS = `
 .dvc{position:absolute;inset:0;display:flex;flex-direction:column;
@@ -301,10 +300,15 @@ function buildDom(node) {
     hideOnZoom: false,
     getMinHeight: () => 200,
   });
-  // MUST NOT depend on node.size[1] — that is self-referential and makes
-  // LiteGraph grow the node unboundedly every layout pass. Fixed minimum;
-  // ComfyUI stretches the DOM element to the node body on its own.
-  widget.computeSize = () => [NODE_MIN_W, 200];
+  // Height from WIDTH and clip aspect — never from node.size[1] (that is
+  // self-referential and grows the node every layout pass). This keeps
+  // the preview aspect-locked and stable: drag width -> video scales.
+  widget.computeSize = (w) => {
+    const s2 = getState(node);
+    const W = Math.max(Number(w) || NODE_MIN_W, NODE_MIN_W);
+    const h = s2.ar > 0 ? Math.round((W - 2) / s2.ar) : 300;
+    return [NODE_MIN_W, Math.max(h, 140)];
+  };
   node.__dvcWidget = widget;
 
   wireInteractions(node, dom, {
@@ -440,23 +444,6 @@ function fmt(x) {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}` +
     `.${String(cs).padStart(2, "0")}`;
 }
-// Size the node so the preview area matches the clip aspect (no black
-// bars); resizing width keeps the ratio so the video scales with it.
-function fitNode(node) {
-  const s = getState(node), d = s.dom;
-  if (!d || !s.ar || s._fitting || !node.size) return;
-  // Use the user's current width (only a small absolute floor) and a
-  // FIXED chrome estimate. Live offsetHeight grows when the bars wrap on
-  // a narrow node and would feed back into height -> runaway growth.
-  const w = Math.max(Number(node.size[0]) || NODE_MIN_W, NODE_MIN_W);
-  const want = Math.round(NODE_VCHROME + (w - 2) / s.ar);
-  if (Math.abs((Number(node.size[1]) || 0) - want) > 3) {
-    s._fitting = true;
-    node.setSize([w, want]);
-    s._fitting = false;
-    node.setDirtyCanvas?.(true, true);
-  }
-}
 
 /* ---------- modes / labels ---------- */
 function setMode(node, m) {
@@ -549,7 +536,10 @@ function handleExecuted(node, output) {
   const ref = s.haveA ? d.vidA : d.vidB;
   if (ref && ref.readyState >= 1) begin();
   else if (ref) ref.addEventListener("loadedmetadata", begin, { once: true });
-  fitNode(node);
+  if (s.ar > 0 && node.computeSize && node.setSize) {
+    node.setSize(node.computeSize());        // apply aspect once, on run
+    node.setDirtyCanvas?.(true, true);
+  }
   render(node);
 }
 
