@@ -114,6 +114,12 @@ Main features:
 
 Too heavy to run the node? Use the no-install browser tool: **https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/** (also linked at the bottom of the node).
 
+![Deno Video Compare - Slider](docs/images/video-compare.png)
+
+![Deno Video Compare - Side by Side](docs/images/video-compare-sbs.png)
+
+![Deno Video Compare - Difference](docs/images/video-compare-diff.png)
+
 ### `(Deno) RTX Video Super Resolution`
 
 Optional Windows/NVIDIA RTX Video Super Resolution helper node for users who want to try NVIDIA VFX inside ComfyUI without manually hunting for the right Python environment.
