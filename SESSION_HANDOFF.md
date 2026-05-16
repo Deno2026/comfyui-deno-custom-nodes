@@ -9,6 +9,8 @@
 - 이번 세션에 작업 위치를 D: 실행 클론에서 **E: 원본으로 이주**. 앞으로 개발은 E:에서.
 - D: 실행 클론 `...\ComfyUI\custom_nodes\comfyui-deno-custom-nodes` 에 `docs/video-compare/` 사본이 남아있음(무해, E:에 커밋 보존됨). 사용자 요청으로 삭제 안 함.
 
+**원격 HEAD = `0e4a21c`** (push 완료, 26+커밋 반영). main 미반영.
+
 ## 커밋 상태 (브랜치 `claude/review-project-repo-mQQtO`)
 
 - `410a38e` 휠줌 ComfyUI 캔버스 우선 (확정 베이스 위 단일 패치) ← 현재 안정 지점
@@ -49,10 +51,10 @@
 ## 미완료 / 다음 단계
 
 - **노드 현재 상태(HEAD)**: 2c2b7bc 베이스 위 누적 패치로 사용자 검증 완료 — mp4 프리뷰·4모드·Swap·hover오디오(VHS LazyAudioMap mux)·리사이즈 비례·휠→ComfyUI캔버스줌·가운데버튼→캔버스팬·정지 프레임정확 동기·좌우상단 A/B 정보·줌UI/i버튼 제거. **IMAGE 출력 `comparison`** 추가(라벨 표시 `Output Images SBS/Diff`): SbS=A|B결합, Diff=|A−B|, Slider/Toggle=B 패스스루. 메모리 50~60GB(이전 100GB 해소).
-- **보류(사용자 지시, 나중에)**: 노드 맨 하단에 **웹툴 링크 한 줄(클릭 가능)** 추가 — 무거워서 노드 못 돌리는 사람용. RTX 노드의 "Link : NVIDIA official docs…" 행과 같은 형식. **단 GitHub Pages 등 공개 링크가 아직 없어서 보류**. 웹툴(`docs/video-compare/index.html`)이 Pages/공개 URL로 배포된 뒤 그 URL로 행 추가.
-- **다음**: README + 실노드 스크린샷(`docs/images/`) → main 병합 + Registry (전역설정 §5 게이트).
-- **웹툴**: 추가 피드백 반영 가능. 배포 수단(GitHub Pages `docs/` / 직접 파일) 미정.
-- **push/publish는 전역설정.md §5 게이트** — 사용자 명시 OK 전까지 GitHub push 안 함. 로컬 커밋만 누적 중.
+- **배포 진행(사용자 "고고", 2026-05-16)**: feature 브랜치 `claude/review-project-repo-mQQtO` **원격 push 완료 → HEAD `0e4a21c`**. 웹툴에 YouTube 아이콘(@Denoise-AI) 추가, 노드 하단에 웹툴 링크 줄 추가(URL 결정적), README 갱신, 전부 push.
+- **남은 수동 1: GitHub Pages 활성화(사용자 GUI, gh CLI 부재)** — Repo Settings ▸ Pages ▸ Deploy from a branch ▸ Branch=`claude/review-project-repo-mQQtO`, Folder=`/docs` ▸ Save. 그러면 `https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/` 라이브(노드 링크·README가 이미 이 URL 가리킴).
+- **남은 수동 2: §6 실노드 스크린샷** — 사용자가 Slider/SbS/Diff 캡처 보유. 파일로 `docs/images/video-compare.jpg` 등에 저장→README 이미지 태그→커밋 필요(에이전트는 채팅 이미지 파일화 불가).
+- **남은 3: Comfy Registry 배포** — 별도 버전 bump(`pyproject.toml`)+publish 워크플로(시크릿). §6 스크린샷 충족 후 사용자 명시 진행. 노드 main 병합도 이 단계에서 결정(현재 main=bc59d5d, 전부 feature 브랜치).
 - ffmpeg 미탐지 환경 대비: 현재 fallback은 meta.error 안내. VHS 전제이므로 실무상 문제 없을 것으로 판단하나, 배포 전 최신 Portable 기준점에서도 확인 권장(§4).
 
 ## 위험 경로
