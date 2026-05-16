@@ -70,9 +70,8 @@ const CSS = `
 .dvc.m-slider .divider{display:block}
 .dvc .badge{position:absolute;z-index:6;top:10px;width:22px;height:22px;
   border-radius:50%;background:#117638;border:1.5px solid #bfffd0;
-  color:#effff4;font-weight:900;font-size:11px;display:flex;
-  align-items:center;justify-content:center;line-height:1;
-  text-align:center;pointer-events:none}
+  color:#effff4;font-weight:900;font-size:11px;display:block;
+  line-height:19px;text-align:center;pointer-events:none}
 .dvc .bA{left:10px}.dvc .bB{right:10px}
 .dvc.m-tgl .bA,.dvc.m-tgl .bB{display:none}
 .dvc .sinfo{position:absolute;z-index:6;top:13px;font-size:10px;
@@ -366,7 +365,7 @@ function syncFollower(node, force) {
     o.playbackRate = s.speed; return;
   }
   if (!s.playing) {
-    if (A > 0.02) { try { o.currentTime = tgt; } catch (e) {} }
+    try { o.currentTime = tgt; } catch (e) {}   // pause -> exact snap
     o.playbackRate = s.speed; return;
   }
   if (A > 0.18) { try { o.currentTime = tgt; } catch (e) {} o.playbackRate = s.speed; return; }
@@ -568,8 +567,8 @@ function handleExecuted(node, output) {
   d.hint.textContent = info || "Run the workflow to preview";
   d.hint.classList.toggle("hide", (s.haveA || s.haveB) && !meta.error);
 
-  const aAud = meta.a_has_audio ? "🔊" : "—";
-  const bAud = meta.b_has_audio ? "🔊" : "—";
+  const aAud = meta.a_has_audio ? "🔊" : "🔇";
+  const bAud = meta.b_has_audio ? "🔊" : "🔇";
   // per-side info grouped at the top corners next to the A/B badges
   d.sinfoA.textContent = meta.a_count
     ? `${meta.a_width}×${meta.a_height} · ${meta.a_count}f · ${aAud}` : "";
