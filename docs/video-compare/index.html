@@ -61,7 +61,7 @@
   .yt svg{width:20px;height:20px;display:block}
   .slots{position:absolute;left:50%;top:50%;
     transform:translate(-50%,-50%);
-    display:flex;align-items:center;gap:16px;flex-wrap:nowrap;z-index:5}
+    display:flex;align-items:center;gap:30px;flex-wrap:nowrap;z-index:5}
   /* empty slot: no box — just badge + bold "Load Video X" text */
   .slot{
     display:flex;align-items:center;gap:9px;background:none;border:0;
@@ -71,15 +71,18 @@
   /* loaded slot: the calm green box (kept — user liked this) */
   .slot.has{background:rgba(31,96,50,.5);
     border:1px solid var(--line);padding:9px 14px}
-  .slot b{color:var(--accent);font-weight:900;font-size:17px;margin-right:2px}
+  .slot b{display:none}
+  .slot.has b{display:inline-block;color:var(--accent);font-weight:900;
+    font-size:17px;margin-right:2px}
   .slot .name{display:none}
   .slot.has .name{display:inline-block;max-width:150px;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap;color:var(--txt);font-weight:600}
-  .slot button[data-pick]{font-size:16px;font-weight:900;color:var(--accent);
-    background:none;border:0;padding:4px 6px;cursor:pointer;
-    white-space:nowrap;letter-spacing:.3px;transition:.12s}
-  .slot button[data-pick]:hover{color:#f0fff4;
-    text-shadow:0 0 10px rgba(72,255,132,.55)}
+  .slot button[data-pick]{font-size:18px;font-weight:900;color:var(--accent);
+    background:var(--accent-dim);border:1px solid var(--line);
+    border-radius:999px;padding:10px 24px;cursor:pointer;white-space:nowrap;
+    letter-spacing:.3px;transition:.12s}
+  .slot button[data-pick]:hover{color:#f0fff4;border-color:var(--accent);
+    box-shadow:0 0 14px rgba(72,255,132,.35)}
   .slot.has button[data-pick]{display:none}
   .slot.has button[data-pick]{display:none}
 
