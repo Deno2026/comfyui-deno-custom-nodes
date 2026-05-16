@@ -11,7 +11,10 @@
 
 ## 커밋 상태 (브랜치 `claude/review-project-repo-mQQtO`)
 
-- (이번 세션 신규-2) Video Compare: add audio inputs + layout/gesture pass
+- `410a38e` 휠줌 ComfyUI 캔버스 우선 (확정 베이스 위 단일 패치) ← 현재 안정 지점
+- `914ab26` 프론트엔드를 2c2b7bc로 롤백 (사이징 재작성 스파이럴 되돌림)
+- `2c2b7bc` Video Compare: read VHS LazyAudioMap audio + isolate widget events ← **프론트 확정 베이스**
+- (fc0b8bb..3b745a3 사이징 재작성/줌제거 시도 = 회귀, 914ab26로 폐기)
 - `a62ce1f` Rebuild Video Compare node: mp4 backend + web-tool UX
 - `32bb8ea` Add SESSION_HANDOFF after migrating work to E: origin
 - `740acd2` Add standalone Video Compare web tool
@@ -45,7 +48,8 @@
 
 ## 미완료 / 다음 단계
 
-- **노드(재구현분)**: 실제 ComfyUI 재시작 후 육안 테스트 필요 — RTX 업스케일 출력에 video_a/video_b 연결 → /object_info/DenoVideoCompare 확인, mp4 인코딩·재생·4모드·줌·Swap, 메모리(이전 100GB 문제 해소 확인). 그 후 README + 실노드 스크린샷(`docs/images/`) → main 병합 + Registry.
+- **노드 현재 상태(`410a38e`)**: 사용자 검증 — mp4 인코딩·재생·4모드·Swap·오디오(VHS LazyAudioMap mux, 클릭해서 듣기)·노드 리사이즈 시 영상 비례 확대/축소 모두 정상, 메모리 50~60GB(이전 100GB 해소). 휠은 ComfyUI 캔버스 줌 우선. **알려진 잠복 한계**: 노드 '축소' 극단 시 세로 폭주 가능(2c2b7bc 베이스의 self-ref computeSize). 일반 사용 범위에선 정상. 향후 줌버튼 정리/hover-소리/축소버그는 **이 베이스에서 작은 단위로만** 신중히.
+- **다음**: README + 실노드 스크린샷(`docs/images/`) → main 병합 + Registry (전역설정 §5 게이트).
 - **웹툴**: 추가 피드백 반영 가능. 배포 수단(GitHub Pages `docs/` / 직접 파일) 미정.
 - **push/publish는 전역설정.md §5 게이트** — 사용자 명시 OK 전까지 GitHub push 안 함. 로컬 커밋만 누적 중.
 - ffmpeg 미탐지 환경 대비: 현재 fallback은 meta.error 안내. VHS 전제이므로 실무상 문제 없을 것으로 판단하나, 배포 전 최신 Portable 기준점에서도 확인 권장(§4).
