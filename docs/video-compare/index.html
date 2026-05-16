@@ -61,7 +61,7 @@
   .yt svg{width:20px;height:20px;display:block}
   .slots{position:absolute;left:50%;top:50%;
     transform:translate(-50%,-50%);
-    display:flex;align-items:center;gap:30px;flex-wrap:nowrap;z-index:5}
+    display:flex;align-items:center;gap:44px;flex-wrap:nowrap;z-index:5}
   /* empty slot: no box — just badge + bold "Load Video X" text */
   .slot{
     display:flex;align-items:center;gap:9px;background:none;border:0;
@@ -114,15 +114,15 @@
   #stage.m-slider #divider{display:block}
 
   /* Side by side */
-  #stage.m-sxs #vidA{width:50%;left:0}
-  #stage.m-sxs #vidB{width:50%;left:50%}
+  #stage.m-sxs #vidA{width:50%;left:0;object-position:right center}
+  #stage.m-sxs #vidB{width:50%;left:50%;object-position:left center}
 
   /* Swap = exchange sides only, no reload */
   #stage.m-slider.swapped #vidA{clip-path:none;z-index:1}
   #stage.m-slider.swapped #vidB{
     clip-path:inset(0 calc((1 - var(--split)) * 100%) 0 0);z-index:2}
-  #stage.m-sxs.swapped #vidA{left:50%}
-  #stage.m-sxs.swapped #vidB{left:0}
+  #stage.m-sxs.swapped #vidA{left:50%;object-position:left center}
+  #stage.m-sxs.swapped #vidB{left:0;object-position:right center}
 
   /* Difference */
   #stage.m-diff #vidA{mix-blend-mode:difference}
