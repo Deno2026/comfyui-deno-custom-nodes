@@ -68,18 +68,18 @@ const CSS = `
   width:2px;background:#48ff84;box-shadow:0 0 8px rgba(72,255,132,.7);
   z-index:5;transform:translateX(-1px);display:none;pointer-events:none}
 .dvc.m-slider .divider{display:block}
-.dvc .badge{position:absolute;z-index:6;top:10px;width:22px;height:22px;
-  border-radius:50%;background:#117638;border:1.5px solid #bfffd0;
-  color:#effff4;font-weight:900;font-size:11px;display:block;
-  line-height:19px;text-align:center;pointer-events:none}
-.dvc .bA{left:10px}.dvc .bB{right:10px}
-.dvc.m-tgl .bA,.dvc.m-tgl .bB{display:none}
-.dvc .sinfo{position:absolute;z-index:6;top:13px;font-size:10px;
-  font-weight:800;color:#9dffba;background:rgba(7,16,11,.72);
-  padding:3px 8px;border-radius:8px;pointer-events:none;white-space:nowrap}
-.dvc .sinfo.a{left:40px}
-.dvc .sinfo.b{right:40px}
-.dvc.m-tgl .sinfo{display:none}
+.dvc .corner{position:absolute;z-index:6;top:10px;display:flex;
+  align-items:center;gap:8px;pointer-events:none}
+.dvc .corner.a{left:10px}
+.dvc .corner.b{right:10px;flex-direction:row-reverse}
+.dvc .badge{flex:0 0 auto;width:22px;height:22px;border-radius:50%;
+  background:#117638;border:1.5px solid #bfffd0;color:#effff4;
+  font-weight:900;font-size:11px;display:block;line-height:19px;
+  text-align:center}
+.dvc .sinfo{font-size:10px;font-weight:800;color:#9dffba;
+  background:rgba(7,16,11,.72);padding:3px 8px;border-radius:8px;
+  white-space:nowrap}
+.dvc.m-tgl .corner{display:none}
 .dvc .tgl{display:none;position:absolute;z-index:6;top:10px;left:50%;
   transform:translateX(-50%);padding:5px 16px;border-radius:999px;
   background:rgba(7,16,11,.9);border:1.5px solid #48ff84;color:#48ff84;
@@ -267,13 +267,15 @@ function buildDom(node) {
   const divider = el("div", "divider");
   frame.appendChild(divider);
   stage.appendChild(frame);
-  const badgeA = el("div", "badge bA", "A");
-  const badgeB = el("div", "badge bB", "B");
+  const badgeA = el("div", "badge", "A");
+  const badgeB = el("div", "badge", "B");
   const tglBadge = el("div", "tgl", st.tgl);
   const hint = el("div", "hint", "Run the workflow to preview");
-  const sinfoA = el("div", "sinfo a", "");
-  const sinfoB = el("div", "sinfo b", "");
-  stage.append(badgeA, badgeB, tglBadge, sinfoA, sinfoB, hint);
+  const sinfoA = el("div", "sinfo", "");
+  const sinfoB = el("div", "sinfo", "");
+  const cornerA = el("div", "corner a"); cornerA.append(badgeA, sinfoA);
+  const cornerB = el("div", "corner b"); cornerB.append(badgeB, sinfoB);
+  stage.append(cornerA, cornerB, tglBadge, hint);
   const pop = el("div", "pop",
     `<b>(Deno) Video Compare</b><br>그래프 마지막 출력 옆에 붙여 비포/애프터를 ` +
     `같은 타임라인으로 동기 재생합니다. 입력을 압축 프리뷰 클립으로 인코딩하므로 ` +
@@ -372,6 +374,28 @@ function syncFollower(node, force) {
   if (A < 0.004) o.playbackRate = s.speed;
   else { const k = Math.min(0.6, A * 8); o.playbackRate = s.speed * (diff > 0 ? 1 - k : 1 + k); }
 }
+// Frame-exact alignment on pause. A single seek can settle late (async
+// decode) so we re-pin the follower once its 'seeked' fires, while still
+// paused — fixes the "stopped on a desynced frame" case.
+function snapPaused(node) {
+  const s = getState(node), m = master(node), o = follower(node);
+  if (!m) return;
+  const t = m.currentTime || 0;
+  try { m.currentTime = t; } catch (e) {}
+  if (!o) return;
+  o.playbackRate = s.speed;
+  const tgt = Math.min(t, o.duration || t);
+  try { o.currentTime = tgt; } catch (e) {}
+  const re = () => {
+    o.removeEventListener("seeked", re);
+    if (s.playing) return;
+    const t2 = Math.min(m.currentTime || 0, o.duration || (m.currentTime || 0));
+    if (Math.abs(o.currentTime - t2) > 0.012) {
+      try { o.currentTime = t2; } catch (e) {}
+    }
+  };
+  o.addEventListener("seeked", re, { once: true });
+}
 function seekAll(node, t) {
   const m = master(node); if (!m) return;
   m.currentTime = Math.max(0, Math.min(t, m.duration || 0));
@@ -420,7 +444,7 @@ function pausePlayback(node) {
   s.playing = false; s.starting = false;
   s.dom.playBtn.textContent = "▶"; s.dom.playBtn.classList.remove("on");
   try { s.dom.vidA.pause(); s.dom.vidB.pause(); } catch (e) {}
-  syncFollower(node, false);
+  snapPaused(node);
 }
 function togglePlay(node) {
   getState(node).playing ? pausePlayback(node) : startPlayback(node);
