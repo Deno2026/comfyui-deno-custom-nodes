@@ -77,6 +77,17 @@ def _extract_waveform(audio):
     else:
         wf = getattr(audio, "waveform", None)
         sr = getattr(audio, "sample_rate", None)
+        # VHS Load Video emits a lazy Mapping (LazyAudioMap) -> subscript it
+        if wf is None:
+            try:
+                wf = audio["waveform"]
+            except Exception:
+                pass
+        if sr is None:
+            try:
+                sr = audio["sample_rate"]
+            except Exception:
+                pass
         if wf is None and isinstance(audio, (list, tuple)) and len(audio) >= 1:
             wf = audio[0]
             sr = audio[1] if len(audio) >= 2 else sr

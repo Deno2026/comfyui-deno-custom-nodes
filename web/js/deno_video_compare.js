@@ -610,6 +610,7 @@ function wireInteractions(node, d, btns) {
 
   stage.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
+    e.stopPropagation();
     markGesture(node);
     s.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
     if (s.mode === "Slider" && s.zoom === 1) {
@@ -623,6 +624,8 @@ function wireInteractions(node, d, btns) {
     }
   });
   stage.addEventListener("pointermove", (e) => {
+    if (s.draggingSplit || s.panning || s.scrubbing ||
+        ((s.haveA || s.haveB) && s.mode === "Slider")) e.stopPropagation();
     if (s.down && !s.down.moved &&
       Math.hypot(e.clientX - s.down.x, e.clientY - s.down.y) > 6) s.down.moved = true;
     if (s.draggingSplit) {
@@ -637,6 +640,7 @@ function wireInteractions(node, d, btns) {
     }
   });
   const endPtr = (e) => {
+    if (e) e.stopPropagation();
     const dn = s.down; s.down = null;
     s.draggingSplit = false; s.panning = false;
     stage.classList.remove("grabbing");
@@ -649,22 +653,25 @@ function wireInteractions(node, d, btns) {
   stage.addEventListener("pointerup", endPtr);
   stage.addEventListener("pointercancel", endPtr);
   stage.addEventListener("wheel", (e) => {
-    if (!s.haveA && !s.haveB) return;
     e.preventDefault();
+    e.stopPropagation();
+    if (!s.haveA && !s.haveB) return;
     setZoom(node, s.zoom * (e.deltaY < 0 ? 1.18 : 1 / 1.18), e.clientX, e.clientY);
   }, { passive: false });
 
   d.scrub.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
+    e.stopPropagation();
     markGesture(node);
     s.scrubbing = true; s._wasPlaying = s.playing; pausePlayback(node);
     d.scrub.setPointerCapture(e.pointerId); scrubTo(node, e.clientX);
   });
   d.scrub.addEventListener("pointermove", (e) => {
-    if (s.scrubbing) scrubTo(node, e.clientX);
+    if (s.scrubbing) { e.stopPropagation(); scrubTo(node, e.clientX); }
   });
-  d.scrub.addEventListener("pointerup", () => {
+  d.scrub.addEventListener("pointerup", (e) => {
     if (!s.scrubbing) return;
+    e.stopPropagation();
     s.scrubbing = false; if (s._wasPlaying) startPlayback(node);
   });
 
