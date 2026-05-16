@@ -431,8 +431,8 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert inputs["optional"]["video_b"][0] == "IMAGE"
     assert inputs["optional"]["audio_a"][0] == "AUDIO"
     assert inputs["optional"]["audio_b"][0] == "AUDIO"
-    assert node_cls.RETURN_TYPES == ()
-    assert node_cls.RETURN_NAMES == ()
+    assert node_cls.RETURN_TYPES == ("IMAGE",)
+    assert node_cls.RETURN_NAMES == ("comparison",)
     assert node_cls.FUNCTION == "compare_videos"
     assert node_cls.CATEGORY == "Deno/Image"
     assert node_cls.OUTPUT_NODE is True
@@ -512,7 +512,9 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
         video_b = torch.ones((48, 16, 16, 3), dtype=torch.float32) * 0.6
 
         result = node.compare_videos("Slider", 0.5, "B", "false", 24.0, video_a=video_a, video_b=video_b)
-        assert "result" not in result
+        assert "result" in result
+        out = result["result"][0]
+        assert tuple(out.shape) == tuple(video_b.shape)  # Slider -> pass B
         ui = result["ui"]
         assert {"a_video", "b_video", "compare_meta"}.issubset(ui.keys())
         assert isinstance(ui["a_video"], list)
@@ -548,6 +550,8 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
         assert swapped_meta["a_count"] == 24
         assert swapped_meta["b_count"] == 0
         assert swapped["ui"]["b_video"] == []
+        # Toggle with no B -> comparison passes B, falls back to A
+        assert tuple(swapped["result"][0].shape) == tuple(video_a.shape)
 
         normalized = node.compare_videos("Bad", "bad", "Z", "yes", "bad", video_a=None, video_b=None)
         normalized_meta = normalized["ui"]["compare_meta"][0]
@@ -560,6 +564,9 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
         assert normalized_meta["b_count"] == 0
         assert normalized["ui"]["a_video"] == []
         assert normalized["ui"]["b_video"] == []
+        # no inputs -> safe non-empty IMAGE tensor (not a crash)
+        z = normalized["result"][0]
+        assert z.ndim == 4 and z.shape[-1] == 3
     finally:
         if nodes_previous is None:
             sys.modules.pop("nodes", None)

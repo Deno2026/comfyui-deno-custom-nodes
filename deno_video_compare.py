@@ -217,6 +217,44 @@ def _encode_video(video, ffmpeg_exe, out_path, enc_fps, audio_wav=None):
             pass
 
 
+def _resize_to(video, h, w):
+    import torch.nn.functional as F
+
+    if int(video.shape[1]) == h and int(video.shape[2]) == w:
+        return video.float()
+    x = video.float().permute(0, 3, 1, 2)
+    x = F.interpolate(x, size=(h, w), mode="bilinear", align_corners=False)
+    return x.permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+
+def _composite(mode, a, b):
+    """Build the IMAGE output. Side by Side / Difference are the only modes
+    where it is meaningful; Slider / Toggle just pass B through (fallback
+    A) so the socket is always valid.
+    """
+    import torch
+
+    if mode in ("Side by Side", "Difference") and a is not None and b is not None:
+        n = min(int(a.shape[0]), int(b.shape[0]))
+        a = a[:n].float()
+        b = b[:n].float()
+        if mode == "Difference":
+            b = _resize_to(b, int(a.shape[1]), int(a.shape[2]))
+            return (a - b).abs().clamp(0.0, 1.0)
+        # Side by Side: common height, keep each aspect, concat on width
+        h = max(int(a.shape[1]), int(b.shape[1]))
+        wa = max(1, round(int(a.shape[2]) * h / max(1, int(a.shape[1]))))
+        wb = max(1, round(int(b.shape[2]) * h / max(1, int(b.shape[1]))))
+        return torch.cat([_resize_to(a, h, wa), _resize_to(b, h, wb)], dim=2)
+
+    # Slider / Toggle (or a side missing) -> pass B, fall back to A
+    if b is not None:
+        return b.float()
+    if a is not None:
+        return a.float()
+    return torch.zeros((1, 16, 16, 3), dtype=torch.float32)
+
+
 class DenoVideoCompare(PreviewImage):
     DESCRIPTION = (
         "DENO A/B video comparison node with synced playback, Slider, Side by Side, "
@@ -248,8 +286,8 @@ class DenoVideoCompare(PreviewImage):
             },
         }
 
-    RETURN_TYPES = ()
-    RETURN_NAMES = ()
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("comparison",)
     FUNCTION = "compare_videos"
     CATEGORY = "Deno/Image"
     OUTPUT_NODE = True
@@ -377,8 +415,21 @@ class DenoVideoCompare(PreviewImage):
         if error:
             meta["error"] = error
 
-        return {"ui": {
-            "a_video": a_video,
-            "b_video": b_video,
-            "compare_meta": [meta],
-        }}
+        try:
+            comparison = _composite(mode, video_a, video_b)
+        except Exception:
+            import torch
+            comparison = (
+                video_b if video_b is not None
+                else video_a if video_a is not None
+                else torch.zeros((1, 16, 16, 3), dtype=torch.float32)
+            )
+
+        return {
+            "ui": {
+                "a_video": a_video,
+                "b_video": b_video,
+                "compare_meta": [meta],
+            },
+            "result": (comparison,),
+        }
