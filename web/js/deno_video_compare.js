@@ -205,7 +205,7 @@ function setupVideoCompareNode(node) {
   for (const n of HIDDEN_WIDGETS) hideWidget(getWidget(node, n));
   // subtle point: the IMAGE output only means something in SbS/Diff
   const out = node.outputs && node.outputs[0];
-  if (out) out.label = "comparison · SbS/Diff";
+  if (out) out.label = "Output Images SBS/Diff";
   const mw = getWidget(node, "mode");
   if (mw && MODES.includes(String(mw.value))) st.mode = String(mw.value);
   const sw = getWidget(node, "split_position");

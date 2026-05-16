@@ -48,7 +48,8 @@
 
 ## 미완료 / 다음 단계
 
-- **노드 현재 상태(`410a38e`)**: 사용자 검증 — mp4 인코딩·재생·4모드·Swap·오디오(VHS LazyAudioMap mux, 클릭해서 듣기)·노드 리사이즈 시 영상 비례 확대/축소 모두 정상, 메모리 50~60GB(이전 100GB 해소). 휠은 ComfyUI 캔버스 줌 우선. **알려진 잠복 한계**: 노드 '축소' 극단 시 세로 폭주 가능(2c2b7bc 베이스의 self-ref computeSize). 일반 사용 범위에선 정상. 향후 줌버튼 정리/hover-소리/축소버그는 **이 베이스에서 작은 단위로만** 신중히.
+- **노드 현재 상태(HEAD)**: 2c2b7bc 베이스 위 누적 패치로 사용자 검증 완료 — mp4 프리뷰·4모드·Swap·hover오디오(VHS LazyAudioMap mux)·리사이즈 비례·휠→ComfyUI캔버스줌·가운데버튼→캔버스팬·정지 프레임정확 동기·좌우상단 A/B 정보·줌UI/i버튼 제거. **IMAGE 출력 `comparison`** 추가(라벨 표시 `Output Images SBS/Diff`): SbS=A|B결합, Diff=|A−B|, Slider/Toggle=B 패스스루. 메모리 50~60GB(이전 100GB 해소).
+- **보류(사용자 지시, 나중에)**: 노드 맨 하단에 **웹툴 링크 한 줄(클릭 가능)** 추가 — 무거워서 노드 못 돌리는 사람용. RTX 노드의 "Link : NVIDIA official docs…" 행과 같은 형식. **단 GitHub Pages 등 공개 링크가 아직 없어서 보류**. 웹툴(`docs/video-compare/index.html`)이 Pages/공개 URL로 배포된 뒤 그 URL로 행 추가.
 - **다음**: README + 실노드 스크린샷(`docs/images/`) → main 병합 + Registry (전역설정 §5 게이트).
 - **웹툴**: 추가 피드백 반영 가능. 배포 수단(GitHub Pages `docs/` / 직접 파일) 미정.
 - **push/publish는 전역설정.md §5 게이트** — 사용자 명시 OK 전까지 GitHub push 안 함. 로컬 커밋만 누적 중.
