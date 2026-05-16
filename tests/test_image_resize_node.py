@@ -440,23 +440,24 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert 'const WIDGET_NAME = "deno_video_compare_canvas";' in script
     assert '"Slider", "Side by Side", "Difference", "Toggle"' in script
     assert '"mode", "split_position", "toggle_image", "swap", "fps"' in script
-    assert "removeCompareOutputs(node);" in script
-    assert "node.addCustomWidget(widget);" in script
-    assert "requestAnimationFrame(tick)" in script
+    assert "Synced A/B playback on a shared timeline." in script
+    # mp4-backed rebuild: native <video> DOM widget + rate-based sync
+    assert "node.addDOMWidget(WIDGET_NAME" in script
+    assert "function setupVideoCompareNode(node)" in script
+    assert "function handleExecuted(node, output)" in script
     assert "function startPlayback(node)" in script
     assert "function stopPlayback(node)" in script
-    assert "function togglePlayback(node)" in script
+    assert "function togglePlay(node)" in script
     assert "function getTimeline(node)" in script
-    assert "function frameIndexFor(timeline, count)" in script
-    assert "refCount > 0 ? refCount / fps : 0" in script
-    assert "updateScrubFromPointer" in script
-    assert "function stepFps(node, direction)" in script
-    assert "Synced A/B playback on a shared timeline." in script
+    assert "function syncFollower(node, force)" in script
+    assert "function applyTgl(node)" in script
+    assert "output.a_video" in script
+    assert "output.b_video" in script
+    assert "output.compare_meta" in script
+    assert "o.playbackRate = s.speed * (diff > 0 ? 1 - k : 1 + k);" in script
+    assert '"btn icn info"' in script
+    assert "requestAnimationFrame(tick)" in script
     assert "nodeType.prototype.onRemoved" in script
-    assert "serializeValue()" in script
-    assert "hydratePreviewFromWidgetValue" in script
-    assert "drawFitImage" in script
-    assert "addDOMWidget" not in script
 
 
 def test_deno_video_compare_runtime_semantics_when_torch_available():
@@ -511,7 +512,11 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
 
         result = node.compare_videos("Slider", 0.5, "B", "false", 24.0, video_a=video_a, video_b=video_b)
         assert "result" not in result
-        meta = result["ui"]["compare_meta"][0]
+        ui = result["ui"]
+        assert {"a_video", "b_video", "compare_meta"}.issubset(ui.keys())
+        assert isinstance(ui["a_video"], list)
+        assert isinstance(ui["b_video"], list)
+        meta = ui["compare_meta"][0]
         assert meta["mode"] == "Slider"
         assert meta["fps"] == 24.0
         assert meta["a_count"] == 24
@@ -520,10 +525,16 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
         assert meta["a_height"] == 8
         assert meta["b_width"] == 16
         assert meta["b_height"] == 16
-        assert len(result["ui"]["a_frames"]) == 24
-        assert len(result["ui"]["b_frames"]) == 48
-        assert result["ui"]["a_frames"][0]["filename"] == "deno.vcompare.a.00000_.png"
-        assert result["ui"]["b_frames"][0]["filename"] == "deno.vcompare.b.00000_.png"
+        assert "duration" in meta and "a_fps" in meta and "b_fps" in meta
+        # mp4 entries are environment-dependent (ffmpeg); when present they
+        # must be temp .mp4 references. When ffmpeg is absent the lists are
+        # empty and meta carries an error flag.
+        for entry in list(ui["a_video"]) + list(ui["b_video"]):
+            assert entry["filename"].endswith(".mp4")
+            assert entry["type"] == "temp"
+            assert entry["subfolder"] == ""
+        if not ui["a_video"] and not ui["b_video"]:
+            assert "error" in meta
 
         swapped = node.compare_videos("Toggle", 1.5, "Z", True, 999.0, video_a=video_a, video_b=None)
         swapped_meta = swapped["ui"]["compare_meta"][0]
@@ -534,7 +545,7 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
         assert swapped_meta["fps"] == 240.0
         assert swapped_meta["a_count"] == 24
         assert swapped_meta["b_count"] == 0
-        assert swapped["ui"]["b_frames"] == []
+        assert swapped["ui"]["b_video"] == []
 
         normalized = node.compare_videos("Bad", "bad", "Z", "yes", "bad", video_a=None, video_b=None)
         normalized_meta = normalized["ui"]["compare_meta"][0]
@@ -545,8 +556,8 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
         assert normalized_meta["fps"] == 24.0
         assert normalized_meta["a_count"] == 0
         assert normalized_meta["b_count"] == 0
-        assert normalized["ui"]["a_frames"] == []
-        assert normalized["ui"]["b_frames"] == []
+        assert normalized["ui"]["a_video"] == []
+        assert normalized["ui"]["b_video"] == []
     finally:
         if nodes_previous is None:
             sys.modules.pop("nodes", None)

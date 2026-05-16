@@ -11,14 +11,23 @@
 
 ## 커밋 상태 (브랜치 `claude/review-project-repo-mQQtO`)
 
-- `740acd2` Add standalone Video Compare web tool ← 이번 세션
+- (이번 세션 신규) Rebuild Video Compare node: mp4 backend + web-tool UX
+- `32bb8ea` Add SESSION_HANDOFF after migrating work to E: origin
+- `740acd2` Add standalone Video Compare web tool
 - `e86f792` Add (Deno) Video Compare node (원격 푸시됨, main 미반영)
 - `bc59d5d` Add image compare README screenshot (= main HEAD)
 
 ## 산출물 2개
 
-1. **(Deno) Video Compare 노드** (`deno_video_compare.py`, `web/js/deno_video_compare.js`, `__init__.py`, tests, README) — 커밋 `e86f792`. 백엔드는 PreviewImage 패턴으로 전 프레임 PNG 저장 → 고해상도·장클립에서 메모리 과다(설계 한계). 정식 릴리스(main 병합)·실제 ComfyUI 육안 테스트 미완.
-2. **Standalone Video Compare 웹툴** (`docs/video-compare/index.html`) — 커밋 `740acd2`. 단일 파일, 무설치/오프라인, `<video>` 2개 코덱 디코드라 4K 무렉. 노드의 메모리 문제를 우회하는 "완성 영상 비교용" 도구. 구독자 배포 목적.
+1. **(Deno) Video Compare 노드** — **이번 세션에 mp4 백엔드로 재구현**. 백엔드(`deno_video_compare.py`)는 더 이상 PNG 시퀀스를 저장하지 않고, A·B IMAGE 배치를 **프레임 스트리밍으로 ffmpeg에 흘려 각각 temp mp4 1개로 인코딩**(풀배치 float 복사 제거 → 메모리 스파이크 해소). 프론트(`web/js/deno_video_compare.js`)는 웹툴 엔진을 ComfyUI **DOM 위젯**으로 이식: `<video>` 2개 코덱 디코드, rate 기반 동기, 줌/팬, 4모드, 재로드 없는 Swap, DENO 다크/그린 + `i` 정보 버튼. **소켓 계약(INPUT_TYPES/RETURN/FUNCTION/CATEGORY/OUTPUT_NODE) 불변** → 저장 workflow 안전. `ui` 프리뷰 페이로드만 `a_video/b_video/compare_meta`로 변경, 테스트도 동기 갱신. ffmpeg는 무의존성 원칙대로 런타임 탐지(imageio_ffmpeg→PATH); 없으면 meta.error로 안내. 공유 타임라인은 양쪽 mp4를 동일 duration으로 인코딩해 보존.
+2. **Standalone Video Compare 웹툴** (`docs/video-compare/index.html`) — 커밋 `740acd2`. 단일 파일, 무설치/오프라인, 4K 무렉. 별도 구독자 배포용으로 유지.
+
+## 검증 (이번 세션, 전역설정.md §4)
+
+- `python -m py_compile deno_video_compare.py` OK
+- `node --check web/js/deno_video_compare.js` OK
+- CI 인라인 러너(ComfyUI python, torch 보유): **48개 중 47 ok**. 1건 `test_deno_video_compare_runtime_semantics_when_torch_available`는 **격리 실행 시 통과** — 결합 실행 실패 원인은 torch C확장 이중 임포트(`conv1d already has a docstring`) 하네스 아티팩트(image+video 런타임 테스트가 같은 프로세스에서 torch pop/reimport, 기존부터 동일 구조). CI는 torch 미설치라 두 런타임 테스트 early-return → CI 영향 없음.
+- E:↔D: 실행 클론(`...\custom_nodes\comfyui-deno-custom-nodes`) 변경 2파일 SHA256 일치 복사 완료. `__init__.py` 등록 불변.
 
 ## 웹툴 현재 상태 (이번 세션 사용자 검증 완료)
 
@@ -28,9 +37,10 @@
 
 ## 미완료 / 다음 단계
 
-- **노드**: 실제 ComfyUI 육안 테스트(재생/슬라이더/4모드/업스케일·RIFE 동기), README 스크린샷(`docs/images/`), 메모리 완화(다운스케일+풀배치 float 제거) 또는 노드 폐기 여부 결정 → 그 후 main 병합 + Registry.
-- **웹툴**: 사용자 추가 피드백 반영 중. 배포 수단(GitHub Pages `docs/` / 직접 파일) 미정.
-- **push/publish는 전역설정.md §5 게이트** — 사용자 명시 OK 전까지 GitHub push 안 함. 현재 `740acd2`는 로컬 커밋만.
+- **노드(재구현분)**: 실제 ComfyUI 재시작 후 육안 테스트 필요 — RTX 업스케일 출력에 video_a/video_b 연결 → /object_info/DenoVideoCompare 확인, mp4 인코딩·재생·4모드·줌·Swap, 메모리(이전 100GB 문제 해소 확인). 그 후 README + 실노드 스크린샷(`docs/images/`) → main 병합 + Registry.
+- **웹툴**: 추가 피드백 반영 가능. 배포 수단(GitHub Pages `docs/` / 직접 파일) 미정.
+- **push/publish는 전역설정.md §5 게이트** — 사용자 명시 OK 전까지 GitHub push 안 함. 로컬 커밋만 누적 중.
+- ffmpeg 미탐지 환경 대비: 현재 fallback은 meta.error 안내. VHS 전제이므로 실무상 문제 없을 것으로 판단하나, 배포 전 최신 Portable 기준점에서도 확인 권장(§4).
 
 ## 위험 경로
 

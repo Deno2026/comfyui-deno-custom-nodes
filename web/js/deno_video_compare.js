@@ -1,1026 +1,660 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
+// (Deno) Video Compare — synced A/B video preview.
+// Backend encodes each input to ONE temp mp4; this widget plays them with
+// two native <video> elements (codec-decoded, light even at 4K) instead of
+// loading a full PNG sequence. UX matches the standalone web tool:
+// Slider / Side by Side / Difference / Toggle, shared timeline with
+// rate-based sync (no seek glitches), synced zoom/pan, no-reload swap.
+
 const NODE_NAME = "DenoVideoCompare";
 const WIDGET_NAME = "deno_video_compare_canvas";
-const MIN_WIDTH = 560;
-const DEFAULT_NODE_HEIGHT = 560;
-const VIDEO_NODE_MIN_HEIGHT = 560;
-const NODE_VERTICAL_CHROME = 110;
-const VIDEO_CONTROLS_HEIGHT = 200;
-const PREVIEW_MIN_HEIGHT = 300;
-const PREVIEW_MAX_HEIGHT = 760;
 const MODES = ["Slider", "Side by Side", "Difference", "Toggle"];
 const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap", "fps"];
+const TAGLINE = "Synced A/B playback on a shared timeline.";
+const NODE_MIN_W = 480;
+const NODE_DEFAULT_H = 620;
 
-const COLORS = {
-    panelA: "rgba(3, 12, 8, 0.99)",
-    panelB: "rgba(1, 6, 4, 0.97)",
-    border: "rgba(72, 255, 132, 0.50)",
-    borderSoft: "rgba(72, 255, 132, 0.24)",
-    text: "#dfffea",
-    textStrong: "#9dffba",
-    textSoft: "#8fcfa4",
-    active: "rgba(31, 96, 50, 0.94)",
-    inactive: "rgba(9, 13, 11, 0.92)",
-    imageBack: "#050906",
-    track: "rgba(72, 255, 132, 0.16)",
-    trackFill: "rgba(72, 255, 132, 0.70)",
-};
+const CSS = `
+.dvc{position:absolute;inset:0;display:flex;flex-direction:column;
+  font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  color:#dfffea;background:#050906;border-radius:10px;overflow:hidden;
+  border:1px solid rgba(72,255,132,.32);user-select:none}
+.dvc *{box-sizing:border-box;margin:0;padding:0}
+.dvc button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+.dvc .bar{display:flex;align-items:center;gap:6px;padding:7px 9px;flex-wrap:wrap;
+  background:linear-gradient(180deg,#0a1410,#06100b);position:relative}
+.dvc .bar.top{border-bottom:1px solid rgba(72,255,132,.28)}
+.dvc .bar.bot{border-top:1px solid rgba(72,255,132,.28);flex-direction:column;
+  align-items:stretch;gap:7px}
+.dvc .btn{background:rgba(9,15,11,.92);border:1px solid rgba(90,130,104,.6);
+  color:#9dffba;padding:6px 11px;border-radius:999px;font-weight:800;
+  font-size:11px;white-space:nowrap;transition:.12s}
+.dvc .btn:hover{border-color:#48ff84;color:#f0fff4}
+.dvc .btn.on{background:rgba(31,96,50,.92);border-color:rgba(72,255,132,.95);
+  color:#f0fff4;box-shadow:0 0 12px rgba(72,255,132,.28)}
+.dvc .btn.icn{padding:6px 9px;min-width:32px;text-align:center}
+.dvc .btn[disabled]{opacity:.4;cursor:not-allowed}
+.dvc .title{font-weight:900;font-size:13px;color:#9dffba;display:flex;
+  align-items:center;gap:7px}
+.dvc .title .dot{width:8px;height:8px;border-radius:50%;background:#48ff84;
+  box-shadow:0 0 8px #48ff84}
+.dvc .title small{font-weight:600;font-size:10px;color:#7fb893}
+.dvc .modes{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap}
+.dvc .swap{position:absolute;left:50%;top:7px;transform:translateX(-50%);
+  border-color:#48ff84;color:#48ff84;font-weight:900}
+.dvc .info{width:22px;height:22px;border-radius:50%;border:1.5px solid #48ff84;
+  color:#48ff84;font-weight:900;font-size:12px;display:flex;align-items:center;
+  justify-content:center;background:rgba(7,16,11,.85)}
+.dvc .info:hover{background:rgba(72,255,132,.14)}
+.dvc .stage{position:relative;flex:1 1 auto;background:#020403;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;min-height:160px;
+  cursor:crosshair}
+.dvc .stage.pan{cursor:grab}.dvc .stage.pan.grabbing{cursor:grabbing}
+.dvc .frame{position:relative;width:100%;height:100%;
+  transition:transform .04s linear;will-change:transform}
+.dvc video{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:contain;background:#000;pointer-events:none}
+.dvc .vB{z-index:1}.dvc .vA{z-index:2}
+.dvc.m-slider .vA{clip-path:inset(0 calc((1 - var(--sp)) * 100%) 0 0)}
+.dvc.m-slider.swp .vA{clip-path:none;z-index:1}
+.dvc.m-slider.swp .vB{clip-path:inset(0 calc((1 - var(--sp)) * 100%) 0 0);z-index:2}
+.dvc.m-sxs .vA{width:50%;left:0}.dvc.m-sxs .vB{width:50%;left:50%}
+.dvc.m-sxs.swp .vA{left:50%}.dvc.m-sxs.swp .vB{left:0}
+.dvc.m-diff .vA{mix-blend-mode:difference}
+.dvc.m-tgl.sa .vB{opacity:0}.dvc.m-tgl.sb .vA{opacity:0}
+.dvc.m-tgl .stage{cursor:pointer}
+.dvc .divider{position:absolute;top:0;bottom:0;left:calc(var(--sp) * 100%);
+  width:2px;background:#48ff84;box-shadow:0 0 8px rgba(72,255,132,.7);
+  z-index:5;transform:translateX(-1px);display:none;pointer-events:none}
+.dvc.m-slider .divider{display:block}
+.dvc .badge{position:absolute;z-index:6;top:10px;width:22px;height:22px;
+  border-radius:50%;background:#117638;border:1.5px solid #bfffd0;
+  color:#effff4;font-weight:900;font-size:11px;display:flex;
+  align-items:center;justify-content:center;pointer-events:none}
+.dvc .bA{left:10px}.dvc .bB{right:10px}
+.dvc.m-tgl .bA,.dvc.m-tgl .bB{display:none}
+.dvc .tgl{display:none;position:absolute;z-index:6;top:10px;left:50%;
+  transform:translateX(-50%);padding:5px 16px;border-radius:999px;
+  background:rgba(7,16,11,.9);border:1.5px solid #48ff84;color:#48ff84;
+  font-weight:900;font-size:13px}
+.dvc.m-tgl .tgl{display:block}
+.dvc .hint{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;color:#7fb893;font-size:13px;text-align:center;
+  padding:20px;z-index:8;pointer-events:none}
+.dvc .hint.hide{display:none}
+.dvc .scrub{position:relative;height:14px;display:flex;align-items:center;
+  cursor:pointer}
+.dvc .trk{position:absolute;left:0;right:0;height:5px;border-radius:3px;
+  background:rgba(72,255,132,.14)}
+.dvc .fill{position:absolute;height:5px;border-radius:3px;background:#48ff84;width:0}
+.dvc .hd{position:absolute;width:12px;height:12px;border-radius:50%;
+  background:#48ff84;box-shadow:0 0 8px rgba(72,255,132,.7);transform:translateX(-50%)}
+.dvc .tr{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dvc .time{font-weight:800;font-variant-numeric:tabular-nums;color:#9dffba;
+  font-size:12px}
+.dvc .meta{margin-left:auto;font-size:10px;color:#7fb893;
+  font-variant-numeric:tabular-nums;display:flex;gap:12px;flex-wrap:wrap}
+.dvc .meta b{color:#48ff84}
+.dvc .sep{width:1px;height:18px;background:rgba(72,255,132,.16)}
+.dvc .zl{font-weight:800;color:#9dffba;font-size:11px;min-width:40px;
+  text-align:center;font-variant-numeric:tabular-nums}
+.dvc .pop{position:absolute;right:9px;top:38px;z-index:20;max-width:280px;
+  background:rgba(6,16,11,.97);border:1px solid rgba(72,255,132,.32);
+  border-radius:10px;padding:12px 14px;font-size:11px;color:#9fd4b0;
+  line-height:1.7;display:none}
+.dvc .pop.show{display:block}
+.dvc .pop b{color:#9dffba}
+`;
 
-function imageDataToUrl(data) {
-    return api.apiURL(`/view?filename=${encodeURIComponent(data.filename)}&type=${data.type}&subfolder=${data.subfolder}${app.getPreviewFormatParam()}${app.getRandParam()}`);
+function viewUrl(d) {
+  if (!d || !d.filename) return "";
+  const sub = encodeURIComponent(d.subfolder || "");
+  return api.apiURL(
+    `/view?filename=${encodeURIComponent(d.filename)}` +
+    `&type=${d.type || "temp"}&subfolder=${sub}&dvc=${Date.now()}`);
 }
 
-app.registerExtension({
-    name: "Deno.VideoCompare",
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name !== NODE_NAME) {
-            return;
-        }
-
-        const onNodeCreated = nodeType.prototype.onNodeCreated;
-        nodeType.prototype.onNodeCreated = function () {
-            const result = onNodeCreated?.apply(this, arguments);
-            setupVideoCompareNode(this);
-            return result;
-        };
-
-        const onConfigure = nodeType.prototype.onConfigure;
-        nodeType.prototype.onConfigure = function () {
-            const result = onConfigure?.apply(this, arguments);
-            queueMicrotask(() => setupVideoCompareNode(this));
-            return result;
-        };
-
-        const onExecuted = nodeType.prototype.onExecuted;
-        nodeType.prototype.onExecuted = function (output) {
-            const result = onExecuted?.apply(this, arguments);
-            handleExecuted(this, output || {});
-            return result;
-        };
-
-        const onMouseMove = nodeType.prototype.onMouseMove;
-        nodeType.prototype.onMouseMove = function (event, pos, canvas) {
-            const result = onMouseMove?.apply(this, arguments);
-            handlePointerMove(this, pos);
-            return result;
-        };
-
-        const onRemoved = nodeType.prototype.onRemoved;
-        nodeType.prototype.onRemoved = function () {
-            stopPlayback(this);
-            return onRemoved?.apply(this, arguments);
-        };
-    },
-});
-
-function getState(node) {
-    if (!node.__denoVC) {
-        node.__denoVC = {
-            a: [],
-            b: [],
-            meta: {},
-            playing: false,
-            loop: true,
-            time: 0,
-            lastTick: 0,
-            rafId: 0,
-            scrubbing: false,
-        };
-    }
-    return node.__denoVC;
-}
-
-function setupVideoCompareNode(node) {
-    if (!node || node.__denoVCSettingUp) {
-        return;
-    }
-
-    node.__denoVCSettingUp = true;
-    try {
-        node.serialize_widgets = true;
-        getState(node);
-        normalizeBackendWidgets(node);
-        hideBackendWidgets(node);
-        removeCompareOutputs(node);
-        ensureCanvasWidget(node);
-        wrapComputeSize(node);
-        resizeNodeToPanel(node);
-        requestNodeRedraw(node);
-    } finally {
-        node.__denoVCSettingUp = false;
-    }
-}
-
-function handleExecuted(node, output) {
-    setupVideoCompareNode(node);
-    const state = getState(node);
-    const meta = Array.isArray(output.compare_meta) ? output.compare_meta[0] || {} : {};
-    const aFrames = Array.isArray(output.a_frames) ? output.a_frames : [];
-    const bFrames = Array.isArray(output.b_frames) ? output.b_frames : [];
-
-    state.meta = meta;
-    state.a = aFrames.map((data) => makeFrameItem(data, node));
-    state.b = bFrames.map((data) => makeFrameItem(data, node));
-    state.time = 0;
-    state.playing = true;
-    setPreviewWidgetValue(node);
-    resizeNodeToImage(node);
-    startPlayback(node);
-    requestNodeRedraw(node);
-}
-
-function makeFrameItem(data, node) {
-    const img = new Image();
-    const descriptor = normalizeImageDescriptor(data);
-    const url = descriptor ? imageDataToUrl(descriptor) : "";
-    const item = { descriptor, url, img, loaded: false };
-    img.onload = () => {
-        item.loaded = true;
-        requestNodeRedraw(node);
-    };
-    img.src = url;
-    return item;
-}
-
-function makeStoredFrameItem(descriptor, node) {
-    const img = new Image();
-    const url = descriptor ? imageDataToUrl(descriptor) : "";
-    const item = { descriptor, url, img, loaded: false };
-    img.onload = () => {
-        item.loaded = true;
-        requestNodeRedraw(node);
-    };
-    img.src = url;
-    return item;
-}
-
-function ensureCanvasWidget(node) {
-    const previousWidget = node.__denoVCWidget;
-    const previousValue = previousWidget?.value
-        || (node.widgets || []).find((widget) => widget?.name === WIDGET_NAME)?.value
-        || { a: [], b: [], meta: {} };
-
-    removeExistingCompareWidgets(node);
-    const widget = new DenoVideoCompareWidget(node);
-    widget.storeValue(previousValue);
-    node.addCustomWidget(widget);
-    node.__denoVCWidget = widget;
-}
-
-function removeExistingCompareWidgets(node) {
-    if (!Array.isArray(node.widgets)) {
-        return;
-    }
-    node.widgets = node.widgets.filter((widget) => {
-        if (widget?.name !== WIDGET_NAME && widget?.name !== "deno_video_compare_panel") {
-            return true;
-        }
-        widget.element?.remove?.();
-        return false;
-    });
-}
-
-class DenoVideoCompareWidget {
-    constructor(node) {
-        this.name = WIDGET_NAME;
-        this.type = "custom";
-        this.node = node;
-        this.options = { serialize: true };
-        this._value = { a: [], b: [], meta: {} };
-        this.hitAreas = {};
-        this.lastBounds = null;
-    }
-
-    get value() {
-        return this._value;
-    }
-
-    set value(value) {
-        this._value = normalizeStoredPreviewValue(value);
-        hydratePreviewFromWidgetValue(this.node, this._value);
-    }
-
-    storeValue(value) {
-        this._value = normalizeStoredPreviewValue(value);
-    }
-
-    serializeValue() {
-        return this._value;
-    }
-
-    computeSize(width) {
-        return [Math.max(Number(width) || MIN_WIDTH, MIN_WIDTH), getWidgetHeightFromNode(this.node, NODE_VERTICAL_CHROME)];
-    }
-
-    draw(ctx, node, width, y, height) {
-        const x = 14;
-        const panelY = y + 8;
-        const panelW = Math.max(width - 28, MIN_WIDTH - 28);
-        const widgetHeight = getWidgetHeightFromNode(node, y, height);
-        const panelH = Math.max(PREVIEW_MIN_HEIGHT + VIDEO_CONTROLS_HEIGHT, widgetHeight - 16);
-        this.hitAreas = {};
-        this.lastBounds = { x, y: panelY, w: panelW, h: panelH };
-
-        ctx.save();
-        drawPanel(ctx, x, panelY, panelW, panelH);
-
-        const titleY = panelY + 23;
-        ctx.fillStyle = COLORS.textStrong;
-        ctx.font = "900 16px sans-serif";
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillText("Video Compare", x + 14, titleY);
-
-        ctx.fillStyle = COLORS.textSoft;
-        ctx.font = "10px sans-serif";
-        ctx.fillText("Synced A/B playback on a shared timeline.", x + 14, titleY + 19);
-
-        const mode = getMode(node);
-        drawButton(ctx, "status", mode, x + panelW - 98, panelY + 13, 84, 28, true, this.hitAreas);
-
-        const buttonY = panelY + 64;
-        const buttonGap = 8;
-        const buttonW = (panelW - 28 - buttonGap * 3) / 4;
-        for (let i = 0; i < MODES.length; i++) {
-            const modeName = MODES[i];
-            drawButton(ctx, `mode:${modeName}`, modeName, x + 14 + i * (buttonW + buttonGap), buttonY, buttonW, 32, mode === modeName, this.hitAreas);
-        }
-
-        const footerY = buttonY + 52;
-        const pair = getDisplayPair(node);
-        drawMetaText(ctx, formatSize(pair.aLabel, pair.a), x + 14, footerY, "left");
-        drawButton(ctx, "swap", "Swap", x + panelW * 0.5 - 44, footerY - 16, 88, 30, normalizeBoolean(getWidget(node, "swap")?.value), this.hitAreas);
-        drawMetaText(ctx, formatSize(pair.bLabel, pair.b), x + panelW - 14, footerY, "right");
-
-        const timeline = getTimeline(node);
-        const transportY = footerY + 20;
-        const state = getState(node);
-        drawButton(ctx, "play", state.playing ? "Pause" : "Play", x + 14, transportY, 78, 28, state.playing, this.hitAreas);
-        drawButton(ctx, "loop", "Loop", x + 98, transportY, 64, 28, state.loop, this.hitAreas);
-        drawButton(ctx, "fps_down", "-", x + 170, transportY, 26, 28, false, this.hitAreas);
-        ctx.fillStyle = COLORS.textStrong;
-        ctx.font = "800 11px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(`${formatFps(timeline.fps)} fps`, x + 170 + 26 + 28, transportY + 14);
-        drawButton(ctx, "fps_up", "+", x + 170 + 26 + 56 + 4, transportY, 26, 28, false, this.hitAreas);
-        drawMetaText(
-            ctx,
-            `${formatTime(timeline.time)} / ${formatTime(timeline.duration)}`,
-            x + panelW - 14,
-            transportY + 14,
-            "right",
-        );
-
-        const scrubY = transportY + 38;
-        const scrubX = x + 14;
-        const scrubW = panelW - 28;
-        drawScrub(ctx, scrubX, scrubY, scrubW, timeline);
-        this.hitAreas.scrub = { bounds: [scrubX, scrubY - 6, scrubW, 18] };
-
-        const preview = {
-            x: x + 12,
-            y: scrubY + 22,
-            w: panelW - 24,
-            h: Math.max(220, panelY + panelH - (scrubY + 34)),
-        };
-        drawPreview(ctx, node, preview, pair, timeline);
-        this.hitAreas.preview = { bounds: [preview.x, preview.y, preview.w, preview.h] };
-
-        ctx.restore();
-    }
-
-    mouse(event, pos, node) {
-        const isMoveEvent = event.type === "pointermove" || event.type === "mousemove";
-        const isDownEvent = event.type === "pointerdown" || event.type === "mousedown" || event.type === "click";
-        const isUpEvent = event.type === "pointerup" || event.type === "mouseup";
-        if (!isMoveEvent && !isDownEvent && !isUpEvent) {
-            return false;
-        }
-
-        const state = getState(node);
-        if (isUpEvent) {
-            state.scrubbing = false;
-            return false;
-        }
-
-        if (isMoveEvent) {
-            if (state.scrubbing) {
-                updateScrubFromPointer(node, pos);
-                return true;
-            }
-            return handlePointerMove(node, pos);
-        }
-
-        const mode = getMode(node);
-        for (const [name, area] of Object.entries(this.hitAreas)) {
-            if (!isInside(pos, area.bounds)) {
-                continue;
-            }
-
-            if (name.startsWith("mode:")) {
-                setWidgetValue(node, "mode", name.slice(5));
-                return true;
-            }
-            if (name === "swap") {
-                setWidgetValue(node, "swap", !normalizeBoolean(getWidget(node, "swap")?.value));
-                return true;
-            }
-            if (name === "play") {
-                togglePlayback(node);
-                return true;
-            }
-            if (name === "loop") {
-                state.loop = !state.loop;
-                requestNodeRedraw(node);
-                return true;
-            }
-            if (name === "fps_down") {
-                stepFps(node, -1);
-                return true;
-            }
-            if (name === "fps_up") {
-                stepFps(node, 1);
-                return true;
-            }
-            if (name === "scrub") {
-                state.scrubbing = true;
-                updateScrubFromPointer(node, pos);
-                return true;
-            }
-            if (name === "preview" && mode === "Toggle") {
-                setWidgetValue(node, "toggle_image", getToggleImage(node) === "A" ? "B" : "A");
-                return true;
-            }
-        }
-        return false;
-    }
-}
-
-function getTimeline(node) {
-    const state = getState(node);
-    const meta = state.meta || {};
-    const fps = clamp(Number(getWidget(node, "fps")?.value), 1, 240, 24);
-    const aCount = state.a.length || Number(meta.a_count) || 0;
-    const bCount = state.b.length || Number(meta.b_count) || 0;
-    const refCount = aCount > 0 ? aCount : bCount;
-    const duration = refCount > 0 ? refCount / fps : 0;
-    const time = duration > 0 ? clamp(state.time, 0, duration, 0) : 0;
-    return { fps, aCount, bCount, refCount, duration, time };
-}
-
-function frameIndexFor(timeline, count) {
-    if (count <= 0) {
-        return -1;
-    }
-    if (timeline.duration <= 0) {
-        return 0;
-    }
-    const ratio = timeline.time / timeline.duration;
-    return clamp(Math.floor(ratio * count), 0, count - 1, 0);
-}
-
-function pickFrame(frames, index) {
-    if (!Array.isArray(frames) || frames.length <= 0 || index < 0) {
-        return null;
-    }
-    const item = frames[Math.min(index, frames.length - 1)];
-    if (item?.loaded) {
-        return item;
-    }
-    for (let i = Math.min(index, frames.length - 1); i >= 0; i--) {
-        if (frames[i]?.loaded) {
-            return frames[i];
-        }
-    }
-    return null;
-}
-
-function startPlayback(node) {
-    const state = getState(node);
-    if (state.rafId) {
-        return;
-    }
-    state.lastTick = performance.now();
-    const tick = () => {
-        state.rafId = 0;
-        if (!node.graph) {
-            return;
-        }
-        const now = performance.now();
-        const dt = Math.max(0, (now - state.lastTick) / 1000);
-        state.lastTick = now;
-
-        const timeline = getTimeline(node);
-        if (state.playing && timeline.duration > 0) {
-            let next = state.time + dt;
-            if (next >= timeline.duration) {
-                if (state.loop) {
-                    next = next % timeline.duration;
-                } else {
-                    next = timeline.duration;
-                    state.playing = false;
-                }
-            }
-            state.time = next;
-            requestNodeRedraw(node);
-        }
-
-        if (state.playing) {
-            state.rafId = requestAnimationFrame(tick);
-        }
-    };
-    state.rafId = requestAnimationFrame(tick);
-}
-
-function stopPlayback(node) {
-    const state = node.__denoVC;
-    if (state?.rafId) {
-        cancelAnimationFrame(state.rafId);
-        state.rafId = 0;
-    }
-}
-
-function togglePlayback(node) {
-    const state = getState(node);
-    const timeline = getTimeline(node);
-    state.playing = !state.playing;
-    if (state.playing) {
-        if (timeline.duration > 0 && state.time >= timeline.duration) {
-            state.time = 0;
-        }
-        startPlayback(node);
-    } else {
-        stopPlayback(node);
-    }
-    requestNodeRedraw(node);
-}
-
-function stepFps(node, direction) {
-    const widget = getWidget(node, "fps");
-    if (!widget) {
-        return;
-    }
-    const next = clamp(Math.round(Number(widget.value) || 24) + direction, 1, 240, 24);
-    setWidgetValue(node, "fps", next);
-}
-
-function updateScrubFromPointer(node, pos) {
-    const bounds = node.__denoVCWidget?.hitAreas?.scrub?.bounds;
-    if (!bounds) {
-        return false;
-    }
-    const timeline = getTimeline(node);
-    if (timeline.duration <= 0) {
-        return false;
-    }
-    const state = getState(node);
-    const ratio = clamp((pos[0] - bounds[0]) / bounds[2], 0, 1, 0);
-    state.time = ratio * timeline.duration;
-    requestNodeRedraw(node);
-    return true;
-}
-
-function handlePointerMove(node, pos) {
-    if (!node || getMode(node) !== "Slider") {
-        return false;
-    }
-    const bounds = node.__denoVCWidget?.hitAreas?.preview?.bounds;
-    if (!isInside(pos, bounds)) {
-        return false;
-    }
-    const value = clamp((pos[0] - bounds[0]) / bounds[2], 0.02, 0.98, 0.5);
-    const rounded = Math.round(value * 1000) / 1000;
-    if (Number(getWidget(node, "split_position")?.value) !== rounded) {
-        setWidgetValue(node, "split_position", rounded);
-    }
-    return true;
-}
-
-function drawPanel(ctx, x, y, w, h) {
-    const gradient = ctx.createLinearGradient(0, y, 0, y + h);
-    gradient.addColorStop(0, COLORS.panelA);
-    gradient.addColorStop(1, COLORS.panelB);
-    drawRoundedRect(ctx, x, y, w, h, 12, gradient, COLORS.border, 1);
-}
-
-function drawScrub(ctx, x, y, w, timeline) {
-    drawRoundedRect(ctx, x, y, w, 6, 3, COLORS.track, null, 0);
-    const ratio = timeline.duration > 0 ? clamp(timeline.time / timeline.duration, 0, 1, 0) : 0;
-    if (ratio > 0) {
-        drawRoundedRect(ctx, x, y, Math.max(6, w * ratio), 6, 3, COLORS.trackFill, null, 0);
-    }
-    const handleX = x + w * ratio;
-    ctx.beginPath();
-    ctx.arc(handleX, y + 3, 6, 0, Math.PI * 2);
-    ctx.fillStyle = "#48ff84";
-    ctx.fill();
-}
-
-function drawPreview(ctx, node, rect, pair, timeline) {
-    drawRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, 10, COLORS.imageBack, COLORS.borderSoft, 1);
-    const mode = getMode(node);
-    const split = getSplitPosition(node);
-    const activeToggle = getToggleImage(node);
-    const aFrame = pickFrame(pair.a, frameIndexFor(timeline, pair.a.length));
-    const bFrame = pickFrame(pair.b, frameIndexFor(timeline, pair.b.length));
-    const aLabel = pair.aLabel || "A";
-    const bLabel = pair.bLabel || "B";
-
-    ctx.save();
-    roundedClip(ctx, rect.x, rect.y, rect.w, rect.h, 10);
-    if (!aFrame && !bFrame) {
-        drawPlaceholder(ctx, rect);
-        ctx.restore();
-        return;
-    }
-
-    if (mode === "Side by Side") {
-        const gap = 8;
-        const cellW = (rect.w - gap) * 0.5;
-        const boundsA = drawFitImage(ctx, aFrame, rect.x, rect.y, cellW, rect.h);
-        const boundsB = drawFitImage(ctx, bFrame, rect.x + cellW + gap, rect.y, cellW, rect.h);
-        drawBadgeAtBounds(ctx, aLabel, boundsA, "left");
-        drawBadgeAtBounds(ctx, bLabel, boundsB, "right");
-        ctx.restore();
-        return;
-    }
-
-    if (mode === "Difference") {
-        const boundsA = drawFitImage(ctx, aFrame, rect.x, rect.y, rect.w, rect.h);
-        ctx.globalCompositeOperation = "difference";
-        drawFitImage(ctx, bFrame, rect.x, rect.y, rect.w, rect.h);
-        ctx.globalCompositeOperation = "source-over";
-        ctx.fillStyle = "rgba(72, 255, 132, 0.18)";
-        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-        drawBadgeAtBounds(ctx, aLabel, boundsA || rect, "left");
-        drawBadgeAtBounds(ctx, bLabel, boundsA || rect, "right");
-        ctx.restore();
-        return;
-    }
-
-    if (mode === "Toggle") {
-        const frame = activeToggle === aLabel ? aFrame : bFrame;
-        const bounds = drawFitImage(ctx, frame, rect.x, rect.y, rect.w, rect.h);
-        drawBadgeAtBounds(ctx, activeToggle, bounds || rect, activeToggle === aLabel ? "left" : "right");
-        ctx.restore();
-        return;
-    }
-
-    const baseBounds = drawFitImage(ctx, bFrame || aFrame, rect.x, rect.y, rect.w, rect.h);
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(rect.x, rect.y, rect.w * split, rect.h);
-    ctx.clip();
-    drawFitImage(ctx, aFrame || bFrame, rect.x, rect.y, rect.w, rect.h);
-    ctx.restore();
-
-    const lineX = rect.x + rect.w * split;
-    ctx.strokeStyle = "#48ff84";
-    ctx.lineWidth = 1;
-    ctx.shadowColor = "rgba(72, 255, 132, 0.55)";
-    ctx.shadowBlur = 5;
-    ctx.beginPath();
-    ctx.moveTo(lineX, rect.y);
-    ctx.lineTo(lineX, rect.y + rect.h);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    drawBadgeAtBounds(ctx, aLabel, baseBounds || rect, "left");
-    drawBadgeAtBounds(ctx, bLabel, baseBounds || rect, "right");
-    ctx.restore();
-}
-
-function drawFitImage(ctx, item, x, y, w, h) {
-    if (!item?.img?.naturalWidth || !item?.img?.naturalHeight) {
-        return null;
-    }
-
-    const img = item.img;
-    const imageAspect = img.naturalWidth / img.naturalHeight;
-    const boxAspect = w / h;
-    let drawW;
-    let drawH;
-    if (imageAspect > boxAspect) {
-        drawW = w;
-        drawH = w / imageAspect;
-    } else {
-        drawH = h;
-        drawW = h * imageAspect;
-    }
-    const drawX = x + (w - drawW) * 0.5;
-    const drawY = y + (h - drawH) * 0.5;
-    drawLowZoomFallback(ctx, drawX, drawY, drawW, drawH);
-    ctx.drawImage(img, drawX, drawY, drawW, drawH);
-    return { x: drawX, y: drawY, w: drawW, h: drawH };
-}
-
-function drawLowZoomFallback(ctx, x, y, w, h) {
-    const scale = getCanvasScale();
-    if (scale >= 0.08 || w * scale >= 18 || h * scale >= 18) {
-        return;
-    }
-
-    ctx.fillStyle = "rgba(72, 255, 132, 0.18)";
-    ctx.fillRect(x, y, w, h);
-}
-
-function drawPlaceholder(ctx, rect) {
-    ctx.fillStyle = "#6aa978";
-    ctx.font = "800 12px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("Run workflow to preview", rect.x + rect.w * 0.5, rect.y + rect.h * 0.5);
-}
-
-function drawBadge(ctx, text, centerX, centerY) {
-    ctx.save();
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = "source-over";
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    if ("filter" in ctx) {
-        ctx.filter = "none";
-    }
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, 9, 0, Math.PI * 2);
-    ctx.fillStyle = "#117638";
-    ctx.strokeStyle = "#bfffd0";
-    ctx.lineWidth = 1.25;
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#effff4";
-    ctx.font = "900 10px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(text, centerX, centerY + 0.5);
-    ctx.restore();
-}
-
-function drawBadgeAtBounds(ctx, text, bounds, side) {
-    if (!bounds) {
-        return;
-    }
-    const inset = 12;
-    const centerX = side === "right" ? bounds.x + bounds.w - inset : bounds.x + inset;
-    const centerY = bounds.y + inset;
-    drawBadge(ctx, text, centerX, centerY);
-}
-
-function drawMetaText(ctx, text, x, y, align) {
-    ctx.fillStyle = COLORS.textStrong;
-    ctx.font = "800 11px sans-serif";
-    ctx.textAlign = align;
-    ctx.textBaseline = "middle";
-    ctx.fillText(text, x, y);
-}
-
-function drawButton(ctx, id, label, x, y, w, h, selected, hitAreas) {
-    drawRoundedRect(ctx, x, y, w, h, h * 0.5, selected ? COLORS.active : COLORS.inactive, selected ? "rgba(72, 255, 132, 0.95)" : "rgba(90, 130, 104, 0.72)", 1);
-    ctx.fillStyle = selected ? "#f0fff4" : "#c9f7d5";
-    ctx.font = "900 11px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(fitString(ctx, label, w - 14), x + w * 0.5, y + h * 0.5 + 0.5);
-    hitAreas[id] = { bounds: [x, y, w, h] };
-}
-
-function drawRoundedRect(ctx, x, y, w, h, r, fillStyle, strokeStyle, lineWidth) {
-    ctx.save();
-    ctx.beginPath();
-    roundedPath(ctx, x, y, w, h, r);
-    if (fillStyle) {
-        ctx.fillStyle = fillStyle;
-        ctx.fill();
-    }
-    if (strokeStyle && lineWidth) {
-        ctx.strokeStyle = strokeStyle;
-        ctx.lineWidth = lineWidth;
-        ctx.stroke();
-    }
-    ctx.restore();
-}
-
-function roundedClip(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    roundedPath(ctx, x, y, w, h, r);
-    ctx.clip();
-}
-
-function roundedPath(ctx, x, y, w, h, r) {
-    const radius = Math.min(r, w * 0.5, h * 0.5);
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + w - radius, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-    ctx.lineTo(x + w, y + h - radius);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-    ctx.lineTo(x + radius, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-}
-
-function fitString(ctx, text, maxWidth) {
-    const value = String(text);
-    if (ctx.measureText(value).width <= maxWidth) {
-        return value;
-    }
-    let fitted = value;
-    while (fitted.length > 1 && ctx.measureText(`${fitted}...`).width > maxWidth) {
-        fitted = fitted.slice(0, -1);
-    }
-    return `${fitted}...`;
-}
-
-function removeCompareOutputs(node) {
-    const outputs = Array.isArray(node.outputs) ? node.outputs : [];
-    for (let i = outputs.length - 1; i >= 0; i--) {
-        node.disconnectOutput?.(i);
-    }
-    node.outputs = [];
-}
-
-function normalizeBackendWidgets(node) {
-    const mode = getWidget(node, "mode");
-    if (mode && !MODES.includes(String(mode.value))) {
-        mode.value = "Slider";
-    }
-
-    const split = getWidget(node, "split_position");
-    if (split) {
-        split.value = clamp(Number(split.value), 0.02, 0.98, 0.5);
-    }
-
-    const toggle = getWidget(node, "toggle_image");
-    if (toggle && !["A", "B"].includes(String(toggle.value))) {
-        toggle.value = "B";
-    }
-
-    const swap = getWidget(node, "swap");
-    if (swap) {
-        swap.value = normalizeBoolean(swap.value);
-    }
-
-    const fps = getWidget(node, "fps");
-    if (fps) {
-        fps.value = clamp(Number(fps.value), 1, 240, 24);
-    }
-}
-
-function hideBackendWidgets(node) {
-    for (const name of HIDDEN_WIDGETS) {
-        setWidgetHidden(getWidget(node, name), true);
-    }
-}
-
-function wrapComputeSize(node) {
-    if (node.__denoVCComputeWrapped) {
-        return;
-    }
-    const originalComputeSize = node.computeSize;
-    node.computeSize = function () {
-        const size = originalComputeSize?.apply(this, arguments) || [MIN_WIDTH, 380];
-        const width = Math.max(Number(size[0]) || MIN_WIDTH, MIN_WIDTH);
-        const minHeight = hasLoadedFrame(this) ? VIDEO_NODE_MIN_HEIGHT : DEFAULT_NODE_HEIGHT;
-        const height = Math.max(Number(size[1]) || 0, minHeight);
-        return [width, height];
-    };
-    node.__denoVCComputeWrapped = true;
-}
-
-function resizeNodeToPanel(node) {
-    const width = Math.max(Number(node.size?.[0]) || MIN_WIDTH, MIN_WIDTH);
-    const height = Math.max(Number(node.size?.[1]) || 0, DEFAULT_NODE_HEIGHT);
-    node.setSize?.([width, height]);
-}
-
-function resizeNodeToImage(node) {
-    const state = getState(node);
-    const meta = state.meta || {};
-    const aspectW = Number(meta.a_width) || Number(meta.b_width) || 0;
-    const aspectH = Number(meta.a_height) || Number(meta.b_height) || 0;
-    if (!aspectW || !aspectH) {
-        resizeNodeToPanel(node);
-        return;
-    }
-
-    const width = Math.max(Number(node.size?.[0]) || MIN_WIDTH, MIN_WIDTH);
-    const imageAspect = aspectW / aspectH;
-    if (!Number.isFinite(imageAspect) || imageAspect <= 0) {
-        resizeNodeToPanel(node);
-        return;
-    }
-
-    const previewWidth = width - 52;
-    const desiredPreviewHeight = clamp(previewWidth / imageAspect, PREVIEW_MIN_HEIGHT, PREVIEW_MAX_HEIGHT, 560);
-    const desiredNodeHeight = Math.max(VIDEO_NODE_MIN_HEIGHT, desiredPreviewHeight + VIDEO_CONTROLS_HEIGHT + NODE_VERTICAL_CHROME);
-    const currentHeight = Number(node.size?.[1]) || 0;
-    if (Math.abs(currentHeight - desiredNodeHeight) > 12) {
-        node.setSize?.([width, desiredNodeHeight]);
-    } else {
-        resizeNodeToPanel(node);
-    }
-}
-
-function hasLoadedFrame(node) {
-    const state = node.__denoVC;
-    if (!state) {
-        return false;
-    }
-    return state.a.some((item) => item?.loaded) || state.b.some((item) => item?.loaded);
-}
-
-function setPreviewWidgetValue(node) {
-    const widget = node.__denoVCWidget;
-    if (!widget) {
-        return;
-    }
-    const state = getState(node);
-    widget.storeValue({
-        a: state.a.map((item) => item.descriptor).filter(Boolean),
-        b: state.b.map((item) => item.descriptor).filter(Boolean),
-        meta: state.meta || {},
-    });
-}
-
-function normalizeImageDescriptor(data) {
-    if (!data || typeof data !== "object" || !data.filename) {
-        return null;
-    }
-    return {
-        filename: String(data.filename),
-        type: String(data.type || "temp"),
-        subfolder: String(data.subfolder || ""),
-    };
-}
-
-function normalizeStoredPreviewValue(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return { a: [], b: [], meta: {} };
-    }
-    return {
-        a: Array.isArray(value.a) ? value.a.map(normalizeImageDescriptor).filter(Boolean) : [],
-        b: Array.isArray(value.b) ? value.b.map(normalizeImageDescriptor).filter(Boolean) : [],
-        meta: value.meta && typeof value.meta === "object" ? value.meta : {},
-    };
-}
-
-function hydratePreviewFromWidgetValue(node, value) {
-    if (!node || node.__denoVCHydrating) {
-        return;
-    }
-    const stored = normalizeStoredPreviewValue(value);
-    if (!stored.a.length && !stored.b.length) {
-        return;
-    }
-
-    node.__denoVCHydrating = true;
-    try {
-        const state = getState(node);
-        state.meta = stored.meta;
-        state.a = stored.a.map((descriptor) => makeStoredFrameItem(descriptor, node));
-        state.b = stored.b.map((descriptor) => makeStoredFrameItem(descriptor, node));
-        state.time = 0;
-        state.playing = false;
-        requestNodeRedraw(node);
-    } finally {
-        node.__denoVCHydrating = false;
-    }
-}
-
-function getCanvasScale() {
-    return Number(app?.canvas?.ds?.scale || app?.canvas?.scale || 1) || 1;
-}
-
-function getWidgetHeightFromNode(node, y = NODE_VERTICAL_CHROME, providedHeight = null) {
-    const supplied = Number(providedHeight);
-    const nodeHeight = Math.max(Number(node?.size?.[1]) || DEFAULT_NODE_HEIGHT, hasLoadedFrame(node) ? VIDEO_NODE_MIN_HEIGHT : DEFAULT_NODE_HEIGHT);
-    return Math.max(
-        PREVIEW_MIN_HEIGHT + VIDEO_CONTROLS_HEIGHT + 16,
-        Number.isFinite(supplied) && supplied > 0 ? supplied : 0,
-        nodeHeight - y - 12
-    );
-}
-
-function getDisplayPair(node) {
-    const state = getState(node);
-    if (normalizeBoolean(getWidget(node, "swap")?.value)) {
-        return { a: state.b, b: state.a, aLabel: "B", bLabel: "A" };
-    }
-    return { a: state.a, b: state.b, aLabel: "A", bLabel: "B" };
-}
-
-function getMode(node) {
-    const mode = String(getWidget(node, "mode")?.value || "Slider");
-    return MODES.includes(mode) ? mode : "Slider";
-}
-
-function getSplitPosition(node) {
-    return clamp(Number(getWidget(node, "split_position")?.value), 0.02, 0.98, 0.5);
-}
-
-function getToggleImage(node) {
-    const value = String(getWidget(node, "toggle_image")?.value || "B");
-    return value === "A" ? "A" : "B";
-}
-
-function setWidgetHidden(widget, hidden) {
-    if (!widget) {
-        return;
-    }
-    if (!Object.prototype.hasOwnProperty.call(widget, "__denoVCOriginalType")) {
-        widget.__denoVCOriginalType = widget.type;
-    }
-    if (!Object.prototype.hasOwnProperty.call(widget, "__denoVCOriginalComputeSize")) {
-        widget.__denoVCOriginalComputeSize = widget.computeSize;
-    }
-
-    widget.hidden = hidden;
-    if (hidden) {
-        widget.type = "converted-widget";
-        widget.computeSize = () => [0, -4];
-        if (widget.element) {
-            widget.element.style.display = "none";
-        }
-        return;
-    }
-
-    widget.type = widget.__denoVCOriginalType;
-    if (widget.__denoVCOriginalComputeSize) {
-        widget.computeSize = widget.__denoVCOriginalComputeSize;
-    } else {
-        delete widget.computeSize;
-    }
-    if (widget.element) {
-        widget.element.style.display = "";
-    }
+function el(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html;
+  return e;
 }
 
 function getWidget(node, name) {
-    return (node.widgets || []).find((widget) => widget.name === name);
+  return (node.widgets || []).find((w) => w.name === name);
+}
+function setWidget(node, name, value) {
+  const w = getWidget(node, name);
+  if (!w) return;
+  w.value = value;
+  try { w.callback?.(value); } catch (e) {}
+}
+function hideWidget(w) {
+  if (!w || w.__dvcHidden) return;
+  w.__dvcHidden = true;
+  w.__t = w.type; w.__cs = w.computeSize;
+  w.type = "converted-widget";
+  w.computeSize = () => [0, -4];
 }
 
-function setWidgetValue(node, name, value) {
-    const widget = getWidget(node, name);
-    if (!widget) {
-        return;
+function getState(node) {
+  if (!node.__dvc) {
+    node.__dvc = {
+      mode: "Slider", split: 0.5, tgl: "B", swapped: false,
+      playing: false, loop: true, speed: 1, audio: "A",
+      zoom: 1, panX: 0, panY: 0,
+      haveA: false, haveB: false, scrubbing: false,
+      draggingSplit: false, panning: false, panStart: null,
+      down: null, starting: false, raf: 0, dom: null,
+    };
+  }
+  return node.__dvc;
+}
+
+app.registerExtension({
+  name: "Deno.VideoCompare",
+  async beforeRegisterNodeDef(nodeType, nodeData) {
+    if (nodeData.name !== NODE_NAME) return;
+
+    const onCreated = nodeType.prototype.onNodeCreated;
+    nodeType.prototype.onNodeCreated = function () {
+      const r = onCreated?.apply(this, arguments);
+      setupVideoCompareNode(this);
+      return r;
+    };
+    const onConfigure = nodeType.prototype.onConfigure;
+    nodeType.prototype.onConfigure = function () {
+      const r = onConfigure?.apply(this, arguments);
+      queueMicrotask(() => setupVideoCompareNode(this));
+      return r;
+    };
+    const onExecuted = nodeType.prototype.onExecuted;
+    nodeType.prototype.onExecuted = function (output) {
+      const r = onExecuted?.apply(this, arguments);
+      handleExecuted(this, output || {});
+      return r;
+    };
+    const onRemoved = nodeType.prototype.onRemoved;
+    nodeType.prototype.onRemoved = function () {
+      stopPlayback(this);
+      const v = this.__dvc?.dom;
+      if (v) { try { v.vidA.src = ""; v.vidB.src = ""; } catch (e) {} }
+      return onRemoved?.apply(this, arguments);
+    };
+  },
+});
+
+function setupVideoCompareNode(node) {
+  if (!node || node.__dvcSetup) return;
+  node.__dvcSetup = true;
+  const st = getState(node);
+
+  for (const n of HIDDEN_WIDGETS) hideWidget(getWidget(node, n));
+  const mw = getWidget(node, "mode");
+  if (mw && MODES.includes(String(mw.value))) st.mode = String(mw.value);
+  const sw = getWidget(node, "split_position");
+  if (sw != null) st.split = clamp(Number(sw.value), 0.02, 0.98, 0.5);
+  const tw = getWidget(node, "toggle_image");
+  if (tw && ["A", "B"].includes(String(tw.value))) st.tgl = String(tw.value);
+  const wsw = getWidget(node, "swap");
+  if (wsw != null) st.swapped = !!wsw.value;
+
+  buildDom(node);
+  if ((node.size?.[0] || 0) < NODE_MIN_W || (node.size?.[1] || 0) < NODE_DEFAULT_H) {
+    node.setSize?.([Math.max(node.size?.[0] || 0, NODE_MIN_W),
+                    Math.max(node.size?.[1] || 0, NODE_DEFAULT_H)]);
+  }
+  if (!st.raf) st.raf = requestAnimationFrame(loopOf(node));
+}
+
+function buildDom(node) {
+  const st = getState(node);
+  if (st.dom) return;
+  if (!document.getElementById("dvc-style")) {
+    const s = el("style"); s.id = "dvc-style"; s.textContent = CSS;
+    document.head.appendChild(s);
+  }
+  const root = el("div", "dvc m-slider");
+
+  const top = el("div", "bar top");
+  top.appendChild(el("div", "title",
+    `<span class="dot"></span>Video Compare <small>· ${TAGLINE}</small>`));
+  const swapBtn = el("button", "btn swap", "⇄ Swap");
+  top.appendChild(swapBtn);
+  const modes = el("div", "modes");
+  const modeBtns = {};
+  for (const m of MODES) {
+    const b = el("button", "btn mode" + (m === st.mode ? " on" : ""), m);
+    b.onclick = () => setMode(node, m);
+    modeBtns[m] = b; modes.appendChild(b);
+  }
+  const infoBtn = el("button", "btn icn info", "i");
+  modes.appendChild(infoBtn);
+  top.appendChild(modes);
+  root.appendChild(top);
+
+  const stage = el("div", "stage");
+  const frame = el("div", "frame");
+  const vidB = el("video"); vidB.className = "vB";
+  const vidA = el("video"); vidA.className = "vA";
+  for (const v of [vidB, vidA]) {
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.loop = false;
+  }
+  frame.appendChild(vidB); frame.appendChild(vidA);
+  const divider = el("div", "divider");
+  frame.appendChild(divider);
+  stage.appendChild(frame);
+  const badgeA = el("div", "badge bA", "A");
+  const badgeB = el("div", "badge bB", "B");
+  const tglBadge = el("div", "tgl", st.tgl);
+  const hint = el("div", "hint", "Run the workflow to preview");
+  stage.append(badgeA, badgeB, tglBadge, hint);
+  const pop = el("div", "pop",
+    `<b>(Deno) Video Compare</b><br>그래프 마지막 출력 옆에 붙여 비포/애프터를 ` +
+    `같은 타임라인으로 동기 재생합니다. 입력을 압축 프리뷰 클립으로 인코딩하므로 ` +
+    `고해상도·장클립도 가볍습니다.<br><br>` +
+    `클릭=재생/정지 · 드래그=슬라이더 · 휠=확대 · Slider는 마우스 이동으로 분할.`);
+  stage.appendChild(pop);
+  root.appendChild(stage);
+  infoBtn.onclick = () => pop.classList.toggle("show");
+
+  const bot = el("div", "bar bot");
+  const scrub = el("div", "scrub");
+  scrub.append(el("div", "trk"), el("div", "fill"), el("div", "hd"));
+  const fill = scrub.querySelector(".fill");
+  const head = scrub.querySelector(".hd");
+  bot.appendChild(scrub);
+  const tr = el("div", "tr");
+  const playBtn = el("button", "btn icn", "▶"); playBtn.disabled = true;
+  const loopBtn = el("button", "btn icn on", "↻");
+  const backBtn = el("button", "btn icn", "⏮");
+  const fwdBtn = el("button", "btn icn", "⏭");
+  const spdBtn = el("button", "btn", "1.0×");
+  const sep1 = el("span", "sep");
+  const audN = el("button", "btn icn", "🔇");
+  const audA = el("button", "btn icn on", "🔊A");
+  const audB = el("button", "btn icn", "🔊B");
+  const sep2 = el("span", "sep");
+  const zOut = el("button", "btn icn", "−");
+  const zl = el("span", "zl", "100%");
+  const zIn = el("button", "btn icn", "+");
+  const zRst = el("button", "btn icn", "⤢");
+  const time = el("span", "time", "00:00 / 00:00");
+  const meta = el("div", "meta", "");
+  tr.append(playBtn, loopBtn, backBtn, fwdBtn, spdBtn, sep1,
+    audN, audA, audB, sep2, zOut, zl, zIn, zRst, time, meta);
+  bot.appendChild(tr);
+  root.appendChild(bot);
+
+  const dom = {
+    root, stage, frame, vidA, vidB, divider, badgeA, badgeB, tglBadge,
+    hint, fill, head, scrub, time, meta, playBtn, loopBtn, spdBtn,
+    zl, modeBtns, audN, audA, audB,
+  };
+  st.dom = dom;
+
+  const widget = node.addDOMWidget(WIDGET_NAME, "div", root, {
+    serialize: false,
+    hideOnZoom: false,
+    getMinHeight: () => 360,
+  });
+  widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W),
+                               Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90, 320)];
+  node.__dvcWidget = widget;
+
+  wireInteractions(node, dom, {
+    swapBtn, playBtn, loopBtn, backBtn, fwdBtn, spdBtn,
+    audN, audA, audB, zOut, zIn, zRst,
+  });
+  applyMode(node); applyTgl(node); updateLabels(node); applyAudio(node);
+  render(node);
+}
+
+/* ---------- timeline / sync (rate-based, no seek glitch) ---------- */
+function master(node) {
+  const s = getState(node), d = s.dom;
+  return s.haveA ? d.vidA : d.vidB;
+}
+function follower(node) {
+  const s = getState(node), d = s.dom;
+  return s.haveA ? (s.haveB ? d.vidB : null) : null;
+}
+function getTimeline(node) {
+  const m = master(node);
+  const dur = (m && m.duration && isFinite(m.duration)) ? m.duration : 0;
+  const t = m ? Math.min(m.currentTime || 0, dur || 1e9) : 0;
+  return { dur, t };
+}
+function syncFollower(node, force) {
+  const o = follower(node); if (!o) return;
+  const m = master(node);
+  const tgt = Math.min(m.currentTime || 0, o.duration || (m.currentTime || 0));
+  const diff = o.currentTime - tgt;
+  const A = Math.abs(diff);
+  const s = getState(node);
+  if (force || A > 0.5) {
+    try { o.currentTime = tgt; } catch (e) {}
+    o.playbackRate = s.speed; return;
+  }
+  if (!s.playing) {
+    if (A > 0.02) { try { o.currentTime = tgt; } catch (e) {} }
+    o.playbackRate = s.speed; return;
+  }
+  if (A > 0.18) { try { o.currentTime = tgt; } catch (e) {} o.playbackRate = s.speed; return; }
+  if (A < 0.004) o.playbackRate = s.speed;
+  else { const k = Math.min(0.6, A * 8); o.playbackRate = s.speed * (diff > 0 ? 1 - k : 1 + k); }
+}
+function seekAll(node, t) {
+  const m = master(node); if (!m) return;
+  m.currentTime = Math.max(0, Math.min(t, m.duration || 0));
+  syncFollower(node, true); render(node);
+}
+function startPlayback(node) {
+  const s = getState(node);
+  if (!s.haveA && !s.haveB) return;
+  s.playing = true; s.dom.playBtn.textContent = "❚❚"; s.dom.playBtn.classList.add("on");
+  const m = master(node), o = follower(node);
+  if (m.ended || m.currentTime >= (m.duration - 0.05)) {
+    m.currentTime = 0; if (o) { try { o.currentTime = 0; } catch (e) {} }
+  }
+  m.playbackRate = s.speed;
+  if (!o) { m.play().catch(() => {}); return; }
+  const tgt = m.currentTime;
+  const needSeek = Math.abs(o.currentTime - tgt) > 0.008;
+  if (needSeek) { try { o.currentTime = tgt; } catch (e) {} }
+  o.playbackRate = s.speed;
+  s.starting = true;
+  const go = () => {
+    if (!s.starting) return;
+    s.starting = false;
+    o.removeEventListener("seeked", go); o.removeEventListener("canplay", go);
+    if (!s.playing) return;
+    o.play().catch(() => {}); m.play().catch(() => {});
+  };
+  if (!needSeek && o.readyState >= 2) go();
+  else {
+    o.addEventListener("seeked", go); o.addEventListener("canplay", go);
+    setTimeout(go, 220);
+  }
+}
+function stopPlayback(node) {
+  const s = node.__dvc; if (!s) return;
+  s.playing = false; s.starting = false;
+  if (s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; }
+  const d = s.dom;
+  if (d) {
+    try { d.vidA.pause(); d.vidB.pause(); } catch (e) {}
+    if (d.playBtn) { d.playBtn.textContent = "▶"; d.playBtn.classList.remove("on"); }
+  }
+}
+function pausePlayback(node) {
+  const s = getState(node);
+  s.playing = false; s.starting = false;
+  s.dom.playBtn.textContent = "▶"; s.dom.playBtn.classList.remove("on");
+  try { s.dom.vidA.pause(); s.dom.vidB.pause(); } catch (e) {}
+  syncFollower(node, false);
+}
+function togglePlay(node) {
+  getState(node).playing ? pausePlayback(node) : startPlayback(node);
+}
+function loopOf(node) {
+  const tick = () => {
+    const s = node.__dvc;
+    if (!s) return;
+    if (!s.dom || !s.dom.root.isConnected) { s.raf = requestAnimationFrame(tick); return; }
+    const m = master(node);
+    if (m && (s.haveA || s.haveB)) {
+      if (s.playing && !s.starting) {
+        const o = follower(node);
+        if (o) { if (o.paused) o.play().catch(() => {}); syncFollower(node, false); }
+        if (m.duration && m.currentTime >= m.duration - 0.03) {
+          if (s.loop) seekAll(node, 0); else pausePlayback(node);
+        }
+      }
+      render(node);
     }
-    widget.value = value;
-    widget.callback?.(value);
-    requestNodeRedraw(node);
+    s.raf = requestAnimationFrame(tick);
+  };
+  return tick;
 }
 
-function requestNodeRedraw(node) {
-    node.setDirtyCanvas?.(true, true);
-    app.graph?.setDirtyCanvas?.(true, true);
+/* ---------- render ---------- */
+function render(node) {
+  const s = getState(node), d = s.dom; if (!d) return;
+  const tl = getTimeline(node);
+  const r = tl.dur > 0 ? tl.t / tl.dur : 0;
+  d.fill.style.width = (r * 100) + "%";
+  d.head.style.left = (r * 100) + "%";
+  d.time.textContent = fmt(tl.t) + " / " + fmt(tl.dur);
+  d.root.style.setProperty("--sp", s.split);
+  d.frame.style.transform =
+    `translate(${s.panX}px,${s.panY}px) scale(${s.zoom})`;
+}
+function fmt(x) {
+  x = Math.max(0, x || 0);
+  const mm = Math.floor(x / 60), ss = Math.floor(x % 60),
+    cs = Math.floor((x * 100) % 100);
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}` +
+    `.${String(cs).padStart(2, "0")}`;
 }
 
-function formatSize(label, frames) {
-    const item = Array.isArray(frames) ? frames.find((frame) => frame?.img?.naturalWidth) : null;
-    const width = item?.img?.naturalWidth || 0;
-    const height = item?.img?.naturalHeight || 0;
-    const count = Array.isArray(frames) ? frames.length : 0;
-    if (!width || !height) {
-        return `${label} -- x -- (${count}f)`;
+/* ---------- modes / labels ---------- */
+function setMode(node, m) {
+  const s = getState(node);
+  s.mode = m; setWidget(node, "mode", m);
+  applyMode(node); render(node);
+}
+function applyMode(node) {
+  const s = getState(node), d = s.dom;
+  d.root.classList.remove("m-slider", "m-sxs", "m-diff", "m-tgl", "sa", "sb");
+  d.root.classList.add("m-" + (
+    s.mode === "Side by Side" ? "sxs" :
+    s.mode === "Difference" ? "diff" :
+    s.mode === "Toggle" ? "tgl" : "slider"));
+  for (const m of MODES) d.modeBtns[m].classList.toggle("on", m === s.mode);
+  if (s.mode === "Toggle") applyTgl(node);
+  d.stage.classList.toggle("pan", s.zoom > 1 && s.mode !== "Slider");
+}
+function applyTgl(node) {
+  const s = getState(node), d = s.dom;
+  if (s.haveA && !s.haveB) s.tgl = "A";
+  else if (s.haveB && !s.haveA) s.tgl = "B";
+  d.root.classList.toggle("sa", s.tgl === "A");
+  d.root.classList.toggle("sb", s.tgl === "B");
+  d.tglBadge.textContent = s.tgl;
+  setWidget(node, "toggle_image", s.tgl);
+}
+const labelOf = (s, side) => s.swapped ? (side === "A" ? "B" : "A") : side;
+function updateLabels(node) {
+  const s = getState(node), d = s.dom;
+  d.badgeA.textContent = labelOf(s, "A");
+  d.badgeB.textContent = labelOf(s, "B");
+}
+function applyAudio(node) {
+  const s = getState(node), d = s.dom;
+  d.vidA.muted = !(s.haveA && s.audio === "A");
+  d.vidB.muted = !(s.haveB && s.audio === "B");
+  d.audN.classList.toggle("on", s.audio === "none");
+  d.audA.classList.toggle("on", s.audio === "A");
+  d.audB.classList.toggle("on", s.audio === "B");
+}
+
+/* ---------- executed: feed mp4 urls ---------- */
+function handleExecuted(node, output) {
+  setupVideoCompareNode(node);
+  const s = getState(node), d = s.dom; if (!d) return;
+  const a = Array.isArray(output.a_video) ? output.a_video[0] : null;
+  const b = Array.isArray(output.b_video) ? output.b_video[0] : null;
+  const meta = Array.isArray(output.compare_meta) ? output.compare_meta[0] || {} : {};
+  s.haveA = !!(a && a.filename);
+  s.haveB = !!(b && b.filename);
+  d.vidA.src = s.haveA ? viewUrl(a) : "";
+  d.vidB.src = s.haveB ? viewUrl(b) : "";
+  if (s.haveA) d.vidA.load();
+  if (s.haveB) d.vidB.load();
+
+  let info = "";
+  if (meta.error === "ffmpeg_not_found")
+    info = "ffmpeg를 찾을 수 없습니다 (VideoHelperSuite 설치 권장)";
+  else if (typeof meta.error === "string" && meta.error)
+    info = "인코딩 실패: " + meta.error;
+  else if (!s.haveA && !s.haveB) info = "video_a / video_b 를 연결하세요";
+  d.hint.textContent = info || "Run the workflow to preview";
+  d.hint.classList.toggle("hide", (s.haveA || s.haveB) && !meta.error);
+
+  d.meta.innerHTML =
+    (meta.a_count ? `<span><b>A</b> ${meta.a_width}×${meta.a_height} · ${meta.a_count}f</span>` : "") +
+    (meta.b_count ? `<span><b>B</b> ${meta.b_width}×${meta.b_height} · ${meta.b_count}f</span>` : "");
+
+  d.playBtn.disabled = !(s.haveA || s.haveB);
+  applyTgl(node); updateLabels(node); applyAudio(node);
+  s.starting = false;
+  const begin = () => { seekAll(node, 0); if (s.haveA || s.haveB) startPlayback(node); };
+  const ref = s.haveA ? d.vidA : d.vidB;
+  if (ref && ref.readyState >= 1) begin();
+  else if (ref) ref.addEventListener("loadedmetadata", begin, { once: true });
+  render(node);
+}
+
+/* ---------- pointer / zoom / interactions ---------- */
+function frameFrac(node, clientX) {
+  const s = getState(node);
+  const r = s.dom.stage.getBoundingClientRect();
+  const W = r.width || 1, cx = W / 2;
+  const p = cx + (((clientX - r.left) - cx - s.panX) / s.zoom);
+  return Math.max(0, Math.min(1, p / W));
+}
+function clampPan(node) {
+  const s = getState(node);
+  const r = s.dom.stage.getBoundingClientRect();
+  const mx = (r.width * (s.zoom - 1)) / 2, my = (r.height * (s.zoom - 1)) / 2;
+  s.panX = Math.max(-mx, Math.min(mx, s.panX));
+  s.panY = Math.max(-my, Math.min(my, s.panY));
+}
+function setZoom(node, z, cx, cy) {
+  const s = getState(node), old = s.zoom;
+  s.zoom = Math.max(1, Math.min(8, z));
+  if (s.zoom === 1) { s.panX = 0; s.panY = 0; }
+  else if (cx != null) {
+    const r = s.dom.stage.getBoundingClientRect();
+    const ox = cx - r.left - r.width / 2, oy = cy - r.top - r.height / 2;
+    const k = s.zoom / old;
+    s.panX = (s.panX - ox) * k + ox; s.panY = (s.panY - oy) * k + oy;
+    clampPan(node);
+  }
+  s.dom.zl.textContent = Math.round(s.zoom * 100) + "%";
+  s.dom.stage.classList.toggle("pan", s.zoom > 1 && s.mode !== "Slider");
+  render(node);
+}
+function wireInteractions(node, d, btns) {
+  const s = getState(node);
+  const stage = d.stage;
+
+  stage.addEventListener("pointerdown", (e) => {
+    if (!s.haveA && !s.haveB) return;
+    s.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+    if (s.mode === "Slider" && s.zoom === 1) {
+      s.draggingSplit = true; s.split = frameFrac(node, e.clientX);
+      setWidget(node, "split_position", round3(s.split));
+      render(node); stage.setPointerCapture(e.pointerId); return;
     }
-    return `${label} ${width} x ${height} (${count}f)`;
-}
-
-function formatTime(seconds) {
-    const value = Math.max(0, Number(seconds) || 0);
-    const mm = Math.floor(value / 60);
-    const ss = Math.floor(value % 60);
-    const cs = Math.floor((value * 100) % 100);
-    return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
-}
-
-function formatFps(fps) {
-    const value = Number(fps) || 0;
-    return Number.isInteger(value) ? String(value) : value.toFixed(2);
-}
-
-function isInside(pos, bounds) {
-    if (!bounds) {
-        return false;
+    if (s.zoom > 1) {
+      s.panning = true; s.panStart = { x: e.clientX - s.panX, y: e.clientY - s.panY };
+      stage.classList.add("grabbing"); stage.setPointerCapture(e.pointerId);
     }
-    return pos[0] >= bounds[0] && pos[0] <= bounds[0] + bounds[2] && pos[1] >= bounds[1] && pos[1] <= bounds[1] + bounds[3];
-}
-
-function clamp(value, min, max, fallback) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) {
-        return fallback;
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (s.down && !s.down.moved &&
+      Math.hypot(e.clientX - s.down.x, e.clientY - s.down.y) > 6) s.down.moved = true;
+    if (s.draggingSplit) {
+      s.split = frameFrac(node, e.clientX);
+      setWidget(node, "split_position", round3(s.split)); render(node);
+    } else if (s.panning) {
+      s.panX = e.clientX - s.panStart.x; s.panY = e.clientY - s.panStart.y;
+      clampPan(node); render(node);
+    } else if (s.mode === "Slider" && s.haveA && s.haveB && !s.scrubbing) {
+      s.split = frameFrac(node, e.clientX);
+      setWidget(node, "split_position", round3(s.split)); render(node);
     }
-    return Math.max(min, Math.min(max, numeric));
-}
+  });
+  const endPtr = (e) => {
+    const dn = s.down; s.down = null;
+    s.draggingSplit = false; s.panning = false;
+    stage.classList.remove("grabbing");
+    if (!(e && e.type === "pointerup" && dn && !dn.moved &&
+      (performance.now() - dn.t) < 350 && (s.haveA || s.haveB))) return;
+    if (s.mode === "Toggle") {
+      s.tgl = s.tgl === "A" ? "B" : "A"; applyTgl(node);
+    } else togglePlay(node);
+  };
+  stage.addEventListener("pointerup", endPtr);
+  stage.addEventListener("pointercancel", endPtr);
+  stage.addEventListener("wheel", (e) => {
+    if (!s.haveA && !s.haveB) return;
+    e.preventDefault();
+    setZoom(node, s.zoom * (e.deltaY < 0 ? 1.18 : 1 / 1.18), e.clientX, e.clientY);
+  }, { passive: false });
 
-function normalizeBoolean(value) {
-    if (typeof value === "string") {
-        return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
-    }
-    return Boolean(value);
+  d.scrub.addEventListener("pointerdown", (e) => {
+    if (!s.haveA && !s.haveB) return;
+    s.scrubbing = true; s._wasPlaying = s.playing; pausePlayback(node);
+    d.scrub.setPointerCapture(e.pointerId); scrubTo(node, e.clientX);
+  });
+  d.scrub.addEventListener("pointermove", (e) => {
+    if (s.scrubbing) scrubTo(node, e.clientX);
+  });
+  d.scrub.addEventListener("pointerup", () => {
+    if (!s.scrubbing) return;
+    s.scrubbing = false; if (s._wasPlaying) startPlayback(node);
+  });
+
+  btns.playBtn.onclick = () => togglePlay(node);
+  btns.loopBtn.onclick = () => {
+    s.loop = !s.loop; btns.loopBtn.classList.toggle("on", s.loop);
+  };
+  btns.backBtn.onclick = () => stepFrame(node, -1);
+  btns.fwdBtn.onclick = () => stepFrame(node, 1);
+  const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
+  btns.spdBtn.onclick = () => {
+    s.speed = SPEEDS[(SPEEDS.indexOf(s.speed) + 1) % SPEEDS.length];
+    d.vidA.playbackRate = s.speed; d.vidB.playbackRate = s.speed;
+    btns.spdBtn.textContent = s.speed.toFixed(2).replace(/0$/, "") + "×";
+  };
+  const setAud = (a) => { s.audio = a; applyAudio(node); };
+  btns.audN.onclick = () => setAud("none");
+  btns.audA.onclick = () => setAud("A");
+  btns.audB.onclick = () => setAud("B");
+  btns.zOut.onclick = () => setZoom(node, s.zoom / 1.25);
+  btns.zIn.onclick = () => setZoom(node, s.zoom * 1.25);
+  btns.zRst.onclick = () => setZoom(node, 1);
+  btns.swapBtn.onclick = () => {
+    if (!s.haveA || !s.haveB) return;
+    s.swapped = !s.swapped;
+    setWidget(node, "swap", s.swapped);
+    d.root.classList.toggle("swp", s.swapped);
+    updateLabels(node); render(node);
+  };
+
+  d.vidA.addEventListener("ended", () => { if (s.loop && s.haveA) seekAll(node, 0); });
+  d.vidB.addEventListener("ended", () => { if (s.loop && !s.haveA) seekAll(node, 0); });
+}
+function scrubTo(node, clientX) {
+  const s = getState(node);
+  const r = s.dom.scrub.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+  const tl = getTimeline(node);
+  seekAll(node, ratio * (tl.dur || 0));
+}
+function stepFrame(node, dir) {
+  pausePlayback(node);
+  const m = master(node); if (!m) return;
+  seekAll(node, (m.currentTime || 0) + dir / 30);
+}
+function round3(x) { return Math.round(x * 1000) / 1000; }
+function clamp(v, lo, hi, fb) {
+  const n = Number(v); if (!isFinite(n)) return fb;
+  return Math.max(lo, Math.min(hi, n));
 }
