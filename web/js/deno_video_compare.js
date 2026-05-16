@@ -147,11 +147,9 @@ function getState(node) {
     node.__dvc = {
       mode: "Slider", split: 0.5, tgl: "B", swapped: false,
       playing: false, loop: true, speed: 1, audio: "A",
-      zoom: 1, panX: 0, panY: 0,
-      haveA: false, haveB: false, scrubbing: false,
-      draggingSplit: false, panning: false, panStart: null,
-      down: null, starting: false, raf: 0, dom: null,
-      gestured: false, aHasAudio: false, bHasAudio: false,
+      haveA: false, haveB: false, scrubbing: false, hovering: false,
+      draggingSplit: false, down: null, starting: false, raf: 0,
+      dom: null, aHasAudio: false, bHasAudio: false,
       ar: 0, _fitting: false,
     };
   }
@@ -292,21 +290,17 @@ function buildDom(node) {
   const audA = el("button", "btn icn on", "🔊A");
   const audB = el("button", "btn icn", "🔊B");
   const sep2 = el("span", "sep");
-  const zOut = el("button", "btn icn", "−");
-  const zl = el("span", "zl", "100%");
-  const zIn = el("button", "btn icn", "+");
-  const zRst = el("button", "btn icn", "⤢");
   const time = el("span", "time", "00:00 / 00:00");
   const meta = el("div", "meta", "");
   tr.append(playBtn, loopBtn, backBtn, fwdBtn, spdBtn, sep1,
-    audN, audA, audB, sep2, zOut, zl, zIn, zRst, time, meta);
+    audN, audA, audB, sep2, time, meta);
   bot.appendChild(tr);
   root.appendChild(bot);
 
   const dom = {
     root, stage, frame, vidA, vidB, divider, badgeA, badgeB, tglBadge,
     hint, fill, head, scrub, time, meta, playBtn, loopBtn, spdBtn,
-    zl, modeBtns, audN, audA, audB,
+    modeBtns, audN, audA, audB,
   };
   st.dom = dom;
 
@@ -321,7 +315,7 @@ function buildDom(node) {
 
   wireInteractions(node, dom, {
     swapBtn, playBtn, loopBtn, backBtn, fwdBtn, spdBtn,
-    audN, audA, audB, zOut, zIn, zRst,
+    audN, audA, audB,
   });
   applyMode(node); applyTgl(node); updateLabels(node); applyAudio(node);
   render(node);
@@ -444,8 +438,6 @@ function render(node) {
   d.head.style.left = (r * 100) + "%";
   d.time.textContent = fmt(tl.t) + " / " + fmt(tl.dur);
   d.root.style.setProperty("--sp", s.split);
-  d.frame.style.transform =
-    `translate(${s.panX}px,${s.panY}px) scale(${s.zoom})`;
 }
 function fmt(x) {
   x = Math.max(0, x || 0);
@@ -488,7 +480,6 @@ function applyMode(node) {
     s.mode === "Toggle" ? "tgl" : "slider"));
   for (const m of MODES) d.modeBtns[m].classList.toggle("on", m === s.mode);
   if (s.mode === "Toggle") applyTgl(node);
-  d.stage.classList.toggle("pan", s.zoom > 1 && s.mode !== "Slider");
 }
 function applyTgl(node) {
   const s = getState(node), d = s.dom;
@@ -508,20 +499,15 @@ function updateLabels(node) {
 function applyAudio(node) {
   const s = getState(node), d = s.dom;
   const aOk = s.haveA && s.aHasAudio, bOk = s.haveB && s.bHasAudio;
-  // browsers block audible autoplay until a user gesture
-  d.vidA.muted = !(s.gestured && aOk && s.audio === "A");
-  d.vidB.muted = !(s.gestured && bOk && s.audio === "B");
+  // sound follows the mouse: audible only while hovering the preview
+  const live = s.hovering && s.audio !== "none";
+  d.vidA.muted = !(live && aOk && s.audio === "A");
+  d.vidB.muted = !(live && bOk && s.audio === "B");
   d.audA.disabled = !aOk;
   d.audB.disabled = !bOk;
   d.audN.classList.toggle("on", s.audio === "none");
   d.audA.classList.toggle("on", s.audio === "A");
   d.audB.classList.toggle("on", s.audio === "B");
-}
-function markGesture(node) {
-  const s = getState(node);
-  if (s.gestured) return;
-  s.gestured = true;
-  applyAudio(node);
 }
 
 /* ---------- executed: feed mp4 urls ---------- */
@@ -576,33 +562,8 @@ function handleExecuted(node, output) {
 
 /* ---------- pointer / zoom / interactions ---------- */
 function frameFrac(node, clientX) {
-  const s = getState(node);
-  const r = s.dom.stage.getBoundingClientRect();
-  const W = r.width || 1, cx = W / 2;
-  const p = cx + (((clientX - r.left) - cx - s.panX) / s.zoom);
-  return Math.max(0, Math.min(1, p / W));
-}
-function clampPan(node) {
-  const s = getState(node);
-  const r = s.dom.stage.getBoundingClientRect();
-  const mx = (r.width * (s.zoom - 1)) / 2, my = (r.height * (s.zoom - 1)) / 2;
-  s.panX = Math.max(-mx, Math.min(mx, s.panX));
-  s.panY = Math.max(-my, Math.min(my, s.panY));
-}
-function setZoom(node, z, cx, cy) {
-  const s = getState(node), old = s.zoom;
-  s.zoom = Math.max(1, Math.min(8, z));
-  if (s.zoom === 1) { s.panX = 0; s.panY = 0; }
-  else if (cx != null) {
-    const r = s.dom.stage.getBoundingClientRect();
-    const ox = cx - r.left - r.width / 2, oy = cy - r.top - r.height / 2;
-    const k = s.zoom / old;
-    s.panX = (s.panX - ox) * k + ox; s.panY = (s.panY - oy) * k + oy;
-    clampPan(node);
-  }
-  s.dom.zl.textContent = Math.round(s.zoom * 100) + "%";
-  s.dom.stage.classList.toggle("pan", s.zoom > 1 && s.mode !== "Slider");
-  render(node);
+  const r = getState(node).dom.stage.getBoundingClientRect();
+  return Math.max(0, Math.min(1, (clientX - r.left) / (r.width || 1)));
 }
 function wireInteractions(node, d, btns) {
   const s = getState(node);
@@ -611,29 +572,21 @@ function wireInteractions(node, d, btns) {
   stage.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
     e.stopPropagation();
-    markGesture(node);
     s.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
-    if (s.mode === "Slider" && s.zoom === 1) {
+    if (s.mode === "Slider") {
       s.draggingSplit = true; s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split));
-      render(node); stage.setPointerCapture(e.pointerId); return;
-    }
-    if (s.zoom > 1) {
-      s.panning = true; s.panStart = { x: e.clientX - s.panX, y: e.clientY - s.panY };
-      stage.classList.add("grabbing"); stage.setPointerCapture(e.pointerId);
+      render(node); stage.setPointerCapture(e.pointerId);
     }
   });
   stage.addEventListener("pointermove", (e) => {
-    if (s.draggingSplit || s.panning || s.scrubbing ||
+    if (s.draggingSplit || s.scrubbing ||
         ((s.haveA || s.haveB) && s.mode === "Slider")) e.stopPropagation();
     if (s.down && !s.down.moved &&
       Math.hypot(e.clientX - s.down.x, e.clientY - s.down.y) > 6) s.down.moved = true;
     if (s.draggingSplit) {
       s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split)); render(node);
-    } else if (s.panning) {
-      s.panX = e.clientX - s.panStart.x; s.panY = e.clientY - s.panStart.y;
-      clampPan(node); render(node);
     } else if (s.mode === "Slider" && s.haveA && s.haveB && !s.scrubbing) {
       s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split)); render(node);
@@ -642,8 +595,7 @@ function wireInteractions(node, d, btns) {
   const endPtr = (e) => {
     if (e) e.stopPropagation();
     const dn = s.down; s.down = null;
-    s.draggingSplit = false; s.panning = false;
-    stage.classList.remove("grabbing");
+    s.draggingSplit = false;
     if (!(e && e.type === "pointerup" && dn && !dn.moved &&
       (performance.now() - dn.t) < 350 && (s.haveA || s.haveB))) return;
     if (s.mode === "Toggle") {
@@ -652,17 +604,17 @@ function wireInteractions(node, d, btns) {
   };
   stage.addEventListener("pointerup", endPtr);
   stage.addEventListener("pointercancel", endPtr);
-  stage.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!s.haveA && !s.haveB) return;
-    setZoom(node, s.zoom * (e.deltaY < 0 ? 1.18 : 1 / 1.18), e.clientX, e.clientY);
-  }, { passive: false });
+  // sound follows the mouse: enter preview -> play sound, leave -> mute
+  stage.addEventListener("pointerenter", () => {
+    s.hovering = true; applyAudio(node);
+  });
+  stage.addEventListener("pointerleave", () => {
+    s.hovering = false; applyAudio(node);
+  });
 
   d.scrub.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
     e.stopPropagation();
-    markGesture(node);
     s.scrubbing = true; s._wasPlaying = s.playing; pausePlayback(node);
     d.scrub.setPointerCapture(e.pointerId); scrubTo(node, e.clientX);
   });
@@ -675,7 +627,7 @@ function wireInteractions(node, d, btns) {
     s.scrubbing = false; if (s._wasPlaying) startPlayback(node);
   });
 
-  btns.playBtn.onclick = () => { markGesture(node); togglePlay(node); };
+  btns.playBtn.onclick = () => togglePlay(node);
   btns.loopBtn.onclick = () => {
     s.loop = !s.loop; btns.loopBtn.classList.toggle("on", s.loop);
   };
@@ -687,13 +639,10 @@ function wireInteractions(node, d, btns) {
     d.vidA.playbackRate = s.speed; d.vidB.playbackRate = s.speed;
     btns.spdBtn.textContent = s.speed.toFixed(2).replace(/0$/, "") + "×";
   };
-  const setAud = (a) => { markGesture(node); s.audio = a; applyAudio(node); };
+  const setAud = (a) => { s.audio = a; applyAudio(node); };
   btns.audN.onclick = () => setAud("none");
   btns.audA.onclick = () => setAud("A");
   btns.audB.onclick = () => setAud("B");
-  btns.zOut.onclick = () => setZoom(node, s.zoom / 1.25);
-  btns.zIn.onclick = () => setZoom(node, s.zoom * 1.25);
-  btns.zRst.onclick = () => setZoom(node, 1);
   btns.swapBtn.onclick = () => {
     if (!s.haveA || !s.haveB) return;
     s.swapped = !s.swapped;
