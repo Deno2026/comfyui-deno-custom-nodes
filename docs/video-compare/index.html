@@ -59,16 +59,18 @@
   .yt:hover{background:rgba(255,0,0,.22);border-color:#ff5252;
     box-shadow:0 0 12px rgba(255,0,0,.30)}
   .yt svg{width:20px;height:20px;display:block}
-  .slots{display:flex;gap:14px;flex-wrap:wrap;flex:1 1 auto;
-    justify-content:center}
+  .slots{position:absolute;left:50%;top:8px;transform:translateX(-50%);
+    display:flex;align-items:center;gap:14px;flex-wrap:nowrap;z-index:5}
   .slot{
     display:flex;align-items:center;gap:10px;background:rgba(31,96,50,.30);
     border:1px solid var(--line);border-radius:12px;padding:9px 14px;
     font-size:14px;color:var(--txt-strong);font-weight:700;
+    width:250px;box-sizing:border-box;
   }
+  #slotA{justify-content:flex-end}
   .slot.has{background:rgba(31,96,50,.5)}
   .slot b{color:var(--accent);font-weight:900;font-size:17px;margin-right:2px}
-  .slot .name{max-width:200px;overflow:hidden;text-overflow:ellipsis;
+  .slot .name{max-width:56px;overflow:hidden;text-overflow:ellipsis;
     white-space:nowrap;color:var(--txt-soft);font-weight:600}
   .slot button[data-pick]{font-size:13px;font-weight:900;color:#06100b;
     background:var(--accent);border:0;border-radius:999px;padding:9px 18px;
