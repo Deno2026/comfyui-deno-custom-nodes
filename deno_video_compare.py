@@ -157,6 +157,7 @@ def _encode_video(video, ffmpeg_exe, out_path, enc_fps, audio_wav=None):
     it is muxed as an AAC track aligned to the (shared) clip duration.
     """
     import subprocess
+    import threading
 
     import numpy as np
     import torch
@@ -166,6 +167,7 @@ def _encode_video(video, ffmpeg_exe, out_path, enc_fps, audio_wav=None):
     w = int(video.shape[2])
     c = int(video.shape[3]) if video.dim() >= 4 else 3
     enc_fps = max(0.1, float(enc_fps))
+    expected_bytes = w * h * 3
 
     args = [
         ffmpeg_exe, "-y", "-loglevel", "error",
@@ -194,23 +196,69 @@ def _encode_video(video, ffmpeg_exe, out_path, enc_fps, audio_wav=None):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
     )
+
+    # Drain stderr on a side thread. Reading it only AFTER the write loop
+    # (the old behaviour) deadlocks on large clips once ffmpeg fills its
+    # stderr pipe, which then surfaces as a bare "[Errno 32] Broken pipe"
+    # that hides ffmpeg's real message.
+    err_holder = {}
+
+    def _drain_stderr():
+        try:
+            err_holder["data"] = proc.stderr.read()
+        except Exception:
+            err_holder["data"] = b""
+
+    err_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    err_thread.start()
+
+    def _ffmpeg_error(prefix: str) -> RuntimeError:
+        err_thread.join(timeout=10)
+        msg = (err_holder.get("data") or b"").decode("utf-8", "ignore").strip()
+        return RuntimeError(f"{prefix}: {msg[:400]}" if msg else prefix)
+
     try:
-        for i in range(n):
-            frame = video[i]
-            if c == 4:
-                frame = frame[..., :3]
-            arr = (
-                frame.detach().clamp(0.0, 1.0).mul(255.0).round()
-                .to(torch.uint8).cpu().numpy()
-            )
-            proc.stdin.write(np.ascontiguousarray(arr).tobytes())
-        proc.stdin.close()
-        err = proc.stderr.read()
+        broken = False
+        try:
+            for i in range(n):
+                frame = video[i]
+                if c == 4:
+                    frame = frame[..., :3]
+                arr = (
+                    frame.detach().clamp(0.0, 1.0).mul(255.0).round()
+                    .to(torch.uint8).cpu().numpy()
+                )
+                buf = np.ascontiguousarray(arr).tobytes()
+                if len(buf) != expected_bytes:
+                    raise RuntimeError(
+                        "frame size does not match the declared "
+                        f"{w}x{h} RGB stream: frame {i} is "
+                        f"{tuple(int(x) for x in arr.shape)} "
+                        f"({len(buf)} bytes, expected {expected_bytes}). "
+                        "The input is likely not a standard "
+                        "[frames, height, width, 3] IMAGE batch."
+                    )
+                proc.stdin.write(buf)
+            proc.stdin.close()
+        except BrokenPipeError:
+            broken = True
+
         ret = proc.wait()
+        if broken:
+            raise _ffmpeg_error(
+                "ffmpeg stopped early while receiving frames"
+            )
         if ret != 0:
-            msg = (err or b"").decode("utf-8", "ignore").strip()
-            raise RuntimeError(msg[:400] or f"ffmpeg exited {ret}")
+            raise _ffmpeg_error(f"ffmpeg exited {ret}")
     finally:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            err_thread.join(timeout=5)
+        except Exception:
+            pass
         try:
             proc.stderr.close()
         except Exception:
