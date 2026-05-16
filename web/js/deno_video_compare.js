@@ -173,12 +173,15 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
       setupVideoCompareNode(this);
+      applyOutputLabel(this);
+      requestAnimationFrame(() => applyOutputLabel(this));
       return r;
     };
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const r = onConfigure?.apply(this, arguments);
-      queueMicrotask(() => setupVideoCompareNode(this));
+      queueMicrotask(() => { setupVideoCompareNode(this); applyOutputLabel(this); });
+      requestAnimationFrame(() => applyOutputLabel(this));
       return r;
     };
     const onExecuted = nodeType.prototype.onExecuted;
@@ -197,15 +200,23 @@ app.registerExtension({
   },
 });
 
+// subtle point: the IMAGE output only means something in SbS/Diff.
+// Applied repeatedly because the output slot can be (re)built by ComfyUI
+// after our setup runs, which would drop a one-shot label.
+function applyOutputLabel(node) {
+  const o = node && node.outputs && node.outputs[0];
+  if (o && o.label !== "Output Images SBS/Diff") {
+    o.label = "Output Images SBS/Diff";
+    node.setDirtyCanvas?.(true, true);
+  }
+}
 function setupVideoCompareNode(node) {
   if (!node || node.__dvcSetup) return;
   node.__dvcSetup = true;
   const st = getState(node);
 
   for (const n of HIDDEN_WIDGETS) hideWidget(getWidget(node, n));
-  // subtle point: the IMAGE output only means something in SbS/Diff
-  const out = node.outputs && node.outputs[0];
-  if (out) out.label = "Output Images SBS/Diff";
+  applyOutputLabel(node);
   const mw = getWidget(node, "mode");
   if (mw && MODES.includes(String(mw.value))) st.mode = String(mw.value);
   const sw = getWidget(node, "split_position");
@@ -501,7 +512,11 @@ function fitNode(node) {
 function setMode(node, m) {
   const s = getState(node);
   s.mode = m; setWidget(node, "mode", m);
-  applyMode(node); render(node);
+  applyMode(node);
+  // Toggle is a freeze-frame A/B flip test: hold a frame, click swaps
+  // A<->B at that exact time. Pause on entry so it isn't a moving loop.
+  if (m === "Toggle") pausePlayback(node);
+  render(node);
 }
 function applyMode(node) {
   const s = getState(node), d = s.dom;
@@ -594,7 +609,12 @@ function handleExecuted(node, output) {
   d.playBtn.disabled = !(s.haveA || s.haveB);
   applyTgl(node); updateLabels(node); applyAudio(node);
   s.starting = false;
-  const begin = () => { seekAll(node, 0); if (s.haveA || s.haveB) startPlayback(node); };
+  const begin = () => {
+    seekAll(node, 0);
+    if (!(s.haveA || s.haveB)) return;
+    if (s.mode === "Toggle") pausePlayback(node);   // freeze for A/B flip
+    else startPlayback(node);
+  };
   const ref = s.haveA ? d.vidA : d.vidB;
   if (ref && ref.readyState >= 1) begin();
   else if (ref) ref.addEventListener("loadedmetadata", begin, { once: true });
