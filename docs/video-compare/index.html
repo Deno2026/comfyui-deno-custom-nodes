@@ -53,6 +53,13 @@
   .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
   .brand small{font-weight:600;font-size:11px;color:var(--txt-soft);letter-spacing:.3px}
   .modes{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  .yt{display:inline-flex;align-items:center;justify-content:center;
+    width:36px;height:30px;border-radius:8px;margin-left:8px;
+    background:rgba(255,0,0,.10);border:1px solid rgba(255,70,70,.35);
+    transition:.13s;flex:0 0 auto}
+  .yt:hover{background:rgba(255,0,0,.22);border-color:#ff5252;
+    box-shadow:0 0 12px rgba(255,0,0,.30)}
+  .yt svg{width:20px;height:20px;display:block}
   .slots{display:flex;gap:8px;flex-wrap:wrap}
   .slot{
     display:flex;align-items:center;gap:8px;background:var(--panel2);
@@ -244,6 +251,13 @@
     <button class="btn mode" data-mode="diff">Difference</button>
     <button class="btn mode" data-mode="tgl">Toggle</button>
   </div>
+  <a class="yt" href="https://www.youtube.com/@Denoise-AI" target="_blank"
+     rel="noopener noreferrer" title="Denoise AI · YouTube 채널">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#ff3b3b" d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12 31 31 0 0 0 1 16.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6A3 3 0 0 0 23 16.8 31 31 0 0 0 23.5 12 31 31 0 0 0 23 7.2Z"/>
+      <path fill="#050906" d="M9.8 15.3V8.7L15.5 12Z"/>
+    </svg>
+  </a>
 </header>
 
 <main>
