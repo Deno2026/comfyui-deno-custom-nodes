@@ -652,12 +652,8 @@ function wireInteractions(node, d, btns) {
   };
   stage.addEventListener("pointerup", endPtr);
   stage.addEventListener("pointercancel", endPtr);
-  stage.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!s.haveA && !s.haveB) return;
-    setZoom(node, s.zoom * (e.deltaY < 0 ? 1.18 : 1 / 1.18), e.clientX, e.clientY);
-  }, { passive: false });
+  // Wheel over the node is intentionally NOT handled here: let it pass
+  // through so ComfyUI's canvas zoom takes priority (user request).
 
   d.scrub.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
