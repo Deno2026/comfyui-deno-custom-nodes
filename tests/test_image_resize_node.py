@@ -457,7 +457,6 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert "output.b_video" in script
     assert "output.compare_meta" in script
     assert "o.playbackRate = s.speed * (diff > 0 ? 1 - k : 1 + k);" in script
-    assert '"btn icn info"' in script
     assert "requestAnimationFrame(tick)" in script
     assert "nodeType.prototype.onRemoved" in script
 

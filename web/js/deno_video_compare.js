@@ -250,10 +250,8 @@ function buildDom(node) {
   }
   top.appendChild(modes);
   const swapBtn = el("button", "btn swap", "⇄ Swap");
+  swapBtn.title = TAGLINE;
   top.appendChild(swapBtn);
-  const infoBtn = el("button", "btn icn info", "i");
-  infoBtn.title = TAGLINE;
-  top.appendChild(infoBtn);
   root.appendChild(top);
 
   const stage = el("div", "stage");
@@ -276,14 +274,7 @@ function buildDom(node) {
   const cornerA = el("div", "corner a"); cornerA.append(badgeA, sinfoA);
   const cornerB = el("div", "corner b"); cornerB.append(badgeB, sinfoB);
   stage.append(cornerA, cornerB, tglBadge, hint);
-  const pop = el("div", "pop",
-    `<b>(Deno) Video Compare</b><br>그래프 마지막 출력 옆에 붙여 비포/애프터를 ` +
-    `같은 타임라인으로 동기 재생합니다. 입력을 압축 프리뷰 클립으로 인코딩하므로 ` +
-    `고해상도·장클립도 가볍습니다.<br><br>` +
-    `클릭=재생/정지 · 드래그=슬라이더 · 휠=확대 · Slider는 마우스 이동으로 분할.`);
-  stage.appendChild(pop);
   root.appendChild(stage);
-  infoBtn.onclick = () => pop.classList.toggle("show");
 
   const bot = el("div", "bar bot");
   const scrub = el("div", "scrub");
@@ -301,22 +292,17 @@ function buildDom(node) {
   const audN = el("button", "btn icn", "🔇");
   const audA = el("button", "btn icn on", "🔊A");
   const audB = el("button", "btn icn", "🔊B");
-  const sep2 = el("span", "sep");
-  const zOut = el("button", "btn icn", "−");
-  const zl = el("span", "zl", "100%");
-  const zIn = el("button", "btn icn", "+");
-  const zRst = el("button", "btn icn", "⤢");
   const time = el("span", "time", "00:00 / 00:00");
   const meta = el("div", "meta", "");
   tr.append(playBtn, loopBtn, backBtn, fwdBtn, spdBtn, sep1,
-    audN, audA, audB, sep2, zOut, zl, zIn, zRst, time, meta);
+    audN, audA, audB, time, meta);
   bot.appendChild(tr);
   root.appendChild(bot);
 
   const dom = {
     root, stage, frame, vidA, vidB, divider, badgeA, badgeB, tglBadge,
     sinfoA, sinfoB, hint, fill, head, scrub, time, meta, playBtn,
-    loopBtn, spdBtn, zl, modeBtns, audN, audA, audB,
+    loopBtn, spdBtn, modeBtns, audN, audA, audB,
   };
   st.dom = dom;
 
@@ -334,7 +320,7 @@ function buildDom(node) {
 
   wireInteractions(node, dom, {
     swapBtn, playBtn, loopBtn, backBtn, fwdBtn, spdBtn,
-    audN, audA, audB, zOut, zIn, zRst,
+    audN, audA, audB,
   });
   applyMode(node); applyTgl(node); updateLabels(node); applyAudio(node);
   render(node);
@@ -770,9 +756,6 @@ function wireInteractions(node, d, btns) {
   btns.audN.onclick = () => setAud("none");
   btns.audA.onclick = () => setAud("A");
   btns.audB.onclick = () => setAud("B");
-  btns.zOut.onclick = () => setZoom(node, s.zoom / 1.25);
-  btns.zIn.onclick = () => setZoom(node, s.zoom * 1.25);
-  btns.zRst.onclick = () => setZoom(node, 1);
   btns.swapBtn.onclick = () => {
     if (!s.haveA || !s.haveB) return;
     s.swapped = !s.swapped;
