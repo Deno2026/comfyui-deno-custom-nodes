@@ -299,10 +299,12 @@ function buildDom(node) {
   const widget = node.addDOMWidget(WIDGET_NAME, "div", root, {
     serialize: false,
     hideOnZoom: false,
-    getMinHeight: () => 360,
+    getMinHeight: () => 200,
   });
-  widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W),
-                               Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90, 120)];
+  // MUST NOT depend on node.size[1] — that is self-referential and makes
+  // LiteGraph grow the node unboundedly every layout pass. Fixed minimum;
+  // ComfyUI stretches the DOM element to the node body on its own.
+  widget.computeSize = () => [NODE_MIN_W, 200];
   node.__dvcWidget = widget;
 
   wireInteractions(node, dom, {
