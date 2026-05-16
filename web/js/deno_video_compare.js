@@ -670,6 +670,30 @@ function wireInteractions(node, d, btns) {
       bubbles: true, cancelable: true,
     }));
   }, { passive: false });
+  // Middle-button (wheel click) drag -> forward to ComfyUI canvas so the
+  // canvas pans, like the wheel zoom does. Capture phase so it pre-empts
+  // the stage handler's stopPropagation.
+  d.root.addEventListener("pointerdown", (e) => {
+    if (e.button !== 1) return;
+    e.preventDefault(); e.stopPropagation();
+    const cv = app.canvas && app.canvas.canvas;
+    if (!cv) return;
+    const mk = (type, ev) => cv.dispatchEvent(new PointerEvent(type, {
+      pointerId: ev.pointerId, pointerType: ev.pointerType || "mouse",
+      button: 1, buttons: ev.buttons,
+      clientX: ev.clientX, clientY: ev.clientY,
+      bubbles: true, cancelable: true,
+    }));
+    mk("pointerdown", e);
+    const mv = (ev) => mk("pointermove", ev);
+    const up = (ev) => {
+      mk("pointerup", ev);
+      window.removeEventListener("pointermove", mv, true);
+      window.removeEventListener("pointerup", up, true);
+    };
+    window.addEventListener("pointermove", mv, true);
+    window.addEventListener("pointerup", up, true);
+  }, true);
   // sound follows the mouse: enter preview -> play sound, leave -> mute
   stage.addEventListener("pointerenter", () => {
     s.hovering = true; applyAudio(node);
