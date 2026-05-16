@@ -152,7 +152,7 @@ function getState(node) {
       draggingSplit: false, panning: false, panStart: null,
       down: null, starting: false, raf: 0, dom: null,
       gestured: false, aHasAudio: false, bHasAudio: false,
-      ar: 0, _fitting: false,
+      hovering: false, ar: 16 / 9, _fitting: false,
     };
   }
   return node.__dvc;
@@ -315,10 +315,11 @@ function buildDom(node) {
     hideOnZoom: false,
     getMinHeight: () => 360,
   });
-  // Fixed height — NOT node.size[1] (self-reference grows the node every
-  // layout pass; harmless when a video sets s.ar because fitNode then
-  // governs height, but with no video fitNode is a no-op -> runaway).
-  widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W), 360];
+  // Restored 2c2b7bc: fitNode is the real height authority (runs every
+  // resize); this just tracks it. Runaway is prevented by always having
+  // s.ar set (default below) so fitNode never no-ops on an empty node.
+  widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W),
+                               Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90, 320)];
   node.__dvcWidget = widget;
 
   wireInteractions(node, dom, {
@@ -511,8 +512,9 @@ function applyAudio(node) {
   const s = getState(node), d = s.dom;
   const aOk = s.haveA && s.aHasAudio, bOk = s.haveB && s.bHasAudio;
   // browsers block audible autoplay until a user gesture
-  d.vidA.muted = !(s.gestured && aOk && s.audio === "A");
-  d.vidB.muted = !(s.gestured && bOk && s.audio === "B");
+  // sound follows the mouse: audible only while hovering the preview
+  d.vidA.muted = !(s.hovering && aOk && s.audio === "A");
+  d.vidB.muted = !(s.hovering && bOk && s.audio === "B");
   d.audA.disabled = !aOk;
   d.audB.disabled = !bOk;
   d.audN.classList.toggle("on", s.audio === "none");
@@ -613,10 +615,8 @@ function wireInteractions(node, d, btns) {
   stage.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
     e.stopPropagation();
-    const firstGesture = !s.gestured;
     markGesture(node);
-    s.down = { x: e.clientX, y: e.clientY, t: performance.now(),
-               moved: false, unlock: firstGesture };
+    s.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
     if (s.mode === "Slider" && s.zoom === 1) {
       s.draggingSplit = true; s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split));
@@ -650,17 +650,17 @@ function wireInteractions(node, d, btns) {
     stage.classList.remove("grabbing");
     if (!(e && e.type === "pointerup" && dn && !dn.moved &&
       (performance.now() - dn.t) < 350 && (s.haveA || s.haveB))) return;
-    if (dn.unlock) return;          // first click only unlocks audio
     if (s.mode === "Toggle") {
       s.tgl = s.tgl === "A" ? "B" : "A"; applyTgl(node);
     } else togglePlay(node);
   };
   stage.addEventListener("pointerup", endPtr);
   stage.addEventListener("pointercancel", endPtr);
-  // Forward wheel to ComfyUI's canvas so it owns zoom over the node
-  // (the DOM overlay would otherwise swallow it; removing the listener
-  // is not enough because the canvas is a separate element).
-  stage.addEventListener("wheel", (e) => {
+  // Forward wheel anywhere on the node (preview AND the green bars) to
+  // ComfyUI's canvas so it owns zoom (the DOM overlay would otherwise
+  // swallow it; the canvas is a separate element so removing the
+  // listener is not enough).
+  d.root.addEventListener("wheel", (e) => {
     const cv = app.canvas && app.canvas.canvas;
     if (!cv) return;
     e.preventDefault();
@@ -670,6 +670,13 @@ function wireInteractions(node, d, btns) {
       bubbles: true, cancelable: true,
     }));
   }, { passive: false });
+  // sound follows the mouse: enter preview -> play sound, leave -> mute
+  stage.addEventListener("pointerenter", () => {
+    s.hovering = true; applyAudio(node);
+  });
+  stage.addEventListener("pointerleave", () => {
+    s.hovering = false; applyAudio(node);
+  });
 
   d.scrub.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
