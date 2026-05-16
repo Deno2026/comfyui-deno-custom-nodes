@@ -13,8 +13,9 @@ const WIDGET_NAME = "deno_video_compare_canvas";
 const MODES = ["Slider", "Side by Side", "Difference", "Toggle"];
 const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap", "fps"];
 const TAGLINE = "Synced A/B playback on a shared timeline.";
-const NODE_MIN_W = 480;
+const NODE_MIN_W = 260;
 const NODE_DEFAULT_H = 620;
+const NODE_VCHROME = 196; // header + hidden widgets + top/bottom bars (fixed)
 
 const CSS = `
 .dvc{position:absolute;inset:0;display:flex;flex-direction:column;
@@ -451,13 +452,12 @@ function fmt(x) {
 function fitNode(node) {
   const s = getState(node), d = s.dom;
   if (!d || !s.ar || s._fitting || !node.size) return;
-  const kids = d.root.children;
-  const topH = kids[0] ? kids[0].offsetHeight : 38;
-  const botH = kids[kids.length - 1] ? kids[kids.length - 1].offsetHeight : 62;
+  // Use the user's current width (only a small absolute floor) and a
+  // FIXED chrome estimate. Live offsetHeight grows when the bars wrap on
+  // a narrow node and would feed back into height -> runaway growth.
   const w = Math.max(Number(node.size[0]) || NODE_MIN_W, NODE_MIN_W);
-  const stageW = Math.max(w - 2, 80);
-  const want = Math.round(90 + topH + botH + stageW / s.ar);
-  if (Math.abs((Number(node.size[1]) || 0) - want) > 4) {
+  const want = Math.round(NODE_VCHROME + (w - 2) / s.ar);
+  if (Math.abs((Number(node.size[1]) || 0) - want) > 3) {
     s._fitting = true;
     node.setSize([w, want]);
     s._fitting = false;
