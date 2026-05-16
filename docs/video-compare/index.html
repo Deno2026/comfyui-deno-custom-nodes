@@ -70,12 +70,15 @@
   #slotA{justify-content:flex-end}
   .slot.has{background:rgba(31,96,50,.5)}
   .slot b{color:var(--accent);font-weight:900;font-size:17px;margin-right:2px}
-  .slot .name{max-width:56px;overflow:hidden;text-overflow:ellipsis;
-    white-space:nowrap;color:var(--txt-soft);font-weight:600}
+  /* empty: just the badge + big load button. loaded: badge + filename + X */
+  .slot .name{display:none}
+  .slot.has .name{display:inline-block;max-width:150px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;color:var(--txt);font-weight:600}
   .slot button[data-pick]{font-size:13px;font-weight:900;color:#06100b;
-    background:var(--accent);border:0;border-radius:999px;padding:9px 18px;
-    text-decoration:none;cursor:pointer;white-space:nowrap}
+    background:var(--accent);border:0;border-radius:999px;padding:9px 20px;
+    cursor:pointer;white-space:nowrap}
   .slot button[data-pick]:hover{box-shadow:0 0 14px rgba(72,255,132,.55)}
+  .slot.has button[data-pick]{display:none}
 
   main{flex:1 1 auto;position:relative;overflow:hidden}
   #stage{

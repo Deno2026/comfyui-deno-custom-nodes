@@ -315,7 +315,7 @@ function buildDom(node) {
     audN, audA, audB, time, meta);
   bot.appendChild(tr);
   const wlink = el("a", "wlink",
-    "▶ 무거우면 → 브라우저용 Web Video Compare (무설치)");
+    "▶ Too heavy? Open the browser Web Video Compare (no install)");
   wlink.href = "https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/";
   wlink.target = "_blank";
   wlink.rel = "noopener noreferrer";
@@ -597,10 +597,10 @@ function handleExecuted(node, output) {
 
   let info = "";
   if (meta.error === "ffmpeg_not_found")
-    info = "ffmpeg를 찾을 수 없습니다 (VideoHelperSuite 설치 권장)";
+    info = "ffmpeg not found (install VideoHelperSuite)";
   else if (typeof meta.error === "string" && meta.error)
-    info = "인코딩 실패: " + meta.error;
-  else if (!s.haveA && !s.haveB) info = "video_a / video_b 를 연결하세요";
+    info = "Encode failed: " + meta.error;
+  else if (!s.haveA && !s.haveB) info = "Connect video_a / video_b";
   d.hint.textContent = info || "Run the workflow to preview";
   d.hint.classList.toggle("hide", (s.haveA || s.haveB) && !meta.error);
 
@@ -612,8 +612,8 @@ function handleExecuted(node, output) {
   d.sinfoB.textContent = meta.b_count
     ? `${meta.b_width}×${meta.b_height} · ${meta.b_count}f · ${bAud}` : "";
   if (d.meta) d.meta.innerHTML = "";
-  d.audA.title = "A 사운드 (" + (meta.a_audio || "?") + ")";
-  d.audB.title = "B 사운드 (" + (meta.b_audio || "?") + ")";
+  d.audA.title = "A audio (" + (meta.a_audio || "?") + ")";
+  d.audB.title = "B audio (" + (meta.b_audio || "?") + ")";
 
   d.playBtn.disabled = !(s.haveA || s.haveB);
   applyTgl(node); updateLabels(node); applyAudio(node);
