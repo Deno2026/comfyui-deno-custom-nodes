@@ -13,7 +13,7 @@ const WIDGET_NAME = "deno_video_compare_canvas";
 const MODES = ["Slider", "Side by Side", "Difference", "Toggle"];
 const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap", "fps"];
 const TAGLINE = "Synced A/B playback on a shared timeline.";
-const NODE_MIN_W = 260;
+const NODE_MIN_W = 480;
 const NODE_DEFAULT_H = 620;
 
 const CSS = `
@@ -147,9 +147,11 @@ function getState(node) {
     node.__dvc = {
       mode: "Slider", split: 0.5, tgl: "B", swapped: false,
       playing: false, loop: true, speed: 1, audio: "A",
-      haveA: false, haveB: false, scrubbing: false, hovering: false,
-      draggingSplit: false, down: null, starting: false, raf: 0,
-      dom: null, aHasAudio: false, bHasAudio: false,
+      zoom: 1, panX: 0, panY: 0,
+      haveA: false, haveB: false, scrubbing: false,
+      draggingSplit: false, panning: false, panStart: null,
+      down: null, starting: false, raf: 0, dom: null,
+      gestured: false, aHasAudio: false, bHasAudio: false,
       ar: 0, _fitting: false,
     };
   }
@@ -208,6 +210,15 @@ function setupVideoCompareNode(node) {
   if ((node.size?.[0] || 0) < NODE_MIN_W || (node.size?.[1] || 0) < NODE_DEFAULT_H) {
     node.setSize?.([Math.max(node.size?.[0] || 0, NODE_MIN_W),
                     Math.max(node.size?.[1] || 0, NODE_DEFAULT_H)]);
+  }
+  if (!node.__dvcResizeWrapped) {
+    node.__dvcResizeWrapped = true;
+    const orz = node.onResize;
+    node.onResize = function () {
+      const r = orz?.apply(this, arguments);
+      fitNode(this);
+      return r;
+    };
   }
   if (!st.raf) st.raf = requestAnimationFrame(loopOf(node));
 }
@@ -281,39 +292,36 @@ function buildDom(node) {
   const audA = el("button", "btn icn on", "🔊A");
   const audB = el("button", "btn icn", "🔊B");
   const sep2 = el("span", "sep");
+  const zOut = el("button", "btn icn", "−");
+  const zl = el("span", "zl", "100%");
+  const zIn = el("button", "btn icn", "+");
+  const zRst = el("button", "btn icn", "⤢");
   const time = el("span", "time", "00:00 / 00:00");
   const meta = el("div", "meta", "");
   tr.append(playBtn, loopBtn, backBtn, fwdBtn, spdBtn, sep1,
-    audN, audA, audB, sep2, time, meta);
+    audN, audA, audB, sep2, zOut, zl, zIn, zRst, time, meta);
   bot.appendChild(tr);
   root.appendChild(bot);
 
   const dom = {
     root, stage, frame, vidA, vidB, divider, badgeA, badgeB, tglBadge,
     hint, fill, head, scrub, time, meta, playBtn, loopBtn, spdBtn,
-    modeBtns, audN, audA, audB,
+    zl, modeBtns, audN, audA, audB,
   };
   st.dom = dom;
 
   const widget = node.addDOMWidget(WIDGET_NAME, "div", root, {
     serialize: false,
     hideOnZoom: false,
-    getMinHeight: () => 200,
+    getMinHeight: () => 360,
   });
-  // Height from WIDTH and clip aspect — never from node.size[1] (that is
-  // self-referential and grows the node every layout pass). This keeps
-  // the preview aspect-locked and stable: drag width -> video scales.
-  widget.computeSize = (w) => {
-    const s2 = getState(node);
-    const W = Math.max(Number(w) || NODE_MIN_W, NODE_MIN_W);
-    const h = s2.ar > 0 ? Math.round((W - 2) / s2.ar) : 300;
-    return [NODE_MIN_W, Math.max(h, 140)];
-  };
+  widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W),
+                               Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90, 320)];
   node.__dvcWidget = widget;
 
   wireInteractions(node, dom, {
     swapBtn, playBtn, loopBtn, backBtn, fwdBtn, spdBtn,
-    audN, audA, audB,
+    audN, audA, audB, zOut, zIn, zRst,
   });
   applyMode(node); applyTgl(node); updateLabels(node); applyAudio(node);
   render(node);
@@ -436,6 +444,8 @@ function render(node) {
   d.head.style.left = (r * 100) + "%";
   d.time.textContent = fmt(tl.t) + " / " + fmt(tl.dur);
   d.root.style.setProperty("--sp", s.split);
+  d.frame.style.transform =
+    `translate(${s.panX}px,${s.panY}px) scale(${s.zoom})`;
 }
 function fmt(x) {
   x = Math.max(0, x || 0);
@@ -443,6 +453,24 @@ function fmt(x) {
     cs = Math.floor((x * 100) % 100);
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}` +
     `.${String(cs).padStart(2, "0")}`;
+}
+// Size the node so the preview area matches the clip aspect (no black
+// bars); resizing width keeps the ratio so the video scales with it.
+function fitNode(node) {
+  const s = getState(node), d = s.dom;
+  if (!d || !s.ar || s._fitting || !node.size) return;
+  const kids = d.root.children;
+  const topH = kids[0] ? kids[0].offsetHeight : 38;
+  const botH = kids[kids.length - 1] ? kids[kids.length - 1].offsetHeight : 62;
+  const w = Math.max(Number(node.size[0]) || NODE_MIN_W, NODE_MIN_W);
+  const stageW = Math.max(w - 2, 80);
+  const want = Math.round(90 + topH + botH + stageW / s.ar);
+  if (Math.abs((Number(node.size[1]) || 0) - want) > 4) {
+    s._fitting = true;
+    node.setSize([w, want]);
+    s._fitting = false;
+    node.setDirtyCanvas?.(true, true);
+  }
 }
 
 /* ---------- modes / labels ---------- */
@@ -460,6 +488,7 @@ function applyMode(node) {
     s.mode === "Toggle" ? "tgl" : "slider"));
   for (const m of MODES) d.modeBtns[m].classList.toggle("on", m === s.mode);
   if (s.mode === "Toggle") applyTgl(node);
+  d.stage.classList.toggle("pan", s.zoom > 1 && s.mode !== "Slider");
 }
 function applyTgl(node) {
   const s = getState(node), d = s.dom;
@@ -479,15 +508,20 @@ function updateLabels(node) {
 function applyAudio(node) {
   const s = getState(node), d = s.dom;
   const aOk = s.haveA && s.aHasAudio, bOk = s.haveB && s.bHasAudio;
-  // sound follows the mouse: audible only while hovering the preview
-  const live = s.hovering && s.audio !== "none";
-  d.vidA.muted = !(live && aOk && s.audio === "A");
-  d.vidB.muted = !(live && bOk && s.audio === "B");
+  // browsers block audible autoplay until a user gesture
+  d.vidA.muted = !(s.gestured && aOk && s.audio === "A");
+  d.vidB.muted = !(s.gestured && bOk && s.audio === "B");
   d.audA.disabled = !aOk;
   d.audB.disabled = !bOk;
   d.audN.classList.toggle("on", s.audio === "none");
   d.audA.classList.toggle("on", s.audio === "A");
   d.audB.classList.toggle("on", s.audio === "B");
+}
+function markGesture(node) {
+  const s = getState(node);
+  if (s.gestured) return;
+  s.gestured = true;
+  applyAudio(node);
 }
 
 /* ---------- executed: feed mp4 urls ---------- */
@@ -536,17 +570,39 @@ function handleExecuted(node, output) {
   const ref = s.haveA ? d.vidA : d.vidB;
   if (ref && ref.readyState >= 1) begin();
   else if (ref) ref.addEventListener("loadedmetadata", begin, { once: true });
-  if (s.ar > 0 && node.computeSize && node.setSize) {
-    node.setSize(node.computeSize());        // apply aspect once, on run
-    node.setDirtyCanvas?.(true, true);
-  }
+  fitNode(node);
   render(node);
 }
 
 /* ---------- pointer / zoom / interactions ---------- */
 function frameFrac(node, clientX) {
-  const r = getState(node).dom.stage.getBoundingClientRect();
-  return Math.max(0, Math.min(1, (clientX - r.left) / (r.width || 1)));
+  const s = getState(node);
+  const r = s.dom.stage.getBoundingClientRect();
+  const W = r.width || 1, cx = W / 2;
+  const p = cx + (((clientX - r.left) - cx - s.panX) / s.zoom);
+  return Math.max(0, Math.min(1, p / W));
+}
+function clampPan(node) {
+  const s = getState(node);
+  const r = s.dom.stage.getBoundingClientRect();
+  const mx = (r.width * (s.zoom - 1)) / 2, my = (r.height * (s.zoom - 1)) / 2;
+  s.panX = Math.max(-mx, Math.min(mx, s.panX));
+  s.panY = Math.max(-my, Math.min(my, s.panY));
+}
+function setZoom(node, z, cx, cy) {
+  const s = getState(node), old = s.zoom;
+  s.zoom = Math.max(1, Math.min(8, z));
+  if (s.zoom === 1) { s.panX = 0; s.panY = 0; }
+  else if (cx != null) {
+    const r = s.dom.stage.getBoundingClientRect();
+    const ox = cx - r.left - r.width / 2, oy = cy - r.top - r.height / 2;
+    const k = s.zoom / old;
+    s.panX = (s.panX - ox) * k + ox; s.panY = (s.panY - oy) * k + oy;
+    clampPan(node);
+  }
+  s.dom.zl.textContent = Math.round(s.zoom * 100) + "%";
+  s.dom.stage.classList.toggle("pan", s.zoom > 1 && s.mode !== "Slider");
+  render(node);
 }
 function wireInteractions(node, d, btns) {
   const s = getState(node);
@@ -555,21 +611,29 @@ function wireInteractions(node, d, btns) {
   stage.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
     e.stopPropagation();
+    markGesture(node);
     s.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
-    if (s.mode === "Slider") {
+    if (s.mode === "Slider" && s.zoom === 1) {
       s.draggingSplit = true; s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split));
-      render(node); stage.setPointerCapture(e.pointerId);
+      render(node); stage.setPointerCapture(e.pointerId); return;
+    }
+    if (s.zoom > 1) {
+      s.panning = true; s.panStart = { x: e.clientX - s.panX, y: e.clientY - s.panY };
+      stage.classList.add("grabbing"); stage.setPointerCapture(e.pointerId);
     }
   });
   stage.addEventListener("pointermove", (e) => {
-    if (s.draggingSplit || s.scrubbing ||
+    if (s.draggingSplit || s.panning || s.scrubbing ||
         ((s.haveA || s.haveB) && s.mode === "Slider")) e.stopPropagation();
     if (s.down && !s.down.moved &&
       Math.hypot(e.clientX - s.down.x, e.clientY - s.down.y) > 6) s.down.moved = true;
     if (s.draggingSplit) {
       s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split)); render(node);
+    } else if (s.panning) {
+      s.panX = e.clientX - s.panStart.x; s.panY = e.clientY - s.panStart.y;
+      clampPan(node); render(node);
     } else if (s.mode === "Slider" && s.haveA && s.haveB && !s.scrubbing) {
       s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split)); render(node);
@@ -578,7 +642,8 @@ function wireInteractions(node, d, btns) {
   const endPtr = (e) => {
     if (e) e.stopPropagation();
     const dn = s.down; s.down = null;
-    s.draggingSplit = false;
+    s.draggingSplit = false; s.panning = false;
+    stage.classList.remove("grabbing");
     if (!(e && e.type === "pointerup" && dn && !dn.moved &&
       (performance.now() - dn.t) < 350 && (s.haveA || s.haveB))) return;
     if (s.mode === "Toggle") {
@@ -587,17 +652,17 @@ function wireInteractions(node, d, btns) {
   };
   stage.addEventListener("pointerup", endPtr);
   stage.addEventListener("pointercancel", endPtr);
-  // sound follows the mouse: enter preview -> play sound, leave -> mute
-  stage.addEventListener("pointerenter", () => {
-    s.hovering = true; applyAudio(node);
-  });
-  stage.addEventListener("pointerleave", () => {
-    s.hovering = false; applyAudio(node);
-  });
+  stage.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!s.haveA && !s.haveB) return;
+    setZoom(node, s.zoom * (e.deltaY < 0 ? 1.18 : 1 / 1.18), e.clientX, e.clientY);
+  }, { passive: false });
 
   d.scrub.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
     e.stopPropagation();
+    markGesture(node);
     s.scrubbing = true; s._wasPlaying = s.playing; pausePlayback(node);
     d.scrub.setPointerCapture(e.pointerId); scrubTo(node, e.clientX);
   });
@@ -610,7 +675,7 @@ function wireInteractions(node, d, btns) {
     s.scrubbing = false; if (s._wasPlaying) startPlayback(node);
   });
 
-  btns.playBtn.onclick = () => togglePlay(node);
+  btns.playBtn.onclick = () => { markGesture(node); togglePlay(node); };
   btns.loopBtn.onclick = () => {
     s.loop = !s.loop; btns.loopBtn.classList.toggle("on", s.loop);
   };
@@ -622,10 +687,13 @@ function wireInteractions(node, d, btns) {
     d.vidA.playbackRate = s.speed; d.vidB.playbackRate = s.speed;
     btns.spdBtn.textContent = s.speed.toFixed(2).replace(/0$/, "") + "×";
   };
-  const setAud = (a) => { s.audio = a; applyAudio(node); };
+  const setAud = (a) => { markGesture(node); s.audio = a; applyAudio(node); };
   btns.audN.onclick = () => setAud("none");
   btns.audA.onclick = () => setAud("A");
   btns.audB.onclick = () => setAud("B");
+  btns.zOut.onclick = () => setZoom(node, s.zoom / 1.25);
+  btns.zIn.onclick = () => setZoom(node, s.zoom * 1.25);
+  btns.zRst.onclick = () => setZoom(node, 1);
   btns.swapBtn.onclick = () => {
     if (!s.haveA || !s.haveB) return;
     s.swapped = !s.swapped;
