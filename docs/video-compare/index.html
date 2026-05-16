@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Deno · Video Compare</title>
+<style>
+  :root{
+    --bg:#050906; --panel:#0a1410; --panel2:#06100b;
+    --line:rgba(72,255,132,.32); --line-soft:rgba(72,255,132,.16);
+    --txt:#dfffea; --txt-strong:#9dffba; --txt-soft:#7fb893;
+    --accent:#48ff84; --accent-dim:rgba(72,255,132,.14);
+    --active:rgba(31,96,50,.92); --inactive:rgba(9,15,11,.92);
+    --r:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 50% -10%,#0c1a12 0%,var(--bg) 60%);
+    color:var(--txt);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex;flex-direction:column;height:100vh;overflow:hidden;user-select:none;-webkit-user-select:none;
+  }
+  button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+  .btn{
+    background:var(--inactive);border:1px solid rgba(90,130,104,.6);color:var(--txt-strong);
+    padding:8px 13px;border-radius:999px;font-weight:800;font-size:12px;letter-spacing:.2px;
+    transition:.12s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;
+  }
+  .btn:hover{border-color:var(--accent);color:#f0fff4}
+  .btn.on{background:var(--active);border-color:rgba(72,255,132,.95);color:#f0fff4;
+    box-shadow:0 0 14px rgba(72,255,132,.28)}
+  .btn.icn{padding:8px 11px;min-width:38px;justify-content:center}
+  .btn[disabled]{opacity:.4;cursor:not-allowed}
+
+  header{
+    display:flex;align-items:center;gap:14px;padding:12px 16px;
+    border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--panel),var(--panel2));
+    flex:0 0 auto;flex-wrap:wrap;position:relative;
+  }
+  #swapBtn{
+    position:absolute;left:50%;top:9px;transform:translateX(-50%);
+    z-index:6;padding:8px 20px;border-color:var(--accent);
+    color:var(--accent);font-weight:900;
+  }
+  #swapBtn:hover{background:var(--accent-dim);box-shadow:0 0 14px rgba(72,255,132,.3)}
+  .slot .clr{
+    display:none;font-size:12px;color:#ff9a9a;font-weight:900;line-height:1;
+    border:1px solid rgba(255,120,120,.4);border-radius:6px;padding:2px 7px;
+  }
+  .slot .clr:hover{background:rgba(255,80,80,.2);border-color:#ff9a9a;color:#fff}
+  .slot.has .clr{display:inline-block}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:900;font-size:16px;color:var(--txt-strong)}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  .brand small{font-weight:600;font-size:11px;color:var(--txt-soft);letter-spacing:.3px}
+  .modes{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  .slots{display:flex;gap:8px;flex-wrap:wrap}
+  .slot{
+    display:flex;align-items:center;gap:8px;background:var(--panel2);
+    border:1px dashed var(--line);border-radius:10px;padding:7px 11px;font-size:12px;color:var(--txt-soft);
+  }
+  .slot b{color:var(--accent);font-weight:900;margin-right:2px}
+  .slot .name{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt)}
+  .slot.has{border-style:solid;border-color:var(--line)}
+  .slot button{font-size:11px;color:var(--txt-soft);text-decoration:underline}
+
+  main{flex:1 1 auto;position:relative;overflow:hidden}
+  #stage{
+    position:absolute;inset:0;background:#020403;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;cursor:crosshair;
+  }
+  #stage.pan{cursor:grab}
+  #stage.pan.grabbing{cursor:grabbing}
+  #frame{
+    position:relative;width:100%;height:100%;
+    transition:transform .04s linear;will-change:transform;
+  }
+  video{
+    position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+    background:#000;display:block;pointer-events:none;
+  }
+  #vidB{z-index:1}
+  #vidA{z-index:2}
+
+  /* Slider */
+  #stage.m-slider #vidA{clip-path:inset(0 calc((1 - var(--split)) * 100%) 0 0)}
+  #divider{
+    position:absolute;top:0;bottom:0;left:calc(var(--split) * 100%);
+    width:2px;background:var(--accent);box-shadow:0 0 8px rgba(72,255,132,.7);
+    z-index:5;transform:translateX(-1px);display:none;pointer-events:none;
+  }
+  #stage.m-slider #divider{display:block}
+
+  /* Side by side */
+  #stage.m-sxs #vidA{width:50%;left:0}
+  #stage.m-sxs #vidB{width:50%;left:50%}
+
+  /* Swap = exchange sides only, no reload */
+  #stage.m-slider.swapped #vidA{clip-path:none;z-index:1}
+  #stage.m-slider.swapped #vidB{
+    clip-path:inset(0 calc((1 - var(--split)) * 100%) 0 0);z-index:2}
+  #stage.m-sxs.swapped #vidA{left:50%}
+  #stage.m-sxs.swapped #vidB{left:0}
+
+  /* Difference */
+  #stage.m-diff #vidA{mix-blend-mode:difference}
+  #stage.m-diff::after{
+    content:"";position:absolute;inset:0;background:rgba(72,255,132,.10);
+    z-index:3;pointer-events:none;mix-blend-mode:screen;
+  }
+
+  /* Toggle */
+  #stage.m-tgl.show-b #vidA{opacity:0}
+  #stage.m-tgl.show-a #vidB{opacity:0}
+  #stage.m-tgl{cursor:pointer}
+  #stage.m-tgl.pan{cursor:grab}
+  #stage.m-tgl.pan.grabbing{cursor:grabbing}
+
+  .badge{
+    position:absolute;z-index:6;top:14px;width:24px;height:24px;border-radius:50%;
+    background:#117638;border:1.5px solid #bfffd0;color:#effff4;font-weight:900;font-size:12px;
+    display:flex;align-items:center;justify-content:center;pointer-events:none;
+  }
+  #badgeA{left:14px}#badgeB{right:14px}
+  #stage.m-tgl #badgeA,#stage.m-tgl #badgeB{display:none}
+  #stage.m-tgl .tgl-badge{display:flex}
+  .tgl-badge{display:none;left:14px}
+  #stage.m-tgl #tglBadge{
+    left:50%;transform:translateX(-50%);top:12px;
+    width:auto;height:auto;border-radius:999px;padding:7px 20px;
+    font-size:15px;letter-spacing:.4px;
+    background:rgba(7,16,11,.9);border:1.5px solid var(--accent);
+    color:var(--accent);box-shadow:0 0 16px rgba(72,255,132,.45);
+  }
+
+  .hint{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:16px;z-index:10;color:var(--txt-soft);text-align:center;padding:24px;
+    pointer-events:none;
+  }
+  .hint.hide{display:none}
+  .hint h2{color:var(--txt-strong);font-size:20px;font-weight:900}
+  .hint p{font-size:13px;max-width:440px;line-height:1.7}
+  .drops{display:flex;gap:18px;flex-wrap:wrap;justify-content:center}
+  .drop{
+    width:200px;height:130px;border:2px dashed var(--line);border-radius:14px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+    background:var(--panel2);cursor:pointer;transition:.15s;color:var(--txt-soft);
+  }
+  .drop:hover,.drop.over{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+  .drop .big{font-size:30px;font-weight:900;color:var(--accent)}
+  body.dragging #stage{outline:2px dashed var(--accent);outline-offset:-8px}
+
+  /* on-canvas A/B drop zones */
+  .dz{position:absolute;inset:0;z-index:9;display:none;pointer-events:none}
+  #stage.need-both .dz,#stage.miss-a .dz,#stage.miss-b .dz,
+  body.dragging .dz{display:flex}
+  .dz-half{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    border:2px dashed transparent;transition:.13s;visibility:hidden;
+    pointer-events:none;color:var(--txt-soft);
+  }
+  .dz-half .in{display:flex;flex-direction:column;align-items:center;gap:9px;
+    pointer-events:none;text-align:center;padding:18px}
+  .dz-half .big{font-size:36px;font-weight:900;color:var(--accent);line-height:1}
+  .dz-half .sub{font-size:13px;font-weight:700}
+  .dz-half .tip{font-size:11px;color:var(--txt-soft);opacity:.8}
+  #stage.miss-a .dz-half[data-pick="A"],
+  #stage.miss-b .dz-half[data-pick="B"]{
+    visibility:visible;pointer-events:auto;cursor:pointer;
+    background:rgba(3,7,5,.66);border-color:var(--line);
+  }
+  #stage.miss-a .dz-half[data-pick="A"]:hover,
+  #stage.miss-b .dz-half[data-pick="B"]:hover{
+    border-color:var(--accent);background:rgba(72,255,132,.10);color:var(--accent)}
+  body.dragging .dz-half{
+    visibility:visible;pointer-events:auto;
+    border-color:var(--line);background:rgba(5,9,6,.5)}
+  body.dragging .dz-half.over{
+    border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
+  .dz-half.over .big{transform:scale(1.12);transition:.12s}
+  /* both empty: entire left/right half is the drop+click target */
+  #stage.need-both .dz-half{
+    visibility:visible;pointer-events:auto;cursor:pointer}
+  #stage.need-both .dz-half[data-pick="A"]{
+    border-right:1px dashed var(--line-soft)}
+  #stage.need-both .dz-half .in{display:none}
+  body.dragging #stage.need-both .dz-half .in{display:flex}
+
+  footer{
+    flex:0 0 auto;border-top:1px solid var(--line);
+    background:linear-gradient(180deg,var(--panel2),var(--panel));padding:10px 16px;
+    display:flex;flex-direction:column;gap:9px;
+  }
+  .scrub{position:relative;height:16px;display:flex;align-items:center;cursor:pointer}
+  .track{position:absolute;left:0;right:0;height:6px;border-radius:3px;background:rgba(72,255,132,.14)}
+  .buf{position:absolute;height:6px;border-radius:3px;background:rgba(72,255,132,.22)}
+  .fill{position:absolute;height:6px;border-radius:3px;background:var(--accent);width:0}
+  .head{position:absolute;width:13px;height:13px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 9px rgba(72,255,132,.7);left:0;transform:translateX(-50%)}
+  .transport{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .time{font-weight:800;font-variant-numeric:tabular-nums;color:var(--txt-strong);font-size:13px}
+  .meta{display:flex;gap:14px;margin-left:auto;font-size:11px;color:var(--txt-soft);
+    font-variant-numeric:tabular-nums;flex-wrap:wrap}
+  .meta b{color:var(--accent)}
+  .sep{width:1px;height:22px;background:var(--line-soft);margin:0 2px}
+  .zoom{font-weight:800;color:var(--txt-strong);font-size:12px;min-width:46px;text-align:center;
+    font-variant-numeric:tabular-nums}
+
+  .help{
+    position:absolute;right:14px;bottom:14px;z-index:20;background:rgba(6,16,11,.96);
+    border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:12px;
+    color:var(--txt-soft);max-width:300px;display:none;line-height:1.9;
+  }
+  .help.show{display:block}
+  .help h3{color:var(--txt-strong);font-size:13px;margin-bottom:6px}
+  .help kbd{background:#0e2016;border:1px solid var(--line);border-radius:5px;
+    padding:1px 6px;color:var(--accent);font-size:11px;font-weight:800}
+  .toast{
+    position:absolute;left:50%;bottom:84px;transform:translateX(-50%);z-index:30;
+    background:rgba(6,16,11,.96);border:1px solid var(--line);border-radius:999px;
+    padding:9px 18px;font-size:13px;font-weight:800;color:var(--txt-strong);
+    opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;
+  }
+  .toast.show{opacity:1}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span>Video Compare
+    <small>· synced A/B · shared timeline</small></div>
+  <div class="slots">
+    <div class="slot" id="slotA"><b>A</b><span class="name">Load video…</span>
+      <button data-pick="A">choose</button>
+      <button class="clr" data-clear="A" title="A 제거">✕</button></div>
+    <div class="slot" id="slotB"><b>B</b><span class="name">Load video…</span>
+      <button data-pick="B">choose</button>
+      <button class="clr" data-clear="B" title="B 제거">✕</button></div>
+  </div>
+  <button class="btn" id="swapBtn" title="Swap A/B (S)">⇄ Swap</button>
+  <div class="modes">
+    <button class="btn mode on" data-mode="slider">Slider</button>
+    <button class="btn mode" data-mode="sxs">Side by Side</button>
+    <button class="btn mode" data-mode="diff">Difference</button>
+    <button class="btn mode" data-mode="tgl">Toggle</button>
+  </div>
+</header>
+
+<main>
+  <div id="stage" class="m-slider">
+    <div id="frame">
+      <video id="vidB" playsinline preload="auto" muted></video>
+      <video id="vidA" playsinline preload="auto" muted></video>
+      <div id="divider"></div>
+    </div>
+    <div class="badge" id="badgeA">A</div>
+    <div class="badge" id="badgeB">B</div>
+    <div class="badge tgl-badge" id="tglBadge">A</div>
+
+    <div class="dz" id="dz">
+      <div class="dz-half" data-pick="A">
+        <div class="in"><span class="big">A</span>
+          <span class="sub">영상 A · 왼쪽</span>
+          <span class="tip">드롭 / 클릭</span></div>
+      </div>
+      <div class="dz-half" data-pick="B">
+        <div class="in"><span class="big">B</span>
+          <span class="sub">영상 B · 오른쪽</span>
+          <span class="tip">하나 더 넣어야 비교됩니다</span></div>
+      </div>
+    </div>
+
+    <div class="hint" id="hint">
+      <h2>Video Compare</h2>
+      <p>두 영상을 넣으면 같은 타임라인으로 동기 재생됩니다. 업스케일·보간 결과 비교에 최적. 파일은 브라우저에서만 열리며 어디로도 업로드되지 않습니다.</p>
+      <p style="font-size:14px;color:var(--txt-strong);line-height:1.9">
+        화면 <b style="color:var(--accent)">왼쪽 절반 전체 = A</b> ·
+        <b style="color:var(--accent)">오른쪽 절반 전체 = B</b><br>
+        그 영역 아무 데나 드래그&드롭 하거나 클릭하세요</p>
+      <p style="font-size:12px">단축키: <kbd>?</kbd> 도움말 · <kbd>Space</kbd> 재생 · <kbd>←/→</kbd> 탐색 · 휠 확대</p>
+    </div>
+
+    <div class="help" id="help">
+      <h3>단축키</h3>
+      <kbd>Space</kbd> 재생/정지 · <kbd>K</kbd> 동일<br>
+      <kbd>←</kbd><kbd>→</kbd> 1프레임 · <kbd>Shift</kbd>+ 1초<br>
+      <kbd>,</kbd><kbd>.</kbd> 프레임 스텝(정지 중)<br>
+      <kbd>M</kbd> 모드 순환 · <kbd>S</kbd> A/B 교체<br>
+      <kbd>L</kbd> 루프 · <kbd>0–9</kbd> 위치 점프<br>
+      <kbd>F</kbd> 전체화면 · <kbd>R</kbd> 줌 리셋<br>
+      <kbd>휠</kbd> 확대 · 드래그 이동(줌 시)<br>
+      <kbd>?</kbd> 이 도움말
+    </div>
+    <div class="toast" id="toast"></div>
+  </div>
+</main>
+
+<footer>
+  <div class="scrub" id="scrub">
+    <div class="track"></div><div class="buf" id="buf"></div>
+    <div class="fill" id="fill"></div><div class="head" id="thead"></div>
+  </div>
+  <div class="transport">
+    <button class="btn icn" id="playBtn" disabled>▶</button>
+    <button class="btn icn" id="loopBtn" title="Loop (L)">↻</button>
+    <button class="btn icn" id="backBtn" title="-1 frame">⏮</button>
+    <button class="btn icn" id="fwdBtn" title="+1 frame">⏭</button>
+    <button class="btn" id="spdBtn" title="Playback speed">1.0×</button>
+    <span class="sep"></span>
+    <button class="btn icn" id="audN" title="Mute all">🔇</button>
+    <button class="btn icn on" id="audA" title="Audio: A only">🔊A</button>
+    <button class="btn icn" id="audB" title="Audio: B only">🔊B</button>
+    <span class="sep"></span>
+    <button class="btn icn" id="zoomOut">−</button>
+    <span class="zoom" id="zoomLbl">100%</span>
+    <button class="btn icn" id="zoomIn">+</button>
+    <button class="btn icn" id="zoomRst" title="Reset zoom (R)">⤢</button>
+    <span class="sep"></span>
+    <button class="btn" id="syncBtn" title="Timeline lock mode">Sync: Time</button>
+    <span class="time" id="time">00:00.00 / 00:00.00</span>
+    <div class="meta">
+      <span id="metaA">A —</span><span id="metaB">B —</span>
+    </div>
+    <button class="btn icn" id="fsBtn" title="Fullscreen (F)">⛶</button>
+    <button class="btn icn" id="helpBtn" title="Help (?)">?</button>
+  </div>
+</footer>
+
+<input type="file" id="fileA" accept="video/*">
+<input type="file" id="fileB" accept="video/*">
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const stage=$("stage"), frame=$("frame"), vidA=$("vidA"), vidB=$("vidB"),
+        hint=$("hint"), divider=$("divider"), help=$("help"), toastEl=$("toast"),
+        scrub=$("scrub"), fillEl=$("fill"), bufEl=$("buf"), headEl=$("thead"),
+        timeEl=$("time"), metaAEl=$("metaA"), metaBEl=$("metaB"),
+        playBtn=$("playBtn"), loopBtn=$("loopBtn"), spdBtn=$("spdBtn"),
+        zoomLbl=$("zoomLbl"), syncBtn=$("syncBtn");
+
+  const S = {
+    mode:"slider", split:0.5, playing:false, loop:true, speed:1,
+    syncRatio:false, zoom:1, panX:0, panY:0, tglShow:"A",
+    haveA:false, haveB:false, scrubbing:false, draggingSplit:false,
+    panning:false, panStart:null, durA:0, durB:0, fpsA:30, fpsB:30,
+    audio:"A", swapped:false,
+  };
+  const labelOf = side => S.swapped ? (side==="A"?"B":"A") : side;
+  function updateLabels(){
+    $("badgeA").textContent=labelOf("A");
+    $("badgeB").textContent=labelOf("B");
+    if(S.mode==="tgl") applyTgl();
+  }
+  const SPEEDS=[0.25,0.5,1,1.5,2];
+
+  /* ---------- loading ---------- */
+  function loadInto(which, file){
+    if(!file) return;
+    if(file.type && !file.type.startsWith("video/") &&
+       !/\.(mp4|webm|mov|mkv|m4v|ogv)$/i.test(file.name)){
+      toast("영상 파일이 아닙니다: "+file.name); return;
+    }
+    const v = which==="A" ? vidA : vidB;
+    if(v.src) URL.revokeObjectURL(v.src);
+    v.src = URL.createObjectURL(file);
+    v.load();
+    const slot=$("slot"+which);
+    slot.classList.add("has");
+    slot.querySelector(".name").textContent=file.name;
+    v.onloadedmetadata=()=>{
+      if(which==="A"){ S.haveA=true; S.durA=v.duration; S.fpsA=guessFps(v); }
+      else { S.haveB=true; S.durB=v.duration; S.fpsB=guessFps(v); }
+      onMediaReady();
+    };
+  }
+  function guessFps(v){
+    // heuristic only; refined live via requestVideoFrameCallback if available
+    return 30;
+  }
+  function onMediaReady(){
+    refreshDropState();
+    if(S.haveA || S.haveB){
+      updateMeta(); applyAudio(); seekAll(0); render();
+      trackFps(vidA,"fpsA"); trackFps(vidB,"fpsB");
+    }
+  }
+  function refreshDropState(){
+    const a=S.haveA, b=S.haveB;
+    stage.classList.toggle("need-both", !a && !b);
+    stage.classList.toggle("miss-a", !a && b);
+    stage.classList.toggle("miss-b", a && !b);
+    hint.classList.toggle("hide", a || b);
+    playBtn.disabled = !(a || b);
+    if(S.mode==="tgl") applyTgl();
+  }
+  function unload(which){
+    const v = which==="A" ? vidA : vidB;
+    if(which==="A"){ S.haveA=false; S.durA=0; }
+    else { S.haveB=false; S.durB=0; }
+    pause();
+    try{ v.pause(); }catch(e){}
+    if(v.src){ try{ URL.revokeObjectURL(v.src); }catch(e){} }
+    v.removeAttribute("src");
+    try{ v.load(); }catch(e){}
+    const slot=$("slot"+which);
+    slot.classList.remove("has");
+    slot.querySelector(".name").textContent="Load video…";
+    S.time=0; S._down=null; S._starting=false;
+    refreshDropState(); updateMeta(); applyAudio(); render();
+    toast(which+" 제거됨");
+  }
+  function applyAudio(){
+    vidA.muted = !(S.haveA && S.audio==="A");
+    vidB.muted = !(S.haveB && S.audio==="B");
+    $("audN").classList.toggle("on", S.audio==="none");
+    $("audA").classList.toggle("on", S.audio==="A");
+    $("audB").classList.toggle("on", S.audio==="B");
+  }
+  function trackFps(v,key){
+    if(!v.requestVideoFrameCallback) return;
+    let last=null, samples=[];
+    const cb=(_,m)=>{
+      if(last!=null){ const d=m.mediaTime-last; if(d>0&&d<0.2){
+        samples.push(1/d); if(samples.length>20) samples.shift();
+        S[key]=Math.round(samples.reduce((a,b)=>a+b,0)/samples.length);
+        updateMeta();
+      }}
+      last=m.mediaTime;
+      if(v.src) v.requestVideoFrameCallback(cb);
+    };
+    v.requestVideoFrameCallback(cb);
+  }
+
+  /* ---------- timeline / sync ---------- */
+  const master = () => S.haveA ? vidA : vidB;
+  const other  = () => S.haveA ? (S.haveB?vidB:null) : null;
+  const masterDur = () => S.haveA ? S.durA : S.durB;
+
+  function mapTime(t){
+    const o=other(); if(!o) return t;
+    if(S.syncRatio && masterDur()>0)
+      return (t/masterDur())*o.duration;
+    return Math.min(t, o.duration||t);
+  }
+  function syncOther(force){
+    const o=other(); if(!o) return;
+    const tgt=mapTime(master().currentTime);
+    const diff=o.currentTime - tgt;          // + : follower is ahead
+    const A=Math.abs(diff);
+    // big jump (scrub / loop) -> single hard seek
+    if(force || A > 0.5){
+      try{ o.currentTime = tgt; }catch(e){}
+      o.playbackRate = S.speed;
+      return;
+    }
+    if(!S.playing){
+      // paused: only seek if visibly off; sub-frame stays (no decode flash)
+      if(A > 0.02){ try{ o.currentTime = tgt; }catch(e){} }
+      o.playbackRate = S.speed;
+      return;
+    }
+    // safety net (post-resume / stall) — corrective seek before it's seen
+    if(A > 0.18){
+      try{ o.currentTime = tgt; }catch(e){}
+      o.playbackRate = S.speed;
+      return;
+    }
+    // steady state: strong-but-smooth rate correction, sub-frame lock
+    if(A < 0.004){
+      o.playbackRate = S.speed;
+    } else {
+      const k=Math.min(0.6, A*8);
+      o.playbackRate = S.speed * (diff>0 ? (1-k) : (1+k));
+    }
+  }
+  function seekAll(t){
+    const m=master(); if(!m) return;
+    m.currentTime=Math.max(0,Math.min(t, m.duration||0));
+    syncOther(true); render();
+  }
+
+  function play(){
+    if(!S.haveA && !S.haveB) return;
+    S.playing=true; playBtn.textContent="❚❚"; playBtn.classList.add("on");
+    const m=master(), o=other();
+    if(m.ended || m.currentTime>=(m.duration-0.05)){
+      m.currentTime=0; if(o){ try{ o.currentTime=0; }catch(e){} }
+    }
+    m.playbackRate=S.speed;
+    if(!o){ m.play().catch(()=>{}); return; }
+    // align follower first, then start BOTH together when both are ready
+    const tgt=mapTime(m.currentTime);
+    const needSeek=Math.abs(o.currentTime-tgt) > 0.008;
+    if(needSeek){ try{ o.currentTime=tgt; }catch(e){} }
+    o.playbackRate=S.speed;
+    S._starting=true;
+    const startBoth=()=>{
+      if(!S._starting) return;
+      S._starting=false;
+      o.removeEventListener("seeked",startBoth);
+      o.removeEventListener("canplay",startBoth);
+      if(!S.playing) return;
+      o.play().catch(()=>{}); m.play().catch(()=>{}); // heavier side first
+    };
+    if(!needSeek && o.readyState>=2){
+      startBoth();
+    } else {
+      o.addEventListener("seeked",startBoth);
+      o.addEventListener("canplay",startBoth);
+      setTimeout(startBoth,220);   // fallback so resume never hangs
+    }
+  }
+  function pause(){
+    S.playing=false; S._starting=false;
+    playBtn.textContent="▶"; playBtn.classList.remove("on");
+    vidA.pause(); vidB.pause();
+    syncOther(false);          // snap only if visibly off; else instant
+  }
+  function togglePlay(){ S.playing?pause():play(); }
+
+  /* ---------- main loop ---------- */
+  function loop(){
+    const m=master();
+    if(m && (S.haveA||S.haveB)){
+      if(S.playing && !S._starting){
+        const o=other();
+        if(o){
+          if(o.paused) o.play().catch(()=>{});
+          syncOther(false);
+        }
+        if(m.duration && m.currentTime>=m.duration-0.03){
+          if(S.loop) seekAll(0); else pause();
+        }
+      }
+      render();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function render(){
+    const m=master(); if(!m) return;
+    const dur=m.duration||0, cur=m.currentTime||0;
+    const r = dur>0 ? cur/dur : 0;
+    fillEl.style.width=(r*100)+"%";
+    headEl.style.left=(r*100)+"%";
+    timeEl.textContent=fmt(cur)+" / "+fmt(dur);
+    if(m.buffered && m.buffered.length){
+      bufEl.style.left="0%";
+      bufEl.style.width=(m.buffered.end(m.buffered.length-1)/Math.max(dur,1e-6)*100)+"%";
+    }
+    stage.style.setProperty("--split",S.split);
+    divider.style.left=`calc(${S.split} * 100%)`;
+    frame.style.transform=
+      `translate(${S.panX}px,${S.panY}px) scale(${S.zoom})`;
+  }
+
+  function updateMeta(){
+    metaAEl.innerHTML = S.haveA
+      ? `<b>A</b> ${vidA.videoWidth}×${vidA.videoHeight} · ${fmt(S.durA)} · ~${S.fpsA}fps`
+      : "A —";
+    metaBEl.innerHTML = S.haveB
+      ? `<b>B</b> ${vidB.videoWidth}×${vidB.videoHeight} · ${fmt(S.durB)} · ~${S.fpsB}fps`
+      : "B —";
+    // auto enable ratio sync if durations differ noticeably
+    if(S.haveA && S.haveB && Math.abs(S.durA-S.durB)>0.25 && !S._ratioPrompted){
+      S._ratioPrompted=true;
+      toast("길이가 다릅니다 — 'Sync: Ratio' 권장");
+    }
+  }
+  function fmt(s){
+    s=Math.max(0,s||0);
+    const mm=Math.floor(s/60), ss=Math.floor(s%60), cs=Math.floor((s*100)%100);
+    return `${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}.${String(cs).padStart(2,"0")}`;
+  }
+  let toastT;
+  function toast(msg){
+    toastEl.textContent=msg; toastEl.classList.add("show");
+    clearTimeout(toastT); toastT=setTimeout(()=>toastEl.classList.remove("show"),1900);
+  }
+
+  /* ---------- modes ---------- */
+  function applyTgl(){
+    // never show the side that has no video (would be a black frame)
+    if(S.haveA && !S.haveB) S.tglShow="A";
+    else if(S.haveB && !S.haveA) S.tglShow="B";
+    stage.classList.toggle("show-a", S.tglShow==="A");
+    stage.classList.toggle("show-b", S.tglShow==="B");
+    $("tglBadge").textContent=S.tglShow;
+  }
+  function setMode(mode){
+    S.mode=mode;
+    stage.classList.remove("m-slider","m-sxs","m-diff","m-tgl",
+      "show-a","show-b");
+    stage.classList.add("m-"+(mode==="slider"?"slider":mode));
+    if(mode==="tgl") applyTgl();
+    document.querySelectorAll(".mode").forEach(b=>
+      b.classList.toggle("on", b.dataset.mode===mode));
+    $("tglBadge").textContent=S.tglShow;
+    render();
+  }
+  function cycleMode(){
+    const order=["slider","sxs","diff","tgl"];
+    setMode(order[(order.indexOf(S.mode)+1)%order.length]);
+  }
+
+  /* ---------- frame stepping ---------- */
+  function fps(){ return S.haveA?S.fpsA:S.fpsB; }
+  function step(frames){
+    pause();
+    const m=master(); const dt=frames/Math.max(fps(),1);
+    seekAll((m.currentTime||0)+dt);
+  }
+
+  /* ---------- zoom / pan ---------- */
+  function setZoom(z, cx, cy){
+    const old=S.zoom;
+    S.zoom=Math.max(1,Math.min(8,z));
+    if(S.zoom===1){ S.panX=0; S.panY=0; }
+    else if(cx!=null){
+      const rect=stage.getBoundingClientRect();
+      const ox=cx-rect.left-rect.width/2, oy=cy-rect.top-rect.height/2;
+      const k=S.zoom/old;
+      S.panX=(S.panX-ox)*k+ox; S.panY=(S.panY-oy)*k+oy;
+      clampPan();
+    }
+    zoomLbl.textContent=Math.round(S.zoom*100)+"%";
+    stage.classList.toggle("pan", S.zoom>1 && S.mode!=="slider");
+    render();
+  }
+  function clampPan(){
+    const rect=stage.getBoundingClientRect();
+    const mx=(rect.width*(S.zoom-1))/2, my=(rect.height*(S.zoom-1))/2;
+    S.panX=Math.max(-mx,Math.min(mx,S.panX));
+    S.panY=Math.max(-my,Math.min(my,S.panY));
+  }
+
+  /* ---------- pointer on stage ---------- */
+  function stageX(clientX){
+    const r=stage.getBoundingClientRect();
+    return Math.max(0,Math.min(1,(clientX-r.left)/r.width));
+  }
+  // cursor X -> frame-local fraction, undoing zoom/pan transform
+  function frameFrac(clientX){
+    const r=stage.getBoundingClientRect();
+    const W=r.width||1, cx=W/2;
+    const p=cx+(((clientX-r.left)-cx-S.panX)/S.zoom);
+    return Math.max(0,Math.min(1,p/W));
+  }
+  stage.addEventListener("pointerdown", e=>{
+    if(!S.haveA && !S.haveB) return;
+    S._down={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};
+    if(S.mode==="slider" && S.zoom===1){
+      S.draggingSplit=true; S.split=frameFrac(e.clientX); render();
+      stage.setPointerCapture(e.pointerId); return;
+    }
+    if(S.zoom>1){
+      S.panning=true; S.panStart={x:e.clientX-S.panX,y:e.clientY-S.panY};
+      stage.classList.add("grabbing"); stage.setPointerCapture(e.pointerId);
+    }
+  });
+  stage.addEventListener("pointermove", e=>{
+    if(S._down && !S._down.moved &&
+       Math.hypot(e.clientX-S._down.x, e.clientY-S._down.y) > 6)
+      S._down.moved=true;
+    if(S.draggingSplit){ S.split=frameFrac(e.clientX); render(); }
+    else if(S.panning){
+      S.panX=e.clientX-S.panStart.x; S.panY=e.clientY-S.panStart.y;
+      clampPan(); render();
+    }
+    else if(S.mode==="slider" && S.haveA && S.haveB && !S.scrubbing
+            && !document.body.classList.contains("dragging")){
+      S.split=frameFrac(e.clientX); render();   // follow mouse, any zoom
+    }
+  });
+  const endPtr=(e)=>{
+    const d=S._down; S._down=null;
+    S.draggingSplit=false; S.panning=false;
+    stage.classList.remove("grabbing");
+    if(!(e && e.type==="pointerup" && d && !d.moved
+       && (performance.now()-d.t) < 350 && (S.haveA||S.haveB))) return;
+    if(S.mode==="tgl"){            // click in Toggle = flip A/B
+      S.tglShow = S.tglShow==="A" ? "B" : "A";
+      applyTgl();                  // clamps back if that side is empty
+    } else {                       // click elsewhere = play/pause
+      togglePlay();
+    }
+  };
+  stage.addEventListener("pointerup",endPtr);
+  stage.addEventListener("pointercancel",endPtr);
+
+  stage.addEventListener("wheel", e=>{
+    if(!S.haveA && !S.haveB) return;
+    e.preventDefault();
+    setZoom(S.zoom*(e.deltaY<0?1.18:1/1.18), e.clientX, e.clientY);
+  }, {passive:false});
+
+  /* ---------- scrub ---------- */
+  function scrubTo(clientX){
+    const r=scrub.getBoundingClientRect();
+    const ratio=Math.max(0,Math.min(1,(clientX-r.left)/r.width));
+    seekAll(ratio*(masterDur()||0));
+  }
+  scrub.addEventListener("pointerdown",e=>{
+    if(!S.haveA && !S.haveB) return;
+    S.scrubbing=true; S._wasPlaying=S.playing; pause();
+    scrub.setPointerCapture(e.pointerId); scrubTo(e.clientX);
+  });
+  scrub.addEventListener("pointermove",e=>{ if(S.scrubbing) scrubTo(e.clientX); });
+  scrub.addEventListener("pointerup",e=>{
+    if(!S.scrubbing) return;
+    S.scrubbing=false; if(S._wasPlaying) play();
+  });
+
+  /* ---------- controls ---------- */
+  document.querySelectorAll(".mode").forEach(b=>
+    b.onclick=()=>setMode(b.dataset.mode));
+  playBtn.onclick=togglePlay;
+  loopBtn.onclick=()=>{ S.loop=!S.loop; loopBtn.classList.toggle("on",S.loop);
+    toast("Loop "+(S.loop?"ON":"OFF")); };
+  loopBtn.classList.add("on");
+  $("backBtn").onclick=()=>step(-1);
+  $("fwdBtn").onclick=()=>step(1);
+  spdBtn.onclick=()=>{
+    S.speed=SPEEDS[(SPEEDS.indexOf(S.speed)+1)%SPEEDS.length];
+    vidA.playbackRate=S.speed; vidB.playbackRate=S.speed;
+    spdBtn.textContent=S.speed.toFixed(2).replace(/0$/,"")+"×";
+  };
+  function setAudio(which){
+    S.audio=which; applyAudio();
+    toast(which==="none"?"음소거":(which+" 사운드만"));
+  }
+  $("audN").onclick=()=>setAudio("none");
+  $("audA").onclick=()=>setAudio("A");
+  $("audB").onclick=()=>setAudio("B");
+  $("zoomIn").onclick=()=>setZoom(S.zoom*1.25);
+  $("zoomOut").onclick=()=>setZoom(S.zoom/1.25);
+  $("zoomRst").onclick=()=>setZoom(1);
+  syncBtn.onclick=()=>{
+    S.syncRatio=!S.syncRatio;
+    syncBtn.textContent="Sync: "+(S.syncRatio?"Ratio":"Time");
+    syncBtn.classList.toggle("on",S.syncRatio);
+    syncOther(true); toast(S.syncRatio
+      ?"비율 동기 — 길이 달라도 정규화":"시간 동기 — 동일 길이용");
+  };
+  $("swapBtn").onclick=()=>{
+    if(!S.haveA || !S.haveB){ toast("A·B 둘 다 있어야 교체"); return; }
+    S.swapped=!S.swapped;
+    stage.classList.toggle("swapped", S.swapped);
+    updateLabels(); render();           // sides flip; playback/sync intact
+    toast("A ⇄ B");
+  };
+  $("fsBtn").onclick=()=>{
+    if(document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(()=>{});
+  };
+  $("helpBtn").onclick=()=>help.classList.toggle("show");
+
+  /* ---------- file pickers ---------- */
+  document.querySelectorAll("[data-pick]").forEach(el=>
+    el.addEventListener("click",ev=>{
+      ev.stopPropagation();
+      $("file"+el.dataset.pick).click();
+    }));
+  document.querySelectorAll("[data-clear]").forEach(el=>
+    el.addEventListener("click",ev=>{
+      ev.stopPropagation();
+      unload(el.dataset.clear);
+    }));
+  $("fileA").onchange=e=>loadInto("A",e.target.files[0]);
+  $("fileB").onchange=e=>loadInto("B",e.target.files[0]);
+
+  /* ---------- drag & drop ---------- */
+  let dragDepth=0;
+  window.addEventListener("dragenter",e=>{e.preventDefault();
+    if(++dragDepth) document.body.classList.add("dragging");});
+  window.addEventListener("dragover",e=>e.preventDefault());
+  window.addEventListener("dragleave",e=>{e.preventDefault();
+    if(--dragDepth<=0) document.body.classList.remove("dragging");});
+  function dropZone(which){
+    return el=>{
+      el.addEventListener("dragover",e=>{e.preventDefault();el.classList.add("over");});
+      el.addEventListener("dragleave",()=>el.classList.remove("over"));
+      el.addEventListener("drop",e=>{
+        e.preventDefault();e.stopPropagation();el.classList.remove("over");
+        dragDepth=0;document.body.classList.remove("dragging");
+        if(e.dataTransfer.files[0]) loadInto(which,e.dataTransfer.files[0]);
+      });
+    };
+  }
+  document.querySelectorAll('.drop[data-pick="A"],.dz-half[data-pick="A"]')
+    .forEach(dropZone("A"));
+  document.querySelectorAll('.drop[data-pick="B"],.dz-half[data-pick="B"]')
+    .forEach(dropZone("B"));
+  window.addEventListener("drop",e=>{
+    e.preventDefault();dragDepth=0;document.body.classList.remove("dragging");
+    const f=e.dataTransfer.files;
+    if(!f.length) return;
+    if(!S.haveA){ loadInto("A",f[0]); if(f[1]) loadInto("B",f[1]); }
+    else if(!S.haveB) loadInto("B",f[0]);
+    else loadInto("A",f[0]);
+  });
+
+  /* ---------- keyboard ---------- */
+  window.addEventListener("keydown",e=>{
+    if(e.target.tagName==="INPUT") return;
+    const k=e.key;
+    if(k===" "||k==="k"||k==="K"){e.preventDefault();togglePlay();}
+    else if(k==="ArrowLeft") seekAll(master().currentTime-(e.shiftKey?1:1/Math.max(fps(),1)));
+    else if(k==="ArrowRight") seekAll(master().currentTime+(e.shiftKey?1:1/Math.max(fps(),1)));
+    else if(k===","||k==="<") step(-1);
+    else if(k==="."||k===">") step(1);
+    else if(k==="m"||k==="M") cycleMode();
+    else if(k==="s"||k==="S") $("swapBtn").click();
+    else if(k==="l"||k==="L") loopBtn.click();
+    else if(k==="f"||k==="F") $("fsBtn").click();
+    else if(k==="r"||k==="R") setZoom(1);
+    else if(k==="?") help.classList.toggle("show");
+    else if(k>="0"&&k<="9"){ const m=master();
+      if(m&&m.duration) seekAll(m.duration*(+k/10)); }
+  });
+
+  /* ---------- init ---------- */
+  vidA.addEventListener("ended",()=>{ if(S.loop&&S.haveA) seekAll(0); });
+  vidB.addEventListener("ended",()=>{ if(S.loop&&!S.haveA) seekAll(0); });
+  setMode("slider");
+  refreshDropState();
+  applyAudio();
+  updateLabels();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
