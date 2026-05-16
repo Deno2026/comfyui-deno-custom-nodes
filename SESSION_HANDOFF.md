@@ -9,7 +9,7 @@
 - 이번 세션에 작업 위치를 D: 실행 클론에서 **E: 원본으로 이주**. 앞으로 개발은 E:에서.
 - D: 실행 클론 `...\ComfyUI\custom_nodes\comfyui-deno-custom-nodes` 에 `docs/video-compare/` 사본이 남아있음(무해, E:에 커밋 보존됨). 사용자 요청으로 삭제 안 함.
 
-**원격 HEAD = `2f014e9`** (push 완료). main 미반영. **웹툴 GitHub Pages 라이브 확인**: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/ (HTTP 200).
+**정식 릴리스 진행됨 (사용자 결정·지시, 2026-05-16):** feature `6ebad93` → **원격 `main` fast-forward 완료**(bc59d5d→6ebad93). `pyproject.toml` `0.5.9`→**`0.6.0`**. main push로 `publish_registry.yml`(시크릿 `REGISTRY_ACCESS_TOKEN`) 자동 실행 → Comfy Registry 0.6.0 publish. 웹툴 GitHub Pages 라이브: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/ (HTTP 200). README+스크린샷(§6) 포함.
 
 ## 커밋 상태 (브랜치 `claude/review-project-repo-mQQtO`)
 
@@ -55,7 +55,8 @@
 - **남은 수동 1: GitHub Pages 활성화(사용자 GUI, gh CLI 부재)** — Repo Settings ▸ Pages ▸ Deploy from a branch ▸ Branch=`claude/review-project-repo-mQQtO`, Folder=`/docs` ▸ Save. 그러면 `https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/` 라이브(노드 링크·README가 이미 이 URL 가리킴).
 - ✅ **GitHub Pages 활성화·라이브 확인 완료** (브랜치 `/docs` 서빙).
 - ✅ **§6 실노드 스크린샷 완료**: `docs/images/video-compare{,-sbs,-diff}.png` (Slider/SbS/Diff) + README 이미지 태그, 커밋 `2f014e9` push.
-- **유일하게 남은 것 = 정식 릴리스 결정(사용자 명시 필요, §5)**: ① feature 브랜치 → **main 병합**(현재 main=bc59d5d) ② `pyproject.toml` **버전 bump** ③ **Comfy Registry publish** 워크플로(레지스트리 시크릿). 되돌리기 어려운 공개 버전 발행이라 버전 번호·진행 여부를 사용자가 지정해야 함. 그 외 노드·웹툴은 기능·문서·공개(웹툴 Pages) 모두 완료 상태.
+- **배포 후 확인(§6, 다음 세션/Codex가 마저 확인)**: GitHub Actions `publish_registry.yml` 성공 여부, Comfy Registry `latest_version`=0.6.0 노출, Manager 캐시 갱신. (이 세션에서 Registry API 폴링 시도; gh 부재로 Actions 직접 확인 불가 — 실패 시 워크플로 로그/시크릿 점검.)
+- 로컬 `main` 브랜치는 stale(작업은 feature에서 계속). 다음 세션은 feature `claude/review-project-repo-mQQtO` 기준.
 - ffmpeg 미탐지 환경 대비: 현재 fallback은 meta.error 안내. VHS 전제이므로 실무상 문제 없을 것으로 판단하나, 배포 전 최신 Portable 기준점에서도 확인 권장(§4).
 
 ## 위험 경로
