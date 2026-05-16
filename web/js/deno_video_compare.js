@@ -210,15 +210,6 @@ function setupVideoCompareNode(node) {
     node.setSize?.([Math.max(node.size?.[0] || 0, NODE_MIN_W),
                     Math.max(node.size?.[1] || 0, NODE_DEFAULT_H)]);
   }
-  if (!node.__dvcResizeWrapped) {
-    node.__dvcResizeWrapped = true;
-    const orz = node.onResize;
-    node.onResize = function () {
-      const r = orz?.apply(this, arguments);
-      fitNode(this);
-      return r;
-    };
-  }
   if (!st.raf) st.raf = requestAnimationFrame(loopOf(node));
 }
 
@@ -311,7 +302,7 @@ function buildDom(node) {
     getMinHeight: () => 360,
   });
   widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W),
-                               Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90, 320)];
+                               Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90, 120)];
   node.__dvcWidget = widget;
 
   wireInteractions(node, dom, {
