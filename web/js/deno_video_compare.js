@@ -28,6 +28,9 @@ const CSS = `
 .dvc .bar.top{border-bottom:1px solid rgba(72,255,132,.28)}
 .dvc .bar.bot{border-top:1px solid rgba(72,255,132,.28);flex-direction:column;
   align-items:stretch;gap:7px}
+.dvc .wlink{font-size:10px;font-weight:700;color:#7fb893;text-align:center;
+  text-decoration:none;padding:2px 0;letter-spacing:.2px}
+.dvc .wlink:hover{color:#48ff84;text-decoration:underline}
 .dvc .btn{background:rgba(9,15,11,.92);border:1px solid rgba(90,130,104,.6);
   color:#9dffba;padding:6px 11px;border-radius:999px;font-weight:800;
   font-size:11px;white-space:nowrap;transition:.12s}
@@ -311,6 +314,12 @@ function buildDom(node) {
   tr.append(playBtn, loopBtn, backBtn, fwdBtn, spdBtn, sep1,
     audN, audA, audB, time, meta);
   bot.appendChild(tr);
+  const wlink = el("a", "wlink",
+    "▶ 무거우면 → 브라우저용 Web Video Compare (무설치)");
+  wlink.href = "https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/";
+  wlink.target = "_blank";
+  wlink.rel = "noopener noreferrer";
+  bot.appendChild(wlink);
   root.appendChild(bot);
 
   const dom = {

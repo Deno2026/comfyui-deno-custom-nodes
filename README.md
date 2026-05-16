@@ -101,19 +101,18 @@ Main features:
 
 ### `(Deno) Video Compare`
 
-Visual A/B comparison node for videos (frame batches), built for checking upscale and FPS-interpolation results directly on the ComfyUI canvas.
+Visual A/B comparison node for videos, built for checking upscale and FPS-interpolation results directly on the ComfyUI canvas. Lightweight: each input is encoded to one compressed preview clip and played with native `<video>` elements, so high-res / long batches stay cheap instead of writing a full PNG sequence.
 
 Main features:
 
-- compares `video_a` and `video_b` frame batches with synced playback
-- modes: `Slider`, `Side by Side`, `Difference`, and `Toggle`, matching `(Deno) Image Compare`
-- hover-move slider interaction for fast before/after inspection
-- transport controls: Play/Pause, Loop, frame-rate stepper, and a scrub bar
-- shared timeline: both sides always play over the same duration based on the `fps` and the reference frame count, so an upscale (same frame count) stays perfectly in sync and an FPS-interpolation result (e.g. RIFE 24 to 48) shows up as smoother motion at the same length instead of a different runtime
-- keeps the full frame sequence for both inputs so frame-count differences are preserved
-- visible A/B labels and a `Swap` button for checking either direction
-- resizes the internal preview area with the node so portrait and landscape videos stay readable
-- visual-only node with no output socket, keeping the graph cleaner when the comparison is just for inspection
+- `video_a` / `video_b` (IMAGE batches) and optional `audio_a` / `audio_b` (AUDIO, e.g. from VHS *Load Video*) muxed into the preview
+- modes: `Slider`, `Side by Side`, `Difference`, `Toggle` (freeze-frame A/B flip), plus `Swap`
+- hover-move slider, click = play/pause, scrub bar, frame step, speed, loop; hover the preview to hear the selected side
+- shared timeline: both sides play over the same duration, so an upscale (same frame count) stays frame-locked while an FPS-interpolation result (e.g. RIFE 24→48) just looks smoother at the same length
+- node resizes to the clip aspect; wheel and middle-drag are passed to the ComfyUI canvas
+- `Output Images SBS/Diff`: an IMAGE output that returns the Side-by-Side composite or the Difference image (passes B through in Slider/Toggle)
+
+Too heavy to run the node? Use the no-install browser tool: **https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/** (also linked at the bottom of the node).
 
 ### `(Deno) RTX Video Super Resolution`
 
