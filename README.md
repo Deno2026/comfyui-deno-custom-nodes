@@ -108,7 +108,7 @@ Main features:
 - `video_a` / `video_b` (IMAGE batches) and optional `audio_a` / `audio_b` (AUDIO, e.g. from VHS *Load Video*) muxed into the preview
 - modes: `Slider`, `Side by Side`, `Difference`, `Toggle` (freeze-frame A/B flip), plus `Swap`
 - hover-move slider, click = play/pause, scrub bar, frame step, speed, loop; hover the preview to hear the selected side
-- shared timeline: both sides play over the same duration, so an upscale (same frame count) stays frame-locked while an FPS-interpolation result (e.g. RIFE 24→48) just looks smoother at the same length
+- shared timeline: both sides play over the same duration, so an upscale (same frame count) stays frame-locked while an FPS-interpolation result (e.g. RIFE 24 to 48) just looks smoother at the same length
 - node resizes to the clip aspect; wheel and middle-drag are passed to the ComfyUI canvas
 - `Output Images SBS/Diff`: an IMAGE output that returns the Side-by-Side composite or the Difference image (passes B through in Slider/Toggle)
 
