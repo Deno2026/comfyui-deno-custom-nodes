@@ -152,6 +152,7 @@ function getState(node) {
       draggingSplit: false, panning: false, panStart: null,
       down: null, starting: false, raf: 0, dom: null,
       gestured: false, aHasAudio: false, bHasAudio: false,
+      ar: 0, _fitting: false,
     };
   }
   return node.__dvc;
@@ -209,6 +210,15 @@ function setupVideoCompareNode(node) {
   if ((node.size?.[0] || 0) < NODE_MIN_W || (node.size?.[1] || 0) < NODE_DEFAULT_H) {
     node.setSize?.([Math.max(node.size?.[0] || 0, NODE_MIN_W),
                     Math.max(node.size?.[1] || 0, NODE_DEFAULT_H)]);
+  }
+  if (!node.__dvcResizeWrapped) {
+    node.__dvcResizeWrapped = true;
+    const orz = node.onResize;
+    node.onResize = function () {
+      const r = orz?.apply(this, arguments);
+      fitNode(this);
+      return r;
+    };
   }
   if (!st.raf) st.raf = requestAnimationFrame(loopOf(node));
 }
@@ -444,6 +454,24 @@ function fmt(x) {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}` +
     `.${String(cs).padStart(2, "0")}`;
 }
+// Size the node so the preview area matches the clip aspect (no black
+// bars); resizing width keeps the ratio so the video scales with it.
+function fitNode(node) {
+  const s = getState(node), d = s.dom;
+  if (!d || !s.ar || s._fitting || !node.size) return;
+  const kids = d.root.children;
+  const topH = kids[0] ? kids[0].offsetHeight : 38;
+  const botH = kids[kids.length - 1] ? kids[kids.length - 1].offsetHeight : 62;
+  const w = Math.max(Number(node.size[0]) || NODE_MIN_W, NODE_MIN_W);
+  const stageW = Math.max(w - 2, 80);
+  const want = Math.round(90 + topH + botH + stageW / s.ar);
+  if (Math.abs((Number(node.size[1]) || 0) - want) > 4) {
+    s._fitting = true;
+    node.setSize([w, want]);
+    s._fitting = false;
+    node.setDirtyCanvas?.(true, true);
+  }
+}
 
 /* ---------- modes / labels ---------- */
 function setMode(node, m) {
@@ -510,6 +538,9 @@ function handleExecuted(node, output) {
   // default the audio toggle to whichever side actually carries sound
   if (s.audio === "A" && !(s.haveA && s.aHasAudio) && (s.haveB && s.bHasAudio)) s.audio = "B";
   else if (s.audio === "B" && !(s.haveB && s.bHasAudio) && (s.haveA && s.aHasAudio)) s.audio = "A";
+  const aw = meta.a_width, ah = meta.a_height, bw = meta.b_width, bh = meta.b_height;
+  s.ar = (s.haveA && aw > 0 && ah > 0) ? aw / ah
+       : (s.haveB && bw > 0 && bh > 0) ? bw / bh : s.ar;
   d.vidA.src = s.haveA ? viewUrl(a) : "";
   d.vidB.src = s.haveB ? viewUrl(b) : "";
   if (s.haveA) d.vidA.load();
@@ -539,6 +570,7 @@ function handleExecuted(node, output) {
   const ref = s.haveA ? d.vidA : d.vidB;
   if (ref && ref.readyState >= 1) begin();
   else if (ref) ref.addEventListener("loadedmetadata", begin, { once: true });
+  fitNode(node);
   render(node);
 }
 

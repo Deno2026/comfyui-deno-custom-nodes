@@ -63,30 +63,67 @@ def _find_ffmpeg():
     return None
 
 
-def _has_audio(audio) -> bool:
+def _extract_waveform(audio):
+    """Pull (waveform, sample_rate) out of the many AUDIO shapes nodes emit:
+    a dict, an object with attributes, a (waveform, sr) tuple, or a bare
+    tensor/array. Returns (None, None) if nothing usable is found.
+    """
+    if audio is None:
+        return None, None
+    wf = sr = None
+    if isinstance(audio, dict):
+        wf = audio.get("waveform")
+        sr = audio.get("sample_rate")
+    else:
+        wf = getattr(audio, "waveform", None)
+        sr = getattr(audio, "sample_rate", None)
+        if wf is None and isinstance(audio, (list, tuple)) and len(audio) >= 1:
+            wf = audio[0]
+            sr = audio[1] if len(audio) >= 2 else sr
+        if wf is None and hasattr(audio, "shape"):
+            wf = audio
+    return wf, sr
+
+
+def _audio_samples(wf) -> int:
     try:
-        wf = audio.get("waveform") if isinstance(audio, dict) else None
-        return wf is not None and int(wf.shape[-1]) > 0
+        return int(getattr(wf, "shape", [0])[-1])
     except Exception:
-        return False
+        return 0
+
+
+def _has_audio(audio) -> bool:
+    wf, _ = _extract_waveform(audio)
+    return wf is not None and _audio_samples(wf) > 0
 
 
 def _write_wav(audio, path) -> bool:
-    """Write a ComfyUI AUDIO dict to a 16-bit PCM WAV with stdlib only."""
+    """Write a ComfyUI AUDIO payload to a 16-bit PCM WAV (stdlib only)."""
     import wave
 
     import numpy as np
     import torch
 
-    wf = audio.get("waveform")
-    sr = int(audio.get("sample_rate") or 44100)
-    t = wf
+    wf, sr = _extract_waveform(audio)
+    if wf is None:
+        return False
+    sr = int(sr or 44100)
+    if not hasattr(wf, "dim"):
+        wf = torch.as_tensor(np.asarray(wf))
+    t = wf.float()
     if t.dim() == 3:
         t = t[0]
     if t.dim() == 1:
         t = t.unsqueeze(0)
+    if t.dim() != 2:
+        return False
     channels = int(t.shape[0])
-    if channels <= 0 or int(t.shape[1]) <= 0:
+    n = int(t.shape[1])
+    # some sources hand back [samples, channels]; flip if obviously so
+    if channels > 8 and n <= 8:
+        t = t.transpose(0, 1).contiguous()
+        channels, n = n, channels
+    if channels <= 0 or n <= 0:
         return False
     pcm = (
         t.detach().clamp(-1.0, 1.0).mul(32767.0).round()
@@ -235,7 +272,7 @@ class DenoVideoCompare(PreviewImage):
             if audio is None:
                 note = "no_input"
             elif not _has_audio(audio):
-                note = "no_waveform"
+                note = "no_waveform:" + type(audio).__name__
             else:
                 wav_path = os.path.join(temp_dir, f"deno.vcompare.{side}.{token}.wav")
                 try:
