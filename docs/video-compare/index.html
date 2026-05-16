@@ -38,9 +38,8 @@
     flex:0 0 auto;flex-wrap:wrap;position:relative;
   }
   #swapBtn{
-    position:absolute;left:50%;top:9px;transform:translateX(-50%);
-    z-index:6;padding:8px 20px;border-color:var(--accent);
-    color:var(--accent);font-weight:900;
+    padding:8px 18px;border-color:var(--accent);
+    color:var(--accent);font-weight:900;flex:0 0 auto;
   }
   #swapBtn:hover{background:var(--accent-dim);box-shadow:0 0 14px rgba(72,255,132,.3)}
   .slot .clr{
@@ -60,15 +59,21 @@
   .yt:hover{background:rgba(255,0,0,.22);border-color:#ff5252;
     box-shadow:0 0 12px rgba(255,0,0,.30)}
   .yt svg{width:20px;height:20px;display:block}
-  .slots{display:flex;gap:8px;flex-wrap:wrap}
+  .slots{display:flex;gap:14px;flex-wrap:wrap;flex:1 1 auto;
+    justify-content:center}
   .slot{
-    display:flex;align-items:center;gap:8px;background:var(--panel2);
-    border:1px dashed var(--line);border-radius:10px;padding:7px 11px;font-size:12px;color:var(--txt-soft);
+    display:flex;align-items:center;gap:10px;background:rgba(31,96,50,.30);
+    border:1px solid var(--line);border-radius:12px;padding:9px 14px;
+    font-size:14px;color:var(--txt-strong);font-weight:700;
   }
-  .slot b{color:var(--accent);font-weight:900;margin-right:2px}
-  .slot .name{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt)}
-  .slot.has{border-style:solid;border-color:var(--line)}
-  .slot button{font-size:11px;color:var(--txt-soft);text-decoration:underline}
+  .slot.has{background:rgba(31,96,50,.5)}
+  .slot b{color:var(--accent);font-weight:900;font-size:17px;margin-right:2px}
+  .slot .name{max-width:200px;overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;color:var(--txt-soft);font-weight:600}
+  .slot button[data-pick]{font-size:13px;font-weight:900;color:#06100b;
+    background:var(--accent);border:0;border-radius:999px;padding:9px 18px;
+    text-decoration:none;cursor:pointer;white-space:nowrap}
+  .slot button[data-pick]:hover{box-shadow:0 0 14px rgba(72,255,132,.55)}
 
   main{flex:1 1 auto;position:relative;overflow:hidden}
   #stage{
@@ -238,10 +243,10 @@
     <small>· synced A/B · shared timeline</small></div>
   <div class="slots">
     <div class="slot" id="slotA"><b>A</b><span class="name">Load video…</span>
-      <button data-pick="A">choose</button>
+      <button data-pick="A">Load Video A</button>
       <button class="clr" data-clear="A" title="Remove A">✕</button></div>
     <div class="slot" id="slotB"><b>B</b><span class="name">Load video…</span>
-      <button data-pick="B">choose</button>
+      <button data-pick="B">Load Video B</button>
       <button class="clr" data-clear="B" title="Remove B">✕</button></div>
   </div>
   <button class="btn" id="swapBtn" title="Swap A/B (S)">⇄ Swap</button>
@@ -663,7 +668,7 @@
     return Math.max(0,Math.min(1,p/W));
   }
   stage.addEventListener("pointerdown", e=>{
-    if(!S.haveA && !S.haveB) return;
+    if(!(S.haveA && S.haveB)) return;   // 1 or 0 loaded: let drop zone handle clicks
     S._down={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};
     if(S.mode==="slider" && S.zoom===1){
       S.draggingSplit=true; S.split=frameFrac(e.clientX); render();
@@ -692,8 +697,10 @@
     const d=S._down; S._down=null;
     S.draggingSplit=false; S.panning=false;
     stage.classList.remove("grabbing");
+    // click acts (play / flip) only when BOTH videos are loaded; with
+    // one loaded a click should load the missing side via the drop zone
     if(!(e && e.type==="pointerup" && d && !d.moved
-       && (performance.now()-d.t) < 350 && (S.haveA||S.haveB))) return;
+       && (performance.now()-d.t) < 350 && S.haveA && S.haveB)) return;
     if(S.mode==="tgl"){            // click in Toggle = flip A/B
       S.tglShow = S.tglShow==="A" ? "B" : "A";
       applyTgl();                  // clamps back if that side is empty
