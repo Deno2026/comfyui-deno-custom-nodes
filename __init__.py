@@ -20,6 +20,7 @@ from .deno_multi_image_board import DenoMultiImageLoader
 from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
 from .deno_rtx_vfx_easy_upscale import DenoRTXVFXEasyUpscale
 from .deno_image_compare import DenoImageCompare
+from .deno_video_compare import DenoVideoCompare
 
 INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
 
@@ -365,6 +366,7 @@ NODE_CLASS_MAPPINGS = {
     "DenoLTXPromptGuide": DenoLTXPromptGuide,
     "DenoRTXVFXEasyUpscale": DenoRTXVFXEasyUpscale,
     "DenoImageCompare": DenoImageCompare,
+    "DenoVideoCompare": DenoVideoCompare,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -378,6 +380,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
     "DenoRTXVFXEasyUpscale": "(Deno) RTX Video Super Resolution",
     "DenoImageCompare": "(Deno) Image Compare",
+    "DenoVideoCompare": "(Deno) Video Compare",
 }
 
 WEB_DIRECTORY = "./web/js"

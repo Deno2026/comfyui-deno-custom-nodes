@@ -182,6 +182,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoLTXPromptGuide",
         "DenoRTXVFXEasyUpscale",
         "DenoImageCompare",
+        "DenoVideoCompare",
     ]
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
@@ -193,6 +194,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno) RTX Video Super Resolution"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoImageCompare"] == "(Deno) Image Compare"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoCompare"] == "(Deno) Video Compare"
     assert package.WEB_DIRECTORY == "./web/js"
 
 
@@ -401,6 +403,150 @@ def test_deno_image_compare_runtime_semantics_when_torch_available():
         assert normalized["ui"]["compare_meta"][0]["swap"] is True
         assert normalized["ui"]["compare_meta"][0]["a_width"] == 0
         assert normalized["ui"]["compare_meta"][0]["b_width"] == 0
+    finally:
+        if nodes_previous is None:
+            sys.modules.pop("nodes", None)
+        else:
+            sys.modules["nodes"] = nodes_previous
+
+
+def test_deno_video_compare_contract_and_frontend_copy():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoVideoCompare"]
+    inputs = node_cls.INPUT_TYPES()
+
+    assert list(inputs["required"].keys()) == ["mode", "split_position", "toggle_image", "swap", "fps"]
+    assert inputs["required"]["mode"][0] == ["Slider", "Side by Side", "Difference", "Toggle"]
+    assert inputs["required"]["mode"][1]["default"] == "Slider"
+    assert inputs["required"]["split_position"][1]["default"] == 0.5
+    assert inputs["required"]["toggle_image"][0] == ["A", "B"]
+    assert inputs["required"]["toggle_image"][1]["default"] == "B"
+    assert inputs["required"]["swap"][1]["default"] is False
+    assert inputs["required"]["fps"][0] == "FLOAT"
+    assert inputs["required"]["fps"][1]["default"] == 24.0
+    assert inputs["required"]["fps"][1]["min"] == 1.0
+    assert inputs["required"]["fps"][1]["max"] == 240.0
+    assert list(inputs["optional"].keys()) == ["video_a", "video_b"]
+    assert inputs["optional"]["video_a"][0] == "IMAGE"
+    assert inputs["optional"]["video_b"][0] == "IMAGE"
+    assert node_cls.RETURN_TYPES == ()
+    assert node_cls.RETURN_NAMES == ()
+    assert node_cls.FUNCTION == "compare_videos"
+    assert node_cls.CATEGORY == "Deno/Image"
+    assert node_cls.OUTPUT_NODE is True
+
+    script = (REPO_ROOT / "web" / "js" / "deno_video_compare.js").read_text(encoding="utf-8")
+    assert 'const NODE_NAME = "DenoVideoCompare";' in script
+    assert 'const WIDGET_NAME = "deno_video_compare_canvas";' in script
+    assert '"Slider", "Side by Side", "Difference", "Toggle"' in script
+    assert '"mode", "split_position", "toggle_image", "swap", "fps"' in script
+    assert "removeCompareOutputs(node);" in script
+    assert "node.addCustomWidget(widget);" in script
+    assert "requestAnimationFrame(tick)" in script
+    assert "function startPlayback(node)" in script
+    assert "function stopPlayback(node)" in script
+    assert "function togglePlayback(node)" in script
+    assert "function getTimeline(node)" in script
+    assert "function frameIndexFor(timeline, count)" in script
+    assert "refCount > 0 ? refCount / fps : 0" in script
+    assert "updateScrubFromPointer" in script
+    assert "function stepFps(node, direction)" in script
+    assert "Synced A/B playback on a shared timeline." in script
+    assert "nodeType.prototype.onRemoved" in script
+    assert "serializeValue()" in script
+    assert "hydratePreviewFromWidgetValue" in script
+    assert "drawFitImage" in script
+    assert "addDOMWidget" not in script
+
+
+def test_deno_video_compare_runtime_semantics_when_torch_available():
+    saved_torch_modules = {name: sys.modules.get(name) for name in ("torch", "torch.nn", "torch.nn.functional")}
+    for name in saved_torch_modules:
+        sys.modules.pop(name, None)
+
+    try:
+        import torch
+    except ImportError:
+        for name, module in saved_torch_modules.items():
+            if module is not None:
+                sys.modules[name] = module
+        return
+
+    if not hasattr(torch, "zeros"):
+        return
+
+    nodes_previous = sys.modules.get("nodes")
+    nodes_stub = types.ModuleType("nodes")
+
+    class PreviewImage:
+        OUTPUT_NODE = True
+
+        def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+            return {
+                "ui": {
+                    "images": [
+                        {
+                            "filename": f"{filename_prefix}{index:05d}_.png",
+                            "subfolder": "",
+                            "type": "temp",
+                        }
+                        for index in range(len(images))
+                    ]
+                }
+            }
+
+    nodes_stub.PreviewImage = PreviewImage
+    sys.modules["nodes"] = nodes_stub
+
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "deno_video_compare_runtime", REPO_ROOT / "deno_video_compare.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        node = module.DenoVideoCompare()
+        video_a = torch.zeros((24, 8, 8, 3), dtype=torch.float32)
+        video_b = torch.ones((48, 16, 16, 3), dtype=torch.float32) * 0.6
+
+        result = node.compare_videos("Slider", 0.5, "B", "false", 24.0, video_a=video_a, video_b=video_b)
+        assert "result" not in result
+        meta = result["ui"]["compare_meta"][0]
+        assert meta["mode"] == "Slider"
+        assert meta["fps"] == 24.0
+        assert meta["a_count"] == 24
+        assert meta["b_count"] == 48
+        assert meta["a_width"] == 8
+        assert meta["a_height"] == 8
+        assert meta["b_width"] == 16
+        assert meta["b_height"] == 16
+        assert len(result["ui"]["a_frames"]) == 24
+        assert len(result["ui"]["b_frames"]) == 48
+        assert result["ui"]["a_frames"][0]["filename"] == "deno.vcompare.a.00000_.png"
+        assert result["ui"]["b_frames"][0]["filename"] == "deno.vcompare.b.00000_.png"
+
+        swapped = node.compare_videos("Toggle", 1.5, "Z", True, 999.0, video_a=video_a, video_b=None)
+        swapped_meta = swapped["ui"]["compare_meta"][0]
+        assert swapped_meta["mode"] == "Toggle"
+        assert swapped_meta["toggle_image"] == "B"
+        assert swapped_meta["split_position"] == 0.98
+        assert swapped_meta["swap"] is True
+        assert swapped_meta["fps"] == 240.0
+        assert swapped_meta["a_count"] == 24
+        assert swapped_meta["b_count"] == 0
+        assert swapped["ui"]["b_frames"] == []
+
+        normalized = node.compare_videos("Bad", "bad", "Z", "yes", "bad", video_a=None, video_b=None)
+        normalized_meta = normalized["ui"]["compare_meta"][0]
+        assert normalized_meta["mode"] == "Slider"
+        assert normalized_meta["split_position"] == 0.5
+        assert normalized_meta["toggle_image"] == "B"
+        assert normalized_meta["swap"] is True
+        assert normalized_meta["fps"] == 24.0
+        assert normalized_meta["a_count"] == 0
+        assert normalized_meta["b_count"] == 0
+        assert normalized["ui"]["a_frames"] == []
+        assert normalized["ui"]["b_frames"] == []
     finally:
         if nodes_previous is None:
             sys.modules.pop("nodes", None)

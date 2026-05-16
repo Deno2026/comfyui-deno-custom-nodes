@@ -99,6 +99,22 @@ Main features:
 - resizes the internal preview area with the node so portrait and landscape images stay readable
 - visual-only node with no output socket, keeping the graph cleaner when the comparison is just for inspection
 
+### `(Deno) Video Compare`
+
+Visual A/B comparison node for videos (frame batches), built for checking upscale and FPS-interpolation results directly on the ComfyUI canvas.
+
+Main features:
+
+- compares `video_a` and `video_b` frame batches with synced playback
+- modes: `Slider`, `Side by Side`, `Difference`, and `Toggle`, matching `(Deno) Image Compare`
+- hover-move slider interaction for fast before/after inspection
+- transport controls: Play/Pause, Loop, frame-rate stepper, and a scrub bar
+- shared timeline: both sides always play over the same duration based on the `fps` and the reference frame count, so an upscale (same frame count) stays perfectly in sync and an FPS-interpolation result (e.g. RIFE 24 to 48) shows up as smoother motion at the same length instead of a different runtime
+- keeps the full frame sequence for both inputs so frame-count differences are preserved
+- visible A/B labels and a `Swap` button for checking either direction
+- resizes the internal preview area with the node so portrait and landscape videos stay readable
+- visual-only node with no output socket, keeping the graph cleaner when the comparison is just for inspection
+
 ### `(Deno) RTX Video Super Resolution`
 
 Optional Windows/NVIDIA RTX Video Super Resolution helper node for users who want to try NVIDIA VFX inside ComfyUI without manually hunting for the right Python environment.
@@ -268,6 +284,8 @@ Try searching with:
 
 - `deno`
 - `resize`
+- `compare`
+- `video`
 - `ltx`
 - `advanced`
 - `image source`
