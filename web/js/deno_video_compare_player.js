@@ -68,13 +68,16 @@ const CSS = `
   justify-content:center;color:#7fb893;font-size:13px;text-align:center;
   padding:20px;z-index:8;pointer-events:none}
 .dvp .hint.hide{display:none}
-.dvp .scrub{position:relative;height:14px;display:flex;align-items:center;
+.dvp .scrub{position:relative;height:20px;display:flex;align-items:center;
   cursor:pointer}
-.dvp .trk{position:absolute;left:0;right:0;height:5px;border-radius:3px;
-  background:rgba(72,255,132,.14)}
-.dvp .fill{position:absolute;height:5px;border-radius:3px;background:#48ff84;width:0}
-.dvp .hd{position:absolute;width:12px;height:12px;border-radius:50%;
-  background:#48ff84;box-shadow:0 0 8px rgba(72,255,132,.7);transform:translateX(-50%)}
+.dvp .scrub:hover .trk,.dvp .scrub:hover .fill{height:8px}
+.dvp .trk{position:absolute;left:0;right:0;height:6px;border-radius:3px;
+  background:rgba(72,255,132,.16);transition:height .1s}
+.dvp .fill{position:absolute;height:6px;border-radius:3px;background:#48ff84;
+  width:0;transition:height .1s}
+.dvp .hd{position:absolute;width:14px;height:14px;border-radius:50%;
+  background:#48ff84;box-shadow:0 0 8px rgba(72,255,132,.7);
+  transform:translateX(-50%);border:2px solid #06100b}
 .dvp .tr{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .dvp .time{font-weight:800;font-variant-numeric:tabular-nums;color:#9dffba;font-size:12px}
 .dvp .meta{margin-left:auto;font-size:10px;color:#7fb893;
@@ -240,6 +243,7 @@ function buildDom(node) {
 
   const bot = el("div", "bar bot");
   const scrub = el("div", "scrub");
+  scrub.title = "Progress bar — drag to seek";
   scrub.append(el("div", "trk"), el("div", "fill"), el("div", "hd"));
   bot.appendChild(scrub);
   const tr = el("div", "tr");
@@ -535,10 +539,16 @@ function handleExecuted(node, output) {
   s.sub = m.subfolder || "";
   s.haveA = !!m.have_a && s.filesA.length > 0;
   s.haveB = !!m.have_b && s.filesB.length > 0;
-  s.fps = Number(m.fps) > 0 ? Number(m.fps) : 24;
   s.frameCount = Number(m.frame_count) || Math.max(s.filesA.length, s.filesB.length);
+  const metaFps = Number(m.fps) > 0 ? Number(m.fps) : 24;
   s.duration = Number(m.duration) > 0 ? Number(m.duration)
-    : (s.frameCount > 0 ? s.frameCount / s.fps : 0);
+    : (s.frameCount > 0 ? s.frameCount / metaFps : 0);
+  // Effective playback fps so the exported frames and the scrub gauge end
+  // together. When the preview frame count is capped (long clip) the meta
+  // fps no longer matches frameCount/duration, which made the bar keep
+  // moving for ~1s after the last frame — derive it from the real pair.
+  s.fps = (s.duration > 0 && s.frameCount > 0)
+    ? (s.frameCount / s.duration) : metaFps;
   s.cache.clear(); s.useTick = 0;
   s.time = 0; s.startTime = 0;
 
@@ -600,6 +610,11 @@ function wireInteractions(node, d, btns) {
         Math.hypot(e.clientX - s.down.x, e.clientY - s.down.y) > 6)
       s.down.moved = true;
     if (s.draggingSplit) {
+      s.split = frameFrac(node, e.clientX);
+      setWidget(node, "split_position", round3(s.split));
+      render(node);
+    } else if (s.mode === "Slider" && s.haveA && s.haveB && !s.scrubbing) {
+      // original feel: the divider follows the bare mouse move (no drag)
       s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split));
       render(node);
