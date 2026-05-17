@@ -4,6 +4,7 @@ import tomllib
 import re
 import sys
 import tempfile
+import os
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +63,77 @@ def test_registry_package_excludes_manual_installers_and_local_harnesses():
     assert "tools/test_portable_baseline.ps1" in comfyignore
     assert "docs/PORTABLE_TEST_BASELINE.md" in comfyignore
     assert "tools/DENO_RTX_VFX_runtime_path.txt" in comfyignore
+
+
+def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
+    # The Registry security scanner reads every packaged text file and
+    # substring-matches dangerous tokens; internal handoff/process/design
+    # docs *describe* code (subprocess, .connect(, ...) so they MUST stay
+    # out of the published package. Regression guard for the 0.7.1 flag.
+    comfyignore = COMFYIGNORE_PATH.read_text(encoding="utf-8")
+
+    assert "SESSION_HANDOFF.md" in comfyignore
+    assert "AGENTS.md" in comfyignore
+    assert "docs/DENO_NODE_RETROSPECTIVE.md" in comfyignore
+    assert "docs/DENO_NODE_VISUAL_IDENTITY.md" in comfyignore
+
+
+def _comfyignore_rules():
+    rules = []
+    for raw in COMFYIGNORE_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        rules.append(line)
+    return rules
+
+
+def _is_excluded(rel_path, rules):
+    rel = rel_path.replace(os.sep, "/")
+    for rule in rules:
+        if rule.endswith("/"):
+            prefix = rule.rstrip("/")
+            if rel == prefix or rel.startswith(prefix + "/"):
+                return True
+        elif rule.startswith("*."):
+            if rel.endswith(rule[1:]):
+                return True
+        elif rel == rule or rel.endswith("/" + rule):
+            return True
+    return False
+
+
+def test_packaged_files_contain_no_scanner_trigger_literals():
+    # Simulate the published package (repo minus .comfyignore) and assert no
+    # shipped text file carries the exact YARA-trigger literals that flagged
+    # 0.6.x/0.7.x. This is the durable net so the flag cannot silently return.
+    rules = _comfyignore_rules()
+    triggers = ("subprocess.Popen(", "os.system(", "os.popen(", ".connect(")
+    text_ext = {
+        ".py", ".js", ".mjs", ".md", ".toml", ".txt", ".json",
+        ".html", ".css", ".svg", ".yml", ".yaml", ".cfg", ".ini",
+    }
+    offenders = []
+    for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        for name in filenames:
+            abs_path = Path(dirpath) / name
+            rel = abs_path.relative_to(REPO_ROOT).as_posix()
+            if abs_path.suffix.lower() not in text_ext:
+                continue
+            if _is_excluded(rel, rules):
+                continue
+            try:
+                content = abs_path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            for token in triggers:
+                if token in content:
+                    offenders.append(f"{rel}: {token}")
+    assert not offenders, (
+        "Packaged files contain Registry-scanner trigger literals "
+        "(exclude via .comfyignore or rewrite): " + "; ".join(sorted(offenders))
+    )
 
 
 def test_prestartup_script_prefers_rtx_runtime_without_importing_nvvfx():

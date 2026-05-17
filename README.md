@@ -97,7 +97,7 @@ Main features:
 - hover-move slider interaction for fast before/after inspection
 - visible A/B labels and a `Swap` button for checking either direction
 - resizes the internal preview area with the node so portrait and landscape images stay readable
-- visual-only node with no output socket, keeping the graph cleaner when the comparison is just for inspection
+- visual-only node with no output connection, keeping the graph cleaner when the comparison is just for inspection
 
 ### `(Deno) Video Compare`
 

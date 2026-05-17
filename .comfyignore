@@ -8,6 +8,16 @@ __pycache__/
 *.pyc
 tests/
 
+# Internal developer / handoff / design docs: never part of an installed
+# node. The Registry security scanner reads every packaged text file and
+# substring-matches dangerous-looking tokens, so docs that merely *quote*
+# or *describe* code (subprocess, .connect(, sockets, ffmpeg) get flagged.
+# Keep them on GitHub for collaboration, out of the published package.
+SESSION_HANDOFF.md
+AGENTS.md
+docs/DENO_NODE_RETROSPECTIVE.md
+docs/DENO_NODE_VISUAL_IDENTITY.md
+
 tools/install_rtx_vfx.bat
 tools/compare_rtx_vfx_env.ps1
 tools/test_portable_baseline.ps1
