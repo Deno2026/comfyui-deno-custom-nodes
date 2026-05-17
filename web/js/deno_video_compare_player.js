@@ -1,21 +1,25 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-// (Deno) Video Compare (Player) — Registry-clean interactive A/B compare.
-// The backend writes a downscaled WebP frame sequence for A and B into the
-// ComfyUI temp dir; this widget plays them on a <canvas> with a virtual
-// clock (rAF), so we get drag-slider / Side by Side / Difference / Toggle /
-// synced playback with NO encoder, NO <video>, NO new server route — just
-// the existing /view file route. Audio is added in a later phase.
+// (Deno) Video Compare (Player) — Registry-clean port of the original
+// (Deno) Video Compare frontend. The interaction model, CSS, sizing math,
+// wheel/pan behaviour, hover-slide, swap, modes, scrub and Toggle freeze
+// are kept 1:1 from the original node; ONLY the media layer changes:
+// instead of two <video> elements fed by an ffmpeg-encoded mp4, the
+// backend writes a downscaled WebP frame sequence and this widget draws
+// it on a <canvas> driven by a virtual clock (so A/B sync is exact, no
+// dual-video drift). No encoder / subprocess / new server route.
+// Audio (raw PCM + WebAudio) is added in a later phase.
 
 const NODE_NAME = "DenoVideoComparePlayer";
-const WIDGET_NAME = "deno_vcp_canvas";
+const WIDGET_NAME = "deno_video_compare_player_canvas";
 const MODES = ["Slider", "Side by Side", "Difference", "Toggle"];
 const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap"];
+const TAGLINE = "Synced A/B playback on a shared timeline.";
 const NODE_MIN_W = 480;
-const NODE_DEFAULT_H = 600;
-const CACHE_BUDGET = 360;     // decoded frames kept (A+B), LRU evicted
-const PRELOAD_AHEAD = 16;     // frames preloaded ahead of the playhead
+const NODE_DEFAULT_H = 620;
+const CACHE_BUDGET = 420;
+const PRELOAD_AHEAD = 18;
 const PRELOAD_BEHIND = 4;
 
 const CSS = `
@@ -30,6 +34,9 @@ const CSS = `
 .dvp .bar.top{border-bottom:1px solid rgba(72,255,132,.28)}
 .dvp .bar.bot{border-top:1px solid rgba(72,255,132,.28);flex-direction:column;
   align-items:stretch;gap:7px}
+.dvp .wlink{font-size:10px;font-weight:700;color:#7fb893;text-align:center;
+  text-decoration:none;padding:2px 0;letter-spacing:.2px}
+.dvp .wlink:hover{color:#48ff84;text-decoration:underline}
 .dvp .btn{background:rgba(9,15,11,.92);border:1px solid rgba(90,130,104,.6);
   color:#9dffba;padding:6px 11px;border-radius:999px;font-weight:800;
   font-size:11px;white-space:nowrap;transition:.12s}
@@ -45,19 +52,29 @@ const CSS = `
 .dvp .title small{font-weight:600;font-size:10px;color:#7fb893}
 .dvp .modes{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap}
 .dvp .swap{border-color:#48ff84;color:#48ff84;font-weight:900;margin-left:6px}
+.dvp .info{width:22px;height:22px;border-radius:50%;border:1.5px solid #48ff84;
+  color:#48ff84;font-weight:900;font-size:12px;display:flex;align-items:center;
+  justify-content:center;background:rgba(7,16,11,.85)}
+.dvp .info:hover{background:rgba(72,255,132,.14)}
 .dvp .stage{position:relative;flex:1 1 auto;background:#020403;overflow:hidden;
   display:flex;align-items:center;justify-content:center;min-height:160px;
   cursor:crosshair}
-.dvp.m-tgl .stage{cursor:pointer}
+.dvp .stage.pan{cursor:grab}.dvp .stage.pan.grabbing{cursor:grabbing}
+.dvp .cwrap{position:absolute;inset:0;transition:transform .04s linear;
+  will-change:transform}
 .dvp canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.dvp.m-tgl .stage{cursor:pointer}
 .dvp .corner{position:absolute;z-index:6;top:10px;display:flex;
   align-items:center;gap:8px;pointer-events:none}
-.dvp .corner.a{left:10px}.dvp .corner.b{right:10px;flex-direction:row-reverse}
-.dvp .badge{width:22px;height:22px;border-radius:50%;background:#117638;
-  border:1.5px solid #bfffd0;color:#effff4;font-weight:900;font-size:11px;
-  line-height:19px;text-align:center}
+.dvp .corner.a{left:10px}
+.dvp .corner.b{right:10px;flex-direction:row-reverse}
+.dvp .badge{flex:0 0 auto;width:22px;height:22px;border-radius:50%;
+  background:#117638;border:1.5px solid #bfffd0;color:#effff4;
+  font-weight:900;font-size:11px;display:block;line-height:19px;
+  text-align:center}
 .dvp .sinfo{font-size:10px;font-weight:800;color:#9dffba;
-  background:rgba(7,16,11,.72);padding:3px 8px;border-radius:8px;white-space:nowrap}
+  background:rgba(7,16,11,.72);padding:3px 8px;border-radius:8px;
+  white-space:nowrap}
 .dvp.m-tgl .corner{display:none}
 .dvp .tgl{display:none;position:absolute;z-index:6;top:10px;left:50%;
   transform:translateX(-50%);padding:5px 16px;border-radius:999px;
@@ -68,22 +85,29 @@ const CSS = `
   justify-content:center;color:#7fb893;font-size:13px;text-align:center;
   padding:20px;z-index:8;pointer-events:none}
 .dvp .hint.hide{display:none}
-.dvp .scrub{position:relative;height:20px;display:flex;align-items:center;
+.dvp .scrub{position:relative;height:16px;display:flex;align-items:center;
   cursor:pointer}
-.dvp .scrub:hover .trk,.dvp .scrub:hover .fill{height:8px}
-.dvp .trk{position:absolute;left:0;right:0;height:6px;border-radius:3px;
-  background:rgba(72,255,132,.16);transition:height .1s}
-.dvp .fill{position:absolute;height:6px;border-radius:3px;background:#48ff84;
+.dvp .scrub:hover .trk,.dvp .scrub:hover .fill{height:7px}
+.dvp .trk{position:absolute;left:0;right:0;height:5px;border-radius:3px;
+  background:rgba(72,255,132,.14);transition:height .1s}
+.dvp .fill{position:absolute;height:5px;border-radius:3px;background:#48ff84;
   width:0;transition:height .1s}
-.dvp .hd{position:absolute;width:14px;height:14px;border-radius:50%;
+.dvp .hd{position:absolute;width:12px;height:12px;border-radius:50%;
   background:#48ff84;box-shadow:0 0 8px rgba(72,255,132,.7);
-  transform:translateX(-50%);border:2px solid #06100b}
+  transform:translateX(-50%)}
 .dvp .tr{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.dvp .time{font-weight:800;font-variant-numeric:tabular-nums;color:#9dffba;font-size:12px}
+.dvp .time{font-weight:800;font-variant-numeric:tabular-nums;color:#9dffba;
+  font-size:12px}
 .dvp .meta{margin-left:auto;font-size:10px;color:#7fb893;
-  font-variant-numeric:tabular-nums;display:flex;gap:10px;flex-wrap:wrap}
+  font-variant-numeric:tabular-nums;display:flex;gap:12px;flex-wrap:wrap}
 .dvp .meta b{color:#48ff84}
 .dvp .sep{width:1px;height:18px;background:rgba(72,255,132,.16)}
+.dvp .pop{position:absolute;right:9px;top:38px;z-index:20;max-width:280px;
+  background:rgba(6,16,11,.97);border:1px solid rgba(72,255,132,.32);
+  border-radius:10px;padding:12px 14px;font-size:11px;color:#9fd4b0;
+  line-height:1.7;display:none}
+.dvp .pop.show{display:block}
+.dvp .pop b{color:#9dffba}
 `;
 
 function el(tag, cls, html) {
@@ -129,12 +153,13 @@ function getState(node) {
     node.__dvp = {
       mode: "Slider", split: 0.5, tgl: "B", swapped: false,
       playing: false, loop: true, speed: 1,
-      fps: 24, frameCount: 0, duration: 0,
+      zoom: 1, panX: 0, panY: 0,
+      fps: 24, frameCount: 0, dur: 0, t: 0, startT: 0, playMs: 0,
       sub: "", filesA: [], filesB: [], haveA: false, haveB: false,
-      ar: 16 / 9, time: 0, playStartMs: 0, startTime: 0,
-      cache: new Map(), useTick: 0, raf: 0, dom: null,
-      scrubbing: false, draggingSplit: false, down: null,
-      _fitting: false,
+      cache: new Map(), useTick: 0,
+      scrubbing: false, draggingSplit: false, panning: false,
+      panStart: null, down: null, raf: 0, dom: null,
+      ar: 16 / 9, _fitting: false, _wasPlaying: false,
     };
   }
   return node.__dvp;
@@ -144,16 +169,20 @@ app.registerExtension({
   name: "Deno.VideoComparePlayer",
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== NODE_NAME) return;
+
     const onCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
       setupNode(this);
+      applyOutputLabel(this);
+      requestAnimationFrame(() => applyOutputLabel(this));
       return r;
     };
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const r = onConfigure?.apply(this, arguments);
-      queueMicrotask(() => setupNode(this));
+      queueMicrotask(() => { setupNode(this); applyOutputLabel(this); });
+      requestAnimationFrame(() => applyOutputLabel(this));
       return r;
     };
     const onExecuted = nodeType.prototype.onExecuted;
@@ -166,17 +195,27 @@ app.registerExtension({
     nodeType.prototype.onRemoved = function () {
       const s = this.__dvp;
       if (s && s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; }
-      if (s) s.cache?.clear?.();
+      if (s && s.cache) s.cache.clear();
       return onRemoved?.apply(this, arguments);
     };
   },
 });
 
+function applyOutputLabel(node) {
+  const o = node && node.outputs && node.outputs[0];
+  if (o && o.label !== "Output Images SBS/Diff") {
+    o.label = "Output Images SBS/Diff";
+    node.setDirtyCanvas?.(true, true);
+  }
+}
+
 function setupNode(node) {
   if (!node || node.__dvpSetup) return;
   node.__dvpSetup = true;
   const st = getState(node);
+
   for (const n of HIDDEN_WIDGETS) hideWidget(getWidget(node, n));
+  applyOutputLabel(node);
   const mw = getWidget(node, "mode");
   if (mw && MODES.includes(String(mw.value))) st.mode = String(mw.value);
   const sw = getWidget(node, "split_position");
@@ -214,7 +253,7 @@ function buildDom(node) {
 
   const top = el("div", "bar top");
   top.appendChild(el("div", "title",
-    `<span class="dot"></span>Video Compare <small>· canvas player</small>`));
+    `<span class="dot"></span>Video Compare <small>· synced A/B</small>`));
   const modes = el("div", "modes");
   const modeBtns = {};
   for (const m of MODES) {
@@ -224,26 +263,40 @@ function buildDom(node) {
   }
   top.appendChild(modes);
   const swapBtn = el("button", "btn swap", "⇄ Swap");
+  swapBtn.title = TAGLINE;
   top.appendChild(swapBtn);
+  const infoBtn = el("button", "info", "i");
+  const pop = el("div", "pop",
+    "<b>Video Compare (player)</b><br>" +
+    "Drag the divider (or just move the mouse) to wipe A/B. " +
+    "Modes: Slider / Side by Side / Difference / Toggle. " +
+    "Wheel over the node zooms the graph, not the preview. " +
+    "<br><br><b>Note:</b> sound arrives in the next update; the " +
+    "<b>comparison</b> output is full-resolution and lossless.");
+  infoBtn.onclick = () => pop.classList.toggle("show");
+  top.appendChild(infoBtn);
+  top.appendChild(pop);
   root.appendChild(top);
 
   const stage = el("div", "stage");
+  const cwrap = el("div", "cwrap");
   const canvas = el("canvas");
-  stage.appendChild(canvas);
+  cwrap.appendChild(canvas);
+  stage.appendChild(cwrap);
   const badgeA = el("div", "badge", "A");
   const badgeB = el("div", "badge", "B");
+  const tglBadge = el("div", "tgl", st.tgl);
+  const hint = el("div", "hint", "Run the workflow to preview");
   const sinfoA = el("div", "sinfo", "");
   const sinfoB = el("div", "sinfo", "");
   const cornerA = el("div", "corner a"); cornerA.append(badgeA, sinfoA);
   const cornerB = el("div", "corner b"); cornerB.append(badgeB, sinfoB);
-  const tglBadge = el("div", "tgl", st.tgl);
-  const hint = el("div", "hint", "Run the workflow to preview");
   stage.append(cornerA, cornerB, tglBadge, hint);
   root.appendChild(stage);
 
   const bot = el("div", "bar bot");
   const scrub = el("div", "scrub");
-  scrub.title = "Progress bar — drag to seek";
+  scrub.title = "Progress — drag to seek";
   scrub.append(el("div", "trk"), el("div", "fill"), el("div", "hd"));
   bot.appendChild(scrub);
   const tr = el("div", "tr");
@@ -252,38 +305,46 @@ function buildDom(node) {
   const backBtn = el("button", "btn icn", "⏮");
   const fwdBtn = el("button", "btn icn", "⏭");
   const spdBtn = el("button", "btn", "1.0×");
+  const sep1 = el("span", "sep");
+  const audN = el("button", "btn icn", "🔇"); audN.disabled = true;
+  audN.title = "Audio arrives in the next update";
   const time = el("span", "time", "00:00 / 00:00");
   const meta = el("div", "meta", "");
-  tr.append(playBtn, loopBtn, backBtn, fwdBtn, spdBtn,
-    el("span", "sep"), time, meta);
+  tr.append(playBtn, loopBtn, backBtn, fwdBtn, spdBtn, sep1,
+    audN, time, meta);
   bot.appendChild(tr);
+  const wlink = el("a", "wlink",
+    "▶ Too heavy? Open the browser Web Video Compare (no install)");
+  wlink.href = "https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/";
+  wlink.target = "_blank";
+  wlink.rel = "noopener noreferrer";
+  bot.appendChild(wlink);
   root.appendChild(bot);
 
   const dom = {
-    root, stage, canvas, ctx: canvas.getContext("2d"),
-    badgeA, badgeB, sinfoA, sinfoB, tglBadge, hint,
+    root, stage, cwrap, canvas, ctx: canvas.getContext("2d"),
+    badgeA, badgeB, tglBadge, sinfoA, sinfoB, hint,
     scrub, fill: scrub.querySelector(".fill"), head: scrub.querySelector(".hd"),
     time, meta, playBtn, loopBtn, spdBtn, modeBtns,
   };
   st.dom = dom;
 
   const widget = node.addDOMWidget(WIDGET_NAME, "div", root, {
-    serialize: false, hideOnZoom: false, getMinHeight: () => 340,
+    serialize: false, hideOnZoom: false, getMinHeight: () => 360,
   });
   widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W),
-    Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90 - nativeWidgetsHeight(node), 300)];
+    Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90 - nativeWidgetsHeight(node), 320)];
   node.__dvpWidget = widget;
 
   wireInteractions(node, dom, { swapBtn, playBtn, loopBtn, backBtn, fwdBtn, spdBtn });
-  applyMode(node);
+  applyMode(node); applyTgl(node); updateLabels(node);
   render(node);
 }
 
 /* ---------- frame cache (LRU) ---------- */
 function frameURL(node, side, i) {
   const s = getState(node);
-  const list = side === "a" ? s.filesA : s.filesB;
-  const fn = list[i];
+  const fn = (side === "a" ? s.filesA : s.filesB)[i];
   if (!fn) return "";
   return api.apiURL(`/view?filename=${encodeURIComponent(fn)}` +
     `&type=temp&subfolder=${encodeURIComponent(s.sub || "")}`);
@@ -317,30 +378,90 @@ function preload(node, center) {
   }
   if (s.cache.size > CACHE_BUDGET) {
     const ents = [...s.cache.entries()].sort((p, q) => p[1].use - q[1].use);
-    const drop = s.cache.size - CACHE_BUDGET;
-    for (let j = 0; j < drop; j++) {
-      const [url, e] = ents[j];
-      try { e.img.src = ""; } catch (er) {}
-      s.cache.delete(url);
+    for (let j = 0, drop = s.cache.size - CACHE_BUDGET; j < drop; j++) {
+      try { ents[j][1].img.src = ""; } catch (er) {}
+      s.cache.delete(ents[j][0]);
     }
   }
 }
+function frameReady(node, side, i) {
+  const e = getImg(node, side, i);
+  return e && e.ready ? e.img : null;
+}
 
-/* ---------- render ---------- */
+/* ---------- timeline (virtual clock — exact A/B sync) ---------- */
+function durOf(node) {
+  const s = getState(node);
+  return s.dur > 0 ? s.dur : (s.frameCount > 0 ? s.frameCount / s.fps : 0);
+}
+function getTimeline(node) {
+  const s = getState(node);
+  const dur = durOf(node);
+  return { dur, t: Math.min(s.t || 0, dur || 1e9) };
+}
 function curIndex(node) {
   const s = getState(node);
   if (!s.frameCount) return 0;
-  let i = Math.floor((s.time || 0) * s.fps);
+  let i = Math.floor((s.t || 0) * s.fps);
   if (s.loop) i = ((i % s.frameCount) + s.frameCount) % s.frameCount;
   return Math.max(0, Math.min(s.frameCount - 1, i));
 }
-function sideEntry(node, logical) {
-  // logical "A"/"B" -> physical side honoring swap
+function seekAll(node, t) {
   const s = getState(node);
-  const phys = s.swapped ? (logical === "A" ? "b" : "a") : (logical === "A" ? "a" : "b");
-  const have = phys === "a" ? s.haveA : s.haveB;
-  if (!have) return null;
-  return getImg(node, phys, curIndex(node));
+  s.t = Math.max(0, Math.min(t, durOf(node)));
+  if (s.playing) { s.startT = s.t; s.playMs = performance.now(); }
+  render(node);
+}
+function startPlayback(node) {
+  const s = getState(node);
+  if (!s.frameCount) return;
+  if (s.t >= durOf(node) - 1e-3) s.t = 0;
+  s.playing = true;
+  s.startT = s.t; s.playMs = performance.now();
+  s.dom.playBtn.textContent = "❚❚";
+  s.dom.playBtn.classList.add("on");
+}
+function pausePlayback(node) {
+  const s = getState(node);
+  s.playing = false;
+  s.dom.playBtn.textContent = "▶";
+  s.dom.playBtn.classList.remove("on");
+}
+function togglePlay(node) {
+  getState(node).playing ? pausePlayback(node) : startPlayback(node);
+}
+function stepFrame(node, dir) {
+  const s = getState(node);
+  pausePlayback(node);
+  const i = Math.max(0, Math.min(s.frameCount - 1, curIndex(node) + dir));
+  s.t = Math.max(0, Math.min((i + 0.5) / Math.max(1e-6, s.fps), durOf(node)));
+  render(node);
+}
+function loopOf(node) {
+  const tick = () => {
+    const s = node.__dvp;
+    if (!s) return;
+    if (!s.dom || !s.dom.root.isConnected) {
+      s.raf = requestAnimationFrame(tick); return;
+    }
+    if (s.playing && s.frameCount > 0) {
+      const dur = durOf(node);
+      const t = s.startT + (performance.now() - s.playMs) / 1000 * s.speed;
+      if (t >= dur) {
+        if (s.loop) { s.startT = 0; s.playMs = performance.now(); s.t = 0; }
+        else { s.t = dur; pausePlayback(node); }
+      } else s.t = t;
+    }
+    render(node);
+    s.raf = requestAnimationFrame(tick);
+  };
+  return tick;
+}
+
+/* ---------- render (canvas compositing) ---------- */
+function physSide(node, logical) {
+  const s = getState(node);
+  return s.swapped ? (logical === "A" ? "b" : "a") : (logical === "A" ? "a" : "b");
 }
 function drawFit(ctx, img, x, y, w, h) {
   if (!img || !img.width) return;
@@ -358,6 +479,9 @@ function render(node) {
   const W = Math.max(1, Math.round(rect.width));
   const H = Math.max(1, Math.round(rect.height));
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  d.cwrap.style.transform =
+    `translate(${s.panX}px,${s.panY}px) scale(${s.zoom})`;
+
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = "#020403";
   ctx.fillRect(0, 0, W, H);
@@ -365,30 +489,31 @@ function render(node) {
   if (s.frameCount > 0) {
     const idx = curIndex(node);
     preload(node, idx);
-    const eA = sideEntry(node, "A");
-    const eB = sideEntry(node, "B");
-    const iA = eA && eA.ready ? eA.img : null;
-    const iB = eB && eB.ready ? eB.img : null;
-    const onlyOne = !(s.haveA && s.haveB);
+    const both = s.haveA && s.haveB;
+    const pa = physSide(node, "A"), pb = physSide(node, "B");
+    const iA = (pa === "a" ? s.haveA : s.haveB) ? frameReady(node, pa, idx) : null;
+    const iB = (pb === "a" ? s.haveA : s.haveB) ? frameReady(node, pb, idx) : null;
 
-    if (s.mode === "Side by Side" && !onlyOne) {
+    if (s.mode === "Side by Side" && both) {
       const hw = W / 2;
-      if (iA) drawFit(ctx, iA, 0, 0, hw, H);
-      if (iB) drawFit(ctx, iB, hw, 0, hw, H);
-      ctx.strokeStyle = "rgba(72,255,132,.5)";
+      drawFit(ctx, iA, 0, 0, hw, H);
+      drawFit(ctx, iB, hw, 0, hw, H);
+      ctx.strokeStyle = "rgba(72,255,132,.45)";
+      ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(hw, 0); ctx.lineTo(hw, H); ctx.stroke();
-    } else if (s.mode === "Difference" && !onlyOne) {
-      if (iA) drawFit(ctx, iA, 0, 0, W, H);
+    } else if (s.mode === "Difference" && both) {
+      drawFit(ctx, iA, 0, 0, W, H);
       ctx.globalCompositeOperation = "difference";
-      if (iB) drawFit(ctx, iB, 0, 0, W, H);
+      drawFit(ctx, iB, 0, 0, W, H);
       ctx.globalCompositeOperation = "source-over";
     } else if (s.mode === "Toggle") {
-      const show = onlyOne ? (s.haveA ? "A" : "B") : s.tgl;
-      const e = sideEntry(node, show);
-      if (e && e.ready) drawFit(ctx, e.img, 0, 0, W, H);
-    } else { // Slider (or single side)
+      const showA = both ? (s.tgl === "A") : s.haveA;
+      drawFit(ctx, showA ? (s.swapped ? frameReady(node, "b", idx) : iA || frameReady(node, "a", idx))
+                         : (s.swapped ? frameReady(node, "a", idx) : iB || frameReady(node, "b", idx)),
+        0, 0, W, H);
+    } else { // Slider (or single source)
       if (iA) drawFit(ctx, iA, 0, 0, W, H);
-      if (iB && !onlyOne) {
+      if (both && iB) {
         const sx = Math.round(W * s.split);
         ctx.save();
         ctx.beginPath(); ctx.rect(sx, 0, W - sx, H); ctx.clip();
@@ -403,97 +528,14 @@ function render(node) {
     }
   }
 
-  const dur = s.duration || (s.frameCount / s.fps) || 0;
-  const r = dur > 0 ? Math.min(1, (s.time || 0) / dur) : 0;
+  const tl = getTimeline(node);
+  const r = tl.dur > 0 ? tl.t / tl.dur : 0;
   d.fill.style.width = (r * 100) + "%";
   d.head.style.left = (r * 100) + "%";
-  d.time.textContent = fmt(s.time) + " / " + fmt(dur);
+  d.time.textContent = fmt(tl.t) + " / " + fmt(tl.dur);
 }
 
-/* ---------- playback (virtual clock) ---------- */
-function durationOf(node) {
-  const s = getState(node);
-  return s.duration > 0 ? s.duration : (s.frameCount > 0 ? s.frameCount / s.fps : 0);
-}
-function startPlayback(node) {
-  const s = getState(node);
-  if (!s.frameCount) return;
-  if (s.time >= durationOf(node) - 1e-3) s.time = 0;
-  s.playing = true;
-  s.startTime = s.time;
-  s.playStartMs = performance.now();
-  s.dom.playBtn.textContent = "❚❚";
-  s.dom.playBtn.classList.add("on");
-}
-function pausePlayback(node) {
-  const s = getState(node);
-  s.playing = false;
-  s.dom.playBtn.textContent = "▶";
-  s.dom.playBtn.classList.remove("on");
-}
-function togglePlay(node) {
-  getState(node).playing ? pausePlayback(node) : startPlayback(node);
-}
-function seekTime(node, t) {
-  const s = getState(node);
-  s.time = Math.max(0, Math.min(t, durationOf(node)));
-  if (s.playing) { s.startTime = s.time; s.playStartMs = performance.now(); }
-  render(node);
-}
-function stepFrame(node, dir) {
-  const s = getState(node);
-  pausePlayback(node);
-  const i = Math.max(0, Math.min(s.frameCount - 1, curIndex(node) + dir));
-  seekTime(node, (i + 0.001) / s.fps);
-}
-function loopOf(node) {
-  const tick = () => {
-    const s = node.__dvp;
-    if (!s) return;
-    if (!s.dom || !s.dom.root.isConnected) {
-      s.raf = requestAnimationFrame(tick); return;
-    }
-    if (s.playing && s.frameCount > 0) {
-      const dur = durationOf(node);
-      const elapsed = (performance.now() - s.playStartMs) / 1000 * s.speed;
-      let t = s.startTime + elapsed;
-      if (t >= dur) {
-        if (s.loop) { s.startTime = 0; s.playStartMs = performance.now(); t = 0; }
-        else { t = dur; pausePlayback(node); }
-      }
-      s.time = t;
-    }
-    render(node);
-    s.raf = requestAnimationFrame(tick);
-  };
-  return tick;
-}
-
-/* ---------- modes ---------- */
-function setMode(node, m) {
-  const s = getState(node);
-  s.mode = m; setWidget(node, "mode", m);
-  applyMode(node);
-  if (m === "Toggle") pausePlayback(node);
-  render(node);
-}
-function applyMode(node) {
-  const s = getState(node), d = s.dom;
-  d.root.classList.remove("m-slider", "m-sxs", "m-diff", "m-tgl");
-  d.root.classList.add("m-" + (
-    s.mode === "Side by Side" ? "sxs" :
-    s.mode === "Difference" ? "diff" :
-    s.mode === "Toggle" ? "tgl" : "slider"));
-  for (const m of MODES) d.modeBtns[m].classList.toggle("on", m === s.mode);
-  d.tglBadge.textContent = s.tgl;
-}
-function updateLabels(node) {
-  const s = getState(node), d = s.dom;
-  d.badgeA.textContent = s.swapped ? "B" : "A";
-  d.badgeB.textContent = s.swapped ? "A" : "B";
-}
-
-/* ---------- node sizing ---------- */
+/* ---------- node sizing (same math as the original) ---------- */
 function nativeWidgetsHeight(node) {
   const dw = node.__dvpWidget;
   const rowH = (window.LiteGraph && window.LiteGraph.NODE_WIDGET_HEIGHT) || 20;
@@ -527,6 +569,39 @@ function fitNode(node) {
   }
 }
 
+/* ---------- modes / labels ---------- */
+function setMode(node, m) {
+  const s = getState(node);
+  s.mode = m; setWidget(node, "mode", m);
+  applyMode(node);
+  if (m === "Toggle") pausePlayback(node);   // freeze for A/B flip
+  render(node);
+}
+function applyMode(node) {
+  const s = getState(node), d = s.dom;
+  d.root.classList.remove("m-slider", "m-sxs", "m-diff", "m-tgl");
+  d.root.classList.add("m-" + (
+    s.mode === "Side by Side" ? "sxs" :
+    s.mode === "Difference" ? "diff" :
+    s.mode === "Toggle" ? "tgl" : "slider"));
+  for (const m of MODES) d.modeBtns[m].classList.toggle("on", m === s.mode);
+  if (s.mode === "Toggle") applyTgl(node);
+  d.stage.classList.toggle("pan", s.zoom > 1 && s.mode !== "Slider");
+}
+function applyTgl(node) {
+  const s = getState(node), d = s.dom;
+  if (s.haveA && !s.haveB) s.tgl = "A";
+  else if (s.haveB && !s.haveA) s.tgl = "B";
+  d.tglBadge.textContent = s.tgl;
+  setWidget(node, "toggle_image", s.tgl);
+}
+const labelOf = (s, side) => s.swapped ? (side === "A" ? "B" : "A") : side;
+function updateLabels(node) {
+  const s = getState(node), d = s.dom;
+  d.badgeA.textContent = labelOf(s, "A");
+  d.badgeB.textContent = labelOf(s, "B");
+}
+
 /* ---------- executed ---------- */
 function handleExecuted(node, output) {
   setupNode(node);
@@ -541,16 +616,12 @@ function handleExecuted(node, output) {
   s.haveB = !!m.have_b && s.filesB.length > 0;
   s.frameCount = Number(m.frame_count) || Math.max(s.filesA.length, s.filesB.length);
   const metaFps = Number(m.fps) > 0 ? Number(m.fps) : 24;
-  s.duration = Number(m.duration) > 0 ? Number(m.duration)
+  s.dur = Number(m.duration) > 0 ? Number(m.duration)
     : (s.frameCount > 0 ? s.frameCount / metaFps : 0);
-  // Effective playback fps so the exported frames and the scrub gauge end
-  // together. When the preview frame count is capped (long clip) the meta
-  // fps no longer matches frameCount/duration, which made the bar keep
-  // moving for ~1s after the last frame — derive it from the real pair.
-  s.fps = (s.duration > 0 && s.frameCount > 0)
-    ? (s.frameCount / s.duration) : metaFps;
+  // effective fps so frames + scrub gauge end together (capped previews)
+  s.fps = (s.dur > 0 && s.frameCount > 0) ? (s.frameCount / s.dur) : metaFps;
   s.cache.clear(); s.useTick = 0;
-  s.time = 0; s.startTime = 0;
+  s.t = 0; s.startT = 0;
 
   const aw = m.a_src_w, ah = m.a_src_h, bw = m.b_src_w, bh = m.b_src_h;
   s.ar = (s.haveA && aw > 0 && ah > 0) ? aw / ah
@@ -568,24 +639,51 @@ function handleExecuted(node, output) {
     ? `${m.b_src_w}×${m.b_src_h} · ${m.b_count}f` : "";
   d.meta.innerHTML = s.frameCount
     ? `<span><b>${s.frameCount}</b> frames</span>` +
-      `<span><b>${s.fps}</b> fps preview</span>` +
-      (m.output_fullres ? `<span>output: <b>full-res</b></span>` : "")
+      `<span><b>${(Math.round(s.fps * 10) / 10)}</b> fps</span>` +
+      (m.output_fullres ? `<span>output <b>full-res</b></span>` : "")
     : "";
 
   d.playBtn.disabled = !(s.haveA || s.haveB);
-  updateLabels(node);
+  applyTgl(node); updateLabels(node);
   d.root.classList.toggle("swp", s.swapped);
 
   fitNode(node);
-  if (s.frameCount > 0 && s.mode !== "Toggle") startPlayback(node);
-  else pausePlayback(node);
+  // start once the first frame of the reference side has decoded (mirrors
+  // the original waiting on loadedmetadata before playing)
+  const refSide = s.haveA ? "a" : (s.haveB ? "b" : null);
+  const begin = () => {
+    if (!(s.haveA || s.haveB)) return;
+    s.t = 0; s.startT = 0;
+    if (s.mode === "Toggle") pausePlayback(node);
+    else startPlayback(node);
+    render(node);
+  };
+  if (!refSide) { render(node); return; }
+  const e0 = getImg(node, refSide, 0);
+  if (e0 && e0.ready) begin();
+  else if (e0) {
+    const wait = setInterval(() => {
+      if (e0.ready) { clearInterval(wait); begin(); }
+    }, 40);
+    setTimeout(() => { clearInterval(wait); begin(); }, 1500);
+  } else begin();
   render(node);
 }
 
-/* ---------- interactions ---------- */
+/* ---------- pointer / zoom / interactions (ported 1:1) ---------- */
 function frameFrac(node, clientX) {
-  const r = getState(node).dom.stage.getBoundingClientRect();
-  return Math.max(0, Math.min(1, (clientX - r.left) / (r.width || 1)));
+  const s = getState(node);
+  const r = s.dom.stage.getBoundingClientRect();
+  const W = r.width || 1, cx = W / 2;
+  const p = cx + (((clientX - r.left) - cx - s.panX) / s.zoom);
+  return Math.max(0, Math.min(1, p / W));
+}
+function clampPan(node) {
+  const s = getState(node);
+  const r = s.dom.stage.getBoundingClientRect();
+  const mx = (r.width * (s.zoom - 1)) / 2, my = (r.height * (s.zoom - 1)) / 2;
+  s.panX = Math.max(-mx, Math.min(mx, s.panX));
+  s.panY = Math.max(-my, Math.min(my, s.panY));
 }
 function wireInteractions(node, d, btns) {
   const s = getState(node);
@@ -595,50 +693,54 @@ function wireInteractions(node, d, btns) {
     if (!s.haveA && !s.haveB) return;
     e.stopPropagation();
     s.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
-    if (s.mode === "Slider" && s.haveA && s.haveB) {
+    if (s.mode === "Slider" && s.zoom === 1 && s.haveA && s.haveB) {
       s.draggingSplit = true;
       s.split = frameFrac(node, e.clientX);
       setWidget(node, "split_position", round3(s.split));
-      render(node);
-      stage.setPointerCapture(e.pointerId);
+      render(node); stage.setPointerCapture(e.pointerId); return;
+    }
+    if (s.zoom > 1) {
+      s.panning = true;
+      s.panStart = { x: e.clientX - s.panX, y: e.clientY - s.panY };
+      stage.classList.add("grabbing"); stage.setPointerCapture(e.pointerId);
     }
   });
   stage.addEventListener("pointermove", (e) => {
-    if (s.draggingSplit || s.scrubbing ||
-        (s.mode === "Slider" && s.haveA && s.haveB)) e.stopPropagation();
+    if (s.draggingSplit || s.panning || s.scrubbing ||
+        ((s.haveA || s.haveB) && s.mode === "Slider")) e.stopPropagation();
     if (s.down && !s.down.moved &&
         Math.hypot(e.clientX - s.down.x, e.clientY - s.down.y) > 6)
       s.down.moved = true;
     if (s.draggingSplit) {
       s.split = frameFrac(node, e.clientX);
-      setWidget(node, "split_position", round3(s.split));
-      render(node);
+      setWidget(node, "split_position", round3(s.split)); render(node);
+    } else if (s.panning) {
+      s.panX = e.clientX - s.panStart.x; s.panY = e.clientY - s.panStart.y;
+      clampPan(node); render(node);
     } else if (s.mode === "Slider" && s.haveA && s.haveB && !s.scrubbing) {
-      // original feel: the divider follows the bare mouse move (no drag)
+      // original feel: the divider follows the bare mouse move
       s.split = frameFrac(node, e.clientX);
-      setWidget(node, "split_position", round3(s.split));
-      render(node);
+      setWidget(node, "split_position", round3(s.split)); render(node);
     }
   });
   const endPtr = (e) => {
     if (e) e.stopPropagation();
     const dn = s.down; s.down = null;
-    const wasDrag = s.draggingSplit;
-    s.draggingSplit = false;
-    if (wasDrag) return;
+    const wasSplit = s.draggingSplit;
+    s.draggingSplit = false; s.panning = false;
+    stage.classList.remove("grabbing");
+    if (wasSplit) return;
     if (!(e && e.type === "pointerup" && dn && !dn.moved &&
           (performance.now() - dn.t) < 350 && (s.haveA || s.haveB))) return;
     if (s.mode === "Toggle") {
-      s.tgl = s.tgl === "A" ? "B" : "A";
-      setWidget(node, "toggle_image", s.tgl);
-      d.tglBadge.textContent = s.tgl;
-      render(node);
+      s.tgl = s.tgl === "A" ? "B" : "A"; applyTgl(node); render(node);
     } else togglePlay(node);
   };
   stage.addEventListener("pointerup", endPtr);
   stage.addEventListener("pointercancel", endPtr);
 
-  // wheel over the node -> ComfyUI graph zoom (don't swallow it)
+  // wheel anywhere on the node -> ComfyUI canvas owns zoom (preview never
+  // stretches); same behaviour as the original node
   d.root.addEventListener("wheel", (e) => {
     const cv = app.canvas && app.canvas.canvas;
     if (!cv) return;
@@ -649,14 +751,34 @@ function wireInteractions(node, d, btns) {
       bubbles: true, cancelable: true,
     }));
   }, { passive: false });
+  // middle-button drag -> pan the ComfyUI graph (version-robust, ported)
+  d.root.addEventListener("pointerdown", (e) => {
+    if (e.button !== 1) return;
+    e.preventDefault(); e.stopPropagation();
+    const cv = app.canvas;
+    if (!cv || !cv.ds || !cv.ds.offset) return;
+    let lx = e.clientX, ly = e.clientY;
+    const mv = (ev) => {
+      const sc = cv.ds.scale || 1;
+      cv.ds.offset[0] += (ev.clientX - lx) / sc;
+      cv.ds.offset[1] += (ev.clientY - ly) / sc;
+      lx = ev.clientX; ly = ev.clientY;
+      (cv.setDirty ? cv.setDirty(true, true)
+        : app.graph?.setDirtyCanvas(true, true));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv, true);
+      window.removeEventListener("pointerup", up, true);
+    };
+    window.addEventListener("pointermove", mv, true);
+    window.addEventListener("pointerup", up, true);
+  }, true);
 
   d.scrub.addEventListener("pointerdown", (e) => {
     if (!s.frameCount) return;
     e.stopPropagation();
-    s.scrubbing = true; s._wasPlaying = s.playing;
-    pausePlayback(node);
-    d.scrub.setPointerCapture(e.pointerId);
-    scrubTo(node, e.clientX);
+    s.scrubbing = true; s._wasPlaying = s.playing; pausePlayback(node);
+    d.scrub.setPointerCapture(e.pointerId); scrubTo(node, e.clientX);
   });
   d.scrub.addEventListener("pointermove", (e) => {
     if (s.scrubbing) { e.stopPropagation(); scrubTo(node, e.clientX); }
@@ -664,8 +786,7 @@ function wireInteractions(node, d, btns) {
   d.scrub.addEventListener("pointerup", (e) => {
     if (!s.scrubbing) return;
     e.stopPropagation();
-    s.scrubbing = false;
-    if (s._wasPlaying) startPlayback(node);
+    s.scrubbing = false; if (s._wasPlaying) startPlayback(node);
   });
 
   btns.playBtn.onclick = () => togglePlay(node);
@@ -677,7 +798,7 @@ function wireInteractions(node, d, btns) {
   const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
   btns.spdBtn.onclick = () => {
     s.speed = SPEEDS[(SPEEDS.indexOf(s.speed) + 1) % SPEEDS.length];
-    if (s.playing) { s.startTime = s.time; s.playStartMs = performance.now(); }
+    if (s.playing) { s.startT = s.t; s.playMs = performance.now(); }
     btns.spdBtn.textContent = s.speed.toFixed(2).replace(/0$/, "") + "×";
   };
   btns.swapBtn.onclick = () => {
@@ -685,13 +806,12 @@ function wireInteractions(node, d, btns) {
     s.swapped = !s.swapped;
     setWidget(node, "swap", s.swapped);
     d.root.classList.toggle("swp", s.swapped);
-    updateLabels(node);
-    render(node);
+    updateLabels(node); render(node);
   };
 }
 function scrubTo(node, clientX) {
   const s = getState(node);
   const r = s.dom.scrub.getBoundingClientRect();
   const ratio = Math.max(0, Math.min(1, (clientX - r.left) / (r.width || 1)));
-  seekTime(node, ratio * durationOf(node));
+  seekAll(node, ratio * (getTimeline(node).dur || 0));
 }
