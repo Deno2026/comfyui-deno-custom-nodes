@@ -248,6 +248,63 @@ def _shared_timeline_fps(count_a, count_b, fps):
     return duration, fps_a, fps_b
 
 
+# --------------------------------------------------------------------------- #
+# Phase-1 preview: per-frame WebP sequence for the JS canvas player
+# (pure torch + Pillow; written to ComfyUI temp, served by the existing
+#  /view route — no new server route, no encoder, no temp deletion)
+# --------------------------------------------------------------------------- #
+PREVIEW_MAX_H = 720
+PREVIEW_MAX_FRAMES = 240
+PREVIEW_FPS_CAP = 30.0
+PREVIEW_WEBP_QUALITY = 85
+
+
+def _sample_indices(count, n):
+    """n source indices spread evenly across `count` so A and B span the
+    same duration (shared timeline) regardless of native frame counts."""
+    import torch
+
+    if count <= 0 or n <= 0:
+        return []
+    if count == 1:
+        return [0] * n
+    return [int(i) for i in torch.linspace(0, count - 1, n).round().long().tolist()]
+
+
+def _export_frame_sequence(video, side, abs_dir, indices, max_h, quality):
+    """Downscaled preview frames, one WebP per frame, for the canvas
+    player. Returns (filenames, preview_w, preview_h)."""
+    import os
+
+    import numpy as np
+    import torch
+    from PIL import Image
+
+    if video is None or len(video) <= 0 or not indices:
+        return [], 0, 0
+    v = video.float()
+    src_n, h, w = int(v.shape[0]), int(v.shape[1]), int(v.shape[2])
+    scale = min(1.0, float(max_h) / float(max(1, h)))
+    out_h = max(1, int(round(h * scale)))
+    out_w = max(1, int(round(w * scale)))
+    if (out_h, out_w) != (h, w):
+        v = _resize_to(v, out_h, out_w)
+    names = []
+    for ord_i, src_i in enumerate(indices):
+        fr = v[min(int(src_i), src_n - 1)]
+        arr = (
+            fr[..., :3].clamp(0.0, 1.0).mul(255.0).round()
+            .to(torch.uint8).cpu().numpy()
+        )
+        fn = f"{side}_{ord_i:06d}.webp"
+        Image.fromarray(np.ascontiguousarray(arr)).save(
+            os.path.join(abs_dir, fn), format="WEBP",
+            quality=int(quality), method=4,
+        )
+        names.append(fn)
+    return names, out_w, out_h
+
+
 _COMMON_INPUTS = {
     "mode": (COMPARE_MODES, {"default": "Slider"}),
     "split_position": ("FLOAT", {"default": 0.5, "min": 0.02, "max": 0.98, "step": 0.01}),
@@ -373,3 +430,113 @@ class DenoVideoCompareVHS:
         primary, secondary = (audio_b, audio_a) if swap else (audio_a, audio_b)
         audio = _passthrough_audio(primary if _has_audio(primary) else secondary)
         return (comparison, audio)
+
+
+# --------------------------------------------------------------------------- #
+# Variant ③-lite — interactive canvas player (Phase 1: no audio yet)
+# Recreates the original Video Compare feel (drag slider / SbS / Difference /
+# Toggle / synced playback / swap) with ZERO encoder: the node exports a
+# downscaled WebP frame sequence for A and B, a JS canvas player composites
+# them live, and the 'comparison' output stays full-resolution lossless.
+# --------------------------------------------------------------------------- #
+class DenoVideoComparePlayer:
+    DESCRIPTION = (
+        "A/B video compare with an in-node interactive player (Registry-clean). "
+        "Drag-slider / Side by Side / Difference / Toggle + synced playback, "
+        "rendered on a canvas from a temp WebP frame sequence (no encoder, "
+        "served via the existing /view route). The 'comparison' "
+        "output is the full-resolution lossless composite. Audio arrives in a "
+        "later phase."
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": dict(_COMMON_INPUTS),
+            "optional": {
+                "video_a": ("IMAGE",),
+                "video_b": ("IMAGE",),
+                "audio_a": ("AUDIO",),
+                "audio_b": ("AUDIO",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("comparison",)
+    FUNCTION = "compare_videos"
+    CATEGORY = "Deno/Image"
+    OUTPUT_NODE = True
+
+    def compare_videos(self, mode, split_position, toggle_image, swap, fps,
+                       video_a=None, video_b=None, audio_a=None, audio_b=None):
+        import os
+        import uuid
+
+        import folder_paths
+
+        mode = _normalize_mode(mode)
+        split_position = _normalize_split(split_position)
+        toggle_image = _normalize_toggle(toggle_image)
+        swap = _normalize_bool(swap)
+        fps = _normalize_fps(fps)
+
+        wa, ha, ca = _video_size(video_a)
+        wb, hb, cb = _video_size(video_b)
+
+        # full-resolution lossless output (reflects the widget values; the
+        # live in-node slider only re-composites the preview, and writes the
+        # dragged split back to the widget so the next queue matches)
+        comparison = _composite_frames(
+            mode, video_a, video_b, split_position, swap, toggle_image, fps
+        )
+
+        duration, _fa, _fb = _shared_timeline_fps(ca, cb, fps)
+        preview_fps = min(float(fps), PREVIEW_FPS_CAP)
+        if duration > 0:
+            n = int(round(duration * preview_fps))
+        else:
+            n = max(ca, cb)
+        n = max(1, min(PREVIEW_MAX_FRAMES, n))
+
+        meta = {
+            "mode": mode,
+            "split_position": split_position,
+            "toggle_image": toggle_image,
+            "swap": swap,
+            "fps": round(preview_fps, 4),
+            "source_fps": round(float(fps), 4),
+            "duration": round(duration, 4),
+            "have_a": ca > 0,
+            "have_b": cb > 0,
+            "a_src_w": wa, "a_src_h": ha, "a_count": ca,
+            "b_src_w": wb, "b_src_h": hb, "b_count": cb,
+            "preview_downscaled": True,
+            "output_fullres": True,
+        }
+        files_a, files_b = [], []
+        try:
+            if ca > 0 or cb > 0:
+                temp_dir = folder_paths.get_temp_directory()
+                sub = "deno_vcmp_" + uuid.uuid4().hex[:12]
+                abs_dir = os.path.join(temp_dir, sub)
+                os.makedirs(abs_dir, exist_ok=True)
+                ia = _sample_indices(ca, n) if ca > 0 else []
+                ib = _sample_indices(cb, n) if cb > 0 else []
+                files_a, paw, pah = _export_frame_sequence(
+                    video_a, "a", abs_dir, ia, PREVIEW_MAX_H, PREVIEW_WEBP_QUALITY)
+                files_b, pbw, pbh = _export_frame_sequence(
+                    video_b, "b", abs_dir, ib, PREVIEW_MAX_H, PREVIEW_WEBP_QUALITY)
+                meta["subfolder"] = sub
+                meta["frame_count"] = max(len(files_a), len(files_b))
+                meta["a_w"], meta["a_h"] = paw, pah
+                meta["b_w"], meta["b_h"] = pbw, pbh
+            else:
+                meta["frame_count"] = 0
+        except Exception as exc:  # preview failure must not fail the graph
+            meta["error"] = f"preview_failed: {exc}"[:200]
+            meta["frame_count"] = 0
+
+        return {
+            "ui": {"deno_video_compare": [dict(meta, files_a=files_a, files_b=files_b)]},
+            "result": (comparison,),
+        }

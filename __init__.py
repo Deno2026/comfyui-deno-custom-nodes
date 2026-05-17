@@ -22,7 +22,11 @@ from .deno_rtx_vfx_easy_upscale import DenoRTXVFXEasyUpscale
 from .deno_rtx_vfx_video_finisher import DenoRTXVFXVideoFinisher
 from .deno_image_compare import DenoImageCompare
 from .deno_video_compare import DenoVideoCompare
-from .deno_video_compare_clean import DenoVideoComparePreview, DenoVideoCompareVHS
+from .deno_video_compare_clean import (
+    DenoVideoComparePreview,
+    DenoVideoCompareVHS,
+    DenoVideoComparePlayer,
+)
 
 INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
 
@@ -372,6 +376,7 @@ NODE_CLASS_MAPPINGS = {
     "DenoVideoCompare": DenoVideoCompare,
     "DenoVideoComparePreview": DenoVideoComparePreview,
     "DenoVideoCompareVHS": DenoVideoCompareVHS,
+    "DenoVideoComparePlayer": DenoVideoComparePlayer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -389,6 +394,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoVideoCompare": "(Deno) Video Compare",
     "DenoVideoComparePreview": "(Deno) Video Compare (In-Node Preview)",
     "DenoVideoCompareVHS": "(Deno) Video Compare (VHS / sound)",
+    "DenoVideoComparePlayer": "(Deno) Video Compare (Player)",
 }
 
 WEB_DIRECTORY = "./web/js"
