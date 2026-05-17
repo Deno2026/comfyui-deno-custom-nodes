@@ -25,7 +25,6 @@ const RESIZE_BUTTONS = [
     { value: "Manual", label: "W × H", title: "Type the final width and height." },
 ];
 const DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"];
-const LOW_RAM_CHOICES = ["On", "Off"];
 
 const BACKEND_DEFAULTS = {
     first_pass: "Deblur",
@@ -40,7 +39,6 @@ const BACKEND_DEFAULTS = {
     divisible_by: "32",
     ratio_preset: "16:9",
     resize_method: "Center Crop (Fill)",
-    low_ram_mode: "On",
 };
 const BACKEND_WIDGET_NAMES = Object.keys(BACKEND_DEFAULTS);
 
@@ -257,19 +255,6 @@ function buildControlPanel(node) {
         applySizeAndRedraw(node);
     };
 
-    /* --- primary runtime controls (used by almost everyone) --- */
-    const memRow = el("div", "display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:7px 9px; border-radius:9px; border:1px solid rgba(72,255,132,0.22); background:rgba(0,0,0,0.28);");
-    const lowRamWrap = el("label", "display:flex; align-items:center; gap:6px; color:#9dffba; font:800 10px sans-serif;");
-    const lowRamSelect = makeSelect(LOW_RAM_CHOICES, 64);
-    lowRamSelect.title = "On = float16 output kept on CPU: ~half the system RAM of the "
-        + "result batch (the real RAM saver). Off = float32. Processing always float32; "
-        + "VRAM is negligible either way.";
-    lowRamSelect.onchange = () => setBackend(node, "low_ram_mode", lowRamSelect.value);
-    lowRamWrap.append(el("span", null, "Low RAM Mode"), lowRamSelect);
-    const memNote = el("span", "color:#7fbf95; font:9px sans-serif;",
-        "On ≈ half system RAM (float16). VRAM use is negligible for this node.");
-    memRow.append(lowRamWrap, memNote);
-
     /* --- flow diagram --- */
     const flow = el("div", `
         display:flex; align-items:center; justify-content:center; gap:7px;
@@ -366,7 +351,7 @@ function buildControlPanel(node) {
     docsLink.onclick = (e) => e.stopPropagation();
     footer.append(note, docsLink);
 
-    root.append(header, pop, memRow, flow, card1, card2, footer);
+    root.append(header, pop, flow, card1, card2, footer);
 
     const applySize = () => {
         const width = Math.max(
@@ -395,9 +380,7 @@ function buildControlPanel(node) {
             const upscalePass = String(getWidget(node, "upscale_pass")?.value || "Off");
             const upscaleQuality = String(getWidget(node, "upscale_quality")?.value || "High");
             const resizeType = String(getWidget(node, "resize_type")?.value || "Scale");
-            const lowRam = String(getWidget(node, "low_ram_mode")?.value || "On");
 
-            lowRamSelect.value = lowRam;
             firstQualitySelect.value = QUALITY_CHOICES.includes(firstQuality) ? firstQuality : "Medium";
             upscaleQualitySelect.value = QUALITY_CHOICES.includes(upscaleQuality) ? upscaleQuality : "High";
 
@@ -465,7 +448,6 @@ function sanitizeBackendWidgetValues(node) {
     check("resize_type", RESIZE_TYPES);
     check("divisible_by", DIVISIBLE_BY_VALUES);
     check("resize_method", RESIZE_METHODS);
-    check("low_ram_mode", LOW_RAM_CHOICES);
 
     clampNumberWidget(node, getWidget(node, "scale"), BACKEND_DEFAULTS.scale);
     clampNumberWidget(node, getWidget(node, "megapixels"), BACKEND_DEFAULTS.megapixels);
@@ -487,7 +469,7 @@ function updateWidgetVisibility(node) {
     // Panel drives these; always hide the raw widgets.
     for (const name of [
         "first_pass", "first_quality", "upscale_pass", "upscale_quality",
-        "resize_type", "low_ram_mode",
+        "resize_type",
     ]) {
         setWidgetVisible(getWidget(node, name), false);
     }

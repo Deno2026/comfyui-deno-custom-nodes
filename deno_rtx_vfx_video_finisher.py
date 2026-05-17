@@ -35,13 +35,6 @@ FIRST_PASS_CHOICES = ["Off", "Denoise", "Deblur"]
 UPSCALE_PASS_CHOICES = ["Off", "VSR", "High Bitrate"]
 QUALITY_CHOICES = ["Low", "Medium", "High", "Ultra"]
 FINISHER_RESIZE_TYPES = ["Keep Ratio", "Manual", "Preset Ratio", "Scale", "Same Size"]
-# Low RAM Mode: the one honest system-RAM lever for this IMAGE node.
-# On  -> output kept on CPU AND stored as float16 (~half the RAM the full
-#        output batch occupies, the dominant consumer for long/large clips).
-# Off -> output on the input device, float32 (legacy behaviour).
-# The RTX VFX processing always runs in float32 on the GPU regardless;
-# only the stored result is downcast — fine for 8-bit-destined video.
-LOW_RAM_CHOICES = ["On", "Off"]
 
 
 @contextlib.contextmanager
@@ -90,7 +83,6 @@ class DenoRTXVFXVideoFinisher:
                 "divisible_by": (RTX_VFX_DIVISIBLE_BY_VALUES, {"default": RTX_VFX_DEFAULT_DIVISIBLE_BY}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "resize_method": (RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
-                "low_ram_mode": (LOW_RAM_CHOICES, {"default": "On"}),
             },
         }
 
@@ -114,7 +106,6 @@ class DenoRTXVFXVideoFinisher:
         divisible_by: int,
         ratio_preset: str,
         resize_method: str,
-        low_ram_mode: str,
     ):
         if not torch.cuda.is_available():
             raise RuntimeError("NVIDIA RTX VFX requires CUDA. This ComfyUI Python does not currently see CUDA.")
@@ -154,12 +145,11 @@ class DenoRTXVFXVideoFinisher:
         device_index = _safe_cuda_device_index(0)
         cuda_device = torch.device(f"cuda:{device_index}")
 
-        # Low RAM Mode On = output on CPU + float16 (≈ half the system RAM
-        # the full output batch occupies — the only real RAM lever for an
-        # IMAGE-output node). Off = input device + float32 (legacy).
-        low_ram = str(low_ram_mode) == "On"
-        out_device = torch.device("cpu") if low_ram else images.device
-        out_dtype = torch.float16 if low_ram else images.dtype
+        # Full-quality float32 output. RAM is handled at the workflow level
+        # (VHS Meta Batch chunks the whole graph); this node stays lossless.
+        # Preallocate + write per frame (no Python list / torch.stack peak).
+        out_device = images.device
+        out_dtype = images.dtype
         out = torch.empty(
             (int(batch), int(target_height), int(target_width), 3),
             device=out_device,

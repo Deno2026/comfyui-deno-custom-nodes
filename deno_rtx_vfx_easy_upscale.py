@@ -35,11 +35,6 @@ QUALITY_LEVELS = [
 ]
 
 RESIZE_TYPES = ["Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
-# Low RAM Mode (same design as the 2-Pass node): On = output kept on CPU
-# AND stored as float16 (~half the system RAM the full output batch takes,
-# the dominant consumer for long/large clips). Off = input device, float32.
-# RTX VFX always runs float32 on the GPU; only the stored result downcasts.
-LOW_RAM_CHOICES = ["On", "Off"]
 RTX_VFX_DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"]
 RTX_VFX_DEFAULT_DIVISIBLE_BY = "32"
 RTX_VFX_INSTALL_GUIDE_URL = (
@@ -354,7 +349,6 @@ class DenoRTXVFXEasyUpscale:
                 "device": ("INT", {"default": 0, "min": 0, "max": 16, "step": 1}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "resize_method": (RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
-                "low_ram_mode": (LOW_RAM_CHOICES, {"default": "On"}),
             },
         }
 
@@ -376,7 +370,6 @@ class DenoRTXVFXEasyUpscale:
         device: int,
         ratio_preset: str = "16:9",
         resize_method: str = "Center Crop (Fill)",
-        low_ram_mode: str = "On",
     ):
         if not torch.cuda.is_available():
             raise RuntimeError("NVIDIA RTX VFX requires CUDA. This ComfyUI Python does not currently see CUDA.")
@@ -406,13 +399,11 @@ class DenoRTXVFXEasyUpscale:
         device_index = _safe_cuda_device_index(device)
         cuda_device = torch.device(f"cuda:{device_index}")
 
-        # Low RAM Mode: On = output on CPU + float16 (≈ half the system RAM
-        # the full output batch occupies). Off = input device + float32.
-        # Preallocate and write per frame instead of a Python list + torch.stack
-        # so there is no full-batch stack peak either way.
-        low_ram = str(low_ram_mode) == "On"
-        out_device = torch.device("cpu") if low_ram else images.device
-        out_dtype = torch.float16 if low_ram else images.dtype
+        # Full-quality float32 output. RAM is handled at the workflow level
+        # (VHS Meta Batch chunks the whole graph); this node stays lossless.
+        # Preallocate + write per frame (no Python list / torch.stack peak).
+        out_device = images.device
+        out_dtype = images.dtype
         out = torch.empty(
             (int(batch), int(target_height), int(target_width), 3),
             device=out_device,
