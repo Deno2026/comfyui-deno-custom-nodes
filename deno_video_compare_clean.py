@@ -305,6 +305,50 @@ def _export_frame_sequence(video, side, abs_dir, indices, max_h, quality):
     return names, out_w, out_h
 
 
+def _export_pcm(audio, name, abs_dir, max_seconds=0.0):
+    """Write a ComfyUI AUDIO payload as planar little-endian float32 raw
+    PCM (channel-major: all ch0 samples, then ch1 ...) so the JS side can
+    decode it straight into a WebAudio AudioBuffer. No wave/encoder, just
+    numpy + a plain file write. Returns a metadata dict or None."""
+    import os
+
+    import numpy as np
+    import torch
+
+    if not _has_audio(audio):
+        return None
+    wf, sr = _extract_waveform(audio)
+    sr = int(sr or 44100)
+    if not hasattr(wf, "dim"):
+        wf = torch.as_tensor(np.asarray(wf))
+    t = wf.float()
+    if t.dim() == 3:
+        t = t[0]
+    if t.dim() == 1:
+        t = t.unsqueeze(0)
+    if t.dim() != 2:
+        return None
+    ch, n = int(t.shape[0]), int(t.shape[1])
+    if ch > 8 and n <= 8:                 # [samples, channels] -> [C, N]
+        t = t.transpose(0, 1).contiguous()
+        ch, n = n, ch
+    if ch <= 0 or n <= 0:
+        return None
+    if max_seconds and max_seconds > 0:   # cap to the played window
+        n = min(n, max(1, int(round(float(max_seconds) * sr))))
+        t = t[:, :n]
+    arr = np.ascontiguousarray(
+        t.detach().clamp(-1.0, 1.0).cpu().numpy().astype(np.float32)
+    )  # [C, N] planar
+    fn = f"{name}.f32"
+    with open(os.path.join(abs_dir, fn), "wb") as fh:
+        fh.write(arr.tobytes())
+    return {
+        "filename": fn, "channels": int(ch), "samples": int(n),
+        "sample_rate": int(sr), "dtype": "f32le", "layout": "planar",
+    }
+
+
 _COMMON_INPUTS = {
     "mode": (COMPARE_MODES, {"default": "Slider"}),
     "split_position": ("FLOAT", {"default": 0.5, "min": 0.02, "max": 0.98, "step": 0.01}),
@@ -514,6 +558,7 @@ class DenoVideoComparePlayer:
             "output_fullres": True,
         }
         files_a, files_b = [], []
+        audio_meta_a = audio_meta_b = None
         try:
             if ca > 0 or cb > 0:
                 temp_dir = folder_paths.get_temp_directory()
@@ -530,6 +575,14 @@ class DenoVideoComparePlayer:
                 meta["frame_count"] = max(len(files_a), len(files_b))
                 meta["a_w"], meta["a_h"] = paw, pah
                 meta["b_w"], meta["b_h"] = pbw, pbh
+                # Phase 2: raw PCM next to the frames (swap is resolved on
+                # the JS side, so keep a_audio == video_a's audio)
+                try:
+                    cap = duration if duration > 0 else 0.0
+                    audio_meta_a = _export_pcm(audio_a, "a_audio", abs_dir, cap)
+                    audio_meta_b = _export_pcm(audio_b, "b_audio", abs_dir, cap)
+                except Exception as aexc:
+                    meta["audio_error"] = f"audio_failed: {aexc}"[:160]
             else:
                 meta["frame_count"] = 0
         except Exception as exc:  # preview failure must not fail the graph
@@ -537,6 +590,9 @@ class DenoVideoComparePlayer:
             meta["frame_count"] = 0
 
         return {
-            "ui": {"deno_video_compare": [dict(meta, files_a=files_a, files_b=files_b)]},
+            "ui": {"deno_video_compare": [dict(
+                meta, files_a=files_a, files_b=files_b,
+                audio_a=audio_meta_a, audio_b=audio_meta_b,
+            )]},
             "result": (comparison,),
         }

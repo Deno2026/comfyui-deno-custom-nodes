@@ -160,6 +160,11 @@ function getState(node) {
       scrubbing: false, draggingSplit: false, panning: false,
       panStart: null, down: null, raf: 0, dom: null,
       ar: 16 / 9, _fitting: false, _wasPlaying: false,
+      // audio (Phase 2): WebAudio fed by raw planar f32 PCM
+      actx: null, master: null, gA: null, gB: null,
+      bufA: null, bufB: null, srcA: null, srcB: null,
+      metaA: null, metaB: null, aHasA: false, aHasB: false,
+      audio: "A", hovering: false, gestured: false, audioRun: 0,
     };
   }
   return node.__dvp;
@@ -195,7 +200,11 @@ app.registerExtension({
     nodeType.prototype.onRemoved = function () {
       const s = this.__dvp;
       if (s && s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; }
-      if (s && s.cache) s.cache.clear();
+      if (s) {
+        try { stopAudioSources(this); } catch (e) {}
+        if (s.actx) { try { s.actx.close(); } catch (e) {} s.actx = null; }
+        if (s.cache) s.cache.clear();
+      }
       return onRemoved?.apply(this, arguments);
     };
   },
@@ -306,12 +315,16 @@ function buildDom(node) {
   const fwdBtn = el("button", "btn icn", "⏭");
   const spdBtn = el("button", "btn", "1.0×");
   const sep1 = el("span", "sep");
-  const audN = el("button", "btn icn", "🔇"); audN.disabled = true;
-  audN.title = "Audio arrives in the next update";
+  const audN = el("button", "btn icn", "🔇");
+  audN.title = "Mute";
+  const audA = el("button", "btn icn on", "🔊A");
+  audA.title = "Hover the preview to hear A";
+  const audB = el("button", "btn icn", "🔊B");
+  audB.title = "Hover the preview to hear B";
   const time = el("span", "time", "00:00 / 00:00");
   const meta = el("div", "meta", "");
   tr.append(playBtn, loopBtn, backBtn, fwdBtn, spdBtn, sep1,
-    audN, time, meta);
+    audN, audA, audB, time, meta);
   bot.appendChild(tr);
   const wlink = el("a", "wlink",
     "▶ Too heavy? Open the browser Web Video Compare (no install)");
@@ -325,7 +338,7 @@ function buildDom(node) {
     root, stage, cwrap, canvas, ctx: canvas.getContext("2d"),
     badgeA, badgeB, tglBadge, sinfoA, sinfoB, hint,
     scrub, fill: scrub.querySelector(".fill"), head: scrub.querySelector(".hd"),
-    time, meta, playBtn, loopBtn, spdBtn, modeBtns,
+    time, meta, playBtn, loopBtn, spdBtn, modeBtns, audN, audA, audB,
   };
   st.dom = dom;
 
@@ -409,7 +422,10 @@ function curIndex(node) {
 function seekAll(node, t) {
   const s = getState(node);
   s.t = Math.max(0, Math.min(t, durOf(node)));
-  if (s.playing) { s.startT = s.t; s.playMs = performance.now(); }
+  if (s.playing) {
+    s.startT = s.t; s.playMs = performance.now();
+    restartAudio(node);
+  }
   render(node);
 }
 function startPlayback(node) {
@@ -420,12 +436,16 @@ function startPlayback(node) {
   s.startT = s.t; s.playMs = performance.now();
   s.dom.playBtn.textContent = "❚❚";
   s.dom.playBtn.classList.add("on");
+  restartAudio(node);
+  applyAudioGains(node);
 }
 function pausePlayback(node) {
   const s = getState(node);
   s.playing = false;
   s.dom.playBtn.textContent = "▶";
   s.dom.playBtn.classList.remove("on");
+  stopAudioSources(node);
+  applyAudioGains(node);
 }
 function togglePlay(node) {
   getState(node).playing ? pausePlayback(node) : startPlayback(node);
@@ -448,14 +468,135 @@ function loopOf(node) {
       const dur = durOf(node);
       const t = s.startT + (performance.now() - s.playMs) / 1000 * s.speed;
       if (t >= dur) {
-        if (s.loop) { s.startT = 0; s.playMs = performance.now(); s.t = 0; }
-        else { s.t = dur; pausePlayback(node); }
+        if (s.loop) {
+          s.startT = 0; s.playMs = performance.now(); s.t = 0;
+          restartAudio(node);   // re-sync audio with the looped video
+        } else { s.t = dur; pausePlayback(node); }
       } else s.t = t;
     }
     render(node);
     s.raf = requestAnimationFrame(tick);
   };
   return tick;
+}
+
+/* ---------- audio (WebAudio, fed by raw planar f32 PCM) ---------- */
+function ensureCtx(node) {
+  const s = getState(node);
+  if (!s.actx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    s.actx = new AC();
+    s.master = s.actx.createGain(); s.master.gain.value = 1;
+    s.gA = s.actx.createGain(); s.gA.gain.value = 0;
+    s.gB = s.actx.createGain(); s.gB.gain.value = 0;
+    s.gA.connect(s.master); s.gB.connect(s.master);
+    s.master.connect(s.actx.destination);
+  }
+  if (s.actx.state === "suspended") s.actx.resume().catch(() => {});
+  return s.actx;
+}
+function markGesture(node) {
+  const s = getState(node);
+  s.gestured = true;
+  ensureCtx(node);
+  applyAudioGains(node);
+}
+async function decodeF32(url, ch, samples, sr, ctx) {
+  const res = await fetch(url);
+  const pcm = new Float32Array(await res.arrayBuffer());
+  const buf = ctx.createBuffer(Math.max(1, ch), Math.max(1, samples), sr || 44100);
+  for (let c = 0; c < ch; c++) {
+    const seg = pcm.subarray(c * samples, (c + 1) * samples);
+    if (buf.copyToChannel) buf.copyToChannel(seg, c);
+    else buf.getChannelData(c).set(seg);
+  }
+  return buf;
+}
+function audioViewUrl(node, fn) {
+  const s = getState(node);
+  return api.apiURL(`/view?filename=${encodeURIComponent(fn)}` +
+    `&type=temp&subfolder=${encodeURIComponent(s.sub || "")}`);
+}
+async function loadAudio(node) {
+  const s = getState(node);
+  s.bufA = s.bufB = null;
+  s.metaA = (s.metaA && s.metaA.filename) ? s.metaA : null;
+  s.metaB = (s.metaB && s.metaB.filename) ? s.metaB : null;
+  if (!s.metaA && !s.metaB) { applyAudioGains(node); return; }
+  const ctx = ensureCtx(node);
+  if (!ctx) return;
+  const run = ++s.audioRun;
+  const jobs = [];
+  if (s.metaA) jobs.push(decodeF32(audioViewUrl(node, s.metaA.filename),
+    s.metaA.channels, s.metaA.samples, s.metaA.sample_rate, ctx)
+    .then((b) => { if (run === s.audioRun) s.bufA = b; }).catch(() => {}));
+  if (s.metaB) jobs.push(decodeF32(audioViewUrl(node, s.metaB.filename),
+    s.metaB.channels, s.metaB.samples, s.metaB.sample_rate, ctx)
+    .then((b) => { if (run === s.audioRun) s.bufB = b; }).catch(() => {}));
+  await Promise.all(jobs);
+  if (run !== s.audioRun) return;
+  // default the A/B selector to a side that actually carries sound
+  if (s.audio === "A" && !physAudioBuf(node, "A") && physAudioBuf(node, "B")) s.audio = "B";
+  else if (s.audio === "B" && !physAudioBuf(node, "B") && physAudioBuf(node, "A")) s.audio = "A";
+  if (s.playing) restartAudio(node);
+  applyAudioGains(node);
+}
+function physAudioBuf(node, logical) {
+  const s = getState(node);
+  const phys = s.swapped ? (logical === "A" ? "b" : "a")
+                         : (logical === "A" ? "a" : "b");
+  return phys === "a" ? s.bufA : s.bufB;
+}
+function stopAudioSources(node) {
+  const s = getState(node);
+  for (const k of ["srcA", "srcB"]) {
+    const src = s[k];
+    if (src) { try { src.onended = null; src.stop(); } catch (e) {}
+               try { src.disconnect(); } catch (e) {} s[k] = null; }
+  }
+}
+function restartAudio(node) {
+  const s = getState(node);
+  stopAudioSources(node);
+  if (!s.playing) return;
+  const ctx = ensureCtx(node);
+  if (!ctx) return;
+  const mk = (logical, gain) => {
+    const buf = physAudioBuf(node, logical);
+    if (!buf) return null;
+    const off = Math.max(0, Math.min(s.t || 0, buf.duration - 1e-3));
+    if (off >= buf.duration) return null;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    try { src.playbackRate.value = s.speed; } catch (e) {}
+    src.connect(gain);
+    try { src.start(0, off); } catch (e) { return null; }
+    return src;
+  };
+  s.srcA = mk("A", s.gA);
+  s.srcB = mk("B", s.gB);
+  applyAudioGains(node);
+}
+function applyAudioGains(node) {
+  const s = getState(node), d = s.dom;
+  if (!d) return;
+  const hasA = !!physAudioBuf(node, "A");
+  const hasB = !!physAudioBuf(node, "B");
+  if (s.audio === "A" && !hasA && hasB) s.audio = "B";
+  else if (s.audio === "B" && !hasB && hasA) s.audio = "A";
+  const onA = s.playing && s.hovering && s.audio === "A" && hasA;
+  const onB = s.playing && s.hovering && s.audio === "B" && hasB;
+  if (s.actx) {
+    const now = s.actx.currentTime;
+    try { s.gA.gain.setTargetAtTime(onA ? 1 : 0, now, 0.012); } catch (e) {}
+    try { s.gB.gain.setTargetAtTime(onB ? 1 : 0, now, 0.012); } catch (e) {}
+  }
+  d.audN.classList.toggle("on", s.audio === "none");
+  d.audA.classList.toggle("on", s.audio === "A");
+  d.audB.classList.toggle("on", s.audio === "B");
+  d.audA.disabled = !hasA;
+  d.audB.disabled = !hasB;
 }
 
 /* ---------- render (canvas compositing) ---------- */
@@ -627,6 +768,13 @@ function handleExecuted(node, output) {
   s.ar = (s.haveA && aw > 0 && ah > 0) ? aw / ah
        : (s.haveB && bw > 0 && bh > 0) ? bw / bh : s.ar;
 
+  // audio (Phase 2): swap raw PCM in, decode async into WebAudio buffers
+  stopAudioSources(node);
+  s.bufA = s.bufB = null;
+  s.metaA = (m.audio_a && m.audio_a.filename) ? m.audio_a : null;
+  s.metaB = (m.audio_b && m.audio_b.filename) ? m.audio_b : null;
+  loadAudio(node);
+
   let info = "";
   if (typeof m.error === "string" && m.error) info = m.error;
   else if (!s.haveA && !s.haveB) info = "Connect video_a / video_b";
@@ -689,9 +837,17 @@ function wireInteractions(node, d, btns) {
   const s = getState(node);
   const stage = d.stage;
 
+  stage.addEventListener("pointerenter", () => {
+    s.hovering = true; markGesture(node); applyAudioGains(node);
+  });
+  stage.addEventListener("pointerleave", () => {
+    s.hovering = false; applyAudioGains(node);
+  });
+
   stage.addEventListener("pointerdown", (e) => {
     if (!s.haveA && !s.haveB) return;
     e.stopPropagation();
+    markGesture(node);
     s.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
     if (s.mode === "Slider" && s.zoom === 1 && s.haveA && s.haveB) {
       s.draggingSplit = true;
@@ -777,6 +933,7 @@ function wireInteractions(node, d, btns) {
   d.scrub.addEventListener("pointerdown", (e) => {
     if (!s.frameCount) return;
     e.stopPropagation();
+    markGesture(node);
     s.scrubbing = true; s._wasPlaying = s.playing; pausePlayback(node);
     d.scrub.setPointerCapture(e.pointerId); scrubTo(node, e.clientX);
   });
@@ -789,7 +946,7 @@ function wireInteractions(node, d, btns) {
     s.scrubbing = false; if (s._wasPlaying) startPlayback(node);
   });
 
-  btns.playBtn.onclick = () => togglePlay(node);
+  btns.playBtn.onclick = () => { markGesture(node); togglePlay(node); };
   btns.loopBtn.onclick = () => {
     s.loop = !s.loop; btns.loopBtn.classList.toggle("on", s.loop);
   };
@@ -798,7 +955,10 @@ function wireInteractions(node, d, btns) {
   const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
   btns.spdBtn.onclick = () => {
     s.speed = SPEEDS[(SPEEDS.indexOf(s.speed) + 1) % SPEEDS.length];
-    if (s.playing) { s.startT = s.t; s.playMs = performance.now(); }
+    if (s.playing) {
+      s.startT = s.t; s.playMs = performance.now();
+      restartAudio(node);   // apply the new rate to the audio sources
+    }
     btns.spdBtn.textContent = s.speed.toFixed(2).replace(/0$/, "") + "×";
   };
   btns.swapBtn.onclick = () => {
@@ -806,8 +966,15 @@ function wireInteractions(node, d, btns) {
     s.swapped = !s.swapped;
     setWidget(node, "swap", s.swapped);
     d.root.classList.toggle("swp", s.swapped);
-    updateLabels(node); render(node);
+    updateLabels(node);
+    if (s.playing) restartAudio(node);   // A/B audio follows the swap
+    applyAudioGains(node);
+    render(node);
   };
+  const setAud = (a) => { markGesture(node); s.audio = a; applyAudioGains(node); };
+  d.audN.onclick = () => setAud("none");
+  d.audA.onclick = () => setAud("A");
+  d.audB.onclick = () => setAud("B");
 }
 function scrubTo(node, clientX) {
   const s = getState(node);
