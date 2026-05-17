@@ -353,6 +353,110 @@ def _export_pcm(audio, name, abs_dir, max_seconds=0.0):
     }
 
 
+def _load_font(px):
+    """Best-effort scalable font; degrades gracefully with no hard dep."""
+    from PIL import ImageFont
+
+    px = max(8, int(px))
+    for name in ("DejaVuSans.ttf", "arial.ttf", "Arial.ttf"):
+        try:
+            return ImageFont.truetype(name, px)
+        except Exception:
+            pass
+    try:                                  # Pillow >= 10.1 sizes the default
+        return ImageFont.load_default(px)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _burn_ab_labels(frames, a_dims, b_dims, swap):
+    """Burn the A/B badge + 'WxH · Nf' pill into the full-res comparison
+    frames (top-left = A, top-right = B), mirroring the in-node corner
+    style. The overlay is identical on every frame, so it is rendered ONCE
+    as an RGBA layer and alpha-composited over the whole batch in one op —
+    cheap even for long clips. Pure torch + Pillow."""
+    import numpy as np
+    import torch
+    from PIL import Image, ImageDraw
+
+    if frames is None or frames.dim() != 4 or frames.shape[0] <= 0:
+        return frames
+    N, H, W = int(frames.shape[0]), int(frames.shape[1]), int(frames.shape[2])
+    if H < 24 or W < 48:
+        return frames
+
+    wa, ha, ca = a_dims
+    wb, hb, cb = b_dims
+    # match what the pixels actually show after swap
+    left_lbl, right_lbl = ("B", "A") if swap else ("A", "B")
+    left_dims = (wb, hb, cb) if swap else (wa, ha, ca)
+    right_dims = (wa, ha, ca) if swap else (wb, hb, cb)
+
+    pad = max(6, round(H * 0.018))
+    bd = max(20, round(H * 0.058))            # badge diameter
+    fpx = max(11, round(H * 0.028))           # font size
+    font = _load_font(fpx)
+
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    dr = ImageDraw.Draw(layer)
+
+    def _text_w(s):
+        try:
+            return dr.textlength(s, font=font)
+        except Exception:
+            return len(s) * fpx * 0.6
+
+    def _rrect(x0, y0, x1, y1, fill):
+        try:
+            dr.rounded_rectangle([x0, y0, x1, y1],
+                                 radius=max(4, (y1 - y0) // 2), fill=fill)
+        except Exception:
+            dr.rectangle([x0, y0, x1, y1], fill=fill)
+
+    def _group(side_lbl, dims, anchor_right):
+        w_, h_, c_ = dims
+        info = f"{int(w_)}×{int(h_)} · {int(c_)}f" if w_ > 0 else side_lbl
+        ty = pad
+        # badge circle
+        cy0 = ty
+        if anchor_right:
+            bx1 = W - pad
+            bx0 = bx1 - bd
+        else:
+            bx0 = pad
+            bx1 = bx0 + bd
+        # info pill
+        tw = _text_w(info)
+        pill_w = int(tw) + 2 * pad
+        pill_h = bd
+        gap = max(4, pad // 2)
+        if anchor_right:
+            px1 = bx0 - gap
+            px0 = px1 - pill_w
+        else:
+            px0 = bx1 + gap
+            px1 = px0 + pill_w
+        _rrect(px0, cy0, px1, cy0 + pill_h, (7, 16, 11, 200))
+        ti_y = cy0 + (pill_h - fpx) // 2
+        dr.text((px0 + pad, ti_y), info, font=font, fill=(157, 255, 186, 255))
+        dr.ellipse([bx0, cy0, bx1, cy0 + bd], fill=(17, 118, 56, 235),
+                   outline=(191, 255, 208, 255), width=max(1, bd // 14))
+        lw = _text_w(side_lbl)
+        dr.text((bx0 + (bd - lw) / 2, cy0 + (bd - fpx) // 2),
+                side_lbl, font=font, fill=(239, 255, 244, 255))
+
+    _group(left_lbl, left_dims, False)
+    _group(right_lbl, right_dims, True)
+
+    ov = torch.from_numpy(
+        np.ascontiguousarray(np.asarray(layer, dtype=np.float32) / 255.0)
+    ).to(frames.device)                       # [H, W, 4]
+    rgb = ov[..., :3].unsqueeze(0)            # [1,H,W,3]
+    alpha = ov[..., 3:4].unsqueeze(0)         # [1,H,W,1]
+    out = frames.float() * (1.0 - alpha) + rgb * alpha
+    return out.clamp(0.0, 1.0)
+
+
 _COMMON_INPUTS = {
     "mode": (COMPARE_MODES, {"default": "Slider"}),
     "split_position": ("FLOAT", {"default": 0.5, "min": 0.02, "max": 0.98, "step": 0.01}),
@@ -500,7 +604,12 @@ class DenoVideoComparePlayer:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": dict(_COMMON_INPUTS),
+            "required": dict(
+                _COMMON_INPUTS,
+                burn_labels=("BOOLEAN", {
+                    "default": False, "label_on": "on", "label_off": "off",
+                }),
+            ),
             "optional": {
                 "video_a": ("IMAGE",),
                 "video_b": ("IMAGE",),
@@ -516,6 +625,7 @@ class DenoVideoComparePlayer:
     OUTPUT_NODE = True
 
     def compare_videos(self, mode, split_position, toggle_image, swap, fps,
+                       burn_labels=False,
                        video_a=None, video_b=None, audio_a=None, audio_b=None):
         import os
         import uuid
@@ -537,6 +647,14 @@ class DenoVideoComparePlayer:
         comparison = _composite_frames(
             mode, video_a, video_b, split_position, swap, toggle_image, fps
         )
+        # optionally burn the A/B + resolution labels into the SAVED output
+        # only (the in-node preview already shows them as a DOM overlay)
+        if _normalize_bool(burn_labels) and (ca > 0 or cb > 0):
+            try:
+                comparison = _burn_ab_labels(
+                    comparison, (wa, ha, ca), (wb, hb, cb), swap)
+            except Exception:
+                pass  # never fail the graph over a label overlay
 
         duration, _fa, _fb = _shared_timeline_fps(ca, cb, fps)
         # No cap: preview every frame of the richer side at the real fps so
