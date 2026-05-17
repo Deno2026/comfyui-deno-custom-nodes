@@ -254,7 +254,11 @@ def _shared_timeline_fps(count_a, count_b, fps):
 #  /view route — no new server route, no encoder, no temp deletion)
 # --------------------------------------------------------------------------- #
 PREVIEW_MAX_H = 720
-PREVIEW_MAX_FRAMES = 240
+# High enough that typical clips (a few hundred frames) are NOT downsampled,
+# so the in-node preview plays at the real fps. Only pathologically long
+# clips get capped (and then the UI says so). JS keeps memory bounded via
+# an LRU near the playhead regardless of the total count.
+PREVIEW_MAX_FRAMES = 600
 PREVIEW_FPS_CAP = 30.0
 PREVIEW_WEBP_QUALITY = 85
 
@@ -536,11 +540,11 @@ class DenoVideoComparePlayer:
 
         duration, _fa, _fb = _shared_timeline_fps(ca, cb, fps)
         preview_fps = min(float(fps), PREVIEW_FPS_CAP)
-        if duration > 0:
-            n = int(round(duration * preview_fps))
-        else:
-            n = max(ca, cb)
-        n = max(1, min(PREVIEW_MAX_FRAMES, n))
+        n_desired = (int(round(duration * preview_fps))
+                     if duration > 0 else max(ca, cb))
+        n_desired = max(1, n_desired)
+        n = min(PREVIEW_MAX_FRAMES, n_desired)
+        preview_capped = n < n_desired
 
         meta = {
             "mode": mode,
@@ -555,6 +559,7 @@ class DenoVideoComparePlayer:
             "a_src_w": wa, "a_src_h": ha, "a_count": ca,
             "b_src_w": wb, "b_src_h": hb, "b_count": cb,
             "preview_downscaled": True,
+            "preview_capped": bool(preview_capped),
             "output_fullres": True,
         }
         files_a, files_b = [], []

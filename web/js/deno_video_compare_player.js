@@ -785,9 +785,14 @@ function handleExecuted(node, output) {
     ? `${m.a_src_w}×${m.a_src_h} · ${m.a_count}f` : "";
   d.sinfoB.textContent = m.b_count
     ? `${m.b_src_w}×${m.b_src_h} · ${m.b_count}f` : "";
+  const srcFps = Number(m.source_fps) || Number(m.fps) || s.fps;
   d.meta.innerHTML = s.frameCount
     ? `<span><b>${s.frameCount}</b> frames</span>` +
-      `<span><b>${(Math.round(s.fps * 10) / 10)}</b> fps</span>` +
+      `<span><b>${Math.round(srcFps * 100) / 100}</b> fps</span>` +
+      (m.preview_capped
+        ? `<span title="Long clip: the in-node preview is downsampled; ` +
+          `the comparison output stays full.">preview ` +
+          `<b>${Math.round(s.fps)}</b>fps</span>` : "") +
       (m.output_fullres ? `<span>output <b>full-res</b></span>` : "")
     : "";
 
