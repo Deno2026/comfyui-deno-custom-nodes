@@ -3,25 +3,26 @@ import { app } from "../../scripts/app.js";
 const NODE_NAME = "DenoRTXVFXVideoFinisher";
 
 const MIN_WIDTH = 580;
-const MIN_HEIGHT = 430;
-const MIN_HEIGHT_NO_UPSCALE = 320;
+const MIN_HEIGHT = 340;
 const NODE_WIDGET_SIDE_MARGIN = 30;
 const PANEL_MIN_WIDTH = MIN_WIDTH - NODE_WIDGET_SIDE_MARGIN;
-const PANEL_HEIGHT_FULL = 318;
-const PANEL_HEIGHT_NO_UPSCALE = 214;
 const PANEL_BOTTOM_GAP = 10;
+const PANEL_FALLBACK_HEIGHT = 400;
 const NVIDIA_VSR_DOCS_URL = "https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html";
 
 const FIRST_PASS_CHOICES = ["Off", "Denoise", "Deblur"];
 const UPSCALE_PASS_CHOICES = ["Off", "VSR", "High Bitrate"];
+// Display order: most-used effect first, then the other, then Off.
+const FIRST_PASS_ORDER = ["Deblur", "Denoise", "Off"];
+const UPSCALE_PASS_ORDER = ["High Bitrate", "VSR", "Off"];
 const QUALITY_CHOICES = ["Low", "Medium", "High", "Ultra"];
 const RESIZE_TYPES = ["Keep Ratio", "Manual", "Preset Ratio", "Scale", "Same Size"];
 const RESIZE_METHODS = ["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"];
 const RESIZE_BUTTONS = [
-    { value: "Keep Ratio", label: "Keep Ratio", title: "Keep the input aspect ratio and choose the target megapixels." },
-    { value: "Manual", label: "Manual", title: "Type the final width and height." },
-    { value: "Preset Ratio", label: "Preset Ratio", title: "Choose a ratio (16:9, 9:16, 1:1) and target megapixels." },
     { value: "Scale", label: "Scale", title: "Multiply the source size by 1x - 4x." },
+    { value: "Keep Ratio", label: "Megapixels", title: "Keep the input aspect ratio, choose target megapixels." },
+    { value: "Preset Ratio", label: "Ratio", title: "Choose a ratio (16:9, 9:16, 1:1) and megapixels." },
+    { value: "Manual", label: "W × H", title: "Type the final width and height." },
 ];
 const DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"];
 const LOW_RAM_CHOICES = ["On", "Off"];
@@ -31,7 +32,7 @@ const BACKEND_DEFAULTS = {
     first_quality: "Medium",
     upscale_pass: "High Bitrate",
     upscale_quality: "High",
-    resize_type: "Keep Ratio",
+    resize_type: "Scale",
     scale: 2,
     megapixels: 4,
     width: 3840,
@@ -39,23 +40,9 @@ const BACKEND_DEFAULTS = {
     divisible_by: "32",
     ratio_preset: "16:9",
     resize_method: "Center Crop (Fill)",
-    device: 0,
     low_ram_mode: "On",
-    clear_cuda_cache: "Every 16 Frames",
 };
 const BACKEND_WIDGET_NAMES = Object.keys(BACKEND_DEFAULTS);
-
-const COACH = {
-    "Deblur|High Bitrate": "Best for clean but soft LTX frames.",
-    "Deblur|VSR": "Use when the source has compression artifacts.",
-    "Denoise|VSR": "Use for noisy or grainy frames.",
-    "Denoise|High Bitrate": "Denoise first, then a clean detail-preserving upscale.",
-    "Off|High Bitrate": "Clean source upscale with detail preservation.",
-    "Off|VSR": "Compressed source upscale with artifact cleanup.",
-    "Deblur|Off": "Deblur only, same size, no upscale.",
-    "Denoise|Off": "Denoise only, same size, no upscale.",
-    "Off|Off": "Pass-through. Pick a first pass or an upscale.",
-};
 
 app.registerExtension({
     name: "Deno.RTXVFXVideoFinisher",
@@ -145,134 +132,242 @@ function ensureControlPanel(node) {
     }
 }
 
+/* ---------- small DOM helpers ---------- */
+function el(tag, css, text) {
+    const e = document.createElement(tag);
+    if (css) e.style.cssText = css;
+    if (text != null) e.textContent = text;
+    return e;
+}
 function sectionLabel(text) {
-    const el = document.createElement("div");
-    el.style.cssText = "color:#91dca4; font:800 10px sans-serif;";
-    el.textContent = text;
-    return el;
+    return el("div", "color:#91dca4; font:800 10px sans-serif; letter-spacing:.02em;", text);
+}
+// color-scheme:dark makes Chromium render the native dropdown popup dark
+// (instead of the default light/gray list) so it matches the panel.
+const SELECT_CSS = (minWidth) => `
+    min-width:${minWidth}px; height:26px; border-radius:8px;
+    border:1px solid rgba(72,255,132,0.42); background:rgba(0,0,0,0.55);
+    color:#dfffea; font:700 11px sans-serif; outline:none; cursor:pointer;
+    color-scheme:dark; appearance:auto;
+`;
+function styleOption(o) {
+    o.style.background = "#06120b";
+    o.style.color = "#dfffea";
+}
+function makeSelect(values, minWidth) {
+    const select = el("select", SELECT_CSS(minWidth));
+    for (const value of values) {
+        const o = document.createElement("option");
+        o.value = value; o.textContent = value;
+        styleOption(o);
+        select.append(o);
+    }
+    return select;
+}
+function makeSelectMapped(pairs, minWidth) {
+    const select = el("select", SELECT_CSS(minWidth));
+    for (const [value, text] of pairs) {
+        const o = document.createElement("option");
+        o.value = value; o.textContent = text;
+        styleOption(o);
+        select.append(o);
+    }
+    return select;
+}
+function pill(label, title, height, fontSize) {
+    const b = el("button", `
+        height:${height}px; min-width:0; padding:0 8px; border-radius:999px;
+        border:1px solid rgba(90,130,104,0.72); background:rgba(9,13,11,0.88);
+        color:#c9f7d5; font:800 ${fontSize}px sans-serif; cursor:pointer;
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    `, label);
+    b.type = "button";
+    if (title) b.title = title;
+    return b;
+}
+function setSelected(button, on, kind) {
+    if (on && kind === "off") {
+        button.style.borderColor = "rgba(150,150,150,0.6)";
+        button.style.background = "rgba(40,40,40,0.85)";
+        button.style.color = "#d8d8d8";
+        button.style.boxShadow = "none";
+    } else if (on) {
+        button.style.borderColor = "rgba(72,255,132,0.95)";
+        button.style.background = "rgba(31,96,50,0.92)";
+        button.style.color = "#f0fff4";
+        button.style.boxShadow = "0 0 0 1px rgba(72,255,132,0.18) inset";
+    } else {
+        button.style.borderColor = "rgba(90,130,104,0.72)";
+        button.style.background = "rgba(9,13,11,0.88)";
+        button.style.color = "#c9f7d5";
+        button.style.boxShadow = "none";
+    }
 }
 
 function buildControlPanel(node) {
-    const root = document.createElement("div");
-    root.style.cssText = `
-        width:${PANEL_MIN_WIDTH}px;
-        min-width:${PANEL_MIN_WIDTH}px;
-        box-sizing:border-box;
-        padding:12px;
-        border-radius:12px;
+    const root = el("div", `
+        width:${PANEL_MIN_WIDTH}px; min-width:${PANEL_MIN_WIDTH}px;
+        box-sizing:border-box; padding:12px; border-radius:12px;
         border:1px solid rgba(72,255,132,0.36);
         background:linear-gradient(180deg, rgba(3,12,8,0.98), rgba(1,6,4,0.96));
-        color:#dfffea;
-        pointer-events:auto;
-        display:flex;
-        flex-direction:column;
-        gap:9px;
-        overflow:hidden;
-        font:11px sans-serif;
+        color:#dfffea; pointer-events:auto; display:flex; flex-direction:column;
+        gap:9px; overflow:hidden; font:11px sans-serif;
         margin-bottom:${PANEL_BOTTOM_GAP}px;
-    `;
+    `);
 
-    const header = document.createElement("div");
-    header.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px;";
-    const titleWrap = document.createElement("div");
-    titleWrap.style.cssText = "display:flex; flex-direction:column; gap:2px; min-width:0;";
-    const title = document.createElement("div");
-    title.style.cssText = "font:800 14px sans-serif; color:#9dffba;";
-    title.textContent = "RTX Video Finisher";
-    const subtitle = document.createElement("div");
-    subtitle.style.cssText = "font:10px sans-serif; color:#8fcfa4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
-    subtitle.textContent = "Clean pass -> upscale, frame-by-frame, low RAM.";
-    titleWrap.append(title, subtitle);
+    /* --- header: identity + (i) help --- */
+    const header = el("div", "display:flex; align-items:flex-start; justify-content:space-between; gap:10px;");
+    const titleWrap = el("div", "display:flex; flex-direction:column; gap:2px; min-width:0;");
+    const titleRow = el("div", "display:flex; align-items:center; gap:7px;");
+    const title = el("div", "font:800 14px sans-serif; color:#9dffba;", "RTX Video Super Resolution");
+    const stageChip = el("span", `
+        font:800 9px sans-serif; color:#0a1a10; background:#48ff84;
+        padding:2px 7px; border-radius:999px; letter-spacing:.04em;
+    `, "2 PASS");
+    titleRow.append(title, stageChip);
+    const subtitle = el("div",
+        "font:10px sans-serif; color:#8fcfa4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;",
+        "Clean up, then upscale. Turn on only the passes you need.");
+    titleWrap.append(titleRow, subtitle);
 
-    const lowRamWrap = document.createElement("label");
-    lowRamWrap.style.cssText = "display:flex; align-items:center; gap:7px; color:#91dca4; font:800 10px sans-serif;";
-    const lowRamLabel = document.createElement("span");
-    lowRamLabel.textContent = "Low RAM";
-    const lowRamSelect = makeSelect(LOW_RAM_CHOICES, 70);
+    const infoBtn = el("button", `
+        flex:0 0 auto; width:22px; height:22px; border-radius:50%;
+        border:1px solid rgba(72,255,132,0.6); background:rgba(9,13,11,0.9);
+        color:#48ff84; font:900 12px serif; cursor:pointer; line-height:1;
+    `, "i");
+    infoBtn.type = "button";
+    infoBtn.title = "Node info";
+    header.append(titleWrap, infoBtn);
+
+    /* --- info popup --- */
+    const pop = el("div", `
+        display:none; padding:9px 10px; border-radius:9px;
+        border:1px solid rgba(72,255,132,0.4); background:rgba(2,10,6,0.98);
+        color:#cdefd8; font:10px/1.5 sans-serif;
+    `);
+    pop.innerHTML =
+        "<b style='color:#9dffba'>RTX Video Super Resolution — 2 Pass</b><br>" +
+        "Pass 1 cleans the frames (Denoise/Deblur, same size). Pass 2 upscales " +
+        "(VSR / High Bitrate). Each pass can be turned Off. Both run frame-by-frame " +
+        "in one node so it stays stable on low-spec machines.<br>" +
+        "Default: Deblur → High Bitrate. Requires NVIDIA RTX VFX installed.";
+    infoBtn.onclick = () => {
+        const open = pop.style.display === "block";
+        pop.style.display = open ? "none" : "block";
+        applySizeAndRedraw(node);
+    };
+
+    /* --- primary runtime controls (used by almost everyone) --- */
+    const memRow = el("div", "display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:7px 9px; border-radius:9px; border:1px solid rgba(72,255,132,0.22); background:rgba(0,0,0,0.28);");
+    const lowRamWrap = el("label", "display:flex; align-items:center; gap:6px; color:#9dffba; font:800 10px sans-serif;");
+    const lowRamSelect = makeSelect(LOW_RAM_CHOICES, 64);
+    lowRamSelect.title = "On = float16 output kept on CPU: ~half the system RAM of the "
+        + "result batch (the real RAM saver). Off = float32. Processing always float32; "
+        + "VRAM is negligible either way.";
     lowRamSelect.onchange = () => setBackend(node, "low_ram_mode", lowRamSelect.value);
-    lowRamWrap.append(lowRamLabel, lowRamSelect);
-    header.append(titleWrap, lowRamWrap);
+    lowRamWrap.append(el("span", null, "Low RAM Mode"), lowRamSelect);
+    const memNote = el("span", "color:#7fbf95; font:9px sans-serif;",
+        "On ≈ half system RAM (float16). VRAM use is negligible for this node.");
+    memRow.append(lowRamWrap, memNote);
 
-    // First pass row
-    const firstRow = document.createElement("div");
-    firstRow.style.cssText = "display:flex; align-items:center; gap:8px;";
-    const firstGrid = document.createElement("div");
-    firstGrid.style.cssText = "display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:7px; flex:1;";
-    const firstButtons = new Map();
-    for (const value of FIRST_PASS_CHOICES) {
-        const button = createPillButton(value, `First pass: ${value}`, 28, 10);
-        button.onclick = () => setBackend(node, "first_pass", value);
-        firstButtons.set(value, button);
-        firstGrid.append(button);
-    }
-    const firstQualitySelect = makeSelect(QUALITY_CHOICES, 84);
-    firstQualitySelect.onchange = () => setBackend(node, "first_quality", firstQualitySelect.value);
-    firstRow.append(firstGrid, firstQualitySelect);
+    /* --- flow diagram --- */
+    const flow = el("div", `
+        display:flex; align-items:center; justify-content:center; gap:7px;
+        padding:7px 6px; border-radius:9px; border:1px solid rgba(72,255,132,0.18);
+        background:rgba(0,0,0,0.28); font:800 10px sans-serif; flex-wrap:nowrap;
+        overflow:hidden;
+    `);
+    const fIn = el("span", "color:#7fbf95;", "Input");
+    const fArrow1 = el("span", "color:#5a7a68;", "→");
+    const fStep1 = el("span", "padding:3px 8px; border-radius:7px;", "1 Pass");
+    const fArrow2 = el("span", "color:#5a7a68;", "→");
+    const fStep2 = el("span", "padding:3px 8px; border-radius:7px;", "2 Pass");
+    const fArrow3 = el("span", "color:#5a7a68;", "→");
+    const fOut = el("span", "color:#7fbf95;", "Output");
+    flow.append(fIn, fArrow1, fStep1, fArrow2, fStep2, fArrow3, fOut);
 
-    // Upscale pass row
-    const upscaleRow = document.createElement("div");
-    upscaleRow.style.cssText = "display:flex; align-items:center; gap:8px;";
-    const upscaleGrid = document.createElement("div");
-    upscaleGrid.style.cssText = "display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:7px; flex:1;";
-    const upscaleButtons = new Map();
-    for (const value of UPSCALE_PASS_CHOICES) {
-        const button = createPillButton(value, `Upscale: ${value}`, 28, 10);
-        button.onclick = () => setBackend(node, "upscale_pass", value);
-        upscaleButtons.set(value, button);
-        upscaleGrid.append(button);
-    }
-    const upscaleQualitySelect = makeSelect(QUALITY_CHOICES, 84);
-    upscaleQualitySelect.onchange = () => setBackend(node, "upscale_quality", upscaleQualitySelect.value);
-    upscaleRow.append(upscaleGrid, upscaleQualitySelect);
-
-    const coach = document.createElement("div");
-    coach.style.cssText = `
-        min-height:25px; box-sizing:border-box; padding:6px 8px; border-radius:9px;
-        border:1px solid rgba(72,255,132,0.24); background:rgba(0,0,0,0.30);
-        color:#c8f8d4; font:10px/1.25 sans-serif; white-space:nowrap;
-        overflow:hidden; text-overflow:ellipsis;
+    /* --- stage cards --- */
+    const cardCss = `
+        display:flex; flex-direction:column; gap:7px; padding:9px;
+        border-radius:10px; border:1px solid rgba(72,255,132,0.20);
+        background:rgba(0,0,0,0.22);
     `;
+    const stepRow = () => el("div", "display:flex; align-items:center; gap:8px; flex-wrap:wrap;");
 
-    const docsLink = document.createElement("a");
+    // Pass 1
+    const card1 = el("div", cardCss);
+    const head1 = el("div", "display:flex; align-items:center; justify-content:space-between; gap:8px;");
+    head1.append(
+        el("div", "font:800 11px sans-serif; color:#bdebcb;", "1 Pass"),
+        el("div", "font:800 9px sans-serif; color:#7fbf95;", "same size · optional"),
+    );
+    const row1 = stepRow();
+    const grid1 = el("div", "display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:7px; flex:1; min-width:160px;");
+    const firstButtons = new Map();
+    for (const v of FIRST_PASS_ORDER) {
+        const b = pill(v, v === "Off" ? "Turn Pass 1 off" : `Pass 1: ${v}`, 28, 10);
+        b.onclick = () => setBackend(node, "first_pass", v);
+        firstButtons.set(v, b);
+        grid1.append(b);
+    }
+    const q1wrap = el("label", "display:flex; align-items:center; gap:5px; color:#91dca4; font:800 9px sans-serif;");
+    const firstQualitySelect = makeSelect(QUALITY_CHOICES, 78);
+    firstQualitySelect.onchange = () => setBackend(node, "first_quality", firstQualitySelect.value);
+    q1wrap.append(el("span", null, "Quality"), firstQualitySelect);
+    row1.append(grid1, q1wrap);
+    card1.append(head1, row1);
+
+    // Pass 2
+    const card2 = el("div", cardCss);
+    const head2 = el("div", "display:flex; align-items:center; justify-content:space-between; gap:8px;");
+    const head2R = el("div", "font:800 9px sans-serif; color:#7fbf95;", "upscale");
+    head2.append(el("div", "font:800 11px sans-serif; color:#bdebcb;", "2 Pass"), head2R);
+    const row2 = stepRow();
+    const grid2 = el("div", "display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:7px; flex:1; min-width:160px;");
+    const upscaleButtons = new Map();
+    for (const v of UPSCALE_PASS_ORDER) {
+        const b = pill(v, v === "Off" ? "Turn Pass 2 off" : `Upscale: ${v}`, 28, 10);
+        b.onclick = () => setBackend(node, "upscale_pass", v);
+        upscaleButtons.set(v, b);
+        grid2.append(b);
+    }
+    const q2wrap = el("label", "display:flex; align-items:center; gap:5px; color:#91dca4; font:800 9px sans-serif;");
+    const upscaleQualitySelect = makeSelect(QUALITY_CHOICES, 78);
+    upscaleQualitySelect.onchange = () => setBackend(node, "upscale_quality", upscaleQualitySelect.value);
+    q2wrap.append(el("span", null, "Quality"), upscaleQualitySelect);
+    row2.append(grid2, q2wrap);
+
+    const sizeWrap = el("div", "display:flex; flex-direction:column; gap:6px;");
+    const sizeGrid = el("div", "display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px;");
+    const resizeButtons = new Map();
+    for (const r of RESIZE_BUTTONS) {
+        const b = pill(r.label, r.title, 26, 9);
+        b.onclick = () => setBackend(node, "resize_type", r.value);
+        resizeButtons.set(r.value, b);
+        sizeGrid.append(b);
+    }
+    sizeWrap.append(sectionLabel("Output size"), sizeGrid);
+    card2.append(head2, row2, sizeWrap);
+
+    /* --- footer: docs + note --- */
+    const footer = el("div", "display:flex; flex-direction:column; gap:6px;");
+    const note = el("div", "color:#7fbf95; font:9px/1.4 sans-serif;",
+        "Fine settings (divisible_by · resize method) are on the node inputs below.");
+    const docsLink = el("a", `
+        align-self:flex-start; box-sizing:border-box; padding:4px 8px; border-radius:8px;
+        border:1px solid rgba(72,255,132,0.18); background:rgba(0,0,0,0.20);
+        color:#9dffba; font:800 9px/1.2 sans-serif; text-decoration:none;
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer;
+    `, "Link : NVIDIA docs — Video Super Resolution");
     docsLink.href = NVIDIA_VSR_DOCS_URL;
     docsLink.target = "_blank";
     docsLink.rel = "noopener noreferrer";
-    docsLink.textContent = "Link : NVIDIA official docs: Video Super Resolution";
     docsLink.title = NVIDIA_VSR_DOCS_URL;
-    docsLink.onclick = (event) => event.stopPropagation();
-    docsLink.style.cssText = `
-        min-height:20px; box-sizing:border-box; padding:4px 8px; border-radius:8px;
-        border:1px solid rgba(72,255,132,0.18); background:rgba(0,0,0,0.20);
-        color:#9dffba; font:800 10px/1.2 sans-serif; text-decoration:none;
-        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer;
-    `;
+    docsLink.onclick = (e) => e.stopPropagation();
+    footer.append(note, docsLink);
 
-    const resizeSection = document.createElement("div");
-    resizeSection.style.cssText = "display:flex; flex-direction:column; gap:7px;";
-    const resizeGrid = document.createElement("div");
-    resizeGrid.style.cssText = "display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:7px;";
-    const resizeButtons = new Map();
-    for (const resizeMode of RESIZE_BUTTONS) {
-        const button = createPillButton(resizeMode.label, resizeMode.title, 28, 10);
-        button.onclick = () => setBackend(node, "resize_type", resizeMode.value);
-        resizeButtons.set(resizeMode.value, button);
-        resizeGrid.append(button);
-    }
-    resizeSection.append(sectionLabel("Resize"), resizeGrid);
+    root.append(header, pop, memRow, flow, card1, card2, footer);
 
-    root.append(
-        header,
-        sectionLabel("First pass (same size)"),
-        firstRow,
-        sectionLabel("Upscale pass"),
-        upscaleRow,
-        coach,
-        docsLink,
-        resizeSection,
-    );
-
-    const upscaleOff = () => String(getWidget(node, "upscale_pass")?.value || "Off") === "Off";
-    const panelHeight = () => (upscaleOff() ? PANEL_HEIGHT_NO_UPSCALE : PANEL_HEIGHT_FULL);
     const applySize = () => {
         const width = Math.max(
             PANEL_MIN_WIDTH,
@@ -280,84 +375,64 @@ function buildControlPanel(node) {
         );
         root.style.width = `${width}px`;
         root.style.minWidth = `${PANEL_MIN_WIDTH}px`;
-        root.style.height = `${panelHeight()}px`;
+        root.style.height = "auto";
+    };
+    const height = () => {
+        const h = root.scrollHeight || root.getBoundingClientRect().height;
+        return (h && h > 40) ? h : PANEL_FALLBACK_HEIGHT;
+    };
+    const applySizeAndRedraw = (n) => {
+        applySize();
+        resizeNodeToContent(n);
+        requestNodeRedraw(n);
     };
 
-    return {
-        root,
-        height: panelHeight,
-        applySize,
+    const ui = {
+        root, applySize, height,
         sync: () => {
             const firstPass = String(getWidget(node, "first_pass")?.value || "Off");
             const firstQuality = String(getWidget(node, "first_quality")?.value || "Medium");
             const upscalePass = String(getWidget(node, "upscale_pass")?.value || "Off");
             const upscaleQuality = String(getWidget(node, "upscale_quality")?.value || "High");
-            const resizeType = String(getWidget(node, "resize_type")?.value || "Keep Ratio");
+            const resizeType = String(getWidget(node, "resize_type")?.value || "Scale");
             const lowRam = String(getWidget(node, "low_ram_mode")?.value || "On");
 
             lowRamSelect.value = lowRam;
             firstQualitySelect.value = QUALITY_CHOICES.includes(firstQuality) ? firstQuality : "Medium";
             upscaleQualitySelect.value = QUALITY_CHOICES.includes(upscaleQuality) ? upscaleQuality : "High";
 
-            for (const [v, b] of firstButtons.entries()) {
-                setButtonSelected(b, v === firstPass);
-            }
-            for (const [v, b] of upscaleButtons.entries()) {
-                setButtonSelected(b, v === upscalePass);
-            }
-            for (const [v, b] of resizeButtons.entries()) {
-                setButtonSelected(b, v === resizeType);
-            }
-
             const firstOff = firstPass === "Off";
             const upOff = upscalePass === "Off";
+
+            for (const [v, b] of firstButtons.entries()) {
+                setSelected(b, v === firstPass, v === "Off" ? "off" : "primary");
+            }
+            for (const [v, b] of upscaleButtons.entries()) {
+                setSelected(b, v === upscalePass, v === "Off" ? "off" : "primary");
+            }
+            for (const [v, b] of resizeButtons.entries()) {
+                setSelected(b, v === resizeType, "primary");
+            }
+
+            // Flow stays simple/static text; lit vs dim only signals on/off.
+            const lit = "color:#0a1a10; background:#48ff84;";
+            const dim = "color:#5f7a69; background:rgba(255,255,255,0.04);";
+            fStep1.style.cssText = "padding:3px 8px; border-radius:7px;" + (firstOff ? dim : lit);
+            fStep2.style.cssText = "padding:3px 8px; border-radius:7px;" + (upOff ? dim : lit);
+
+            card1.style.opacity = firstOff ? "0.6" : "1";
+            card2.style.opacity = upOff ? "0.6" : "1";
             firstQualitySelect.disabled = firstOff;
             firstQualitySelect.style.opacity = firstOff ? "0.4" : "1";
             upscaleQualitySelect.disabled = upOff;
             upscaleQualitySelect.style.opacity = upOff ? "0.4" : "1";
-            resizeSection.style.display = upOff ? "none" : "flex";
+            sizeWrap.style.display = upOff ? "none" : "flex";
+            head2R.textContent = upOff ? "off" : "upscale";
 
-            coach.textContent = COACH[`${firstPass}|${upscalePass}`] || "Pick a first pass and/or an upscale.";
             applySize();
         },
     };
-}
-
-function makeSelect(values, minWidth) {
-    const select = document.createElement("select");
-    select.style.cssText = `
-        min-width:${minWidth}px; height:27px; border-radius:8px;
-        border:1px solid rgba(72,255,132,0.42); background:rgba(0,0,0,0.42);
-        color:#dfffea; font:700 11px sans-serif; outline:none;
-    `;
-    for (const value of values) {
-        const option = document.createElement("option");
-        option.value = value;
-        option.textContent = value;
-        select.append(option);
-    }
-    return select;
-}
-
-function createPillButton(label, title, height, fontSize) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = label;
-    button.title = title;
-    button.style.cssText = `
-        height:${height}px; min-width:0; padding:0 8px; border-radius:999px;
-        border:1px solid rgba(90,130,104,0.72); background:rgba(9,13,11,0.88);
-        color:#c9f7d5; font:800 ${fontSize}px sans-serif; cursor:pointer;
-        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    `;
-    return button;
-}
-
-function setButtonSelected(button, selected) {
-    button.style.borderColor = selected ? "rgba(72,255,132,0.95)" : "rgba(90,130,104,0.72)";
-    button.style.background = selected ? "rgba(31,96,50,0.92)" : "rgba(9,13,11,0.88)";
-    button.style.color = selected ? "#f0fff4" : "#c9f7d5";
-    button.style.boxShadow = selected ? "0 0 0 1px rgba(72,255,132,0.18) inset" : "none";
+    return ui;
 }
 
 function setBackend(node, name, value) {
@@ -397,10 +472,6 @@ function sanitizeBackendWidgetValues(node) {
     clampNumberWidget(node, getWidget(node, "width"), BACKEND_DEFAULTS.width);
     clampNumberWidget(node, getWidget(node, "height"), BACKEND_DEFAULTS.height);
 
-    const deviceWidget = getWidget(node, "device");
-    if (deviceWidget) {
-        setWidgetValue(node, deviceWidget, BACKEND_DEFAULTS.device, false);
-    }
     const ratioPresetWidget = getWidget(node, "ratio_preset");
     if (ratioPresetWidget && !String(ratioPresetWidget.value || "").includes(":")) {
         setWidgetValue(node, ratioPresetWidget, BACKEND_DEFAULTS.ratio_preset, false);
@@ -409,14 +480,14 @@ function sanitizeBackendWidgetValues(node) {
 
 function updateWidgetVisibility(node) {
     const upscalePass = String(getWidget(node, "upscale_pass")?.value || "Off");
-    const resizeType = String(getWidget(node, "resize_type")?.value || "Keep Ratio");
+    const resizeType = String(getWidget(node, "resize_type")?.value || "Scale");
     const upOff = upscalePass === "Off";
     const sameSize = resizeType === "Same Size";
 
     // Panel drives these; always hide the raw widgets.
     for (const name of [
         "first_pass", "first_quality", "upscale_pass", "upscale_quality",
-        "resize_type", "device", "low_ram_mode",
+        "resize_type", "low_ram_mode",
     ]) {
         setWidgetVisible(getWidget(node, name), false);
     }
@@ -427,13 +498,17 @@ function updateWidgetVisibility(node) {
     setWidgetVisible(getWidget(node, "width"), resizable && resizeType === "Manual");
     setWidgetVisible(getWidget(node, "height"), resizable && resizeType === "Manual");
     setWidgetVisible(getWidget(node, "ratio_preset"), resizable && resizeType === "Preset Ratio");
+    // resize_method (Center Crop / Fit) matters for every resizable type:
+    // the backend always runs _fit_frame_to_target_aspect, and even
+    // "Keep Ratio" (Megapixels) can change aspect via divisible_by rounding.
     setWidgetVisible(
         getWidget(node, "resize_method"),
-        resizable && (resizeType === "Manual" || resizeType === "Preset Ratio" || resizeType === "Scale"),
+        resizable && (
+            resizeType === "Manual" || resizeType === "Preset Ratio"
+            || resizeType === "Scale" || resizeType === "Keep Ratio"
+        ),
     );
     setWidgetVisible(getWidget(node, "divisible_by"), !upOff && !sameSize);
-    // clear_cuda_cache stays visible as a native combo widget.
-    setWidgetVisible(getWidget(node, "clear_cuda_cache"), true);
 }
 
 function clampNumberWidget(node, widget, fallback) {
@@ -543,24 +618,17 @@ function wrapComputeSize(node) {
         const size = originalComputeSize?.apply(this, arguments) || [MIN_WIDTH, MIN_HEIGHT];
         const width = Array.isArray(size) && Number.isFinite(Number(size[0])) ? Number(size[0]) : MIN_WIDTH;
         const height = Array.isArray(size) && Number.isFinite(Number(size[1])) ? Number(size[1]) : MIN_HEIGHT;
-        return [Math.max(width, MIN_WIDTH), height];
+        return [Math.max(width, MIN_WIDTH), Math.max(height, MIN_HEIGHT)];
     };
     node.__denoFinisherComputeWrapped = true;
 }
 
-function minNodeHeight(node) {
-    const upscaleOff = String(getWidget(node, "upscale_pass")?.value || "Off") === "Off";
-    return upscaleOff ? MIN_HEIGHT_NO_UPSCALE : MIN_HEIGHT;
-}
-
 function resizeNodeToContent(node) {
-    const minWidth = MIN_WIDTH;
-    const minHeight = minNodeHeight(node);
     const computed = node.computeSize?.();
     const computedWidth = Array.isArray(computed) && Number.isFinite(Number(computed[0])) ? Number(computed[0]) : 0;
-    const targetWidth = Math.max(minWidth, Number(node.size?.[0]) || 0, computedWidth);
+    const targetWidth = Math.max(MIN_WIDTH, Number(node.size?.[0]) || 0, computedWidth);
     const computedHeight = Array.isArray(computed) && Number.isFinite(Number(computed[1])) ? Number(computed[1]) : 0;
-    const targetHeight = Math.max(minHeight, computedHeight);
+    const targetHeight = Math.max(MIN_HEIGHT, computedHeight);
 
     if (
         Math.abs((Number(node.size?.[0]) || 0) - targetWidth) < 1

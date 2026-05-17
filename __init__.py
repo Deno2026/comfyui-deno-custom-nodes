@@ -381,7 +381,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoLTXMultiLoraLoader": "(Deno) LTX Multi LoRA Loader",
     "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
     "DenoRTXVFXEasyUpscale": "(Deno) RTX Video Super Resolution",
-    "DenoRTXVFXVideoFinisher": "(Deno) RTX Video Finisher",
+    "DenoRTXVFXVideoFinisher": "(Deno) RTX Video Super Resolution (2 Pass)",
     "DenoImageCompare": "(Deno) Image Compare",
     "DenoVideoCompare": "(Deno) Video Compare",
 }

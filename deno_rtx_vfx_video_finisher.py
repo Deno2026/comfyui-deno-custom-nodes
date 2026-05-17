@@ -35,21 +35,13 @@ FIRST_PASS_CHOICES = ["Off", "Denoise", "Deblur"]
 UPSCALE_PASS_CHOICES = ["Off", "VSR", "High Bitrate"]
 QUALITY_CHOICES = ["Low", "Medium", "High", "Ultra"]
 FINISHER_RESIZE_TYPES = ["Keep Ratio", "Manual", "Preset Ratio", "Scale", "Same Size"]
+# Low RAM Mode: the one honest system-RAM lever for this IMAGE node.
+# On  -> output kept on CPU AND stored as float16 (~half the RAM the full
+#        output batch occupies, the dominant consumer for long/large clips).
+# Off -> output on the input device, float32 (legacy behaviour).
+# The RTX VFX processing always runs in float32 on the GPU regardless;
+# only the stored result is downcast — fine for 8-bit-destined video.
 LOW_RAM_CHOICES = ["On", "Off"]
-CLEAR_CUDA_CACHE_CHOICES = ["Off", "Every Frame", "Every 8 Frames", "Every 16 Frames"]
-_CLEAR_CACHE_INTERVALS = {
-    "Off": 0,
-    "Every Frame": 1,
-    "Every 8 Frames": 8,
-    "Every 16 Frames": 16,
-}
-
-
-def _should_clear_cache(clear_cuda_cache: str, index: int) -> bool:
-    interval = _CLEAR_CACHE_INTERVALS.get(str(clear_cuda_cache), 0)
-    if interval <= 0:
-        return False
-    return ((index + 1) % interval) == 0
 
 
 @contextlib.contextmanager
@@ -71,7 +63,7 @@ def _maybe_vfx_effect(VideoSuperRes, enabled, mode, device_index, out_width, out
 
 class DenoRTXVFXVideoFinisher:
     DESCRIPTION = (
-        "RTX Video Finisher: optional Denoise/Deblur same-size pass, then optional "
+        "RTX Video Super Resolution (2 Pass): optional Denoise/Deblur same-size pass, then optional "
         "VSR/High Bitrate upscale pass, frame-by-frame in one node. Low RAM mode "
         "preallocates the output on CPU and avoids a full intermediate batch.\n\n"
         "Needs NVIDIA RTX VFX installed.\n"
@@ -98,9 +90,7 @@ class DenoRTXVFXVideoFinisher:
                 "divisible_by": (RTX_VFX_DIVISIBLE_BY_VALUES, {"default": RTX_VFX_DEFAULT_DIVISIBLE_BY}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "resize_method": (RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
-                "device": ("INT", {"default": 0, "min": 0, "max": 16, "step": 1}),
                 "low_ram_mode": (LOW_RAM_CHOICES, {"default": "On"}),
-                "clear_cuda_cache": (CLEAR_CUDA_CACHE_CHOICES, {"default": "Every 16 Frames"}),
             },
         }
 
@@ -124,9 +114,7 @@ class DenoRTXVFXVideoFinisher:
         divisible_by: int,
         ratio_preset: str,
         resize_method: str,
-        device: int,
         low_ram_mode: str,
-        clear_cuda_cache: str,
     ):
         if not torch.cuda.is_available():
             raise RuntimeError("NVIDIA RTX VFX requires CUDA. This ComfyUI Python does not currently see CUDA.")
@@ -163,15 +151,19 @@ class DenoRTXVFXVideoFinisher:
             target_width, target_height = int(source_width), int(source_height)
 
         VideoSuperRes = _import_vfx()
-        device_index = _safe_cuda_device_index(device)
+        device_index = _safe_cuda_device_index(0)
         cuda_device = torch.device(f"cuda:{device_index}")
 
+        # Low RAM Mode On = output on CPU + float16 (≈ half the system RAM
+        # the full output batch occupies — the only real RAM lever for an
+        # IMAGE-output node). Off = input device + float32 (legacy).
         low_ram = str(low_ram_mode) == "On"
         out_device = torch.device("cpu") if low_ram else images.device
+        out_dtype = torch.float16 if low_ram else images.dtype
         out = torch.empty(
             (int(batch), int(target_height), int(target_width), 3),
             device=out_device,
-            dtype=images.dtype,
+            dtype=out_dtype,
         )
 
         with torch.inference_mode():
@@ -203,12 +195,15 @@ class DenoRTXVFXVideoFinisher:
                             frame = torch.from_dlpack(second_result.image).clone()
 
                         enhanced = frame.permute(1, 2, 0).contiguous()
+                        # clamp in the source (float32) precision first, then a
+                        # single cast for storage. Clamping after a CPU float16
+                        # cast is the slow path (CPUs have no native fp16 math),
+                        # so this keeps the Low-RAM (fp16) saving without the
+                        # extra per-frame speed penalty.
                         out[index].copy_(
-                            enhanced.to(device=out_device, dtype=images.dtype).clamp(0.0, 1.0)
+                            enhanced.clamp(0.0, 1.0).to(device=out_device, dtype=out_dtype)
                         )
 
                         del frame, enhanced
-                        if _should_clear_cache(clear_cuda_cache, index):
-                            torch.cuda.empty_cache()
 
         return (out,)
