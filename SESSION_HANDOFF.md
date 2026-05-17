@@ -1,5 +1,44 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 최신 세션 (2026-05-17, Claude Opus 4.7) — 이것부터 읽기
+>
+> 브랜치 `claude/review-project-repo-mQQtO`, **origin보다 ahead 8 · 미push**.
+> GitHub `main` = 브랜치 = `561362c`(0.6.1). 아래 전부 **로컬 세이브포인트**, 배포는 사용자 OK 대기.
+> 모든 변경은 ComfyUI API로 end-to-end 검증함. 실행본(`D:\...\custom_nodes\deno-custom-nodes`)에 해시일치 동기화.
+>
+> ### 완료·검증
+> - **Video Compare**: `-shortest`/apad 오디오버그 → 오디오입력 `-t n/fps` 캡으로 해결(Broken pipe 제거);
+>   stderr 스레드 drain+실제 ffmpeg에러 노출(37f2d5a, Deno2026); rAF 루프가 master도 재생(좌측 정지/우측 초반반복 해소);
+>   `fps` 위젯 UI 노출(기본24, 소스fps로 사용자 지정); fps 위젯 높이 반영(초록패널 안 삐짐). **사용자 확정.**
+> - **RTX 2-Pass** (`DenoRTXVFXVideoFinisher`, 세이브포인트 `e72cd13`):
+>   표시명 **"(Deno) RTX Video Super Resolution (2 Pass)"** (클래스키 불변→저장 workflow 안전).
+>   프론트 전면 재설계(정체성+`2 PASS`칩, `Input→1 Pass→2 Pass→Output` 흐름띠, 단계카드 Off=3번째,
+>   Quality, 출력크기버튼, `(i)`도움말, 전부 영문, 다크 드롭다운, 패널높이 실측). 프리셋/코치 제거.
+>   백엔드 정리: `device`(GPU0 고정)·`out_precision`·`clear_cuda_cache` + 캐시헬퍼 **제거**(이 노드 VRAM 무시가능).
+>   `low_ram_mode`가 유일한 정직한 RAM 레버: On=출력 CPU+float16(결과배치 시스템RAM ~½), Off=입력장치+float32.
+>   clamp는 float32에서 먼저→fp16 캐스트 1회(느린 CPU-fp16 clamp 회피). `divisible_by` 유지,
+>   `resize_method`는 Keep Ratio/Megapixels 포함 모든 resizable에서 노출(이전 누락 복원).
+>
+> ### 다음 세션 PENDING (사용자가 한도 리셋 후 재요청 예정)
+> **파일/스트리밍 V2 노드** — 사용자 "무조건 해볼 필요 있다" 합의됨.
+> - 이유: IMAGE→IMAGE는 시스템 RAM 하한(입력 풀배치+출력 풀배치+ComfyUI 전노드 캐시). fp16은 절반뿐.
+>   16/32GB 다수 사용자 위해선 클립 전체를 IMAGE로 만들지 않는 구조가 유일한 해법.
+> - 형태: **별도 신규 노드**(추가 배선 아님). 입력=영상 파일 경로(옵션 이미지시퀀스 폴더).
+>   내부: lazy로 N프레임 청크 디코드 → 프레임별 Pass1/Pass2(GPU 1장) → ffmpeg stdin으로 단일 mp4 스트리밍
+>   → 결과 경로 반환(+VHS식 프리뷰 dict). 오디오는 검증된 `-t n/fps` 캡 패스스루. 피크 RAM ≈ 청크 몇 장.
+>   기존 IMAGE 2-Pass 노드는 짧은클립/IMAGE체인용으로 유지.
+> - 착수 전 결정: 설계문서 먼저 vs 최소 path→path 프로토타입 먼저.
+> - Registry 주의: 파일IO+ffmpeg subprocess(VHS 전례 있음). 기본=단일mp4 스트림(프레임파일 누적 없음);
+>   시퀀스 출력은 용량경고 단 opt-in.
+>
+> ### 환경 사실 (레포 변경 아님)
+> - 중복 `comfyui-deno-custom-nodes` 폴더(캔버스 lag 주범) → `.disabled`로 개명(보존·복구가능). `deno-custom-nodes`만 로드.
+> - `VHS.AdvancedPreviews=Always` (사용자 comfy.settings.json; 환경설정) → save_output 꺼도 VideoCombine 프리뷰됨.
+> - push/Registry는 사용자 명시 OK 시에만. push 전 squash 정리 권장(apad→audio-cap 등 교정커밋 중복).
+>
+> ---
+> (아래는 이전 세션 2026-05-16 기록 — 역사 참고용)
+
 작성: 2026-05-16 (Claude Opus 4.7) · 권위 문서: `C:\Users\aions\Documents\Codex\전역설정.md`
 
 ## 작업 위치 (이주 완료)
