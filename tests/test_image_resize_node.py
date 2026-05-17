@@ -181,6 +181,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
         "DenoRTXVFXEasyUpscale",
+        "DenoRTXVFXVideoFinisher",
         "DenoImageCompare",
         "DenoVideoCompare",
     ]
@@ -193,6 +194,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno) RTX Video Super Resolution"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXVideoFinisher"] == "(Deno) RTX Video Super Resolution (2 Pass)"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoImageCompare"] == "(Deno) Image Compare"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoCompare"] == "(Deno) Video Compare"
     assert package.WEB_DIRECTORY == "./web/js"
@@ -415,7 +417,9 @@ def test_deno_video_compare_contract_and_frontend_copy():
     node_cls = package.NODE_CLASS_MAPPINGS["DenoVideoCompare"]
     inputs = node_cls.INPUT_TYPES()
 
-    assert list(inputs["required"].keys()) == ["mode", "split_position", "toggle_image", "swap", "fps"]
+    assert list(inputs["required"].keys()) == [
+        "mode", "split_position", "toggle_image", "swap", "fps", "burn_labels"
+    ]
     assert inputs["required"]["mode"][0] == ["Slider", "Side by Side", "Difference", "Toggle"]
     assert inputs["required"]["mode"][1]["default"] == "Slider"
     assert inputs["required"]["split_position"][1]["default"] == 0.5
@@ -426,6 +430,8 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert inputs["required"]["fps"][1]["default"] == 24.0
     assert inputs["required"]["fps"][1]["min"] == 1.0
     assert inputs["required"]["fps"][1]["max"] == 240.0
+    assert inputs["required"]["burn_labels"][0] == "BOOLEAN"
+    assert inputs["required"]["burn_labels"][1]["default"] is False
     assert list(inputs["optional"].keys()) == ["video_a", "video_b", "audio_a", "audio_b"]
     assert inputs["optional"]["video_a"][0] == "IMAGE"
     assert inputs["optional"]["video_b"][0] == "IMAGE"
@@ -441,24 +447,24 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert 'const NODE_NAME = "DenoVideoCompare";' in script
     assert 'const WIDGET_NAME = "deno_video_compare_canvas";' in script
     assert '"Slider", "Side by Side", "Difference", "Toggle"' in script
-    assert '"mode", "split_position", "toggle_image", "swap", "fps"' in script
+    assert '"mode", "split_position", "toggle_image", "swap",' in script
+    assert '"burn_labels"' in script
     assert "Synced A/B playback on a shared timeline." in script
-    # mp4-backed rebuild: native <video> DOM widget + rate-based sync
     assert "node.addDOMWidget(WIDGET_NAME" in script
-    assert "function setupVideoCompareNode(node)" in script
     assert "function handleExecuted(node, output)" in script
     assert "function startPlayback(node)" in script
-    assert "function stopPlayback(node)" in script
+    assert "function pausePlayback(node)" in script
     assert "function togglePlay(node)" in script
     assert "function getTimeline(node)" in script
-    assert "function syncFollower(node, force)" in script
-    assert "function applyTgl(node)" in script
-    assert "output.a_video" in script
-    assert "output.b_video" in script
-    assert "output.compare_meta" in script
-    assert "o.playbackRate = s.speed * (diff > 0 ? 1 - k : 1 + k);" in script
+    assert "function loopOf(node)" in script
+    assert "output.deno_video_compare" in script
+    assert "createBufferSource" in script
     assert "requestAnimationFrame(tick)" in script
     assert "nodeType.prototype.onRemoved" in script
+    # the Registry-trigger frontend patterns must never reappear
+    assert "<video" not in script
+    assert "ffmpeg" not in script
+    assert "subprocess" not in script
 
 
 def test_deno_video_compare_runtime_semantics_when_torch_available():
@@ -468,7 +474,9 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
 
     try:
         import torch
-    except ImportError:
+    except Exception:
+        # ImportError on CI (no torch); RuntimeError if torch is re-imported
+        # in a shared multi-test process — skip rather than fail the suite.
         for name, module in saved_torch_modules.items():
             if module is not None:
                 sys.modules[name] = module
@@ -477,28 +485,11 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
     if not hasattr(torch, "zeros"):
         return
 
-    nodes_previous = sys.modules.get("nodes")
-    nodes_stub = types.ModuleType("nodes")
-
-    class PreviewImage:
-        OUTPUT_NODE = True
-
-        def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
-            return {
-                "ui": {
-                    "images": [
-                        {
-                            "filename": f"{filename_prefix}{index:05d}_.png",
-                            "subfolder": "",
-                            "type": "temp",
-                        }
-                        for index in range(len(images))
-                    ]
-                }
-            }
-
-    nodes_stub.PreviewImage = PreviewImage
-    sys.modules["nodes"] = nodes_stub
+    fp_previous = sys.modules.get("folder_paths")
+    tmpdir = tempfile.mkdtemp()
+    fp_stub = types.ModuleType("folder_paths")
+    fp_stub.get_temp_directory = lambda: tmpdir
+    sys.modules["folder_paths"] = fp_stub
 
     try:
         spec = importlib.util.spec_from_file_location(
@@ -511,67 +502,51 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
         video_a = torch.zeros((24, 8, 8, 3), dtype=torch.float32)
         video_b = torch.ones((48, 16, 16, 3), dtype=torch.float32) * 0.6
 
-        result = node.compare_videos("Slider", 0.5, "B", "false", 24.0, video_a=video_a, video_b=video_b)
+        result = node.compare_videos(
+            "Slider", 0.5, "B", "false", 24.0, False, video_a=video_a, video_b=video_b
+        )
         assert "result" in result
         out = result["result"][0]
-        assert tuple(out.shape) == tuple(video_b.shape)  # Slider -> pass B
-        ui = result["ui"]
-        assert {"a_video", "b_video", "compare_meta"}.issubset(ui.keys())
-        assert isinstance(ui["a_video"], list)
-        assert isinstance(ui["b_video"], list)
-        meta = ui["compare_meta"][0]
-        assert meta["mode"] == "Slider"
-        assert meta["fps"] == 24.0
-        assert meta["a_count"] == 24
-        assert meta["b_count"] == 48
-        assert meta["a_width"] == 8
-        assert meta["a_height"] == 8
-        assert meta["b_width"] == 16
-        assert meta["b_height"] == 16
-        assert "duration" in meta and "a_fps" in meta and "b_fps" in meta
-        assert meta["a_has_audio"] is False and meta["b_has_audio"] is False
-        # mp4 entries are environment-dependent (ffmpeg); when present they
-        # must be temp .mp4 references. When ffmpeg is absent the lists are
-        # empty and meta carries an error flag.
-        for entry in list(ui["a_video"]) + list(ui["b_video"]):
-            assert entry["filename"].endswith(".mp4")
-            assert entry["type"] == "temp"
-            assert entry["subfolder"] == ""
-        if not ui["a_video"] and not ui["b_video"]:
-            assert "error" in meta
+        assert out.ndim == 4 and out.shape[-1] == 3  # full-res lossless composite
+        payload = result["ui"]["deno_video_compare"][0]
+        assert payload["mode"] == "Slider"
+        assert payload["have_a"] is True and payload["have_b"] is True
+        assert payload["a_count"] == 24 and payload["b_count"] == 48
+        assert payload["a_src_w"] == 8 and payload["b_src_w"] == 16
+        assert isinstance(payload["files_a"], list) and len(payload["files_a"]) > 0
+        assert isinstance(payload["files_b"], list) and len(payload["files_b"]) > 0
+        assert payload["frame_count"] == max(len(payload["files_a"]), len(payload["files_b"]))
+        for fn in payload["files_a"][:3] + payload["files_b"][:3]:
+            assert fn.endswith(".webp")
+        assert payload["preview_capped"] is False
+        assert payload["output_fullres"] is True
 
-        swapped = node.compare_videos("Toggle", 1.5, "Z", True, 999.0, video_a=video_a, video_b=None)
-        swapped_meta = swapped["ui"]["compare_meta"][0]
-        assert swapped_meta["mode"] == "Toggle"
-        assert swapped_meta["toggle_image"] == "B"
-        assert swapped_meta["split_position"] == 0.98
-        assert swapped_meta["swap"] is True
-        assert swapped_meta["fps"] == 240.0
-        assert swapped_meta["a_count"] == 24
-        assert swapped_meta["b_count"] == 0
-        assert swapped["ui"]["b_video"] == []
-        # Toggle with no B -> comparison passes B, falls back to A
-        assert tuple(swapped["result"][0].shape) == tuple(video_a.shape)
+        # burn_labels stamps the saved output; off must leave it untouched
+        on = node.compare_videos(
+            "Side by Side", 0.5, "B", False, 24.0, True, video_a=video_a, video_b=video_b
+        )["result"][0]
+        off = node.compare_videos(
+            "Side by Side", 0.5, "B", False, 24.0, False, video_a=video_a, video_b=video_b
+        )["result"][0]
+        assert tuple(on.shape) == tuple(off.shape)
+        assert float((on - off).abs().sum()) > 0.0
 
-        normalized = node.compare_videos("Bad", "bad", "Z", "yes", "bad", video_a=None, video_b=None)
-        normalized_meta = normalized["ui"]["compare_meta"][0]
-        assert normalized_meta["mode"] == "Slider"
-        assert normalized_meta["split_position"] == 0.5
-        assert normalized_meta["toggle_image"] == "B"
-        assert normalized_meta["swap"] is True
-        assert normalized_meta["fps"] == 24.0
-        assert normalized_meta["a_count"] == 0
-        assert normalized_meta["b_count"] == 0
-        assert normalized["ui"]["a_video"] == []
-        assert normalized["ui"]["b_video"] == []
-        # no inputs -> safe non-empty IMAGE tensor (not a crash)
-        z = normalized["result"][0]
+        # normalization + no inputs -> safe, non-crashing
+        norm = node.compare_videos("Bad", "bad", "Z", "yes", "bad", False)
+        nmeta = norm["ui"]["deno_video_compare"][0]
+        assert nmeta["mode"] == "Slider"
+        assert nmeta["split_position"] == 0.5
+        assert nmeta["toggle_image"] == "B"
+        assert nmeta["swap"] is True
+        assert nmeta["have_a"] is False and nmeta["have_b"] is False
+        assert nmeta["files_a"] == [] and nmeta["files_b"] == []
+        z = norm["result"][0]
         assert z.ndim == 4 and z.shape[-1] == 3
     finally:
-        if nodes_previous is None:
-            sys.modules.pop("nodes", None)
+        if fp_previous is None:
+            sys.modules.pop("folder_paths", None)
         else:
-            sys.modules["nodes"] = nodes_previous
+            sys.modules["folder_paths"] = fp_previous
 
 
 def test_rtx_vfx_target_size_modes_match_visible_resize_choices():

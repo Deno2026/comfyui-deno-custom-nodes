@@ -101,16 +101,17 @@ Main features:
 
 ### `(Deno) Video Compare`
 
-Visual A/B comparison node for videos, built for checking upscale and FPS-interpolation results directly on the ComfyUI canvas. Lightweight: each input is encoded to one compressed preview clip and played with native `<video>` elements, so high-res / long batches stay cheap instead of writing a full PNG sequence.
+Visual A/B comparison node for videos, built for checking upscale and FPS-interpolation results directly on the ComfyUI canvas. All compositing is pure tensor work — no external encoder. The in-node player draws a downscaled WebP frame sequence on a `<canvas>` on a virtual clock (so A/B stay frame-exact) and plays audio via WebAudio; the files are written to ComfyUI's temp dir and served by the existing `/view` route, then auto-cleared on restart.
 
 Main features:
 
-- `video_a` / `video_b` (IMAGE batches) and optional `audio_a` / `audio_b` (AUDIO, e.g. from VHS *Load Video*) muxed into the preview
+- `video_a` / `video_b` (IMAGE batches) and optional `audio_a` / `audio_b` (AUDIO, e.g. from VHS *Load Video*)
 - modes: `Slider`, `Side by Side`, `Difference`, `Toggle` (freeze-frame A/B flip), plus `Swap`
 - hover-move slider, click = play/pause, scrub bar, frame step, speed, loop; hover the preview to hear the selected side
 - shared timeline: both sides play over the same duration, so an upscale (same frame count) stays frame-locked while an FPS-interpolation result (e.g. RIFE 24 to 48) just looks smoother at the same length
 - node resizes to the clip aspect; wheel and middle-drag are passed to the ComfyUI canvas
-- `Output Images SBS/Diff`: an IMAGE output that returns the Side-by-Side composite or the Difference image (passes B through in Slider/Toggle)
+- `🏷 Labels` toggle: optionally burns the A/B + resolution badges into the saved output (off by default; the in-node preview always shows them)
+- `comparison`: full-resolution **lossless** IMAGE output of the chosen mode (Slider / Side by Side / Difference / Toggle), ready to wire into a save/encode node such as VHS *Video Combine*
 
 Too heavy to run the node? Use the no-install browser tool: **https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/** (also linked at the bottom of the node).
 

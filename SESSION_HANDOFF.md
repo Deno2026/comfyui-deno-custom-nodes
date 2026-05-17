@@ -1,6 +1,34 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
-> ## ▶ 최신 세션 (2026-05-17, Claude Opus 4.7) — 이것부터 읽기
+> ## ▶ 최신 세션 (2026-05-18, Claude Opus 4.7) — 이것부터 읽기
+>
+> **목표/결정:** 0.6.0/0.6.1을 플래그한 유일 원인 = 옛 `deno_video_compare.py`의 ffmpeg `subprocess`
+> (urllib/socket/HF/.bat는 0.5.9에서 통과 → 무죄, git diff로 검증). 소명 X, **안 걸리게 새로 만들어 재배포**.
+>
+> **한 일 (Registry-clean Video Compare 단일 노드로 교체):**
+> - 옛 ffmpeg `deno_video_compare.py`/`web/js/deno_video_compare.js` **삭제**. 스테이징 변형(Preview/VHS) 폐기.
+> - 인터랙티브 캔버스 플레이어를 정식화: `deno_video_compare.py`(클래스 `DenoVideoCompare`, 표시명
+>   **"(Deno) Video Compare"**) + `web/js/deno_video_compare.js`(NODE_NAME `DenoVideoCompare`).
+>   합성 전부 순수 torch; 프리뷰=temp WebP 시퀀스+raw f32 PCM을 기존 `/view`로 서빙(새 라우트 X);
+>   가상클럭 캔버스 재생(A/B 정확 동기)+WebAudio(hover로 해당 측 소리). subprocess/ffmpeg/wave/os.remove/
+>   urllib/socket **0개**(주석까지 스크럽, 검증). 프리뷰 프레임 상한 없음(공간 다운스케일만, 출력은 풀해상도 무손실).
+> - `🏷 Labels` 토글(기본 off): 켜면 A/B+해상도 뱃지를 **저장 출력에만** burn-in(노드 프리뷰는 항상 표시).
+> - `__init__.py` 단일 등록. 스테일 docs/템플릿 제거. CI 테스트(`tests/test_image_resize_node.py`)
+>   새 계약으로 재작성 + 등록목록에 `DenoRTXVFXVideoFinisher` 추가 → **48/48 통과(0 실패, 임베디드 torch 환경)**.
+> - `pyproject.toml` **0.6.1 → 0.7.0**. README Video Compare 섹션 갱신.
+>
+> **검증:** py_compile, JS `node --check`, 패키지 전체 스캐너 트리거 0, CI 러너 48/48, ComfyUI 재시작 후
+> `/object_info` 단일 `(Deno) Video Compare` + `burn_labels` 노출, 합성/burn/오디오 자체테스트 통과.
+> 실행본 해시일치 동기화.
+>
+> **상태/다음:** 전부 **로컬 커밋 예정**, 미push. `publish_registry.yml`은 **main에 pyproject.toml push 시
+> 자동 배포**(REGISTRY_ACCESS_TOKEN=GitHub secret). 배포=공개·되돌리기 어려움 → **사용자 명시 OK 후
+> main 반영/푸시**. 배포 후 Registry API로 0.7.0 상태 폴링(Pending→Active) 확인 필요(또 Flagged면 사유 수신·수정;
+> 옛 0.5.9 Active가 롤백 안전망). 스캐너 비공개라 100% 확정은 배포 후 상태로만.
+>
+> ---
+>
+> ## ▶ 이전 세션 (2026-05-17, Claude Opus 4.7)
 >
 > 브랜치 `claude/review-project-repo-mQQtO`, **origin보다 ahead 8 · 미push**.
 > GitHub `main` = 브랜치 = `561362c`(0.6.1). 아래 전부 **로컬 세이브포인트**, 배포는 사용자 OK 대기.

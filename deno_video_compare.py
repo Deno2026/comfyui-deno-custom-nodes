@@ -1,10 +1,23 @@
-from nodes import PreviewImage
+"""(Deno) Video Compare — interactive A/B video comparison.
 
+All compositing (Slider / Side by Side / Difference / Toggle) is pure
+tensor work. The node spawns no external process and makes no network
+calls — only torch, numpy and Pillow (all core ComfyUI dependencies).
+For the in-node player it writes a downscaled WebP frame sequence (and
+raw float32 PCM for audio) into ComfyUI's temp dir, served by the
+existing /view route; the canvas frontend plays it on a virtual clock
+with exact A/B sync. The ``comparison`` output is always the
+full-resolution lossless composite (optionally with the A/B + resolution
+labels burned in for the saved video).
+"""
 
 COMPARE_MODES = ["Slider", "Side by Side", "Difference", "Toggle"]
 TOGGLE_CHOICES = ["A", "B"]
 
 
+# --------------------------------------------------------------------------- #
+# small normalisers (kept local so this file has no cross-module dependency)
+# --------------------------------------------------------------------------- #
 def _normalize_mode(mode: str) -> str:
     return mode if mode in COMPARE_MODES else "Slider"
 
@@ -39,35 +52,10 @@ def _video_size(video):
     return int(video.shape[2]), int(video.shape[1]), int(video.shape[0])
 
 
-def _find_ffmpeg():
-    """Locate an ffmpeg binary without adding a hard dependency.
-
-    Order: imageio-ffmpeg (bundled in most ComfyUI / VideoHelperSuite
-    installs) -> system PATH. Returns the executable path or None.
-    """
-    import os
-    import shutil
-
-    try:
-        import imageio_ffmpeg
-
-        exe = imageio_ffmpeg.get_ffmpeg_exe()
-        if exe and os.path.isfile(exe):
-            return exe
-    except Exception:
-        pass
-
-    exe = shutil.which("ffmpeg")
-    if exe:
-        return exe
-    return None
-
-
+# --------------------------------------------------------------------------- #
+# audio passthrough helpers (pure tensor shape juggling, no encoder)
+# --------------------------------------------------------------------------- #
 def _extract_waveform(audio):
-    """Pull (waveform, sample_rate) out of the many AUDIO shapes nodes emit:
-    a dict, an object with attributes, a (waveform, sr) tuple, or a bare
-    tensor/array. Returns (None, None) if nothing usable is found.
-    """
     if audio is None:
         return None, None
     wf = sr = None
@@ -77,7 +65,6 @@ def _extract_waveform(audio):
     else:
         wf = getattr(audio, "waveform", None)
         sr = getattr(audio, "sample_rate", None)
-        # VHS Load Video emits a lazy Mapping (LazyAudioMap) -> subscript it
         if wf is None:
             try:
                 wf = audio["waveform"]
@@ -108,174 +95,9 @@ def _has_audio(audio) -> bool:
     return wf is not None and _audio_samples(wf) > 0
 
 
-def _write_wav(audio, path) -> bool:
-    """Write a ComfyUI AUDIO payload to a 16-bit PCM WAV (stdlib only)."""
-    import wave
-
-    import numpy as np
-    import torch
-
-    wf, sr = _extract_waveform(audio)
-    if wf is None:
-        return False
-    sr = int(sr or 44100)
-    if not hasattr(wf, "dim"):
-        wf = torch.as_tensor(np.asarray(wf))
-    t = wf.float()
-    if t.dim() == 3:
-        t = t[0]
-    if t.dim() == 1:
-        t = t.unsqueeze(0)
-    if t.dim() != 2:
-        return False
-    channels = int(t.shape[0])
-    n = int(t.shape[1])
-    # some sources hand back [samples, channels]; flip if obviously so
-    if channels > 8 and n <= 8:
-        t = t.transpose(0, 1).contiguous()
-        channels, n = n, channels
-    if channels <= 0 or n <= 0:
-        return False
-    pcm = (
-        t.detach().clamp(-1.0, 1.0).mul(32767.0).round()
-        .to(torch.int16).cpu().numpy()
-    )  # [C, N]
-    interleaved = np.ascontiguousarray(pcm.T).reshape(-1)
-    with wave.open(path, "wb") as w:
-        w.setnchannels(channels)
-        w.setsampwidth(2)
-        w.setframerate(sr)
-        w.writeframes(interleaved.tobytes())
-    return True
-
-
-def _encode_video(video, ffmpeg_exe, out_path, enc_fps, audio_wav=None):
-    """Stream an IMAGE batch frame-by-frame into ffmpeg as H.264/yuv420p.
-
-    Frames are converted one at a time so a 4K clip never materialises a
-    full float copy of the whole batch in RAM. When ``audio_wav`` is given
-    it is muxed as an AAC track aligned to the (shared) clip duration.
-    """
-    import subprocess
-    import threading
-
-    import numpy as np
-    import torch
-
-    n = int(video.shape[0])
-    h = int(video.shape[1])
-    w = int(video.shape[2])
-    c = int(video.shape[3]) if video.dim() >= 4 else 3
-    enc_fps = max(0.1, float(enc_fps))
-    expected_bytes = w * h * 3
-
-    args = [
-        ffmpeg_exe, "-y", "-loglevel", "error",
-        "-f", "rawvideo", "-pix_fmt", "rgb24",
-        "-s", f"{w}x{h}", "-r", f"{enc_fps:.6f}", "-i", "-",
-    ]
-    if audio_wav:
-        # Limit the audio INPUT to the exact video length (n / fps). This is
-        # an input option (before -i) so it only caps how much audio is read;
-        # the video stdin pipe is still consumed in full, so ffmpeg never
-        # stops early -> no BrokenPipe, and the output duration is always
-        # exactly the video length regardless of whether the muxed audio is
-        # shorter or longer. (Replaces the earlier "-af apad + -shortest",
-        # which with a piped video made -shortest unreliable and inflated the
-        # clip to the encode wall-time, e.g. 5+ minutes.)
-        video_seconds = float(n) / enc_fps
-        args += ["-t", f"{video_seconds:.6f}", "-i", audio_wav]
-    args += [
-        "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-preset", "veryfast", "-crf", "20",
-    ]
-    if audio_wav:
-        # No -shortest / no apad: the audio input is already capped to the
-        # video length above, and the video pipe defines the output length.
-        args += [
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-c:a", "aac", "-b:a", "192k",
-        ]
-    else:
-        args += ["-an"]
-    args += ["-movflags", "+faststart", out_path]
-
-    proc = subprocess.Popen(
-        args,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
-
-    # Drain stderr on a side thread. Reading it only AFTER the write loop
-    # (the old behaviour) deadlocks on large clips once ffmpeg fills its
-    # stderr pipe, which then surfaces as a bare "[Errno 32] Broken pipe"
-    # that hides ffmpeg's real message.
-    err_holder = {}
-
-    def _drain_stderr():
-        try:
-            err_holder["data"] = proc.stderr.read()
-        except Exception:
-            err_holder["data"] = b""
-
-    err_thread = threading.Thread(target=_drain_stderr, daemon=True)
-    err_thread.start()
-
-    def _ffmpeg_error(prefix: str) -> RuntimeError:
-        err_thread.join(timeout=10)
-        msg = (err_holder.get("data") or b"").decode("utf-8", "ignore").strip()
-        return RuntimeError(f"{prefix}: {msg[:400]}" if msg else prefix)
-
-    try:
-        broken = False
-        try:
-            for i in range(n):
-                frame = video[i]
-                if c == 4:
-                    frame = frame[..., :3]
-                arr = (
-                    frame.detach().clamp(0.0, 1.0).mul(255.0).round()
-                    .to(torch.uint8).cpu().numpy()
-                )
-                buf = np.ascontiguousarray(arr).tobytes()
-                if len(buf) != expected_bytes:
-                    raise RuntimeError(
-                        "frame size does not match the declared "
-                        f"{w}x{h} RGB stream: frame {i} is "
-                        f"{tuple(int(x) for x in arr.shape)} "
-                        f"({len(buf)} bytes, expected {expected_bytes}). "
-                        "The input is likely not a standard "
-                        "[frames, height, width, 3] IMAGE batch."
-                    )
-                proc.stdin.write(buf)
-            proc.stdin.close()
-        except BrokenPipeError:
-            broken = True
-
-        ret = proc.wait()
-        if broken:
-            raise _ffmpeg_error(
-                "ffmpeg stopped early while receiving frames"
-            )
-        if ret != 0:
-            raise _ffmpeg_error(f"ffmpeg exited {ret}")
-    finally:
-        try:
-            proc.stdin.close()
-        except Exception:
-            pass
-        try:
-            err_thread.join(timeout=5)
-        except Exception:
-            pass
-        try:
-            proc.stderr.close()
-        except Exception:
-            pass
-
-
+# --------------------------------------------------------------------------- #
+# compositing (pure torch — this is the whole comparison "engine")
+# --------------------------------------------------------------------------- #
 def _resize_to(video, h, w):
     import torch.nn.functional as F
 
@@ -286,62 +108,324 @@ def _resize_to(video, h, w):
     return x.permute(0, 2, 3, 1).clamp(0.0, 1.0)
 
 
-def _composite(mode, a, b):
-    """Build the IMAGE output. Side by Side / Difference are the only modes
-    where it is meaningful; Slider / Toggle just pass B through (fallback
-    A) so the socket is always valid.
+def _composite_frames(mode, video_a, video_b, split_position, swap, toggle_image, fps):
+    """Return a single composited IMAGE batch [n, h, w, 3] (float, 0..1).
+
+    Every mode is rendered here, so the result is a real, self-contained
+    comparison clip — no browser-side overlay or external encoder needed.
     """
     import torch
 
-    if mode in ("Side by Side", "Difference") and a is not None and b is not None:
-        n = min(int(a.shape[0]), int(b.shape[0]))
-        a = a[:n].float()
-        b = b[:n].float()
-        if mode == "Difference":
-            b = _resize_to(b, int(a.shape[1]), int(a.shape[2]))
-            return (a - b).abs().clamp(0.0, 1.0)
-        # Side by Side: common height, keep each aspect, concat on width
+    a = None if video_a is None or len(video_a) <= 0 else video_a.float()
+    b = None if video_b is None or len(video_b) <= 0 else video_b.float()
+
+    if swap:
+        a, b = b, a
+
+    # one side only -> just show it
+    if a is None and b is None:
+        return torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+    if a is None:
+        return b.clamp(0.0, 1.0)
+    if b is None:
+        return a.clamp(0.0, 1.0)
+
+    n = min(int(a.shape[0]), int(b.shape[0]))
+    a = a[:n]
+    b = b[:n]
+
+    if mode == "Side by Side":
         h = max(int(a.shape[1]), int(b.shape[1]))
         wa = max(1, round(int(a.shape[2]) * h / max(1, int(a.shape[1]))))
         wb = max(1, round(int(b.shape[2]) * h / max(1, int(b.shape[1]))))
-        return torch.cat([_resize_to(a, h, wa), _resize_to(b, h, wb)], dim=2)
+        return torch.cat([_resize_to(a, h, wa), _resize_to(b, h, wb)], dim=2).clamp(0.0, 1.0)
 
-    # Slider / Toggle (or a side missing) -> pass B, fall back to A
-    if b is not None:
-        return b.float()
-    if a is not None:
-        return a.float()
-    return torch.zeros((1, 16, 16, 3), dtype=torch.float32)
+    # all remaining modes work on a common canvas (A's size)
+    h, w = int(a.shape[1]), int(a.shape[2])
+    b = _resize_to(b, h, w)
+    a = a.clamp(0.0, 1.0)
+    b = b.clamp(0.0, 1.0)
+
+    if mode == "Difference":
+        return (a - b).abs().clamp(0.0, 1.0)
+
+    if mode == "Toggle":
+        # blink comparator: swap the whole frame A<->B a few times a second
+        blink = max(1, int(round(float(fps) * 0.4)))
+        out = a.clone()
+        idx = torch.arange(n)
+        show_b = ((idx // blink) % 2) == (0 if toggle_image == "B" else 1)
+        out[show_b] = b[show_b]
+        return out
+
+    # Slider (default): left part = A, right part = B, thin divider
+    split_col = max(1, min(w - 1, int(round(w * float(split_position)))))
+    out = a.clone()
+    out[:, :, split_col:, :] = b[:, :, split_col:, :]
+    line = max(1, w // 400)
+    lo = max(0, split_col - line)
+    hi = min(w, split_col + line)
+    out[:, :, lo:hi, :] = 1.0
+    return out.clamp(0.0, 1.0)
 
 
-class DenoVideoCompare(PreviewImage):
+def _shared_timeline_fps(count_a, count_b, fps):
+    """Same shared-timeline math as the original node: both clips occupy
+    the same duration so upscale stays frame-locked and FPS-interpolated
+    clips just play smoother."""
+    ref_count = count_a if count_a > 0 else count_b
+    duration = (ref_count / fps) if ref_count > 0 else 0.0
+    fps_a = (count_a / duration) if (count_a > 0 and duration > 0) else fps
+    fps_b = (count_b / duration) if (count_b > 0 and duration > 0) else fps
+    return duration, fps_a, fps_b
+
+
+# --------------------------------------------------------------------------- #
+# Phase-1 preview: per-frame WebP sequence for the JS canvas player
+# (pure torch + Pillow; written to ComfyUI temp, served by the existing
+#  /view route — no new server route, no encoder, no temp deletion)
+# --------------------------------------------------------------------------- #
+# Preview economy is SPATIAL ONLY (downscale tall frames + WebP). There is
+# deliberately no frame-count / fps ceiling: every frame is previewed at the
+# real fps so long clips preview at full fidelity (the user's call). The
+# browser stays bounded via an LRU near the playhead; the cost that scales
+# with length is temp-disk + node write time, an inherent encoder-free
+# tradeoff. The `comparison` output is always full-resolution regardless.
+PREVIEW_MAX_H = 720
+PREVIEW_WEBP_QUALITY = 85
+
+
+def _sample_indices(count, n):
+    """n source indices spread evenly across `count` so A and B span the
+    same duration (shared timeline) regardless of native frame counts."""
+    import torch
+
+    if count <= 0 or n <= 0:
+        return []
+    if count == 1:
+        return [0] * n
+    return [int(i) for i in torch.linspace(0, count - 1, n).round().long().tolist()]
+
+
+def _export_frame_sequence(video, side, abs_dir, indices, max_h, quality):
+    """Downscaled preview frames, one WebP per frame, for the canvas
+    player. Returns (filenames, preview_w, preview_h)."""
+    import os
+
+    import numpy as np
+    import torch
+    from PIL import Image
+
+    if video is None or len(video) <= 0 or not indices:
+        return [], 0, 0
+    v = video.float()
+    src_n, h, w = int(v.shape[0]), int(v.shape[1]), int(v.shape[2])
+    scale = min(1.0, float(max_h) / float(max(1, h)))
+    out_h = max(1, int(round(h * scale)))
+    out_w = max(1, int(round(w * scale)))
+    if (out_h, out_w) != (h, w):
+        v = _resize_to(v, out_h, out_w)
+    names = []
+    for ord_i, src_i in enumerate(indices):
+        fr = v[min(int(src_i), src_n - 1)]
+        arr = (
+            fr[..., :3].clamp(0.0, 1.0).mul(255.0).round()
+            .to(torch.uint8).cpu().numpy()
+        )
+        fn = f"{side}_{ord_i:06d}.webp"
+        Image.fromarray(np.ascontiguousarray(arr)).save(
+            os.path.join(abs_dir, fn), format="WEBP",
+            quality=int(quality), method=4,
+        )
+        names.append(fn)
+    return names, out_w, out_h
+
+
+def _export_pcm(audio, name, abs_dir, max_seconds=0.0):
+    """Write a ComfyUI AUDIO payload as planar little-endian float32 raw
+    PCM (channel-major: all ch0 samples, then ch1 ...) so the JS side can
+    decode it straight into a WebAudio AudioBuffer. No wave/encoder, just
+    numpy + a plain file write. Returns a metadata dict or None."""
+    import os
+
+    import numpy as np
+    import torch
+
+    if not _has_audio(audio):
+        return None
+    wf, sr = _extract_waveform(audio)
+    sr = int(sr or 44100)
+    if not hasattr(wf, "dim"):
+        wf = torch.as_tensor(np.asarray(wf))
+    t = wf.float()
+    if t.dim() == 3:
+        t = t[0]
+    if t.dim() == 1:
+        t = t.unsqueeze(0)
+    if t.dim() != 2:
+        return None
+    ch, n = int(t.shape[0]), int(t.shape[1])
+    if ch > 8 and n <= 8:                 # [samples, channels] -> [C, N]
+        t = t.transpose(0, 1).contiguous()
+        ch, n = n, ch
+    if ch <= 0 or n <= 0:
+        return None
+    if max_seconds and max_seconds > 0:   # cap to the played window
+        n = min(n, max(1, int(round(float(max_seconds) * sr))))
+        t = t[:, :n]
+    arr = np.ascontiguousarray(
+        t.detach().clamp(-1.0, 1.0).cpu().numpy().astype(np.float32)
+    )  # [C, N] planar
+    fn = f"{name}.f32"
+    with open(os.path.join(abs_dir, fn), "wb") as fh:
+        fh.write(arr.tobytes())
+    return {
+        "filename": fn, "channels": int(ch), "samples": int(n),
+        "sample_rate": int(sr), "dtype": "f32le", "layout": "planar",
+    }
+
+
+def _load_font(px):
+    """Best-effort scalable font; degrades gracefully with no hard dep."""
+    from PIL import ImageFont
+
+    px = max(8, int(px))
+    for name in ("DejaVuSans.ttf", "arial.ttf", "Arial.ttf"):
+        try:
+            return ImageFont.truetype(name, px)
+        except Exception:
+            pass
+    try:                                  # Pillow >= 10.1 sizes the default
+        return ImageFont.load_default(px)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _burn_ab_labels(frames, a_dims, b_dims, swap):
+    """Burn the A/B badge + 'WxH · Nf' pill into the full-res comparison
+    frames (top-left = A, top-right = B), mirroring the in-node corner
+    style. The overlay is identical on every frame, so it is rendered ONCE
+    as an RGBA layer and alpha-composited over the whole batch in one op —
+    cheap even for long clips. Pure torch + Pillow."""
+    import numpy as np
+    import torch
+    from PIL import Image, ImageDraw
+
+    if frames is None or frames.dim() != 4 or frames.shape[0] <= 0:
+        return frames
+    N, H, W = int(frames.shape[0]), int(frames.shape[1]), int(frames.shape[2])
+    if H < 24 or W < 48:
+        return frames
+
+    wa, ha, ca = a_dims
+    wb, hb, cb = b_dims
+    # match what the pixels actually show after swap
+    left_lbl, right_lbl = ("B", "A") if swap else ("A", "B")
+    left_dims = (wb, hb, cb) if swap else (wa, ha, ca)
+    right_dims = (wa, ha, ca) if swap else (wb, hb, cb)
+
+    pad = max(6, round(H * 0.018))
+    bd = max(20, round(H * 0.058))            # badge diameter
+    fpx = max(11, round(H * 0.028))           # font size
+    font = _load_font(fpx)
+
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    dr = ImageDraw.Draw(layer)
+
+    def _text_w(s):
+        try:
+            return dr.textlength(s, font=font)
+        except Exception:
+            return len(s) * fpx * 0.6
+
+    def _rrect(x0, y0, x1, y1, fill):
+        try:
+            dr.rounded_rectangle([x0, y0, x1, y1],
+                                 radius=max(4, (y1 - y0) // 2), fill=fill)
+        except Exception:
+            dr.rectangle([x0, y0, x1, y1], fill=fill)
+
+    def _group(side_lbl, dims, anchor_right):
+        w_, h_, c_ = dims
+        info = f"{int(w_)}×{int(h_)} · {int(c_)}f" if w_ > 0 else side_lbl
+        ty = pad
+        # badge circle
+        cy0 = ty
+        if anchor_right:
+            bx1 = W - pad
+            bx0 = bx1 - bd
+        else:
+            bx0 = pad
+            bx1 = bx0 + bd
+        # info pill
+        tw = _text_w(info)
+        pill_w = int(tw) + 2 * pad
+        pill_h = bd
+        gap = max(4, pad // 2)
+        if anchor_right:
+            px1 = bx0 - gap
+            px0 = px1 - pill_w
+        else:
+            px0 = bx1 + gap
+            px1 = px0 + pill_w
+        _rrect(px0, cy0, px1, cy0 + pill_h, (7, 16, 11, 200))
+        ti_y = cy0 + (pill_h - fpx) // 2
+        dr.text((px0 + pad, ti_y), info, font=font, fill=(157, 255, 186, 255))
+        dr.ellipse([bx0, cy0, bx1, cy0 + bd], fill=(17, 118, 56, 235),
+                   outline=(191, 255, 208, 255), width=max(1, bd // 14))
+        lw = _text_w(side_lbl)
+        dr.text((bx0 + (bd - lw) / 2, cy0 + (bd - fpx) // 2),
+                side_lbl, font=font, fill=(239, 255, 244, 255))
+
+    _group(left_lbl, left_dims, False)
+    _group(right_lbl, right_dims, True)
+
+    ov = torch.from_numpy(
+        np.ascontiguousarray(np.asarray(layer, dtype=np.float32) / 255.0)
+    ).to(frames.device)                       # [H, W, 4]
+    rgb = ov[..., :3].unsqueeze(0)            # [1,H,W,3]
+    alpha = ov[..., 3:4].unsqueeze(0)         # [1,H,W,1]
+    out = frames.float() * (1.0 - alpha) + rgb * alpha
+    return out.clamp(0.0, 1.0)
+
+
+_COMMON_INPUTS = {
+    "mode": (COMPARE_MODES, {"default": "Slider"}),
+    "split_position": ("FLOAT", {"default": 0.5, "min": 0.02, "max": 0.98, "step": 0.01}),
+    "toggle_image": (TOGGLE_CHOICES, {"default": "B"}),
+    "swap": ("BOOLEAN", {"default": False}),
+    "fps": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 240.0, "step": 0.01}),
+}
+
+
+# --------------------------------------------------------------------------- #
+# The single (Deno) Video Compare node. All compositing is pure tensor
+# work; the in-node player is fed a temp WebP frame sequence (+ raw f32
+# PCM for audio) via the existing /view route — no media encoder.
+# --------------------------------------------------------------------------- #
+class DenoVideoCompare:
     DESCRIPTION = (
-        "DENO A/B video comparison node with synced playback, Slider, Side by Side, "
-        "Difference, Toggle, Swap, and a shared timeline so upscale and FPS-interpolation "
-        "results stay the same length while frame-rate differences show as smoothness. "
-        "Encodes each input to a compressed preview clip (optionally with its audio) so "
-        "high-res / long batches stay light instead of writing a full PNG sequence."
+        "Interactive A/B video compare: drag-slider / Side by Side / "
+        "Difference / Toggle, synced playback with audio (hover the preview "
+        "to hear that side), Swap, and an optional Labels burn-in. Rendered "
+        "on a canvas from a temp frame sequence (no media encoder). The "
+        "'comparison' output is the full-resolution lossless composite."
     )
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {
-                "mode": (COMPARE_MODES, {"default": "Slider"}),
-                "split_position": ("FLOAT", {"default": 0.5, "min": 0.02, "max": 0.98, "step": 0.01}),
-                "toggle_image": (TOGGLE_CHOICES, {"default": "B"}),
-                "swap": ("BOOLEAN", {"default": False}),
-                "fps": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 240.0, "step": 0.01}),
-            },
+            "required": dict(
+                _COMMON_INPUTS,
+                burn_labels=("BOOLEAN", {
+                    "default": False, "label_on": "on", "label_off": "off",
+                }),
+            ),
             "optional": {
                 "video_a": ("IMAGE",),
                 "video_b": ("IMAGE",),
                 "audio_a": ("AUDIO",),
                 "audio_b": ("AUDIO",),
-            },
-            "hidden": {
-                "prompt": "PROMPT",
-                "extra_pnginfo": "EXTRA_PNGINFO",
             },
         }
 
@@ -351,144 +435,97 @@ class DenoVideoCompare(PreviewImage):
     CATEGORY = "Deno/Image"
     OUTPUT_NODE = True
 
-    def _preview_clip(self, video, side, enc_fps, ffmpeg_exe, audio):
-        """Encode one IMAGE batch (+ optional audio) to a temp mp4.
-
-        Returns (entries, has_audio, note) where note is a short diagnostic
-        string so the frontend can show why audio is / isn't present.
-        """
-        if not ffmpeg_exe:
-            return [], False, "no_ffmpeg"
-        if video is None or len(video) <= 0:
-            return [], False, "no_video"
-
+    def compare_videos(self, mode, split_position, toggle_image, swap, fps,
+                       burn_labels=False,
+                       video_a=None, video_b=None, audio_a=None, audio_b=None):
         import os
         import uuid
 
         import folder_paths
 
-        temp_dir = folder_paths.get_temp_directory()
-        os.makedirs(temp_dir, exist_ok=True)
-        token = uuid.uuid4().hex[:10]
-        filename = f"deno.vcompare.{side}.{token}.mp4"
-        out_path = os.path.join(temp_dir, filename)
-
-        wav_path = None
-        has_audio = False
-        note = "no_input"
-        try:
-            if audio is None:
-                note = "no_input"
-            elif not _has_audio(audio):
-                note = "no_waveform:" + type(audio).__name__
-            else:
-                wav_path = os.path.join(temp_dir, f"deno.vcompare.{side}.{token}.wav")
-                try:
-                    has_audio = _write_wav(audio, wav_path)
-                    note = "muxed" if has_audio else "empty_audio"
-                except Exception as exc:
-                    has_audio = False
-                    wav_path = None
-                    note = f"write_failed: {exc}"[:120]
-            _encode_video(
-                video, ffmpeg_exe, out_path, enc_fps,
-                wav_path if has_audio else None,
-            )
-        finally:
-            if wav_path:
-                try:
-                    os.remove(wav_path)
-                except Exception:
-                    pass
-        return [{"filename": filename, "subfolder": "", "type": "temp"}], has_audio, note
-
-    def compare_videos(
-        self,
-        mode: str,
-        split_position: float,
-        toggle_image: str,
-        swap: bool,
-        fps: float,
-        video_a=None,
-        video_b=None,
-        audio_a=None,
-        audio_b=None,
-        prompt=None,
-        extra_pnginfo=None,
-    ):
         mode = _normalize_mode(mode)
         split_position = _normalize_split(split_position)
         toggle_image = _normalize_toggle(toggle_image)
         swap = _normalize_bool(swap)
         fps = _normalize_fps(fps)
 
-        width_a, height_a, count_a = _video_size(video_a)
-        width_b, height_b, count_b = _video_size(video_b)
+        wa, ha, ca = _video_size(video_a)
+        wb, hb, cb = _video_size(video_b)
 
-        # Shared timeline: both clips encoded to the SAME duration so
-        # upscale (equal count) stays frame-locked and RIFE (more frames)
-        # just plays smoother over the same length.
-        ref_count = count_a if count_a > 0 else count_b
-        duration = (ref_count / fps) if ref_count > 0 else 0.0
-        fps_a = (count_a / duration) if (count_a > 0 and duration > 0) else fps
-        fps_b = (count_b / duration) if (count_b > 0 and duration > 0) else fps
-
-        ffmpeg_exe = _find_ffmpeg()
-        error = None
-        a_video, b_video = [], []
-        a_has_audio = b_has_audio = False
-        a_note = b_note = ""
-        if ffmpeg_exe is None:
-            error = "ffmpeg_not_found"
-        else:
+        # full-resolution lossless output (reflects the widget values; the
+        # live in-node slider only re-composites the preview, and writes the
+        # dragged split back to the widget so the next queue matches)
+        comparison = _composite_frames(
+            mode, video_a, video_b, split_position, swap, toggle_image, fps
+        )
+        # optionally burn the A/B + resolution labels into the SAVED output
+        # only (the in-node preview already shows them as a DOM overlay)
+        if _normalize_bool(burn_labels) and (ca > 0 or cb > 0):
             try:
-                a_video, a_has_audio, a_note = self._preview_clip(
-                    video_a, "a", fps_a, ffmpeg_exe, audio_a)
-                b_video, b_has_audio, b_note = self._preview_clip(
-                    video_b, "b", fps_b, ffmpeg_exe, audio_b)
-            except Exception as exc:  # encoding failure -> show message, no crash
-                error = f"encode_failed: {exc}"
-                a_video, b_video = [], []
-                a_has_audio = b_has_audio = False
+                comparison = _burn_ab_labels(
+                    comparison, (wa, ha, ca), (wb, hb, cb), swap)
+            except Exception:
+                pass  # never fail the graph over a label overlay
+
+        duration, _fa, _fb = _shared_timeline_fps(ca, cb, fps)
+        # No cap: preview every frame of the richer side at the real fps so
+        # both clips keep their full smoothness over the shared timeline.
+        preview_fps = float(fps)
+        n = max(1, max(ca, cb))
+        preview_capped = False
 
         meta = {
             "mode": mode,
             "split_position": split_position,
             "toggle_image": toggle_image,
             "swap": swap,
-            "fps": fps,
-            "a_width": width_a,
-            "a_height": height_a,
-            "a_count": count_a,
-            "a_fps": round(fps_a, 4),
-            "a_has_audio": bool(a_has_audio),
-            "a_audio": a_note,
-            "b_width": width_b,
-            "b_height": height_b,
-            "b_count": count_b,
-            "b_fps": round(fps_b, 4),
-            "b_has_audio": bool(b_has_audio),
-            "b_audio": b_note,
+            "fps": round(preview_fps, 4),
+            "source_fps": round(float(fps), 4),
             "duration": round(duration, 4),
+            "have_a": ca > 0,
+            "have_b": cb > 0,
+            "a_src_w": wa, "a_src_h": ha, "a_count": ca,
+            "b_src_w": wb, "b_src_h": hb, "b_count": cb,
+            "preview_downscaled": True,
+            "preview_capped": bool(preview_capped),
+            "output_fullres": True,
         }
-        if error:
-            meta["error"] = error
-
+        files_a, files_b = [], []
+        audio_meta_a = audio_meta_b = None
         try:
-            comparison = _composite(mode, video_a, video_b)
-        except Exception:
-            import torch
-            comparison = (
-                video_b if video_b is not None
-                else video_a if video_a is not None
-                else torch.zeros((1, 16, 16, 3), dtype=torch.float32)
-            )
+            if ca > 0 or cb > 0:
+                temp_dir = folder_paths.get_temp_directory()
+                sub = "deno_vcmp_" + uuid.uuid4().hex[:12]
+                abs_dir = os.path.join(temp_dir, sub)
+                os.makedirs(abs_dir, exist_ok=True)
+                ia = _sample_indices(ca, n) if ca > 0 else []
+                ib = _sample_indices(cb, n) if cb > 0 else []
+                files_a, paw, pah = _export_frame_sequence(
+                    video_a, "a", abs_dir, ia, PREVIEW_MAX_H, PREVIEW_WEBP_QUALITY)
+                files_b, pbw, pbh = _export_frame_sequence(
+                    video_b, "b", abs_dir, ib, PREVIEW_MAX_H, PREVIEW_WEBP_QUALITY)
+                meta["subfolder"] = sub
+                meta["frame_count"] = max(len(files_a), len(files_b))
+                meta["a_w"], meta["a_h"] = paw, pah
+                meta["b_w"], meta["b_h"] = pbw, pbh
+                # Phase 2: raw PCM next to the frames (swap is resolved on
+                # the JS side, so keep a_audio == video_a's audio)
+                try:
+                    cap = duration if duration > 0 else 0.0
+                    audio_meta_a = _export_pcm(audio_a, "a_audio", abs_dir, cap)
+                    audio_meta_b = _export_pcm(audio_b, "b_audio", abs_dir, cap)
+                except Exception as aexc:
+                    meta["audio_error"] = f"audio_failed: {aexc}"[:160]
+            else:
+                meta["frame_count"] = 0
+        except Exception as exc:  # preview failure must not fail the graph
+            meta["error"] = f"preview_failed: {exc}"[:200]
+            meta["frame_count"] = 0
 
         return {
-            "ui": {
-                "a_video": a_video,
-                "b_video": b_video,
-                "compare_meta": [meta],
-            },
+            "ui": {"deno_video_compare": [dict(
+                meta, files_a=files_a, files_b=files_b,
+                audio_a=audio_meta_a, audio_b=audio_meta_b,
+            )]},
             "result": (comparison,),
         }

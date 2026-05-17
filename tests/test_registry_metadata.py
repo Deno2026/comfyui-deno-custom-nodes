@@ -108,9 +108,9 @@ def test_rtx_vfx_installer_requires_prestartup_hook_before_success():
 
 
 def test_rtx_vfx_docs_use_direct_installer_download_link():
-    readme = README_PATH.read_text()
-    install_guide = RTX_INSTALL_GUIDE_PATH.read_text()
-    node_source = (REPO_ROOT / "deno_rtx_vfx_easy_upscale.py").read_text()
+    readme = README_PATH.read_text(encoding="utf-8")
+    install_guide = RTX_INSTALL_GUIDE_PATH.read_text(encoding="utf-8")
+    node_source = (REPO_ROOT / "deno_rtx_vfx_easy_upscale.py").read_text(encoding="utf-8")
 
     assert DIRECT_INSTALLER_URL in readme
     assert DIRECT_INSTALLER_URL in install_guide
