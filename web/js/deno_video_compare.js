@@ -342,7 +342,8 @@ function buildDom(node) {
   // resize); this just tracks it. Runaway is prevented by always having
   // s.ar set (default below) so fitNode never no-ops on an empty node.
   widget.computeSize = (w) => [Math.max(w || NODE_MIN_W, NODE_MIN_W),
-                               Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90, 320)];
+                               Math.max((node.size?.[1] || NODE_DEFAULT_H)
+                                        - 90 - nativeWidgetsHeight(node), 320)];
   node.__dvcWidget = widget;
 
   wireInteractions(node, dom, {
@@ -509,6 +510,27 @@ function fmt(x) {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}` +
     `.${String(cs).padStart(2, "0")}`;
 }
+// Height taken by visible NATIVE widgets (e.g. the exposed `fps` widget).
+// Hidden ones (mode/split/toggle/swap) report computeSize [0,-4] and the
+// DOM widget is skipped, so this is normally just the fps row. Both the
+// node-height math and the DOM widget's own computeSize must subtract the
+// same amount or the green panel overflows the node frame.
+function nativeWidgetsHeight(node) {
+  const dw = node.__dvcWidget;
+  const rowH = (window.LiteGraph && window.LiteGraph.NODE_WIDGET_HEIGHT) || 20;
+  let h = 0;
+  for (const wdg of node.widgets || []) {
+    if (wdg === dw || wdg.name === WIDGET_NAME) continue;
+    if (wdg.hidden || wdg.__dvcHidden) continue;
+    let hh = rowH;
+    if (typeof wdg.computeSize === "function") {
+      const cs = wdg.computeSize(node.size ? node.size[0] : NODE_MIN_W);
+      hh = (cs && cs[1] > 0) ? cs[1] : 0;
+    }
+    if (hh > 0) h += hh + 4;
+  }
+  return h;
+}
 // Size the node so the preview area matches the clip aspect (no black
 // bars); resizing width keeps the ratio so the video scales with it.
 function fitNode(node) {
@@ -519,7 +541,7 @@ function fitNode(node) {
   const botH = kids[kids.length - 1] ? kids[kids.length - 1].offsetHeight : 62;
   const w = Math.max(Number(node.size[0]) || NODE_MIN_W, NODE_MIN_W);
   const stageW = Math.max(w - 2, 80);
-  const want = Math.round(90 + topH + botH + stageW / s.ar);
+  const want = Math.round(90 + nativeWidgetsHeight(node) + topH + botH + stageW / s.ar);
   if (Math.abs((Number(node.size[1]) || 0) - want) > 4) {
     s._fitting = true;
     node.setSize([w, want]);
