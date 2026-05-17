@@ -53,7 +53,9 @@ const BACKEND_DEFAULTS = {
     device: 0,
     ratio_preset: "16:9",
     resize_method: "Center Crop (Fill)",
+    low_ram_mode: "On",
 };
+const LOW_RAM_CHOICES = ["On", "Off"];
 const BACKEND_WIDGET_NAMES = [
     "mode",
     "resize_type",
@@ -65,6 +67,7 @@ const BACKEND_WIDGET_NAMES = [
     "device",
     "ratio_preset",
     "resize_method",
+    "low_ram_mode",
 ];
 
 const EFFECT_COPY = {
@@ -236,7 +239,40 @@ function buildEasyControlPanel(node) {
         qualitySelect.append(option);
     }
     qualityWrap.append(qualityLabel, qualitySelect);
-    header.append(titleWrap, qualityWrap);
+
+    const lowRamWrap = document.createElement("label");
+    lowRamWrap.style.cssText = "display:flex; align-items:center; gap:7px; color:#9dffba; font:800 10px sans-serif;";
+    const lowRamLabel = document.createElement("span");
+    lowRamLabel.textContent = "Low RAM";
+    const lowRamSelect = document.createElement("select");
+    lowRamSelect.style.cssText = `
+        min-width:62px;
+        height:27px;
+        border-radius:8px;
+        border:1px solid rgba(72,255,132,0.42);
+        background:rgba(0,0,0,0.42);
+        color:#dfffea;
+        font:700 11px sans-serif;
+        outline:none;
+        color-scheme:dark;
+    `;
+    lowRamSelect.title = "On = float16 output kept on CPU: ~half the system RAM of the "
+        + "result batch (the real RAM saver). Off = float32. RTX processing is "
+        + "always float32; VRAM is negligible either way.";
+    for (const v of LOW_RAM_CHOICES) {
+        const option = document.createElement("option");
+        option.value = v;
+        option.textContent = v;
+        option.style.background = "#06120b";
+        option.style.color = "#dfffea";
+        lowRamSelect.append(option);
+    }
+    lowRamWrap.append(lowRamLabel, lowRamSelect);
+
+    const headerRight = document.createElement("div");
+    headerRight.style.cssText = "display:flex; align-items:center; gap:10px; flex-wrap:wrap;";
+    headerRight.append(qualityWrap, lowRamWrap);
+    header.append(titleWrap, headerRight);
 
     const effectGrid = document.createElement("div");
     effectGrid.style.cssText = "display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:7px;";
@@ -325,6 +361,18 @@ function buildEasyControlPanel(node) {
         setEffectAndQuality(node, getCurrentMode(node).effect, qualitySelect.value);
     };
 
+    lowRamSelect.onchange = () => {
+        const w = getWidget(node, "low_ram_mode");
+        if (w) {
+            setWidgetValue(node, w, lowRamSelect.value, false);
+        }
+        sanitizeBackendWidgetValues(node);
+        updateWidgetVisibility(node);
+        syncEasyControlPanel(node);
+        resizeNodeToContent(node, MIN_EASY_WIDTH, minEasyHeight(node));
+        requestNodeRedraw(node);
+    };
+
     root.append(header, effectGrid, coach, docsLink, resizeSection);
 
     const panelHeight = () => {
@@ -356,6 +404,8 @@ function buildEasyControlPanel(node) {
             const resizeType = getCurrentResizeType(node);
             const sameSizeOnly = SAME_SIZE_EFFECTS.has(effect);
             qualitySelect.value = quality;
+            lowRamSelect.value = LOW_RAM_CHOICES.includes(String(getWidget(node, "low_ram_mode")?.value))
+                ? String(getWidget(node, "low_ram_mode").value) : "On";
 
             for (const [buttonEffect, button] of effectButtons.entries()) {
                 setButtonSelected(button, buttonEffect === effect);
@@ -543,6 +593,10 @@ function sanitizeBackendWidgetValues(node) {
     if (deviceWidget) {
         setWidgetValue(node, deviceWidget, BACKEND_DEFAULTS.device, false);
     }
+    const lowRamWidget = getWidget(node, "low_ram_mode");
+    if (lowRamWidget && !LOW_RAM_CHOICES.includes(String(lowRamWidget.value))) {
+        setWidgetValue(node, lowRamWidget, BACKEND_DEFAULTS.low_ram_mode, false);
+    }
 
     const mode = parseMode(modeWidget?.value);
     const sameSizeOnly = SAME_SIZE_EFFECTS.has(mode.effect);
@@ -571,6 +625,7 @@ function updateWidgetVisibility(node) {
     setWidgetVisible(getWidget(node, "resize_type"), false);
     setWidgetVisible(getWidget(node, "scale"), false);
     setWidgetVisible(getWidget(node, "device"), false);
+    setWidgetVisible(getWidget(node, "low_ram_mode"), false);
 
     setWidgetVisible(getWidget(node, "megapixels"), !sameSizeOnly && (resizeType === "Keep Ratio" || resizeType === "Preset Ratio"));
     setWidgetVisible(getWidget(node, "width"), !sameSizeOnly && resizeType === "Manual");

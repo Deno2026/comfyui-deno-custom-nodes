@@ -35,6 +35,11 @@ QUALITY_LEVELS = [
 ]
 
 RESIZE_TYPES = ["Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
+# Low RAM Mode (same design as the 2-Pass node): On = output kept on CPU
+# AND stored as float16 (~half the system RAM the full output batch takes,
+# the dominant consumer for long/large clips). Off = input device, float32.
+# RTX VFX always runs float32 on the GPU; only the stored result downcasts.
+LOW_RAM_CHOICES = ["On", "Off"]
 RTX_VFX_DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"]
 RTX_VFX_DEFAULT_DIVISIBLE_BY = "32"
 RTX_VFX_INSTALL_GUIDE_URL = (
@@ -349,6 +354,7 @@ class DenoRTXVFXEasyUpscale:
                 "device": ("INT", {"default": 0, "min": 0, "max": 16, "step": 1}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "resize_method": (RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
+                "low_ram_mode": (LOW_RAM_CHOICES, {"default": "On"}),
             },
         }
 
@@ -370,6 +376,7 @@ class DenoRTXVFXEasyUpscale:
         device: int,
         ratio_preset: str = "16:9",
         resize_method: str = "Center Crop (Fill)",
+        low_ram_mode: str = "On",
     ):
         if not torch.cuda.is_available():
             raise RuntimeError("NVIDIA RTX VFX requires CUDA. This ComfyUI Python does not currently see CUDA.")
@@ -396,11 +403,22 @@ class DenoRTXVFXEasyUpscale:
 
         VideoSuperRes = _import_vfx()
         quality = getattr(VideoSuperRes.QualityLevel, _quality_attr(mode))
-        output_device = images.device
         device_index = _safe_cuda_device_index(device)
         cuda_device = torch.device(f"cuda:{device_index}")
 
-        outputs = []
+        # Low RAM Mode: On = output on CPU + float16 (≈ half the system RAM
+        # the full output batch occupies). Off = input device + float32.
+        # Preallocate and write per frame instead of a Python list + torch.stack
+        # so there is no full-batch stack peak either way.
+        low_ram = str(low_ram_mode) == "On"
+        out_device = torch.device("cpu") if low_ram else images.device
+        out_dtype = torch.float16 if low_ram else images.dtype
+        out = torch.empty(
+            (int(batch), int(target_height), int(target_width), 3),
+            device=out_device,
+            dtype=out_dtype,
+        )
+
         with torch.inference_mode():
             with _create_vfx_effect(VideoSuperRes, quality, device_index, mode) as effect:
                 effect.output_width = int(target_width)
@@ -413,6 +431,11 @@ class DenoRTXVFXEasyUpscale:
                         frame = _fit_frame_to_target_aspect(frame, int(target_width), int(target_height), resize_method)
                     result = effect.run(frame)
                     enhanced = torch.from_dlpack(result.image).clone().permute(1, 2, 0).contiguous()
-                    outputs.append(enhanced.to(device=output_device, dtype=images.dtype).clamp(0.0, 1.0))
+                    # clamp in float32 then a single cast for storage (avoids
+                    # the slow CPU-float16 clamp path in Low RAM mode).
+                    out[index].copy_(
+                        enhanced.clamp(0.0, 1.0).to(device=out_device, dtype=out_dtype)
+                    )
+                    del frame, enhanced
 
-        return (torch.stack(outputs, dim=0),)
+        return (out,)
