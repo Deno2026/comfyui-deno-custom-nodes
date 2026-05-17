@@ -253,13 +253,13 @@ def _shared_timeline_fps(count_a, count_b, fps):
 # (pure torch + Pillow; written to ComfyUI temp, served by the existing
 #  /view route — no new server route, no encoder, no temp deletion)
 # --------------------------------------------------------------------------- #
+# Preview economy is SPATIAL ONLY (downscale tall frames + WebP). There is
+# deliberately no frame-count / fps ceiling: every frame is previewed at the
+# real fps so long clips preview at full fidelity (the user's call). The
+# browser stays bounded via an LRU near the playhead; the cost that scales
+# with length is temp-disk + node write time, an inherent encoder-free
+# tradeoff. The `comparison` output is always full-resolution regardless.
 PREVIEW_MAX_H = 720
-# High enough that typical clips (a few hundred frames) are NOT downsampled,
-# so the in-node preview plays at the real fps. Only pathologically long
-# clips get capped (and then the UI says so). JS keeps memory bounded via
-# an LRU near the playhead regardless of the total count.
-PREVIEW_MAX_FRAMES = 600
-PREVIEW_FPS_CAP = 30.0
 PREVIEW_WEBP_QUALITY = 85
 
 
@@ -539,12 +539,11 @@ class DenoVideoComparePlayer:
         )
 
         duration, _fa, _fb = _shared_timeline_fps(ca, cb, fps)
-        preview_fps = min(float(fps), PREVIEW_FPS_CAP)
-        n_desired = (int(round(duration * preview_fps))
-                     if duration > 0 else max(ca, cb))
-        n_desired = max(1, n_desired)
-        n = min(PREVIEW_MAX_FRAMES, n_desired)
-        preview_capped = n < n_desired
+        # No cap: preview every frame of the richer side at the real fps so
+        # both clips keep their full smoothness over the shared timeline.
+        preview_fps = float(fps)
+        n = max(1, max(ca, cb))
+        preview_capped = False
 
         meta = {
             "mode": mode,
