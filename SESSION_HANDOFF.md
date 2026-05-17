@@ -19,17 +19,21 @@
 >   clamp는 float32에서 먼저→fp16 캐스트 1회(느린 CPU-fp16 clamp 회피). `divisible_by` 유지,
 >   `resize_method`는 Keep Ratio/Megapixels 포함 모든 resizable에서 노출(이전 누락 복원).
 >
-> ### 다음 세션 PENDING (사용자가 한도 리셋 후 재요청 예정)
-> **파일/스트리밍 V2 노드** — 사용자 "무조건 해볼 필요 있다" 합의됨.
-> - 이유: IMAGE→IMAGE는 시스템 RAM 하한(입력 풀배치+출력 풀배치+ComfyUI 전노드 캐시). fp16은 절반뿐.
->   16/32GB 다수 사용자 위해선 클립 전체를 IMAGE로 만들지 않는 구조가 유일한 해법.
-> - 형태: **별도 신규 노드**(추가 배선 아님). 입력=영상 파일 경로(옵션 이미지시퀀스 폴더).
->   내부: lazy로 N프레임 청크 디코드 → 프레임별 Pass1/Pass2(GPU 1장) → ffmpeg stdin으로 단일 mp4 스트리밍
->   → 결과 경로 반환(+VHS식 프리뷰 dict). 오디오는 검증된 `-t n/fps` 캡 패스스루. 피크 RAM ≈ 청크 몇 장.
->   기존 IMAGE 2-Pass 노드는 짧은클립/IMAGE체인용으로 유지.
-> - 착수 전 결정: 설계문서 먼저 vs 최소 path→path 프로토타입 먼저.
-> - Registry 주의: 파일IO+ffmpeg subprocess(VHS 전례 있음). 기본=단일mp4 스트림(프레임파일 누적 없음);
->   시퀀스 출력은 용량경고 단 opt-in.
+> ### V2 결론 — 새 노드 불필요 (VHS Meta Batch로 해결, 검증 완료 2026-05-17)
+> 별도 파일→파일 V2 노드 **취소**. VHS에 이미 `VHS_BatchManager`(Meta Batch Manager)
+> + LoadVideo/VideoCombine `meta_batch` 입력이 있어, 그래프 전체를 frames_per_batch
+> 청크로 requeue 실행 → LoadVideo는 청크만 lazy 디코드, VideoCombine은 ffmpeg
+> 프로세스를 청크 간 유지하며 한 파일에 누적. 중간의 우리 RTX 노드(1·2-pass)는
+> stateless·프레임별이라 **코드 변경 0**으로 그대로 동작. + low_ram_mode fp16이면
+> 청크당 RAM 추가 절반. VHS는 거의 모두 설치 → 우회 인프라 보장.
+> - 실증: `BatchManager(8) → LoadVideo(meta_batch) → DenoRTXVFXEasyUpscale →
+>   VideoCombine(meta_batch)` 48프레임/8청크, 출력 1728x1152·48f·오디오 정상.
+> - 산출물(코드 신규 0): 추천 워크플로 템플릿
+>   `docs/workflows/deno-rtx-lowram-metabatch.json` (= ComfyUI Workflows에
+>   "Deno RTX LowRAM (Meta Batch)"로도 설치). 남은 일: README에 이 저RAM
+>   워크플로 안내 문구 추가(배포 단계에서).
+> - 한계(허용): 청크마다 RTX 효과 재생성(소폭 init 오버헤드). 필요시 추후
+>   meta_batch 인지 최적화 가능하나 필수 아님.
 >
 > ### 환경 사실 (레포 변경 아님)
 > - 중복 `comfyui-deno-custom-nodes` 폴더(캔버스 lag 주범) → `.disabled`로 개명(보존·복구가능). `deno-custom-nodes`만 로드.
