@@ -726,10 +726,10 @@ function wireInteractions(node, d, btns) {
   const endPtr = (e) => {
     if (e) e.stopPropagation();
     const dn = s.down; s.down = null;
-    const wasSplit = s.draggingSplit;
     s.draggingSplit = false; s.panning = false;
     stage.classList.remove("grabbing");
-    if (wasSplit) return;
+    // click (no move, <350ms) = play/pause toggle, in every mode incl.
+    // Slider — a real drag sets dn.moved so it won't toggle (original feel)
     if (!(e && e.type === "pointerup" && dn && !dn.moved &&
           (performance.now() - dn.t) < 350 && (s.haveA || s.haveB))) return;
     if (s.mode === "Toggle") {
