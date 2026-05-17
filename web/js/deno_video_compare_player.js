@@ -14,7 +14,8 @@ import { api } from "../../scripts/api.js";
 const NODE_NAME = "DenoVideoComparePlayer";
 const WIDGET_NAME = "deno_video_compare_player_canvas";
 const MODES = ["Slider", "Side by Side", "Difference", "Toggle"];
-const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap"];
+const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap",
+  "burn_labels"];
 const TAGLINE = "Synced A/B playback on a shared timeline.";
 const NODE_MIN_W = 480;
 const NODE_DEFAULT_H = 620;
@@ -52,6 +53,7 @@ const CSS = `
 .dvp .title small{font-weight:600;font-size:10px;color:#7fb893}
 .dvp .modes{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap}
 .dvp .swap{border-color:#48ff84;color:#48ff84;font-weight:900;margin-left:6px}
+.dvp .lbl{border-color:#7fb893;color:#9dffba;font-weight:800}
 .dvp .info{width:22px;height:22px;border-radius:50%;border:1.5px solid #48ff84;
   color:#48ff84;font-weight:900;font-size:12px;display:flex;align-items:center;
   justify-content:center;background:rgba(7,16,11,.85)}
@@ -159,7 +161,7 @@ function getState(node) {
       cache: new Map(), useTick: 0,
       scrubbing: false, draggingSplit: false, panning: false,
       panStart: null, down: null, raf: 0, dom: null,
-      ar: 16 / 9, _fitting: false, _wasPlaying: false,
+      ar: 16 / 9, _fitting: false, _wasPlaying: false, burnLabels: false,
       // audio (Phase 2): WebAudio fed by raw planar f32 PCM
       actx: null, master: null, gA: null, gB: null,
       bufA: null, bufB: null, srcA: null, srcB: null,
@@ -233,6 +235,8 @@ function setupNode(node) {
   if (tw && ["A", "B"].includes(String(tw.value))) st.tgl = String(tw.value);
   const wsw = getWidget(node, "swap");
   if (wsw != null) st.swapped = !!wsw.value;
+  const blw = getWidget(node, "burn_labels");
+  if (blw != null) st.burnLabels = !!blw.value;
 
   buildDom(node);
   if ((node.size?.[0] || 0) < NODE_MIN_W || (node.size?.[1] || 0) < NODE_DEFAULT_H) {
@@ -274,14 +278,20 @@ function buildDom(node) {
   const swapBtn = el("button", "btn swap", "⇄ Swap");
   swapBtn.title = TAGLINE;
   top.appendChild(swapBtn);
+  const labelsBtn = el("button", "btn lbl" + (st.burnLabels ? " on" : ""),
+    "🏷 Labels");
+  labelsBtn.title = "Stamp the A/B + resolution badges onto the SAVED " +
+    "video output (the in-node preview always shows them anyway)";
+  top.appendChild(labelsBtn);
   const infoBtn = el("button", "info", "i");
   const pop = el("div", "pop",
     "<b>Video Compare (player)</b><br>" +
     "Drag the divider (or just move the mouse) to wipe A/B. " +
     "Modes: Slider / Side by Side / Difference / Toggle. " +
-    "Wheel over the node zooms the graph, not the preview. " +
-    "<br><br><b>Note:</b> sound arrives in the next update; the " +
-    "<b>comparison</b> output is full-resolution and lossless.");
+    "Hover the preview to hear that side; wheel zooms the graph. " +
+    "<br><br><b>🏷 Labels</b>: also stamps the A/B + resolution badges " +
+    "into the saved video. The <b>comparison</b> output is " +
+    "full-resolution and lossless.");
   infoBtn.onclick = () => pop.classList.toggle("show");
   top.appendChild(infoBtn);
   top.appendChild(pop);
@@ -339,6 +349,7 @@ function buildDom(node) {
     badgeA, badgeB, tglBadge, sinfoA, sinfoB, hint,
     scrub, fill: scrub.querySelector(".fill"), head: scrub.querySelector(".hd"),
     time, meta, playBtn, loopBtn, spdBtn, modeBtns, audN, audA, audB,
+    labelsBtn,
   };
   st.dom = dom;
 
@@ -349,7 +360,8 @@ function buildDom(node) {
     Math.max((node.size?.[1] || NODE_DEFAULT_H) - 90 - nativeWidgetsHeight(node), 320)];
   node.__dvpWidget = widget;
 
-  wireInteractions(node, dom, { swapBtn, playBtn, loopBtn, backBtn, fwdBtn, spdBtn });
+  wireInteractions(node, dom,
+    { swapBtn, labelsBtn, playBtn, loopBtn, backBtn, fwdBtn, spdBtn });
   applyMode(node); applyTgl(node); updateLabels(node);
   render(node);
 }
@@ -975,6 +987,11 @@ function wireInteractions(node, d, btns) {
     if (s.playing) restartAudio(node);   // A/B audio follows the swap
     applyAudioGains(node);
     render(node);
+  };
+  btns.labelsBtn.onclick = () => {
+    s.burnLabels = !s.burnLabels;
+    setWidget(node, "burn_labels", s.burnLabels);
+    btns.labelsBtn.classList.toggle("on", s.burnLabels);
   };
   const setAud = (a) => { markGesture(node); s.audio = a; applyAudioGains(node); };
   d.audN.onclick = () => setAud("none");
