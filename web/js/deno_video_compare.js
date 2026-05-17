@@ -11,7 +11,11 @@ import { api } from "../../scripts/api.js";
 const NODE_NAME = "DenoVideoCompare";
 const WIDGET_NAME = "deno_video_compare_canvas";
 const MODES = ["Slider", "Side by Side", "Difference", "Toggle"];
-const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap", "fps"];
+// `fps` is intentionally NOT hidden: it is the encode/playback frame rate.
+// The default (24) is fine for most batches, but a source whose true fps
+// differs (e.g. 25) would otherwise drift against its own audio with no
+// way to correct it. Exposing the native widget lets the user match it.
+const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap"];
 const TAGLINE = "Synced A/B playback on a shared timeline.";
 const NODE_MIN_W = 480;
 const NODE_DEFAULT_H = 620;
