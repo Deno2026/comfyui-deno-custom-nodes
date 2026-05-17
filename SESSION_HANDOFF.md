@@ -27,8 +27,20 @@
 >
 > **검증:** 임베디드 py_compile OK, `node --check` OK, CI 로컬 테스트 통과.
 >
-> **배포/다음:** 0.7.2를 main에 push → publish 워크플로 자동 실행. §6대로 워크플로
-> conclusion 1회 + 0.7.2 status 1회만 확인(반복 폴링 X). 0.5.9 Active 유지=안전망.
+> **배포 완료 (2026-05-18, 사용자 요청 "어떻게 방법 없을까"):** `5305b45`를
+> `origin/main`에 fast-forward push(ce4b501→5305b45). `publish_registry.yml`
+> 워크플로 run `26003030526` = **success** — Comfy Registry 게시 제출 완료.
+> §6대로 워크플로 conclusion **1회** + Registry status **1회**만 확인(반복 폴링 X):
+> **0.7.2 = `NodeVersionStatusPending`**(자동 YARA 스캔 진행 중 — 0.7.0/0.7.1과
+> 동일한 초기 상태, 아직 Active/Flagged 아님). 0.7.1 = Flagged(사유
+> `SESSION_HANDOFF.md:65` + `SESSION_HANDOFF.md:7` — 진단 정확히 일치).
+> 0.5.9 = Active 유지 = 안전망(사용자 영향 0). 결정적 근거는 실시간 status가
+> 아니라 로컬 가드: `test_packaged_files_contain_no_scanner_trigger_literals`가
+> .comfyignore 적용한 패키지 시뮬레이션에서 트리거 리터럴 **0개** 확인 +
+> 유일 원인 `SESSION_HANDOFF.md`가 패키지에서 제외됨(검증).
+> **다음:** §6/사용자 지시대로 반복 폴링·경량모델 위임 안 함. 사용자가 다시
+> 요청하면 그때 0.7.2 status **1회만** 재확인. Flagged면 reason 받아 그 파일만
+> 처리 후 재배포(0.5.9 Active 유지되므로 안전).
 >
 > ---
 
