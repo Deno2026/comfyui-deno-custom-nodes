@@ -21,10 +21,16 @@
 > `/object_info` 단일 `(Deno) Video Compare` + `burn_labels` 노출, 합성/burn/오디오 자체테스트 통과.
 > 실행본 해시일치 동기화.
 >
-> **상태/다음:** 전부 **로컬 커밋 예정**, 미push. `publish_registry.yml`은 **main에 pyproject.toml push 시
-> 자동 배포**(REGISTRY_ACCESS_TOKEN=GitHub secret). 배포=공개·되돌리기 어려움 → **사용자 명시 OK 후
-> main 반영/푸시**. 배포 후 Registry API로 0.7.0 상태 폴링(Pending→Active) 확인 필요(또 Flagged면 사유 수신·수정;
-> 옛 0.5.9 Active가 롤백 안전망). 스캐너 비공개라 100% 확정은 배포 후 상태로만.
+> **배포 완료 (2026-05-18, 사용자 OK):** `85941b7`를 `origin/main`에 fast-forward push
+> (561362c→85941b7). `publish_registry.yml` 워크플로 **success**(run 26000499746) — Comfy Registry
+> 게시 제출 완료. **0.7.0 = `NodeVersionStatusPending`** (자동 YARA 스캔 진행 중, ~6분 8회 확인까지
+> 계속 Pending — 아직 Active/ Flagged 아님). 옛 **0.5.9 Active가 그대로 롤백 안전망**(사용자 영향 없음).
+> - **결정적 확인:** `include_status_reason`로 0.6.0/0.6.1 플래그 사유 노출 = `yara python_command_injection_risk`,
+>   `deno_video_compare.py:191 proc = subprocess.Popen(` **단 한 줄**. urllib/socket/HF/.bat 전부 무관(진단 확정).
+>   0.7.0은 패키지 전체 subprocess/os.system **0개**(검증) → 0.5.x Active와 동일 프로파일 → Active 전망.
+> - **다음 (경량모델 위임 금지 — 전역설정 §6 2026-05-18 갱신):** 진행 에이전트가 직접 Registry API
+>   `https://api.comfy.org/nodes/deno-custom-nodes/versions` 0.7.0 상태 **1회 재확인**(반복 루프 X).
+>   Active면 종료. 만약 Flagged면 reason 받아 그 파일만 정리 후 재배포(0.5.9 Active 유지되므로 안전).
 >
 > ---
 >
