@@ -10,9 +10,9 @@ tests/
 
 # Internal developer / handoff / design docs: never part of an installed
 # node. The Registry security scanner reads every packaged text file and
-# substring-matches dangerous-looking tokens, so docs that merely *quote*
-# or *describe* code (subprocess, .connect(, sockets, ffmpeg) get flagged.
-# Keep them on GitHub for collaboration, out of the published package.
+# substring-matches risky-looking call patterns with no code-vs-prose
+# awareness, so docs that merely mention or quote such patterns still get
+# flagged. Keep them on GitHub for collaboration, out of this package.
 SESSION_HANDOFF.md
 AGENTS.md
 docs/DENO_NODE_RETROSPECTIVE.md

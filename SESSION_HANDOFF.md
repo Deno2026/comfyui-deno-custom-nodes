@@ -1,6 +1,25 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
-> ## ▶ 최신 세션 (2026-05-18, Claude Opus 4.7) — 0.7.1 Flagged 진짜 원인 + 0.7.2
+> ## ▶ 최신 세션 (2026-05-18, Claude Opus 4.7) — 0.7.2도 Flagged → 0.7.3
+>
+> **0.7.2 결과 = Flagged.** 단 사유 1건뿐이고 `SESSION_HANDOFF.md`/`AGENTS.md`/
+> 내부 docs는 더 이상 안 잡힘 → **dev 문서 제외(.comfyignore)는 성공**. 남은
+> 유일 트리거: `.comfyignore` **line 14**, `$socket3` — 즉 "왜 제외하는지"
+> 설명하려고 내가 주석에 트리거 문자열을 적은 그 주석 자체가 잡힘.
+>
+> **확정 원칙:** 패키지에 들어가는 어떤 텍스트 파일도 트리거 리터럴을
+> 코드/산문/주석 **어디에도** 담으면 안 됨(스캐너=문맥 0 substring 매처).
+>
+> **수정:** `.comfyignore` 설명 주석을 트리거 리터럴 0개로 재작성. CI 가드의
+> 사각지대(확장자 없는 파일 스킵)를 수정 — 화이트리스트→바이너리 블랙리스트로
+> 바꿔 `.comfyignore`/`LICENSE` 등도 스캔. `pyproject.toml` 0.7.2 → **0.7.3**.
+>
+> **검증:** 패키지 전체 시뮬레이션 — 배포될 텍스트 파일 **45개 열거, 트리거
+> 0개**(`.comfyignore` 포함 스캔, dev 문서는 정상 제외 확인). CI 50/50 통과.
+>
+> ---
+
+> ## ▶ 이전 세션 (2026-05-18, Claude Opus 4.7) — 0.7.1 Flagged 진짜 원인 + 0.7.2
 >
 > **진짜 원인 (reason API `include_status_reason`로 확정):** Registry YARA 스캐너는
 > 패키지에 포함된 **모든 텍스트 파일(.md 포함)** 을 읽어 위험 토큰을 substring 매칭함.

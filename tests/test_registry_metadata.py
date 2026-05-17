@@ -108,10 +108,19 @@ def test_packaged_files_contain_no_scanner_trigger_literals():
     # shipped text file carries the exact YARA-trigger literals that flagged
     # 0.6.x/0.7.x. This is the durable net so the flag cannot silently return.
     rules = _comfyignore_rules()
+    # Exact literals the scanner flagged us on, plus the obvious siblings.
+    # The scanner is a context-free substring matcher: a comment, a
+    # docstring, even THIS file's own rule text would trip it, so anything
+    # shipped must be free of these literals (tests/ is .comfyignore'd).
     triggers = ("subprocess.Popen(", "os.system(", "os.popen(", ".connect(")
-    text_ext = {
-        ".py", ".js", ".mjs", ".md", ".toml", ".txt", ".json",
-        ".html", ".css", ".svg", ".yml", ".yaml", ".cfg", ".ini",
+    # Blacklist binaries only; everything else (incl. extensionless files
+    # like .comfyignore / LICENSE) is treated as scannable text, mirroring
+    # what the Registry scanner actually does.
+    binary_ext = {
+        ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".bmp",
+        ".zip", ".gz", ".tar", ".7z", ".pyc", ".pyd", ".so", ".dll",
+        ".woff", ".woff2", ".ttf", ".eot", ".otf", ".mp4", ".mov",
+        ".webm", ".pdf", ".bin", ".npz", ".safetensors",
     }
     offenders = []
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
@@ -119,13 +128,13 @@ def test_packaged_files_contain_no_scanner_trigger_literals():
         for name in filenames:
             abs_path = Path(dirpath) / name
             rel = abs_path.relative_to(REPO_ROOT).as_posix()
-            if abs_path.suffix.lower() not in text_ext:
+            if abs_path.suffix.lower() in binary_ext:
                 continue
             if _is_excluded(rel, rules):
                 continue
             try:
-                content = abs_path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
+                content = abs_path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
                 continue
             for token in triggers:
                 if token in content:
