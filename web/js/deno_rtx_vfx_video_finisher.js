@@ -28,7 +28,7 @@ const DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"];
 
 const BACKEND_DEFAULTS = {
     first_pass: "Deblur",
-    first_quality: "Medium",
+    first_quality: "Ultra",
     upscale_pass: "High Bitrate",
     upscale_quality: "High",
     resize_type: "Scale",

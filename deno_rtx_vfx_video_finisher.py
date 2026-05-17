@@ -72,7 +72,7 @@ class DenoRTXVFXVideoFinisher:
             "required": {
                 "images": ("IMAGE",),
                 "first_pass": (FIRST_PASS_CHOICES, {"default": "Deblur"}),
-                "first_quality": (QUALITY_CHOICES, {"default": "Medium"}),
+                "first_quality": (QUALITY_CHOICES, {"default": "Ultra"}),
                 "upscale_pass": (UPSCALE_PASS_CHOICES, {"default": "High Bitrate"}),
                 "upscale_quality": (QUALITY_CHOICES, {"default": "High"}),
                 "resize_type": (FINISHER_RESIZE_TYPES, {"default": "Keep Ratio"}),
