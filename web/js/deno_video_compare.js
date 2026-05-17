@@ -466,6 +466,13 @@ function loopOf(node) {
     const m = master(node);
     if (m && (s.haveA || s.haveB)) {
       if (s.playing && !s.starting) {
+        // Keep the MASTER playing too. The start handshake plays it once,
+        // but if that initial play() loses a race (e.g. A now carries an
+        // audio track after the apad fix, so its readiness timing differs)
+        // nothing resumed it -> master froze at ~0 while syncFollower
+        // pinned the follower to that frozen time, so the follower only
+        // looped the first few frames. Resume symmetrically with follower.
+        if (m.paused) m.play().catch(() => {});
         const o = follower(node);
         if (o) { if (o.paused) o.play().catch(() => {}); syncFollower(node, false); }
         if (m.duration && m.currentTime >= m.duration - 0.03) {
