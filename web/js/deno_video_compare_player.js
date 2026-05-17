@@ -17,7 +17,7 @@ const MODES = ["Slider", "Side by Side", "Difference", "Toggle"];
 const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap",
   "burn_labels"];
 const TAGLINE = "Synced A/B playback on a shared timeline.";
-const NODE_MIN_W = 480;
+const NODE_MIN_W = 520;   // keeps the whole control row on one tidy line
 const NODE_DEFAULT_H = 620;
 const CACHE_BUDGET = 420;
 const PRELOAD_AHEAD = 18;
@@ -46,13 +46,14 @@ const CSS = `
   color:#f0fff4;box-shadow:0 0 12px rgba(72,255,132,.28)}
 .dvp .btn.icn{padding:6px 9px;min-width:32px;text-align:center}
 .dvp .btn[disabled]{opacity:.4;cursor:not-allowed}
-.dvp .title{font-weight:900;font-size:13px;color:#9dffba;display:flex;
-  align-items:center;gap:7px}
-.dvp .title .dot{width:8px;height:8px;border-radius:50%;background:#48ff84;
+.dvp .brand{display:flex;align-items:center;flex:0 0 auto;padding-right:2px}
+.dvp .brand .dot{width:9px;height:9px;border-radius:50%;background:#48ff84;
   box-shadow:0 0 8px #48ff84}
-.dvp .title small{font-weight:600;font-size:10px;color:#7fb893}
-.dvp .modes{display:flex;gap:5px;margin-left:auto;flex-wrap:wrap}
-.dvp .swap{border-color:#48ff84;color:#48ff84;font-weight:900;margin-left:6px}
+.dvp .ctrls{display:flex;align-items:center;gap:5px;margin-left:auto;
+  flex-wrap:wrap;justify-content:flex-end}
+.dvp .ctrls .btn{padding:5px 9px;font-size:11px}
+.dvp .modes{display:flex;gap:5px;flex-wrap:wrap}
+.dvp .swap{border-color:#48ff84;color:#48ff84;font-weight:900}
 .dvp .lbl{border-color:#7fb893;color:#9dffba;font-weight:800}
 .dvp .info{width:22px;height:22px;border-radius:50%;border:1.5px solid #48ff84;
   color:#48ff84;font-weight:900;font-size:12px;display:flex;align-items:center;
@@ -265,8 +266,10 @@ function buildDom(node) {
   const root = el("div", "dvp m-slider");
 
   const top = el("div", "bar top");
-  top.appendChild(el("div", "title",
-    `<span class="dot"></span>Video Compare <small>· synced A/B</small>`));
+  top.appendChild(el("div", "brand", `<span class="dot"></span>`));
+  // one coherent control group so a narrow node wraps it as a tidy block
+  // (right-aligned) instead of orphaning Labels/info on a broken 2nd line
+  const ctrls = el("div", "ctrls");
   const modes = el("div", "modes");
   const modeBtns = {};
   for (const m of MODES) {
@@ -274,15 +277,15 @@ function buildDom(node) {
     b.onclick = () => setMode(node, m);
     modeBtns[m] = b; modes.appendChild(b);
   }
-  top.appendChild(modes);
+  ctrls.appendChild(modes);
   const swapBtn = el("button", "btn swap", "⇄ Swap");
   swapBtn.title = TAGLINE;
-  top.appendChild(swapBtn);
+  ctrls.appendChild(swapBtn);
   const labelsBtn = el("button", "btn lbl" + (st.burnLabels ? " on" : ""),
     "🏷 Labels");
   labelsBtn.title = "Stamp the A/B + resolution badges onto the SAVED " +
     "video output (the in-node preview always shows them anyway)";
-  top.appendChild(labelsBtn);
+  ctrls.appendChild(labelsBtn);
   const infoBtn = el("button", "info", "i");
   const pop = el("div", "pop",
     "<b>Video Compare (player)</b><br>" +
@@ -293,7 +296,8 @@ function buildDom(node) {
     "into the saved video. The <b>comparison</b> output is " +
     "full-resolution and lossless.");
   infoBtn.onclick = () => pop.classList.toggle("show");
-  top.appendChild(infoBtn);
+  ctrls.appendChild(infoBtn);
+  top.appendChild(ctrls);
   top.appendChild(pop);
   root.appendChild(top);
 
