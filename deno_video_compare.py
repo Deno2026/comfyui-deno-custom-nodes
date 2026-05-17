@@ -175,23 +175,27 @@ def _encode_video(video, ffmpeg_exe, out_path, enc_fps, audio_wav=None):
         "-s", f"{w}x{h}", "-r", f"{enc_fps:.6f}", "-i", "-",
     ]
     if audio_wav:
-        args += ["-i", audio_wav]
+        # Limit the audio INPUT to the exact video length (n / fps). This is
+        # an input option (before -i) so it only caps how much audio is read;
+        # the video stdin pipe is still consumed in full, so ffmpeg never
+        # stops early -> no BrokenPipe, and the output duration is always
+        # exactly the video length regardless of whether the muxed audio is
+        # shorter or longer. (Replaces the earlier "-af apad + -shortest",
+        # which with a piped video made -shortest unreliable and inflated the
+        # clip to the encode wall-time, e.g. 5+ minutes.)
+        video_seconds = float(n) / enc_fps
+        args += ["-t", f"{video_seconds:.6f}", "-i", audio_wav]
     args += [
         "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2",
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-preset", "veryfast", "-crf", "20",
     ]
     if audio_wav:
-        # -af apad pads the audio with silence so it is never shorter than
-        # the video. Without it, a muxed audio track shorter than the clip
-        # makes ffmpeg + -shortest stop at the audio's end, close stdin and
-        # exit while we are still writing frames -> BrokenPipe surfaced as
-        # "ffmpeg stopped early while receiving frames". With apad the
-        # shortest stream is always the (full-length) video.
+        # No -shortest / no apad: the audio input is already capped to the
+        # video length above, and the video pipe defines the output length.
         args += [
             "-map", "0:v:0", "-map", "1:a:0",
-            "-af", "apad",
-            "-c:a", "aac", "-b:a", "192k", "-shortest",
+            "-c:a", "aac", "-b:a", "192k",
         ]
     else:
         args += ["-an"]
