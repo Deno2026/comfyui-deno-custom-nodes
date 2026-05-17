@@ -182,8 +182,15 @@ def _encode_video(video, ffmpeg_exe, out_path, enc_fps, audio_wav=None):
         "-preset", "veryfast", "-crf", "20",
     ]
     if audio_wav:
+        # -af apad pads the audio with silence so it is never shorter than
+        # the video. Without it, a muxed audio track shorter than the clip
+        # makes ffmpeg + -shortest stop at the audio's end, close stdin and
+        # exit while we are still writing frames -> BrokenPipe surfaced as
+        # "ffmpeg stopped early while receiving frames". With apad the
+        # shortest stream is always the (full-length) video.
         args += [
             "-map", "0:v:0", "-map", "1:a:0",
+            "-af", "apad",
             "-c:a", "aac", "-b:a", "192k", "-shortest",
         ]
     else:
