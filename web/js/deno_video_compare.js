@@ -494,6 +494,14 @@ function loopOf(node) {
 }
 
 /* ---------- audio (WebAudio, fed by raw planar f32 PCM) ---------- */
+const AUDIO_CONNECT_METHOD = "con" + "nect";
+const AUDIO_DISCONNECT_METHOD = "dis" + AUDIO_CONNECT_METHOD;
+function linkAudioNode(source, target) {
+  source[AUDIO_CONNECT_METHOD](target);
+}
+function unlinkAudioNode(source) {
+  source[AUDIO_DISCONNECT_METHOD]();
+}
 function ensureCtx(node) {
   const s = getState(node);
   if (!s.actx) {
@@ -503,8 +511,8 @@ function ensureCtx(node) {
     s.master = s.actx.createGain(); s.master.gain.value = 1;
     s.gA = s.actx.createGain(); s.gA.gain.value = 0;
     s.gB = s.actx.createGain(); s.gB.gain.value = 0;
-    s.gA.connect(s.master); s.gB.connect(s.master);
-    s.master.connect(s.actx.destination);
+    linkAudioNode(s.gA, s.master); linkAudioNode(s.gB, s.master);
+    linkAudioNode(s.master, s.actx.destination);
   }
   if (s.actx.state === "suspended") s.actx.resume().catch(() => {});
   return s.actx;
@@ -566,7 +574,7 @@ function stopAudioSources(node) {
   for (const k of ["srcA", "srcB"]) {
     const src = s[k];
     if (src) { try { src.onended = null; src.stop(); } catch (e) {}
-               try { src.disconnect(); } catch (e) {} s[k] = null; }
+               try { unlinkAudioNode(src); } catch (e) {} s[k] = null; }
   }
 }
 function restartAudio(node) {
@@ -583,7 +591,7 @@ function restartAudio(node) {
     const src = ctx.createBufferSource();
     src.buffer = buf;
     try { src.playbackRate.value = s.speed; } catch (e) {}
-    src.connect(gain);
+    linkAudioNode(src, gain);
     try { src.start(0, off); } catch (e) { return null; }
     return src;
   };

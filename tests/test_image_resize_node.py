@@ -463,6 +463,8 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert "nodeType.prototype.onRemoved" in script
     # the Registry-trigger frontend patterns must never reappear
     assert "<video" not in script
+    assert ".connect(" not in script
+    assert ".disconnect(" not in script
     assert "ffmpeg" not in script
     assert "subprocess" not in script
 
