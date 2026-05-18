@@ -19,7 +19,7 @@ const CSS = `
 .dvprev{position:absolute;inset:0;overflow:hidden;background:#000;
   font:11px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 .dvprev video{position:absolute;inset:0;width:100%;height:100%;display:block;
-  background:#000;object-fit:contain}
+  background:#000;object-fit:cover}
 .dvprev .st{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;
   font-size:11px;color:#9dffba;text-align:center;cursor:pointer;
   background:rgba(5,9,6,.74)}
@@ -72,9 +72,12 @@ function buildDom(node) {
   // is resized (LiteGraph re-calls computeSize during resize).
   widget.computeSize = function (width) {
     if (this.aspectRatio) {
-      let h = (node.size[0] - 20) / this.aspectRatio;
+      // Use the width LiteGraph actually allots to the widget (not a
+      // node.size guess) so the box is exactly the video aspect — the
+      // video then fills it with no side/bottom margins.
+      let h = width / this.aspectRatio;
       if (!(h > 0)) h = 0;
-      return [width, h + 4];
+      return [width, h];
     }
     return [width, 80];
   };
@@ -118,6 +121,28 @@ function buildDom(node) {
   video.addEventListener("pointerleave", () => {
     video.muted = true;
   });
+
+  // Click toggles play/pause (no player chrome, so this is the control).
+  video.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (video.paused) video.play?.().catch(() => {});
+    else video.pause();
+  });
+
+  // The DOM widget sits above the LiteGraph <canvas> and would otherwise
+  // swallow the wheel, blocking ComfyUI's zoom while the pointer is over
+  // the preview. Re-dispatch the wheel to the real canvas at the same
+  // screen point so canvas zoom keeps working over the node.
+  root.addEventListener("wheel", (e) => {
+    const cv = app.canvas?.canvas;
+    if (!cv) return;
+    e.preventDefault();
+    cv.dispatchEvent(new WheelEvent("wheel", {
+      deltaX: e.deltaX, deltaY: e.deltaY, deltaZ: e.deltaZ,
+      deltaMode: e.deltaMode, clientX: e.clientX, clientY: e.clientY,
+      bubbles: true, cancelable: true,
+    }));
+  }, { passive: false });
 
   return state;
 }
@@ -172,6 +197,20 @@ app.registerExtension({
     nodeType.prototype.onConfigure = function () {
       const r = onConfigure?.apply(this, arguments);
       queueMicrotask(() => buildDom(this));
+      return r;
+    };
+
+    // Lock node height to the video aspect on resize, so dragging the
+    // node only scales the clip (no empty space appears below it).
+    const onResize = nodeType.prototype.onResize;
+    nodeType.prototype.onResize = function (size) {
+      const r = onResize?.apply(this, arguments);
+      const ar = this.__dvprev?.widget?.aspectRatio;
+      if (ar) {
+        const fit = this.computeSize();
+        if (size) size[1] = fit[1];
+        if (this.size) this.size[1] = fit[1];
+      }
       return r;
     };
 
