@@ -16,6 +16,7 @@ YouTube: https://www.youtube.com/@Denoise-AI
 
 from __future__ import annotations
 
+import logging
 import os
 from fractions import Fraction
 
@@ -50,34 +51,69 @@ def _stable_preview_path(unique_id):
     return os.path.join(abs_dir, filename), filename, PREVIEW_SUBFOLDER
 
 
+def _extract_waveform_and_sr(audio):
+    """Tolerantly pull (waveform, sample_rate) from a ComfyUI AUDIO, mirroring
+    (Deno) Video Compare's extractor: AUDIO may be a dict, an object with
+    attributes, or a (waveform, sr) pair, and the waveform may be a torch
+    tensor or a numpy array. The naive 'dict + tensor only' assumption was
+    why real graphs silently lost their audio track.
+    """
+    wf = sr = None
+    if isinstance(audio, dict):
+        wf = audio.get("waveform")
+        sr = audio.get("sample_rate")
+    else:
+        wf = getattr(audio, "waveform", None)
+        sr = getattr(audio, "sample_rate", None)
+        if wf is None:
+            try:
+                wf = audio["waveform"]
+            except Exception:
+                pass
+        if sr is None:
+            try:
+                sr = audio["sample_rate"]
+            except Exception:
+                pass
+        if wf is None and isinstance(audio, (list, tuple)) and len(audio) >= 1:
+            wf = audio[0]
+            sr = audio[1] if len(audio) >= 2 else sr
+        if wf is None and hasattr(audio, "shape"):
+            wf = audio
+    return wf, sr
+
+
 def _prepare_audio_stream(av, container, audio):
     """Create the audio stream BEFORE any packet is muxed (libav requires
     all streams to exist before the first mux). Returns a context dict or
-    None. Audio must never break the video preview, so any failure here
-    just disables audio.
+    None. Audio must never break the video preview, so any failure here is
+    logged (no longer silent) and just disables audio.
     """
     try:
-        if not isinstance(audio, dict):
+        wf, sr = _extract_waveform_and_sr(audio)
+        sample_rate = int(sr or 0)
+        if wf is None or sample_rate <= 0:
             return None
-        waveform = audio.get("waveform")
-        sample_rate = int(audio.get("sample_rate") or 0)
-        if waveform is None or sample_rate <= 0 or not hasattr(waveform, "dim"):
-            return None
-        wf = waveform
+        if not hasattr(wf, "dim"):
+            wf = torch.as_tensor(np.asarray(wf))
+        wf = wf.detach().float()
         if wf.dim() == 3:
             wf = wf[0]
         if wf.dim() == 1:
             wf = wf.unsqueeze(0)
         if wf.dim() != 2:
             return None
-        channels = int(wf.shape[0])
-        if channels <= 0 or channels > 8 or int(wf.shape[1]) <= 0:
+        channels, count = int(wf.shape[0]), int(wf.shape[1])
+        if channels > 8 and count <= 8:        # [samples, channels] -> [C, N]
+            wf = wf.transpose(0, 1).contiguous()
+            channels, count = count, channels
+        if channels <= 0 or channels > 8 or count <= 0:
             return None
         layout = "mono" if channels == 1 else (
             "stereo" if channels == 2 else f"{channels}c"
         )
         samples = np.ascontiguousarray(
-            wf.detach().float().clamp(-1.0, 1.0).cpu().numpy().astype(np.float32)
+            wf.clamp(-1.0, 1.0).cpu().numpy().astype(np.float32)
         )  # [C, N] planar -> fltp
         astream = container.add_stream("aac", rate=sample_rate)
         astream.bit_rate = 192000
@@ -88,6 +124,18 @@ def _prepare_audio_stream(av, container, audio):
             "layout": layout,
         }
     except Exception:
+        try:
+            probe = audio.get("waveform") if isinstance(audio, dict) else (
+                getattr(audio, "waveform", None)
+            )
+            shape = getattr(probe, "shape", "?")
+        except Exception:
+            shape = "?"
+        logging.warning(
+            "[DENO] Video Preview: audio disabled (prep failed). "
+            "audio_type=%s waveform_shape=%s",
+            type(audio).__name__, shape, exc_info=True,
+        )
         return None
 
 
@@ -116,6 +164,10 @@ def _encode_audio(av, container, ctx):
             container.mux(packet)
         return True
     except Exception:
+        logging.warning(
+            "[DENO] Video Preview: audio track dropped (encode failed).",
+            exc_info=True,
+        )
         return False
 
 

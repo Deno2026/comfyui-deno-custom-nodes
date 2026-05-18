@@ -71,7 +71,13 @@ function buildDom(node) {
   };
 
   video.addEventListener("loadedmetadata", () => {
-    status.hidden = true;
+    if (state.hasAudio && video.muted) {
+      status.textContent = "🔊 Hover the preview to hear audio";
+      status.dataset.audioHint = "1";
+      status.hidden = false;
+    } else {
+      status.hidden = true;
+    }
     if (video.videoWidth && video.videoHeight) {
       widget.aspectRatio = video.videoWidth / video.videoHeight;
       node.setDirtyCanvas?.(true, true);
@@ -84,8 +90,26 @@ function buildDom(node) {
     status.textContent = "Inline preview failed. Click to open the video.";
   });
 
-  const state = { root, video, status, widget, lastSrc: "" };
+  const state = { root, video, status, widget, lastSrc: "", hasAudio: false };
   node.__dvprev = state;
+
+  // Browsers block unmuted autoplay, so the inline preview starts muted.
+  // When the encoded file actually has an audio track, unmute while the
+  // pointer is over the preview (mirrors the familiar VHS hover-to-hear
+  // behaviour) and clear the hint once the user has heard it.
+  video.addEventListener("pointerenter", () => {
+    if (state.hasAudio) {
+      video.muted = false;
+      if (status.dataset.audioHint) {
+        status.hidden = true;
+        delete status.dataset.audioHint;
+      }
+    }
+  });
+  video.addEventListener("pointerleave", () => {
+    video.muted = true;
+  });
+
   return state;
 }
 
@@ -97,6 +121,7 @@ function handleExecuted(node, output) {
   if (!meta || !meta.filename) return;
 
   const st = buildDom(node);
+  st.hasAudio = !!meta.has_audio;
   const params = new URLSearchParams({
     filename: meta.filename,
     subfolder: meta.subfolder || "",
@@ -106,8 +131,11 @@ function handleExecuted(node, output) {
   });
   const src = api.apiURL("/view?" + params.toString());
   st.lastSrc = src;
+  delete st.status.dataset.audioHint;
   st.status.hidden = false;
   st.status.textContent = "Loading preview…";
+  // each run re-mutes so muted-autoplay keeps working; hover re-unmutes
+  st.video.muted = true;
   st.video.src = src;
   st.video.load();
 }
