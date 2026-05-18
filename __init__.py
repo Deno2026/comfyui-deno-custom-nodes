@@ -370,6 +370,7 @@ _OPTIONAL_NODES = (
     ("deno_rtx_vfx_video_finisher", "DenoRTXVFXVideoFinisher", "(Deno) RTX Video Super Resolution (2 Pass)"),
     ("deno_image_compare", "DenoImageCompare", "(Deno) Image Compare"),
     ("deno_video_compare", "DenoVideoCompare", "(Deno) Video Compare"),
+    ("deno_video_preview", "DenoVideoPreview", "(Deno) Video Preview"),
 )
 
 for _module_name, _class_name, _display_name in _OPTIONAL_NODES:
