@@ -40,7 +40,10 @@ function buildDom(node) {
   root.className = "dvprev";
 
   const video = document.createElement("video");
-  video.controls = true;
+  // No player chrome — behave like the VHS preview: a clean auto-looping
+  // clip, muted by default (browsers require it for autoplay), unmuted
+  // only while the pointer is over it (handlers below).
+  video.controls = false;
   video.loop = true;
   video.muted = true;
   video.autoplay = true;
