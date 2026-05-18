@@ -1,3 +1,5 @@
+import importlib
+import logging
 import math
 import sys
 from pathlib import Path
@@ -10,18 +12,7 @@ from .deno_rtx_vfx_runtime import prefer_rtx_vfx_runtime_path
 
 prefer_rtx_vfx_runtime_path()
 
-from .deno_ltx_sequencer_plus import DenoLTXSequencer
-from .deno_ltx23_preset_loader import DenoLTX23PresetLoader
-from .deno_ltx_model_downloader import DenoLTXModelDownloader
-from .deno_ltx_multi_lora_loader import DenoLTXMultiLoraLoader
-from .deno_ltx_prompt_guide import DenoLTXPromptGuide
-from .deno_advanced_image_source_loader import DenoAdvancedImageSourceLoader
-from .deno_multi_image_board import DenoMultiImageLoader
 from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
-from .deno_rtx_vfx_easy_upscale import DenoRTXVFXEasyUpscale
-from .deno_rtx_vfx_video_finisher import DenoRTXVFXVideoFinisher
-from .deno_image_compare import DenoImageCompare
-from .deno_video_compare import DenoVideoCompare
 
 INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
 
@@ -358,32 +349,46 @@ class DenoResolutionSetup:
 
 NODE_CLASS_MAPPINGS = {
     "DenoResolutionSetup": DenoResolutionSetup,
-    "DenoMultiImageLoader": DenoMultiImageLoader,
-    "DenoAdvancedImageSourceLoader": DenoAdvancedImageSourceLoader,
-    "DenoLTXSequencer": DenoLTXSequencer,
-    "DenoLTX23PresetLoader": DenoLTX23PresetLoader,
-    "DenoLTXModelDownloader": DenoLTXModelDownloader,
-    "DenoLTXMultiLoraLoader": DenoLTXMultiLoraLoader,
-    "DenoLTXPromptGuide": DenoLTXPromptGuide,
-    "DenoRTXVFXEasyUpscale": DenoRTXVFXEasyUpscale,
-    "DenoRTXVFXVideoFinisher": DenoRTXVFXVideoFinisher,
-    "DenoImageCompare": DenoImageCompare,
-    "DenoVideoCompare": DenoVideoCompare,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoResolutionSetup": "(Deno) Resize Box",
-    "DenoMultiImageLoader": "(Deno) Multi Image Loader",
-    "DenoAdvancedImageSourceLoader": "(Deno) Advanced Image Source Loader",
-    "DenoLTXSequencer": "(Deno) LTX Sequencer",
-    "DenoLTX23PresetLoader": "(Deno) LTX Model Loader",
-    "DenoLTXModelDownloader": "(Deno) Easy Model Download Helper",
-    "DenoLTXMultiLoraLoader": "(Deno) LTX Multi LoRA Loader",
-    "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
-    "DenoRTXVFXEasyUpscale": "(Deno) RTX Video Super Resolution",
-    "DenoRTXVFXVideoFinisher": "(Deno) RTX Video Super Resolution (2 Pass)",
-    "DenoImageCompare": "(Deno) Image Compare",
-    "DenoVideoCompare": "(Deno) Video Compare",
 }
+
+# Each optional node is imported in isolation so a single failing module
+# (e.g. a Comfy build missing comfy_extras.nodes_lt) only drops that one
+# node instead of taking the whole pack out of the ComfyUI menu.
+_OPTIONAL_NODES = (
+    ("deno_multi_image_board", "DenoMultiImageLoader", "(Deno) Multi Image Loader"),
+    ("deno_advanced_image_source_loader", "DenoAdvancedImageSourceLoader", "(Deno) Advanced Image Source Loader"),
+    ("deno_ltx_sequencer_plus", "DenoLTXSequencer", "(Deno) LTX Sequencer"),
+    ("deno_ltx23_preset_loader", "DenoLTX23PresetLoader", "(Deno) LTX Model Loader"),
+    ("deno_ltx_model_downloader", "DenoLTXModelDownloader", "(Deno) Easy Model Download Helper"),
+    ("deno_ltx_multi_lora_loader", "DenoLTXMultiLoraLoader", "(Deno) LTX Multi LoRA Loader"),
+    ("deno_ltx_prompt_guide", "DenoLTXPromptGuide", "(Deno) LTX Prompt Guide"),
+    ("deno_rtx_vfx_easy_upscale", "DenoRTXVFXEasyUpscale", "(Deno) RTX Video Super Resolution"),
+    ("deno_rtx_vfx_video_finisher", "DenoRTXVFXVideoFinisher", "(Deno) RTX Video Super Resolution (2 Pass)"),
+    ("deno_image_compare", "DenoImageCompare", "(Deno) Image Compare"),
+    ("deno_video_compare", "DenoVideoCompare", "(Deno) Video Compare"),
+)
+
+for _module_name, _class_name, _display_name in _OPTIONAL_NODES:
+    try:
+        _module = importlib.import_module(f".{_module_name}", __name__)
+        _node_class = getattr(_module, _class_name)
+    except Exception as _exc:
+        logging.warning(
+            "[DENO] Skipped node %s (%s): %s: %s",
+            _class_name,
+            _display_name,
+            type(_exc).__name__,
+            _exc,
+        )
+        continue
+    NODE_CLASS_MAPPINGS[_class_name] = _node_class
+    NODE_DISPLAY_NAME_MAPPINGS[_class_name] = _display_name
+    # Keep the class importable as a package attribute (back-compat: this
+    # was the case while these were eager `from .x import Y` imports).
+    globals()[_class_name] = _node_class
 
 WEB_DIRECTORY = "./web/js"

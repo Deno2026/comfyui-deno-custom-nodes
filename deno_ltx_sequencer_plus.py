@@ -110,7 +110,13 @@ class DenoLTXSequencer:
             conditioning_frame_idx, latent_idx = LTXVAddGuide.get_latent_index(
                 positive, latent_length, len(encoded_image), frame_index, scale_factors
             )
-            assert latent_idx + encoded_latent.shape[2] <= latent_length, "Conditioning frames exceed latent length."
+            if latent_idx + encoded_latent.shape[2] > latent_length:
+                raise ValueError(
+                    "Conditioning frames exceed latent length: "
+                    f"latent_idx={latent_idx}, "
+                    f"encoded_len={encoded_latent.shape[2]}, "
+                    f"latent_len={latent_length}."
+                )
 
             positive, negative, latent_image, noise_mask = LTXVAddGuide.append_keyframe(
                 positive,

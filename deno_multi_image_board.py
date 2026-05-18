@@ -381,8 +381,11 @@ class DenoMultiImageLoader:
 
         if loaded_images:
             can_batch = all(image.shape == loaded_images[0].shape for image in loaded_images)
-            multi_output = torch.cat(loaded_images, dim=0) if can_batch else torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            if can_batch:
+                multi_output = torch.cat(loaded_images, dim=0)
+            else:
+                multi_output = torch.zeros((1, int(height), int(width), 3), dtype=torch.float32)
         else:
-            multi_output = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            multi_output = torch.zeros((1, int(height), int(width), 3), dtype=torch.float32)
 
         return (multi_output, int(width), int(height))

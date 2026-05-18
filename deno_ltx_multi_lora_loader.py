@@ -113,8 +113,20 @@ class DenoLTXMultiLoraLoader:
 
             if hasattr(value, "weights"):
                 weights_list = list(value.weights)
-                current_alpha = weights_list[2] if weights_list[2] is not None else 1.0
-                weights_list[2] = current_alpha * multiplier
+                alpha = weights_list[2]
+                if alpha is None:
+                    # ComfyUI's LoRAAdapter.calculate_weight treats alpha=None
+                    # as an effective scale of 1.0, but a numeric alpha as
+                    # alpha / rank. Seeding alpha with rank * multiplier makes
+                    # it resolve back to exactly `multiplier` (not the
+                    # rank-times-too-weak multiplier / rank).
+                    try:
+                        rank = int(weights_list[1].shape[0])
+                    except Exception:
+                        rank = 1
+                    weights_list[2] = rank * multiplier
+                else:
+                    weights_list[2] = alpha * multiplier
                 value.weights = tuple(weights_list)
 
         for key in keys_to_delete:
