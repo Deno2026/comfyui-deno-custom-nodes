@@ -11,16 +11,18 @@ import { api } from "../../scripts/api.js";
 const NODE_NAME = "DenoVideoPreview";
 const WIDGET_NAME = "deno_video_preview";
 const NODE_MIN_W = 320;
-const NODE_DEFAULT_H = 360;
+// Compact starting height only; after the first run loadedmetadata snaps
+// the node to the exact video aspect (no leftover empty area).
+const NODE_DEFAULT_H = 200;
 
 const CSS = `
-.dvprev{position:absolute;inset:0;display:flex;flex-direction:column;
-  font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  color:#dfffea;background:#050906;border-radius:10px;overflow:hidden;
-  border:1px solid rgba(72,255,132,.32)}
-.dvprev video{flex:1;width:100%;min-height:0;background:#000;display:block}
-.dvprev .st{padding:7px 9px;font-size:11px;color:#9dffba;text-align:center;
-  background:#0a120c;border-top:1px solid rgba(72,255,132,.18);cursor:pointer}
+.dvprev{position:absolute;inset:0;overflow:hidden;background:#000;
+  font:11px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.dvprev video{position:absolute;inset:0;width:100%;height:100%;display:block;
+  background:#000;object-fit:contain}
+.dvprev .st{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;
+  font-size:11px;color:#9dffba;text-align:center;cursor:pointer;
+  background:rgba(5,9,6,.74)}
 .dvprev .st[hidden]{display:none}
 `;
 
@@ -64,13 +66,17 @@ function buildDom(node) {
     serialize: false,
     hideOnZoom: false,
   });
+  // VHS-style fit: the widget height is locked to the video aspect at the
+  // current node width, so the <video> (absolute inset:0) fills it edge to
+  // edge with no letterbox margins, and it stays in sync whenever the node
+  // is resized (LiteGraph re-calls computeSize during resize).
   widget.computeSize = function (width) {
     if (this.aspectRatio) {
-      let h = (node.size[0] - 20) / this.aspectRatio + 34;
+      let h = (node.size[0] - 20) / this.aspectRatio;
       if (!(h > 0)) h = 0;
-      return [width, h];
+      return [width, h + 4];
     }
-    return [width, NODE_DEFAULT_H - 30];
+    return [width, 80];
   };
 
   video.addEventListener("loadedmetadata", () => {
