@@ -18,12 +18,16 @@ const NODE_DEFAULT_H = 200;
 const CSS = `
 .dvprev{position:absolute;inset:0;overflow:hidden;background:#000;
   font:11px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-.dvprev video{position:absolute;inset:0;width:100%;height:100%;display:block;
-  background:#000;object-fit:cover}
+.dvprev video{display:block;width:100%;height:auto;background:#000}
 .dvprev .st{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;
   font-size:11px;color:#9dffba;text-align:center;cursor:pointer;
   background:rgba(5,9,6,.74)}
 .dvprev .st[hidden]{display:none}
+.dvprev .fs{position:absolute;right:7px;top:7px;padding:3px 9px;
+  font:600 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  color:#bdffd2;background:rgba(5,9,6,.6);border:1px solid rgba(120,255,160,.4);
+  border-radius:6px;cursor:pointer;user-select:none;opacity:.8;z-index:2}
+.dvprev .fs:hover{opacity:1;background:rgba(12,32,18,.92)}
 `;
 
 function ensureStyles() {
@@ -59,8 +63,28 @@ function buildDom(node) {
     if (node.__dvprev?.lastSrc) window.open(node.__dvprev.lastSrc, "_blank");
   };
 
+  const fsBtn = document.createElement("div");
+  fsBtn.className = "fs";
+  fsBtn.textContent = "⛶ Full screen";
+  fsBtn.title = "Full screen";
+  fsBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+  fsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();          // don't also toggle play/pause
+    e.preventDefault();
+    try {
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.();
+      } else if (video.requestFullscreen) {
+        video.requestFullscreen();
+      } else if (root.requestFullscreen) {
+        root.requestFullscreen();
+      }
+    } catch (err) { /* fullscreen blocked - ignore */ }
+  });
+
   root.appendChild(video);
   root.appendChild(status);
+  root.appendChild(fsBtn);
 
   const widget = node.addDOMWidget(WIDGET_NAME, "div", root, {
     serialize: false,
@@ -72,10 +96,11 @@ function buildDom(node) {
   // is resized (LiteGraph re-calls computeSize during resize).
   widget.computeSize = function (width) {
     if (this.aspectRatio) {
-      // Use the width LiteGraph actually allots to the widget (not a
-      // node.size guess) so the box is exactly the video aspect — the
-      // video then fills it with no side/bottom margins.
-      let h = width / this.aspectRatio;
+      // height:auto on the <video> makes it always render at its true
+      // aspect (never cropped/stretched). _fitH is the real measured px
+      // height (kept current by the ResizeObserver) so the node hugs the
+      // clip exactly; width/aspect is just the pre-measure estimate.
+      let h = widget._fitH || (width / this.aspectRatio);
       if (!(h > 0)) h = 0;
       return [width, h];
     }
@@ -83,17 +108,10 @@ function buildDom(node) {
   };
 
   video.addEventListener("loadedmetadata", () => {
-    if (state.hasAudio && video.muted) {
-      status.textContent = "🔊 Hover the preview to hear audio";
-      status.dataset.audioHint = "1";
-      status.hidden = false;
-    } else {
-      status.hidden = true;
-    }
+    status.hidden = true;
     if (video.videoWidth && video.videoHeight) {
       widget.aspectRatio = video.videoWidth / video.videoHeight;
-      node.setDirtyCanvas?.(true, true);
-      node.setSize?.(node.computeSize());
+      requestAnimationFrame(refit);
     }
     video.play?.().catch(() => {});
   });
@@ -105,18 +123,30 @@ function buildDom(node) {
   const state = { root, video, status, widget, lastSrc: "", hasAudio: false };
   node.__dvprev = state;
 
+  // Size the node to the video's REAL rendered height (the <video> is
+  // height:auto so it can never be cropped or letterboxed). Re-measure
+  // whenever the element width changes so it stays hugged at any size.
+  function refit() {
+    if (!widget.aspectRatio) return;
+    const h = video.offsetHeight;
+    if (h > 0 && Math.abs(h - (widget._fitH || 0)) > 1) {
+      widget._fitH = h;
+      node.setSize?.(node.computeSize());
+      node.setDirtyCanvas?.(true, true);
+    }
+  }
+  state.refit = refit;
+  try {
+    state.ro = new ResizeObserver(() => requestAnimationFrame(refit));
+    state.ro.observe(root);
+  } catch (e) { /* no ResizeObserver: estimate path still renders fine */ }
+
   // Browsers block unmuted autoplay, so the inline preview starts muted.
   // When the encoded file actually has an audio track, unmute while the
   // pointer is over the preview (mirrors the familiar VHS hover-to-hear
   // behaviour) and clear the hint once the user has heard it.
   video.addEventListener("pointerenter", () => {
-    if (state.hasAudio) {
-      video.muted = false;
-      if (status.dataset.audioHint) {
-        status.hidden = true;
-        delete status.dataset.audioHint;
-      }
-    }
+    if (state.hasAudio) video.muted = false;
   });
   video.addEventListener("pointerleave", () => {
     video.muted = true;
@@ -224,6 +254,7 @@ app.registerExtension({
     const onRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
       const s = this.__dvprev;
+      if (s?.ro) { try { s.ro.disconnect(); } catch (e) {} }
       if (s?.video) {
         try { s.video.pause(); } catch (e) {}
         s.video.removeAttribute("src");
