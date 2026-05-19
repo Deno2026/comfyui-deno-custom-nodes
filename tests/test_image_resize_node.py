@@ -202,6 +202,21 @@ def test_node_registration_exports_expected_nodes():
     assert package.WEB_DIRECTORY == "./web/js"
 
 
+def test_deno_video_preview_passes_canvas_navigation_events():
+    script = (REPO_ROOT / "web" / "js" / "deno_video_preview.js").read_text(encoding="utf-8")
+
+    assert "installMiddleMouseCanvasPan" in script
+    assert 'root.addEventListener("wheel"' in script
+    assert "new WheelEvent" in script
+    assert 'root.addEventListener("pointerdown"' in script
+    assert "e.button !== 1" in script
+    assert "canvas.ds.offset[0]" in script
+    assert "canvas.ds.offset[1]" in script
+    assert 'root.addEventListener("auxclick"' in script
+    assert 'video.addEventListener("click"' in script
+    assert 'fsBtn.addEventListener("click"' in script
+
+
 def test_rtx_vfx_preflight_node_is_not_registered():
     package = load_package()
 

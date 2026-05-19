@@ -38,6 +38,54 @@ function ensureStyles() {
   document.head.appendChild(s);
 }
 
+function installMiddleMouseCanvasPan(root) {
+  root.addEventListener("pointerdown", (e) => {
+    if (e.button !== 1) return;
+    const canvas = app.canvas;
+    if (!canvas?.ds?.offset) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    let lastX = e.clientX;
+    let lastY = e.clientY;
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", done, true);
+      window.removeEventListener("pointercancel", done, true);
+    };
+    const move = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const scale = canvas.ds.scale || 1;
+      canvas.ds.offset[0] += (ev.clientX - lastX) / scale;
+      canvas.ds.offset[1] += (ev.clientY - lastY) / scale;
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+
+      if (canvas.setDirty) canvas.setDirty(true, true);
+      else app.graph?.setDirtyCanvas?.(true, true);
+    };
+    const done = (ev) => {
+      ev?.preventDefault?.();
+      ev?.stopPropagation?.();
+      cleanup();
+    };
+
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", done, true);
+    window.addEventListener("pointercancel", done, true);
+  }, true);
+
+  root.addEventListener("auxclick", (e) => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+}
+
 function buildDom(node) {
   if (node.__dvprev) return node.__dvprev;
   ensureStyles();
@@ -162,6 +210,7 @@ function buildDom(node) {
       bubbles: true, cancelable: true,
     }));
   }, { passive: false });
+  installMiddleMouseCanvasPan(root);
 
   return state;
 }
