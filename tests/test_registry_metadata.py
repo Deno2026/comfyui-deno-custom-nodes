@@ -25,8 +25,12 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     version = pyproject["project"]["version"]
     assert isinstance(version, str)
     assert re.fullmatch(r"\d+\.\d+\.\d+", version)
-    assert "Core nodes are OS-independent" in pyproject["project"]["description"]
-    assert "optional RTX VFX helper" in pyproject["project"]["description"]
+    description = pyproject["project"]["description"]
+    assert "RTX Video Super Resolution" in description
+    assert "NVIDIA VFX/nvvfx" in description
+    assert "LTX 2.3" in description
+    assert "image and video compare" in description
+    assert "visual workflow utilities" in description
     assert pyproject["project"]["requires-python"] == ">=3.10"
     assert pyproject["project"]["license"] == {"file": "LICENSE"}
     classifiers = pyproject["project"]["classifiers"]

@@ -6,6 +6,7 @@ Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas.
+The pack also includes lightweight frontend helpers such as **DENO Visual Fold**, a visual-only way to fold selected canvas nodes into a small chip without changing graph execution or creating a subgraph.
 
 ## Included Nodes
 
@@ -300,17 +301,36 @@ The goal is not to chase huge feature lists. The goal is to make the workflows p
 
 ## Search Tips
 
-Try searching with:
+Useful search terms for GitHub, ComfyUI Manager, and this README:
 
-- `deno`
-- `resize`
-- `compare`
-- `video`
-- `ltx`
-- `advanced`
-- `image source`
-- `external folder`
+- `deno custom nodes`
 - `(deno)`
+- `comfyui custom nodes`
+- `rtx super`
+- `rtx video super resolution`
+- `video super resolution`
+- `nvidia vfx`
+- `nvvfx`
+- `image compare`
+- `video compare`
+- `video preview`
+- `video to gif`
+- `gif webp`
+- `ltx`
+- `ltx 2.3`
+- `ltx sequencer`
+- `ltx model loader`
+- `ltx multi lora`
+- `prompt guide`
+- `multi image loader`
+- `advanced image source`
+- `external folder`
+- `resize`
+- `image resize`
+- `lora loader`
+- `gguf`
+- `visual fold`
+- `workflow tools`
 
 ## Install
 
