@@ -1,5 +1,23 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 최신 세션 (2026-05-19, Claude Opus 4.7) — 0.7.5: LTX Multi LoRA clip optional
+>
+> **증상:** 사용자가 Run 누르면 `(Deno) LTX Multi LoRA Loader`에서 막힘.
+> **원인 (로그로 확정, 코드버그·회귀 아님):** `Failed to validate prompt
+> ... DenoLTXMultiLoraLoader: Required input is missing: clip`. INPUT_TYPES가
+> `clip`을 **required**로 선언했지만 `load_multi_lora`는 이미 `clip=None`을
+> 전 구간 처리(model-only LoRA, LTX에서 흔함) — 선언이 구현보다 엄격한 계약버그.
+> **수정:** `clip` → optional(default None). 소켓은 model+clip뿐이고 순서
+> (model=0, clip=1) 불변 → 기존 clip 연결 저장 workflow도 그대로 동작,
+> clip 없는 구성은 이제 검증 통과. 함수 시그니처는 테스트가 위치호출
+> `(model, clip, 1)` 하므로 순서 유지 + 둘 다 default(`clip=None,
+> active_loras=1`)로 처리(ComfyUI는 kwarg라 무관).
+> **검증:** py_compile + tests **50/50** + 실행본 재시작 후 라이브
+> `/object_info`에서 clip이 optional 확인. **배포: 0.7.4 → 0.7.5**
+> (`3131e89`), 비파괴 relaxation.
+>
+> ---
+
 > ## ▶ 최신 세션 (2026-05-19, Claude Opus 4.7) — 0.7.3 잠재버그 리뷰 → 0.7.4 배포
 >
 > **요청:** 0.7.3 잠재버그 리뷰(GPT Pro 리뷰 검증) + 병렬 Codex가 추가한
