@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520">
+  <rect width="920" height="520" fill="#111714"/>
+  <rect x="100" y="72" width="720" height="360" rx="18" fill="#f3f3f3" stroke="#d1d1d1" stroke-width="2"/>
+  <rect x="160" y="150" width="300" height="86" rx="12" fill="#ffffff" stroke="#16883f" stroke-width="4"/>
+  <text x="196" y="202" fill="#111" font-family="Arial" font-size="24" font-weight="800">install_rtx_vfx.bat</text>
+  <path d="M310 254 L310 344" stroke="#16883f" stroke-width="12" stroke-linecap="round"/>
+  <path d="M270 306 L310 346 L350 306" fill="none" stroke="#16883f" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="392" y="326" fill="#16883f" font-family="Arial" font-size="30" font-weight="800">Double-click</text>
+  <text x="170" y="390" fill="#333" font-family="Arial" font-size="20">Only continue if the file came from the Deno2026 GitHub repository.</text>
+</svg>

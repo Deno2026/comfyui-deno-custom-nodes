@@ -38,7 +38,7 @@ RESIZE_TYPES = ["Scale", "Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
 RTX_VFX_DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"]
 RTX_VFX_DEFAULT_DIVISIBLE_BY = "32"
 RTX_VFX_INSTALL_GUIDE_URL = (
-    "https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/tools/README_RTX_VFX_EASY_INSTALL.md"
+    "https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/docs/RTX_VFX_INSTALL_GUIDE.md"
 )
 RTX_VFX_INSTALLER_LOCAL_HINT = r"custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat"
 
@@ -230,10 +230,12 @@ def _import_vfx():
 
 def _rtx_vfx_easy_install_note() -> str:
     return (
-        "Easy install steps: close every ComfyUI window, run "
-        f"{RTX_VFX_INSTALLER_LOCAL_HINT}, wait for the green INSTALL COMPLETE message, "
-        "then start ComfyUI again. "
-        f"If the BAT is missing, open the install guide: {RTX_VFX_INSTALL_GUIDE_URL}."
+        "Easy install steps: close every ComfyUI window, click this node's How to install button, "
+        "follow the illustrated GitHub guide, download the ZIP from that guide page, open your "
+        "Windows Downloads folder, extract the ZIP, open the extracted folder, double-click "
+        "install_rtx_vfx.bat, type Y if the ComfyUI Python path looks right, wait for the green "
+        "INSTALL COMPLETE message, then start ComfyUI again. "
+        f"Full install guide: {RTX_VFX_INSTALL_GUIDE_URL}."
     )
 
 
@@ -324,13 +326,18 @@ def _safe_cuda_device_index(device: int) -> int:
 
 class DenoRTXVFXEasyUpscale:
     DESCRIPTION = (
-        "RTX VFX install steps.\n\n"
+        "RTX VFX install steps for beginners.\n\n"
         "1. Close every ComfyUI window first.\n"
-        f"2. Open `{RTX_VFX_INSTALLER_LOCAL_HINT}`.\n"
-        "3. Run `install_rtx_vfx.bat`.\n"
-        "4. Wait until the BAT shows the green `INSTALL COMPLETE` message.\n"
-        "5. Start ComfyUI again, then run this node.\n\n"
-        "If the BAT file is missing, open the install guide:\n"
+        "2. Click this node's `How to install` button.\n"
+        "3. Follow the illustrated GitHub guide.\n"
+        "4. Download the ZIP from that guide page.\n"
+        "5. Open your Windows Downloads folder.\n"
+        "6. Right-click `install_rtx_vfx_bat.zip`, choose `Extract All`, then open the extracted folder.\n"
+        "7. Double-click `install_rtx_vfx.bat`.\n"
+        "8. If it asks `Install RTX VFX here?`, type `Y` only when the shown Python path belongs to this ComfyUI.\n"
+        "9. Wait until the BAT shows the green `INSTALL COMPLETE` message.\n"
+        "10. Start ComfyUI again, then run this node.\n\n"
+        "Full install guide:\n"
         f"{RTX_VFX_INSTALL_GUIDE_URL}"
     )
 

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520">
+  <rect width="920" height="520" fill="#101513"/>
+  <rect x="76" y="54" width="768" height="330" rx="14" fill="#080808" stroke="#333" stroke-width="3"/>
+  <text x="112" y="124" fill="#6fffa0" font-family="Consolas, monospace" font-size="26" font-weight="800">INSTALL COMPLETE</text>
+  <text x="112" y="180" fill="#f2fff5" font-family="Consolas, monospace" font-size="21">NVIDIA RTX VFX is ready for ComfyUI.</text>
+  <text x="112" y="238" fill="#e7e7e7" font-family="Consolas, monospace" font-size="19">Press any key to continue . . .</text>
+  <path d="M650 140 A70 70 0 1 1 610 76" fill="none" stroke="#16883f" stroke-width="14" stroke-linecap="round"/>
+  <path d="M612 76 L664 70 L644 120 Z" fill="#16883f"/>
+  <text x="120" y="446" fill="#6fffa0" font-family="Arial" font-size="28" font-weight="800">Restart ComfyUI, then run the RTX node again.</text>
+</svg>

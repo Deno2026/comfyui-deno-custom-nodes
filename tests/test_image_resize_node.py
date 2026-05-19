@@ -257,6 +257,11 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert 'value: "Scale"' in script
     assert 'label: "Scale"' in script
     assert 'resizeType === "Scale"' in script
+    assert "How to install" in script
+    assert "Copy steps" in script
+    assert "RTX_VFX_INSTALL_GUIDE.md" in script
+    assert "raw/refs/heads/main/tools/install_rtx_vfx_bat.zip" not in script
+    assert "install_rtx_vfx_bat.zip" in script
     assert "Video Super Resolution | Low-res/compressed -> larger, cleaner, sharper" not in script
     assert "Low-res/compressed -> larger, cleaner, sharper" in script
     assert "Clean source -> crisp detail-preserving upscale" in script

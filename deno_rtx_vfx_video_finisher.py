@@ -20,7 +20,6 @@ from .deno_resolution_common import COMMON_RATIOS, RESIZE_METHODS
 from .deno_rtx_vfx_easy_upscale import (
     RTX_VFX_DEFAULT_DIVISIBLE_BY,
     RTX_VFX_DIVISIBLE_BY_VALUES,
-    RTX_VFX_INSTALLER_LOCAL_HINT,
     RTX_VFX_INSTALL_GUIDE_URL,
     _create_vfx_effect,
     _fit_frame_to_target_aspect,
@@ -61,9 +60,15 @@ class DenoRTXVFXVideoFinisher:
         "preallocates the output on CPU and avoids a full intermediate batch.\n\n"
         "Needs NVIDIA RTX VFX installed.\n"
         "1. Close every ComfyUI window first.\n"
-        f"2. Open `{RTX_VFX_INSTALLER_LOCAL_HINT}` and run `install_rtx_vfx.bat`.\n"
-        "3. Wait for the green `INSTALL COMPLETE` message, then start ComfyUI again.\n"
-        f"If the BAT file is missing, open the install guide:\n{RTX_VFX_INSTALL_GUIDE_URL}"
+        "2. Click this node's `How to install` button.\n"
+        "3. Follow the illustrated GitHub guide.\n"
+        "4. Download the ZIP from that guide page.\n"
+        "5. Open your Windows Downloads folder.\n"
+        "6. Right-click `install_rtx_vfx_bat.zip`, choose `Extract All`, then open the extracted folder.\n"
+        "7. Double-click `install_rtx_vfx.bat`.\n"
+        "8. If it asks `Install RTX VFX here?`, type `Y` only when the shown Python path belongs to this ComfyUI.\n"
+        "9. Wait for the green `INSTALL COMPLETE` message, then start ComfyUI again.\n"
+        f"Full install guide:\n{RTX_VFX_INSTALL_GUIDE_URL}"
     )
 
     @classmethod

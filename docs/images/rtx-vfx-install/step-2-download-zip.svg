@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520">
+  <rect width="920" height="520" fill="#101513"/>
+  <rect x="70" y="48" width="780" height="424" rx="18" fill="#f7f7f7"/>
+  <rect x="70" y="48" width="780" height="58" rx="18" fill="#202a24"/>
+  <text x="104" y="85" fill="#eaffef" font-family="Arial" font-size="22" font-weight="800">GitHub install guide</text>
+  <text x="110" y="154" fill="#151515" font-family="Arial" font-size="30" font-weight="800">Step 2. Download the installer ZIP</text>
+  <rect x="110" y="200" width="420" height="62" rx="12" fill="#16883f"/>
+  <text x="140" y="240" fill="#ffffff" font-family="Arial" font-size="24" font-weight="800">Download install_rtx_vfx_bat.zip</text>
+  <path d="M320 286 L320 372 M282 334 L320 372 L358 334" stroke="#16883f" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="220" y="384" width="210" height="46" rx="10" fill="#dceee2" stroke="#16883f" stroke-width="3"/>
+  <text x="246" y="414" fill="#10351c" font-family="Arial" font-size="22" font-weight="800">Downloads</text>
+</svg>

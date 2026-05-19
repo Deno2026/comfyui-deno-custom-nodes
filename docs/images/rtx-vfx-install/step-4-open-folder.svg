@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520">
+  <rect width="920" height="520" fill="#101513"/>
+  <rect x="70" y="58" width="780" height="404" rx="16" fill="#f4f4f4" stroke="#d0d0d0" stroke-width="2"/>
+  <rect x="70" y="58" width="780" height="54" rx="16" fill="#e7e7e7"/>
+  <text x="102" y="92" fill="#222" font-family="Arial" font-size="22" font-weight="800">install_rtx_vfx_bat</text>
+  <rect x="130" y="160" width="300" height="70" rx="10" fill="#ffffff" stroke="#16883f" stroke-width="3"/>
+  <text x="160" y="203" fill="#111" font-family="Arial" font-size="22" font-weight="800">install_rtx_vfx.bat</text>
+  <rect x="130" y="260" width="430" height="70" rx="10" fill="#ffffff" stroke="#a6a6a6" stroke-width="2"/>
+  <text x="160" y="303" fill="#333" font-family="Arial" font-size="21">README_RTX_VFX_EASY_INSTALL.md</text>
+  <text x="130" y="400" fill="#16883f" font-family="Arial" font-size="27" font-weight="800">Open the extracted folder, then find the BAT file.</text>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520">
+  <rect width="920" height="520" fill="#111714"/>
+  <rect x="62" y="56" width="796" height="408" rx="16" fill="#f1f1f1" stroke="#d0d0d0" stroke-width="2"/>
+  <rect x="62" y="56" width="796" height="54" rx="16" fill="#e5e5e5"/>
+  <text x="100" y="91" fill="#222" font-family="Arial" font-size="22" font-weight="800">Downloads</text>
+  <rect x="110" y="152" width="360" height="58" rx="8" fill="#ffffff" stroke="#16883f" stroke-width="3"/>
+  <text x="132" y="188" fill="#111" font-family="Arial" font-size="20" font-weight="700">install_rtx_vfx_bat.zip</text>
+  <rect x="510" y="150" width="270" height="204" rx="10" fill="#ffffff" stroke="#777" stroke-width="2"/>
+  <text x="538" y="194" fill="#222" font-family="Arial" font-size="21">Open</text>
+  <text x="538" y="240" fill="#222" font-family="Arial" font-size="21" font-weight="800">Extract All...</text>
+  <text x="538" y="286" fill="#777" font-family="Arial" font-size="21">Copy</text>
+  <text x="538" y="332" fill="#777" font-family="Arial" font-size="21">Properties</text>
+  <path d="M475 178 C520 180 520 236 538 236" stroke="#16883f" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <text x="110" y="408" fill="#16883f" font-family="Arial" font-size="26" font-weight="800">Right-click the ZIP, then choose Extract All.</text>
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520">
+  <rect width="920" height="520" fill="#121815"/>
+  <rect x="40" y="54" width="840" height="410" rx="18" fill="#2f3330" stroke="#50f083" stroke-width="3"/>
+  <rect x="40" y="54" width="840" height="58" rx="18" fill="#3a3a3a"/>
+  <text x="80" y="91" fill="#f2fff5" font-family="Arial" font-size="24" font-weight="700">(Deno) RTX Video Super Resolution</text>
+  <circle cx="838" cy="84" r="16" fill="#0d7a36" stroke="#80ffa8" stroke-width="3"/>
+  <text x="833" y="92" fill="#effff2" font-family="Arial" font-size="24" font-weight="700">i</text>
+  <rect x="80" y="156" width="760" height="244" rx="18" fill="#001109" stroke="#1fdc67" stroke-width="2"/>
+  <text x="112" y="204" fill="#8dffad" font-family="Arial" font-size="32" font-weight="800">RTX Video Super Resolution</text>
+  <rect x="112" y="250" width="280" height="52" rx="26" fill="#176b35" stroke="#50f083" stroke-width="3"/>
+  <text x="180" y="284" fill="#f3fff5" font-family="Arial" font-size="20" font-weight="800">How to install</text>
+  <rect x="420" y="250" width="220" height="52" rx="26" fill="#07140c" stroke="#4a9a65" stroke-width="2"/>
+  <text x="478" y="284" fill="#c9f7d5" font-family="Arial" font-size="20" font-weight="800">Copy steps</text>
+  <path d="M286 319 L252 374 L318 374 Z" fill="#50f083"/>
+  <text x="344" y="365" fill="#eaffef" font-family="Arial" font-size="22" font-weight="700">Click this button first.</text>
+</svg>

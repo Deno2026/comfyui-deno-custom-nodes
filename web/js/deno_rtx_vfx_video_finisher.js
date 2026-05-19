@@ -9,6 +9,23 @@ const PANEL_MIN_WIDTH = MIN_WIDTH - NODE_WIDGET_SIDE_MARGIN;
 const PANEL_BOTTOM_GAP = 10;
 const PANEL_FALLBACK_HEIGHT = 400;
 const NVIDIA_VSR_DOCS_URL = "https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html";
+const RTX_VFX_INSTALL_GUIDE_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/docs/RTX_VFX_INSTALL_GUIDE.md";
+const RTX_VFX_INSTALL_STEPS = [
+    "DENO RTX VFX manual install",
+    "",
+    "1. Close every ComfyUI window first.",
+    "2. Click the How to install button in the node.",
+    "3. Follow the illustrated GitHub guide step by step.",
+    "4. Download the ZIP from that guide page.",
+    "5. Open your Windows Downloads folder.",
+    "6. Right-click install_rtx_vfx_bat.zip and choose Extract All.",
+    "7. Open the extracted install_rtx_vfx_bat folder.",
+    "8. Double-click install_rtx_vfx.bat.",
+    "9. If it asks Install RTX VFX here?, type Y and press Enter.",
+    "10. Wait for INSTALL COMPLETE.",
+    "11. Start ComfyUI again.",
+    "12. Run (Deno) RTX Video Super Resolution.",
+].join("\n");
 
 const FIRST_PASS_CHOICES = ["Off", "Denoise", "Deblur"];
 const UPSCALE_PASS_CHOICES = ["Off", "VSR", "High Bitrate"];
@@ -191,6 +208,49 @@ function pill(label, title, height, fontSize) {
     if (title) b.title = title;
     return b;
 }
+
+function createInstallGuideControls(onToggle) {
+    const root = el("div", "display:flex; flex-direction:column; gap:7px;");
+    const row = el("div", "display:grid; grid-template-columns:1.2fr 1fr; gap:7px;");
+
+    const guideLink = el("a", `
+        height:26px; box-sizing:border-box; display:flex; align-items:center;
+        justify-content:center; min-width:0; padding:0 8px; border-radius:999px;
+        border:1px solid rgba(72,255,132,0.34); background:rgba(6,22,12,0.88);
+        color:#c9f7d5; font:800 9px sans-serif; text-decoration:none;
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer;
+    `, "How to install");
+    guideLink.href = RTX_VFX_INSTALL_GUIDE_URL;
+    guideLink.target = "_blank";
+    guideLink.rel = "noopener noreferrer";
+    guideLink.title = "Open the illustrated GitHub install guide.";
+    guideLink.onclick = (event) => event.stopPropagation();
+
+    const copyButton = pill("Copy steps", "Copy the manual install checklist.", 26, 9);
+    row.append(guideLink, copyButton);
+    copyButton.onclick = async () => {
+        try {
+            if (!navigator.clipboard?.writeText) {
+                throw new Error("Clipboard is not available.");
+            }
+            await navigator.clipboard.writeText(RTX_VFX_INSTALL_STEPS);
+            const oldText = copyButton.textContent;
+            copyButton.textContent = "Copied";
+            setTimeout(() => {
+                copyButton.textContent = oldText;
+            }, 1100);
+        } catch (_error) {
+            copyButton.textContent = "Copy failed";
+            setTimeout(() => {
+                copyButton.textContent = "Copy steps";
+            }, 1300);
+        }
+    };
+
+    root.append(row);
+    return root;
+}
+
 function setSelected(button, on, kind) {
     if (on && kind === "off") {
         button.style.borderColor = "rgba(150,150,150,0.6)";
@@ -345,6 +405,8 @@ function buildControlPanel(node) {
 
     /* --- footer: docs + note --- */
     const footer = el("div", "display:flex; flex-direction:column; gap:6px;");
+    let refreshLayout = () => {};
+    const installGuide = createInstallGuideControls(() => refreshLayout());
     const note = el("div", "color:#7fbf95; font:9px/1.4 sans-serif;",
         "Fine settings (divisible_by · resize method) are on the node inputs below.");
     const docsLink = el("a", `
@@ -358,7 +420,7 @@ function buildControlPanel(node) {
     docsLink.rel = "noopener noreferrer";
     docsLink.title = NVIDIA_VSR_DOCS_URL;
     docsLink.onclick = (e) => e.stopPropagation();
-    footer.append(note, docsLink);
+    footer.append(note, docsLink, installGuide);
 
     root.append(header, pop, flow, card1, card2, footer);
 
@@ -380,6 +442,7 @@ function buildControlPanel(node) {
         resizeNodeToContent(n);
         requestNodeRedraw(n);
     };
+    refreshLayout = () => applySizeAndRedraw(node);
 
     const ui = {
         root, applySize, height,

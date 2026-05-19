@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520">
+  <rect width="920" height="520" fill="#101513"/>
+  <rect x="74" y="58" width="772" height="404" rx="14" fill="#080808" stroke="#333" stroke-width="3"/>
+  <text x="108" y="116" fill="#6fffa0" font-family="Consolas, monospace" font-size="23" font-weight="700">DENO RTX VFX Easy Install</text>
+  <text x="108" y="174" fill="#e8e8e8" font-family="Consolas, monospace" font-size="19">Detected ComfyUI Python:</text>
+  <text x="108" y="214" fill="#d8ffd8" font-family="Consolas, monospace" font-size="18">D:\ComfyUI-Easy-Install\python_embeded\python.exe</text>
+  <text x="108" y="284" fill="#ffffff" font-family="Consolas, monospace" font-size="22" font-weight="700">Install RTX VFX here? [Y/N]</text>
+  <rect x="108" y="320" width="70" height="48" rx="8" fill="#16883f"/>
+  <text x="132" y="354" fill="#ffffff" font-family="Arial" font-size="28" font-weight="800">Y</text>
+  <text x="198" y="352" fill="#e8e8e8" font-family="Arial" font-size="21">Type Y only if this is your ComfyUI path.</text>
+</svg>

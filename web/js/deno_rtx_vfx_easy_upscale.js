@@ -9,8 +9,26 @@ const NODE_WIDGET_SIDE_MARGIN = 30;
 const PANEL_MIN_WIDTH = MIN_EASY_WIDTH - NODE_WIDGET_SIDE_MARGIN;
 const PANEL_HEIGHT_RESIZABLE = 240;
 const PANEL_HEIGHT_SAME_SIZE = 188;
+const INSTALL_GUIDE_CLOSED_EXTRA_HEIGHT = 34;
 const PANEL_BOTTOM_GAP = 10;
 const NVIDIA_VSR_DOCS_URL = "https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html";
+const RTX_VFX_INSTALL_GUIDE_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/docs/RTX_VFX_INSTALL_GUIDE.md";
+const RTX_VFX_INSTALL_STEPS = [
+    "DENO RTX VFX manual install",
+    "",
+    "1. Close every ComfyUI window first.",
+    "2. Click the How to install button in the node.",
+    "3. Follow the illustrated GitHub guide step by step.",
+    "4. Download the ZIP from that guide page.",
+    "5. Open your Windows Downloads folder.",
+    "6. Right-click install_rtx_vfx_bat.zip and choose Extract All.",
+    "7. Open the extracted install_rtx_vfx_bat folder.",
+    "8. Double-click install_rtx_vfx.bat.",
+    "9. If it asks Install RTX VFX here?, type Y and press Enter.",
+    "10. Wait for INSTALL COMPLETE.",
+    "11. Start ComfyUI again.",
+    "12. Run (Deno) RTX Video Super Resolution.",
+].join("\n");
 
 const EFFECTS = ["VSR", "High Bitrate", "Denoise", "Deblur"];
 const EFFECT_LABELS = {
@@ -305,6 +323,9 @@ function buildEasyControlPanel(node) {
         docsLink.style.background = "rgba(0,0,0,0.20)";
     };
 
+    let refreshLayout = () => {};
+    const installGuide = createInstallGuideControls(() => refreshLayout());
+
     const resizeSection = document.createElement("div");
     resizeSection.style.cssText = "display:flex; flex-direction:column; gap:7px;";
 
@@ -332,11 +353,12 @@ function buildEasyControlPanel(node) {
     };
 
 
-    root.append(header, effectGrid, coach, docsLink, resizeSection);
+    root.append(header, effectGrid, coach, docsLink, installGuide.root, resizeSection);
 
     const panelHeight = () => {
         const { effect } = getCurrentMode(node);
-        return SAME_SIZE_EFFECTS.has(effect) ? PANEL_HEIGHT_SAME_SIZE : PANEL_HEIGHT_RESIZABLE;
+        const baseHeight = SAME_SIZE_EFFECTS.has(effect) ? PANEL_HEIGHT_SAME_SIZE : PANEL_HEIGHT_RESIZABLE;
+        return baseHeight + INSTALL_GUIDE_CLOSED_EXTRA_HEIGHT;
     };
     const applySize = () => {
         const width = Math.max(
@@ -346,6 +368,11 @@ function buildEasyControlPanel(node) {
         root.style.width = `${width}px`;
         root.style.minWidth = `${PANEL_MIN_WIDTH}px`;
         root.style.height = `${panelHeight()}px`;
+    };
+    refreshLayout = () => {
+        applySize();
+        resizeNodeToContent(node, MIN_EASY_WIDTH, minEasyHeight(node));
+        requestNodeRedraw(node);
     };
 
     return {
@@ -428,6 +455,70 @@ function createPillButton(label, title, height, fontSize) {
         text-overflow:ellipsis;
     `;
     return button;
+}
+
+function createInstallGuideControls(onToggle) {
+    const root = document.createElement("div");
+    root.style.cssText = "display:flex; flex-direction:column; gap:7px;";
+
+    const row = document.createElement("div");
+    row.style.cssText = "display:grid; grid-template-columns:1.2fr 1fr; gap:7px;";
+
+    const guideLink = document.createElement("a");
+    guideLink.href = RTX_VFX_INSTALL_GUIDE_URL;
+    guideLink.target = "_blank";
+    guideLink.rel = "noopener noreferrer";
+    guideLink.textContent = "How to install";
+    guideLink.title = "Open the illustrated GitHub install guide.";
+    guideLink.style.cssText = `
+        height:28px;
+        box-sizing:border-box;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        min-width:0;
+        padding:0 8px;
+        border-radius:999px;
+        border:1px solid rgba(72,255,132,0.34);
+        background:rgba(6,22,12,0.88);
+        color:#c9f7d5;
+        font:800 10px sans-serif;
+        text-decoration:none;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        cursor:pointer;
+    `;
+    guideLink.onclick = (event) => {
+        event.stopPropagation();
+    };
+
+    const copyButton = createPillButton("Copy steps", "Copy the manual install checklist.", 28, 10);
+    row.append(guideLink, copyButton);
+    copyButton.onclick = async () => {
+        try {
+            if (!navigator.clipboard?.writeText) {
+                throw new Error("Clipboard is not available.");
+            }
+            await navigator.clipboard.writeText(RTX_VFX_INSTALL_STEPS);
+            const oldText = copyButton.textContent;
+            copyButton.textContent = "Copied";
+            setTimeout(() => {
+                copyButton.textContent = oldText;
+            }, 1100);
+        } catch (_error) {
+            copyButton.textContent = "Copy failed";
+            setTimeout(() => {
+                copyButton.textContent = "Copy steps";
+            }, 1300);
+        }
+    };
+
+    root.append(row);
+    return {
+        root,
+        isOpen: () => false,
+    };
 }
 
 function setButtonSelected(button, selected) {
