@@ -88,8 +88,7 @@
     .hint p{font-size:12px}
     .drop{width:86vw;max-width:340px;height:150px}
     .editor{gap:16px}
-    .vwrap{min-height:200px;max-height:52vh}
-    .vwrap video,.vwrap img{max-height:52vh}
+    .vwrap{height:44vh;min-height:240px}
     .row > .lbl{min-width:62px}
     .seg .btn{font-size:12px;padding:7px 12px}
     .bigbtns{gap:10px}
@@ -125,11 +124,11 @@
   .previewcol{flex:1 1 460px;min-width:300px;display:flex;flex-direction:column;gap:12px}
   .ctrlcol{flex:1 1 420px;min-width:320px;display:flex;flex-direction:column;gap:12px}
   .vwrap{
-    position:relative;width:100%;background:#020403;border:1px solid var(--line);
+    position:relative;width:100%;height:60vh;background:#020403;border:1px solid var(--line);
     border-radius:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;
-    min-height:300px;max-height:72vh;
   }
-  .vwrap video,.vwrap img{display:block;max-width:100%;max-height:72vh;object-fit:contain;background:#000}
+  /* fixed box + contain = whole frame always visible (portrait or landscape), never cropped */
+  .vwrap video,.vwrap img{display:block;width:100%;height:100%;object-fit:contain;background:#000}
   .vtag{
     position:absolute;top:10px;left:12px;z-index:6;font-size:11px;font-weight:800;
     color:var(--txt-soft);background:rgba(6,16,11,.82);border:1px solid var(--line-soft);
@@ -395,7 +394,7 @@
   <div class="pbar idle" id="pbar"><div class="pfill" id="pfill"></div></div>
   <div class="statusrow">
     <span class="status" id="status">Drop a video to begin.</span>
-    <span class="footnote" id="footnote">100% in-browser · ffmpeg.wasm · build 3</span>
+    <span class="footnote" id="footnote">100% in-browser · ffmpeg.wasm · build 4</span>
   </div>
 </footer>
 
@@ -890,7 +889,7 @@
     document.body.classList.remove("has","nometa");
     $("noprev").style.display="none"; vid.style.display="";
     S.dur=0; S.start=0; S.end=0; S._file=null; S._noMeta=false; S.cropX=0.5; S.cropY=0.5;
-    status("Drop a video to begin."); footnote.textContent="100% in-browser · ffmpeg.wasm · build 3";
+    status("Drop a video to begin."); footnote.textContent="100% in-browser · ffmpeg.wasm · build 4";
     setBar(0);
   }
 
