@@ -26,7 +26,11 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert isinstance(version, str)
     assert re.fullmatch(r"\d+\.\d+\.\d+", version)
     description = pyproject["project"]["description"]
+    assert "DENO RTX node" in description
     assert "RTX Video Super Resolution" in description
+    assert "RTX Super Resolution" in description
+    assert "Video SR/VSR" in description
+    assert "RTX upscale helpers" in description
     assert "NVIDIA VFX/nvvfx" in description
     assert "LTX 2.3" in description
     assert "image and video compare" in description
