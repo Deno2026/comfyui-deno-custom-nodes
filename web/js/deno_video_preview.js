@@ -96,11 +96,12 @@ function buildDom(node) {
   // is resized (LiteGraph re-calls computeSize during resize).
   widget.computeSize = function (width) {
     if (this.aspectRatio) {
-      // height:auto on the <video> makes it always render at its true
-      // aspect (never cropped/stretched). _fitH is the real measured px
-      // height (kept current by the ResizeObserver) so the node hugs the
-      // clip exactly; width/aspect is just the pre-measure estimate.
-      let h = widget._fitH || (width / this.aspectRatio);
+      // <video> is width:100%;height:auto with no object-fit, so it ALWAYS
+      // renders at its true aspect (never cropped, never letterboxed) even
+      // if this box is a few px off. Height is a plain deterministic
+      // function of width — NO DOM measurement here, so there is no
+      // observe -> setSize -> observe feedback loop (that pegged the GPU).
+      let h = width / this.aspectRatio;
       if (!(h > 0)) h = 0;
       return [width, h];
     }
@@ -111,7 +112,8 @@ function buildDom(node) {
     status.hidden = true;
     if (video.videoWidth && video.videoHeight) {
       widget.aspectRatio = video.videoWidth / video.videoHeight;
-      requestAnimationFrame(refit);
+      node.setSize?.(node.computeSize());      // one-shot, no loop
+      node.setDirtyCanvas?.(true, true);
     }
     video.play?.().catch(() => {});
   });
@@ -123,23 +125,10 @@ function buildDom(node) {
   const state = { root, video, status, widget, lastSrc: "", hasAudio: false };
   node.__dvprev = state;
 
-  // Size the node to the video's REAL rendered height (the <video> is
-  // height:auto so it can never be cropped or letterboxed). Re-measure
-  // whenever the element width changes so it stays hugged at any size.
-  function refit() {
-    if (!widget.aspectRatio) return;
-    const h = video.offsetHeight;
-    if (h > 0 && Math.abs(h - (widget._fitH || 0)) > 1) {
-      widget._fitH = h;
-      node.setSize?.(node.computeSize());
-      node.setDirtyCanvas?.(true, true);
-    }
-  }
-  state.refit = refit;
-  try {
-    state.ro = new ResizeObserver(() => requestAnimationFrame(refit));
-    state.ro.observe(root);
-  } catch (e) { /* no ResizeObserver: estimate path still renders fine */ }
+  // NOTE: a ResizeObserver-driven refit lived here and caused an
+  // observe -> setSize -> relayout -> observe loop that pegged the iGPU.
+  // Removed entirely: sizing is now the deterministic computeSize above
+  // plus the user-driven onResize hook — no continuous driver.
 
   // Browsers block unmuted autoplay, so the inline preview starts muted.
   // When the encoded file actually has an audio track, unmute while the
@@ -254,7 +243,6 @@ app.registerExtension({
     const onRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
       const s = this.__dvprev;
-      if (s?.ro) { try { s.ro.disconnect(); } catch (e) {} }
       if (s?.video) {
         try { s.video.pause(); } catch (e) {}
         s.video.removeAttribute("src");
