@@ -95,13 +95,18 @@ function buildDom(node) {
   // edge with no letterbox margins, and it stays in sync whenever the node
   // is resized (LiteGraph re-calls computeSize during resize).
   widget.computeSize = function (width) {
+    this._lgW = width;                       // remember LiteGraph's width
     if (this.aspectRatio) {
-      // _fitH = the clip's REAL rendered px height for the current element
-      // width (set by applyFit, which runs only when the measured WIDTH
-      // changes). width/aspect is just the estimate before the first
-      // measure. The LiteGraph-passed width != the real element width, so
-      // the estimate alone clipped the bottom — the measure fixes that.
-      let h = this._fitH || (width / this.aspectRatio);
+      // LiteGraph's `width` is a bit narrower than the real rendered
+      // element (constant DOM-widget padding). `_extra` is that gap,
+      // measured ONCE on first video load. height = realWidth/aspect so
+      // the box exactly matches the clip (no bottom crop). This is a pure
+      // function of `width` — no ResizeObserver, no setSize feedback — so
+      // LiteGraph is the ONLY sizing controller and resize stays smooth
+      // (the two-controller fight was the jitter; the observer was the
+      // earlier GPU loop).
+      const realW = width + (this._extra || 0);
+      let h = Math.ceil(realW / this.aspectRatio) + 1;   // +1: never under-cut
       if (!(h > 0)) h = 0;
       return [width, h];
     }
@@ -112,7 +117,17 @@ function buildDom(node) {
     status.hidden = true;
     if (video.videoWidth && video.videoHeight) {
       widget.aspectRatio = video.videoWidth / video.videoHeight;
-      applyFit(true);            // measure real width -> exact height
+      // Calibrate the LiteGraph-width -> real-width gap ONCE after layout,
+      // then apply the size a single time. No observer / no continuous
+      // driver => no resize jitter and no GPU loop.
+      requestAnimationFrame(() => {
+        const realW = root.clientWidth || video.clientWidth;
+        if (realW > 0 && widget._lgW > 0) {
+          widget._extra = realW - widget._lgW;
+        }
+        node.setSize?.(node.computeSize());
+        node.setDirtyCanvas?.(true, true);
+      });
     }
     video.play?.().catch(() => {});
   });
@@ -124,29 +139,10 @@ function buildDom(node) {
   const state = { root, video, status, widget, lastSrc: "", hasAudio: false };
   node.__dvprev = state;
 
-  // Fit the node to the clip's REAL rendered size without a feedback loop.
-  // Measure the element's actual pixel WIDTH and set the widget HEIGHT to
-  // width/aspect. The previous GPU-pegging loop happened because the old
-  // refit reacted to height changes it caused itself; here we ONLY ever
-  // change height, and we only act when the measured WIDTH changes (node
-  // resize / first layout), so "observe -> setSize -> observe" cannot recur.
-  let _lastFitW = -1;
-  function applyFit(force) {
-    if (!widget.aspectRatio) return;
-    const w = root.clientWidth || video.clientWidth;
-    if (!(w > 0)) return;
-    if (!force && Math.abs(w - _lastFitW) < 0.5) return;  // width unchanged
-    _lastFitW = w;
-    widget._fitH = Math.round(w / widget.aspectRatio);
-    node.setSize?.(node.computeSize());
-    node.setDirtyCanvas?.(true, true);
-  }
-  try {
-    state.ro = new ResizeObserver(
-      () => requestAnimationFrame(() => applyFit(false))
-    );
-    state.ro.observe(root);
-  } catch (e) { /* no ResizeObserver: computeSize estimate still renders */ }
+  // NOTE: deliberately NO ResizeObserver. Height comes solely from the
+  // calibrated computeSize above with LiteGraph as the single sizing
+  // controller. That removes the resize jitter (two controllers fighting
+  // over height) and the earlier observe -> setSize -> observe GPU loop.
 
   // Browsers block unmuted autoplay, so the inline preview starts muted.
   // When the encoded file actually has an audio track, unmute while the
@@ -237,8 +233,8 @@ app.registerExtension({
       return r;
     };
 
-    // (No onResize override needed: the width-triggered ResizeObserver in
-    // buildDom re-fits height whenever the node is resized.)
+    // (No onResize override: LiteGraph re-calls the calibrated computeSize
+    // during its own resize, which is the single sizing controller.)
 
     const onExecuted = nodeType.prototype.onExecuted;
     nodeType.prototype.onExecuted = function (output) {
@@ -250,7 +246,6 @@ app.registerExtension({
     const onRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
       const s = this.__dvprev;
-      if (s?.ro) { try { s.ro.disconnect(); } catch (e) {} }
       if (s?.video) {
         try { s.video.pause(); } catch (e) {}
         s.video.removeAttribute("src");
