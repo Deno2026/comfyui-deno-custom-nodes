@@ -80,12 +80,14 @@ function setupFinisherNode(node) {
     ensureSingleImageOutput(node);
     ensureControlPanel(node);
     wrapComputeSize(node);
+    repairShiftedBackendWidgetValues(node);
     sanitizeBackendWidgetValues(node);
     updateWidgetVisibility(node);
 
     if (!node.__denoFinisherReady) {
         node.__denoFinisherReady = true;
         wrapWidgetCallbacks(node, () => {
+            repairShiftedBackendWidgetValues(node);
             sanitizeBackendWidgetValues(node);
             updateWidgetVisibility(node);
             syncControlPanel(node);
@@ -95,6 +97,7 @@ function setupFinisherNode(node) {
     }
 
     node.__denoFinisherRefresh = () => {
+        repairShiftedBackendWidgetValues(node);
         sanitizeBackendWidgetValues(node);
         ensureSingleImageOutput(node);
         updateWidgetVisibility(node);
@@ -468,6 +471,56 @@ function syncControlPanel(node) {
     node.__denoFinisherUi?.sync?.();
 }
 
+function repairShiftedBackendWidgetValues(node) {
+    const value = (name) => getWidget(node, name)?.value;
+    const looksShiftedByOne = (
+        FIRST_PASS_CHOICES.includes(String(value("first_quality"))) &&
+        QUALITY_CHOICES.includes(String(value("upscale_pass"))) &&
+        UPSCALE_PASS_CHOICES.includes(String(value("upscale_quality"))) &&
+        QUALITY_CHOICES.includes(String(value("resize_type"))) &&
+        RESIZE_TYPES.includes(String(value("scale"))) &&
+        String(value("resize_method") || "").includes(":")
+    );
+    if (!looksShiftedByOne) {
+        return false;
+    }
+
+    const numberOrDefault = (raw, fallback) => {
+        const number = Number(raw);
+        return Number.isFinite(number) ? number : fallback;
+    };
+    const repairedDivisibleBy = DIVISIBLE_BY_VALUES.includes(String(value("ratio_preset")))
+        ? String(value("ratio_preset"))
+        : BACKEND_DEFAULTS.divisible_by;
+    const repairedRatioPreset = String(value("resize_method") || "").includes(":")
+        ? String(value("resize_method"))
+        : BACKEND_DEFAULTS.ratio_preset;
+
+    const repaired = {
+        first_pass: String(value("first_quality")),
+        first_quality: String(value("upscale_pass")),
+        upscale_pass: String(value("upscale_quality")),
+        upscale_quality: String(value("resize_type")),
+        resize_type: String(value("scale")),
+        scale: numberOrDefault(value("megapixels"), BACKEND_DEFAULTS.scale),
+        megapixels: numberOrDefault(value("width"), BACKEND_DEFAULTS.megapixels),
+        width: numberOrDefault(value("height"), BACKEND_DEFAULTS.width),
+        height: numberOrDefault(value("divisible_by"), BACKEND_DEFAULTS.height),
+        divisible_by: repairedDivisibleBy,
+        ratio_preset: repairedRatioPreset,
+        resize_method: BACKEND_DEFAULTS.resize_method,
+    };
+
+    for (const [name, nextValue] of Object.entries(repaired)) {
+        const widget = getWidget(node, name);
+        if (widget) {
+            setWidgetValue(node, widget, nextValue, false);
+        }
+    }
+    node.__denoFinisherRepairedShiftedWidgets = true;
+    return true;
+}
+
 function sanitizeBackendWidgetValues(node) {
     const check = (name, allowed) => {
         const widget = getWidget(node, name);
@@ -500,7 +553,8 @@ function updateWidgetVisibility(node) {
     const upOff = upscalePass === "Off";
     const sameSize = resizeType === "Same Size";
 
-    // Panel drives these; always hide the raw widgets.
+    // Panel drives these; collapse the raw widgets visually but keep them
+    // serializable so ComfyUI cannot shift later widget values forward.
     for (const name of [
         "first_pass", "first_quality", "upscale_pass", "upscale_quality",
         "resize_type",
@@ -576,6 +630,7 @@ function prepareWidgetVisibility(widget) {
     }
     widget.__denoFinisherOriginalComputeSize = widget.computeSize;
     widget.__denoFinisherOriginalType = widget.type;
+    widget.__denoFinisherOriginalHidden = widget.hidden;
     widget.__denoFinisherVisibilityPrepared = true;
 }
 
@@ -591,12 +646,14 @@ function setWidgetVisible(widget, visible) {
             delete widget.computeSize;
         }
         widget.type = widget.__denoFinisherOriginalType || widget.type;
-        widget.hidden = false;
+        widget.hidden = Boolean(widget.__denoFinisherOriginalHidden);
+        widget.__denoFinisherVisuallyCollapsed = false;
         return;
     }
     widget.computeSize = () => [0, -4];
-    widget.hidden = true;
-    widget.type = "hidden";
+    widget.type = widget.__denoFinisherOriginalType || widget.type;
+    widget.hidden = false;
+    widget.__denoFinisherVisuallyCollapsed = true;
 }
 
 function setWidgetValue(node, widget, value, callCallback = true) {

@@ -113,6 +113,7 @@ try {
     "DenoMultiImageLoader",
     "DenoAdvancedImageSourceLoader",
     "DenoRTXVFXEasyUpscale",
+    "DenoRTXVFXVideoFinisher",
     "DenoImageCompare"
   )
   foreach ($node in $requiredNodes) {

@@ -279,6 +279,12 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "installCanvasWheelForwarding(root);" in finisher_script
     assert 'root.addEventListener("wheel"' in finisher_script
     assert "new WheelEvent" in finisher_script
+    assert "repairShiftedBackendWidgetValues(node);" in finisher_script
+    assert "looksShiftedByOne" in finisher_script
+    assert "first_quality: String(value(\"upscale_pass\"))" in finisher_script
+    assert "resize_type: String(value(\"scale\"))" in finisher_script
+    assert "serializable so ComfyUI cannot shift later widget values forward" in finisher_script
+    assert 'widget.type = "hidden";' not in finisher_script
 
 
 def test_deno_image_compare_contract_and_frontend_copy():
