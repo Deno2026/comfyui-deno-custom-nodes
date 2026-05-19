@@ -511,14 +511,22 @@
     if(S.w>0) return `fps=${fps},scale=${S.w}:-2:flags=lanczos`;
     return `fps=${fps},scale=trunc(iw/2)*2:trunc(ih/2)*2`;
   }
-  let cropGeo=null;
+  let cropGeo=null, _cropRetry=0;
   function drawCrop(){
     const box=$("cropbox"), ar=ratioVal();
-    if(!ar || !vid.videoWidth || outImg.style.display!=="none"){
+    if(!ar || outImg.style.display!=="none"){
       box.style.display="none"; cropGeo=null; return;
     }
     const er=vid.getBoundingClientRect(), wr=vwrap.getBoundingClientRect();
-    if(er.width<4 || er.height<4){ box.style.display="none"; cropGeo=null; return; }
+    // source not measured / laid out yet (esp. mobile right after the <video>
+    // is un-hidden post-conversion or on ratio change) — don't draw a stale
+    // box, retry on following frames until it's ready (no user tap needed)
+    if(!vid.videoWidth || er.width<4 || er.height<4){
+      box.style.display="none"; cropGeo=null;
+      if(vid.src && _cropRetry<120){ _cropRetry++; requestAnimationFrame(drawCrop); }
+      return;
+    }
+    _cropRetry=0;
     const vAR=vid.videoWidth/vid.videoHeight, eAR=er.width/er.height;
     let pw,ph;
     if(eAR>vAR){ ph=er.height; pw=ph*vAR; } else { pw=er.width; ph=pw/vAR; }
@@ -538,6 +546,21 @@
     cropGeo={availW,availH};
   }
   window.addEventListener("resize",()=>{ requestAnimationFrame(drawCrop); });
+  // Robust redraw: after un-hiding the <video> (post-conversion / ratio change)
+  // its box & intrinsic size settle a few frames later, esp. on mobile. Re-run
+  // then via several signals so the crop box self-corrects without a tap.
+  function scheduleCropRedraw(){
+    _cropRetry=0;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ updateVTag(); drawCrop(); }));
+    setTimeout(()=>{ updateVTag(); drawCrop(); },140);
+    setTimeout(()=>{ updateVTag(); drawCrop(); },450);
+  }
+  ["loadeddata","loadedmetadata","playing","seeked","canplay","resize"]
+    .forEach(ev=>vid.addEventListener(ev,()=>{ updateVTag(); drawCrop(); }));
+  if(window.ResizeObserver){
+    try{ const ro=new ResizeObserver(()=>drawCrop()); ro.observe(vwrap); ro.observe(vid); }
+    catch(e){}
+  }
   // drag the crop box to pick which part of a wider/taller clip is kept
   (()=>{
     const box=$("cropbox"); let d=null;
@@ -631,7 +654,7 @@
       updateVTag(); checkWarn();
       drawTrim(); status("Set the clip & options, then Save.");
       seekPreview(0); playPreview();
-      requestAnimationFrame(drawCrop); setTimeout(drawCrop,160);
+      scheduleCropRedraw();
       footnote.textContent=`source ${vid.videoWidth}×${vid.videoHeight} · ${(file.size/1048576).toFixed(1)} MB`;
     };
     vid.onerror=()=>onNoMeta();
@@ -744,7 +767,7 @@
   }
   wireSeg("segFmt","fmt","fmt",()=>{ clearOutput(); updateGoLabel(); });
   wireSeg("segSize","w","w",clearOutput);
-  wireSeg("segRatio","r","ratio",()=>{ S.cropX=0.5; S.cropY=0.5; clearOutput(); requestAnimationFrame(drawCrop); });
+  wireSeg("segRatio","r","ratio",()=>{ S.cropX=0.5; S.cropY=0.5; clearOutput(); scheduleCropRedraw(); });
   wireSeg("segFps","fps","fps",clearOutput);
   wireSeg("segQ","q","q",clearOutput);
 
@@ -860,7 +883,7 @@
     }
     vid.style.display=""; updateVTag();
     if(vid.src) playPreview();
-    requestAnimationFrame(drawCrop);
+    scheduleCropRedraw();
   }
   function clearOutput(){
     if(S.outURL){ URL.revokeObjectURL(S.outURL); S.outURL=null; }
