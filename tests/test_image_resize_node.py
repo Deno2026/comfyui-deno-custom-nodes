@@ -479,6 +479,8 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert ".dvp:fullscreen" in script
     assert "function isFullscreenRoot(root)" in script
     assert "function zoomPreviewAt(node, event)" in script
+    assert "function startFullscreenHorizontalPan(node, event)" in script
+    assert "s.panX = ev.clientX - startX" in script
     assert "s.hovering || isFullscreenRoot(d.root)" in script
     assert "requestFullscreen" in script
     assert "isFullscreenRoot(d.root)" in script

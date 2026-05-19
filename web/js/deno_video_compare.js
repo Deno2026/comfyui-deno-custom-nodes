@@ -910,6 +910,38 @@ function zoomPreviewAt(node, event) {
   applyMode(node);
   render(node);
 }
+function startFullscreenHorizontalPan(node, event) {
+  const s = getState(node), d = s.dom;
+  if (!isFullscreenRoot(d.root)) return false;
+
+  event.preventDefault();
+  event.stopPropagation();
+  if (s.zoom <= 1 || (!s.haveA && !s.haveB)) return true;
+
+  let startX = event.clientX - s.panX;
+  d.stage.classList.add("grabbing");
+
+  const move = (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    s.panX = ev.clientX - startX;
+    clampPan(node);
+    render(node);
+  };
+  const done = (ev) => {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+    d.stage.classList.remove("grabbing");
+    window.removeEventListener("pointermove", move, true);
+    window.removeEventListener("pointerup", done, true);
+    window.removeEventListener("pointercancel", done, true);
+  };
+
+  window.addEventListener("pointermove", move, true);
+  window.addEventListener("pointerup", done, true);
+  window.addEventListener("pointercancel", done, true);
+  return true;
+}
 function wireInteractions(node, d, btns) {
   const s = getState(node);
   const stage = d.stage;
@@ -993,6 +1025,7 @@ function wireInteractions(node, d, btns) {
   // middle-button drag -> pan the ComfyUI graph (version-robust, ported)
   d.root.addEventListener("pointerdown", (e) => {
     if (e.button !== 1) return;
+    if (startFullscreenHorizontalPan(node, e)) return;
     e.preventDefault(); e.stopPropagation();
     const cv = app.canvas;
     if (!cv || !cv.ds || !cv.ds.offset) return;
@@ -1011,6 +1044,11 @@ function wireInteractions(node, d, btns) {
     };
     window.addEventListener("pointermove", mv, true);
     window.addEventListener("pointerup", up, true);
+  }, true);
+  d.root.addEventListener("auxclick", (e) => {
+    if (e.button !== 1 || !isFullscreenRoot(d.root)) return;
+    e.preventDefault();
+    e.stopPropagation();
   }, true);
 
   d.scrub.addEventListener("pointerdown", (e) => {
