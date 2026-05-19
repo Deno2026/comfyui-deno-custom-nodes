@@ -477,8 +477,11 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert "⛶ Full" in script
     assert "Full screen compare view" in script
     assert ".dvp:fullscreen" in script
+    assert "function isFullscreenRoot(root)" in script
+    assert "function zoomPreviewAt(node, event)" in script
+    assert "s.hovering || isFullscreenRoot(d.root)" in script
     assert "requestFullscreen" in script
-    assert "document.fullscreenElement === d.root" in script
+    assert "isFullscreenRoot(d.root)" in script
     assert "output.deno_video_compare" in script
     assert "createBufferSource" in script
     assert "requestAnimationFrame(tick)" in script

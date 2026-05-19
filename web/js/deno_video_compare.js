@@ -153,6 +153,10 @@ function clamp(v, lo, hi, fb) {
   const n = Number(v); if (!isFinite(n)) return fb;
   return Math.max(lo, Math.min(hi, n));
 }
+function isFullscreenRoot(root) {
+  return document.fullscreenElement === root ||
+    document.webkitFullscreenElement === root;
+}
 function fmt(x) {
   x = Math.max(0, x || 0);
   const mm = Math.floor(x / 60), ss = Math.floor(x % 60),
@@ -626,8 +630,9 @@ function applyAudioGains(node) {
   const hasB = !!physAudioBuf(node, "B");
   if (s.audio === "A" && !hasA && hasB) s.audio = "B";
   else if (s.audio === "B" && !hasB && hasA) s.audio = "A";
-  const onA = s.playing && s.hovering && s.audio === "A" && hasA;
-  const onB = s.playing && s.hovering && s.audio === "B" && hasB;
+  const audible = s.hovering || isFullscreenRoot(d.root);
+  const onA = s.playing && audible && s.audio === "A" && hasA;
+  const onB = s.playing && audible && s.audio === "B" && hasB;
   if (s.actx) {
     const now = s.actx.currentTime;
     try { s.gA.gain.setTargetAtTime(onA ? 1 : 0, now, 0.012); } catch (e) {}
@@ -879,6 +884,32 @@ function clampPan(node) {
   s.panX = Math.max(-mx, Math.min(mx, s.panX));
   s.panY = Math.max(-my, Math.min(my, s.panY));
 }
+function zoomPreviewAt(node, event) {
+  const s = getState(node), d = s.dom;
+  const rect = d.stage.getBoundingClientRect();
+  const oldZoom = s.zoom || 1;
+  const wheel = event.deltaY || event.deltaX || 0;
+  const nextZoom = clamp(oldZoom * Math.exp(-wheel * 0.0015), 1, 6, oldZoom);
+
+  if (Math.abs(nextZoom - oldZoom) < 0.001) return;
+  const px = event.clientX - rect.left - rect.width / 2;
+  const py = event.clientY - rect.top - rect.height / 2;
+  const anchorX = (px - s.panX) / oldZoom;
+  const anchorY = (py - s.panY) / oldZoom;
+
+  s.zoom = nextZoom;
+  if (s.zoom <= 1.001) {
+    s.zoom = 1;
+    s.panX = 0;
+    s.panY = 0;
+  } else {
+    s.panX = px - anchorX * s.zoom;
+    s.panY = py - anchorY * s.zoom;
+    clampPan(node);
+  }
+  applyMode(node);
+  render(node);
+}
 function wireInteractions(node, d, btns) {
   const s = getState(node);
   const stage = d.stage;
@@ -944,6 +975,12 @@ function wireInteractions(node, d, btns) {
   // wheel anywhere on the node -> ComfyUI canvas owns zoom (preview never
   // stretches); same behaviour as the original node
   d.root.addEventListener("wheel", (e) => {
+    if (isFullscreenRoot(d.root)) {
+      e.preventDefault();
+      e.stopPropagation();
+      zoomPreviewAt(node, e);
+      return;
+    }
     const cv = app.canvas && app.canvas.canvas;
     if (!cv) return;
     e.preventDefault();
@@ -1023,10 +1060,10 @@ function wireInteractions(node, d, btns) {
     btns.labelsBtn.classList.toggle("on", s.burnLabels);
   };
   const updateFsButton = () => {
-    const active = document.fullscreenElement === d.root ||
-      document.webkitFullscreenElement === d.root;
+    const active = isFullscreenRoot(d.root);
     btns.fsBtn.textContent = active ? "⛶ Exit" : "⛶ Full";
     btns.fsBtn.classList.toggle("on", active);
+    applyAudioGains(node);
     requestAnimationFrame(() => render(node));
   };
   d.onFullscreenChange = updateFsButton;
@@ -1036,9 +1073,9 @@ function wireInteractions(node, d, btns) {
   btns.fsBtn.onclick = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    markGesture(node);
     try {
-      if (document.fullscreenElement === d.root ||
-          document.webkitFullscreenElement === d.root) {
+      if (isFullscreenRoot(d.root)) {
         if (document.exitFullscreen) document.exitFullscreen();
         else document.webkitExitFullscreen?.();
       } else if (d.root.requestFullscreen) {
