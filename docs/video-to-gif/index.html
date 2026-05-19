@@ -96,8 +96,11 @@
     .estimate .big{font-size:14px}
   }
 
-  main{flex:1 1 auto;position:relative;overflow:auto}
-  #stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:22px}
+  main{flex:1 1 auto;overflow:auto}
+  /* normal-flow scroll container: content starts at the top and main scrolls,
+     so the editor (incl. the top of the preview) is never clipped/unreachable */
+  #stage{min-height:100%;display:flex;align-items:center;justify-content:center;padding:22px}
+  body.has #stage{align-items:flex-start}
 
   /* ---------- empty / drop state ---------- */
   .hint{display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center;
@@ -124,7 +127,8 @@
   .previewcol{flex:1 1 460px;min-width:300px;display:flex;flex-direction:column;gap:12px}
   .ctrlcol{flex:1 1 420px;min-width:320px;display:flex;flex-direction:column;gap:12px}
   .vwrap{
-    position:relative;width:100%;height:60vh;background:#020403;border:1px solid var(--line);
+    position:relative;width:100%;height:54vh;min-height:260px;max-height:560px;
+    background:#020403;border:1px solid var(--line);
     border-radius:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;
   }
   /* fixed box + contain = whole frame always visible (portrait or landscape), never cropped */
