@@ -90,23 +90,17 @@ function buildDom(node) {
     serialize: false,
     hideOnZoom: false,
   });
-  // VHS-style fit: the widget height is locked to the video aspect at the
-  // current node width, so the <video> (absolute inset:0) fills it edge to
-  // edge with no letterbox margins, and it stays in sync whenever the node
-  // is resized (LiteGraph re-calls computeSize during resize).
+  // Proven VHS-preview sizing: height tracks the NODE width (node.size[0]),
+  // not the passed widget `width` (which is narrower and made the box too
+  // short -> bottom crop). The `-20` approximates the DOM-widget side
+  // padding so the box stays slightly TALLER than the real video, and the
+  // `+10` slack guarantees it never ends up shorter than the clip (so
+  // overflow:hidden can't crop it). Pure function of node width -> no
+  // measurement, no observer -> LiteGraph is the only sizing controller,
+  // so resizing is smooth (no jitter) and there is no GPU loop.
   widget.computeSize = function (width) {
-    this._lgW = width;                       // remember LiteGraph's width
     if (this.aspectRatio) {
-      // LiteGraph's `width` is a bit narrower than the real rendered
-      // element (constant DOM-widget padding). `_extra` is that gap,
-      // measured ONCE on first video load. height = realWidth/aspect so
-      // the box exactly matches the clip (no bottom crop). This is a pure
-      // function of `width` — no ResizeObserver, no setSize feedback — so
-      // LiteGraph is the ONLY sizing controller and resize stays smooth
-      // (the two-controller fight was the jitter; the observer was the
-      // earlier GPU loop).
-      const realW = width + (this._extra || 0);
-      let h = Math.ceil(realW / this.aspectRatio) + 1;   // +1: never under-cut
+      let h = (node.size[0] - 20) / this.aspectRatio + 10;
       if (!(h > 0)) h = 0;
       return [width, h];
     }
@@ -117,17 +111,9 @@ function buildDom(node) {
     status.hidden = true;
     if (video.videoWidth && video.videoHeight) {
       widget.aspectRatio = video.videoWidth / video.videoHeight;
-      // Calibrate the LiteGraph-width -> real-width gap ONCE after layout,
-      // then apply the size a single time. No observer / no continuous
-      // driver => no resize jitter and no GPU loop.
-      requestAnimationFrame(() => {
-        const realW = root.clientWidth || video.clientWidth;
-        if (realW > 0 && widget._lgW > 0) {
-          widget._extra = realW - widget._lgW;
-        }
-        node.setSize?.(node.computeSize());
-        node.setDirtyCanvas?.(true, true);
-      });
+      // one-shot apply now that the aspect is known (no observer/loop)
+      node.setSize?.(node.computeSize());
+      node.setDirtyCanvas?.(true, true);
     }
     video.play?.().catch(() => {});
   });
