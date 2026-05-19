@@ -78,6 +78,36 @@ def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
     assert "docs/DENO_NODE_VISUAL_IDENTITY.md" in comfyignore
 
 
+def test_visual_fold_frontend_is_visual_only():
+    script = (REPO_ROOT / "web" / "js" / "deno_visual_fold.js").read_text(encoding="utf-8")
+
+    assert "Deno: Fold Selected" in script
+    assert "Deno: Unfold Group" in script
+    assert "Folded ·" in script
+    assert "__denoVisualFold" in script
+    assert "function appGraph()" in script
+    assert "deno-visual-fold-tooltip" in script
+    assert "deno-visual-fold-button" in script
+    assert "foldedAnchorAt" in script
+    assert "foldedAnchorAtClient" in script
+    assert "refreshFoldedLooks" in script
+    assert "updateFoldButton" in script
+    assert "syncFoldedMotion" in script
+    assert "patchMotionSync" in script
+    assert "canvasPrototype" in script
+    assert "_collapsed_width" in script
+    assert "drawNode" in script
+    assert "getCanvasMenuOptions" in script
+    assert "getNodeMenuOptions" in script
+    assert "installLatePatches" in script
+    assert "nodeCreated(node)" in script
+    assert ".at(" not in script
+    assert "NODE_CLASS_MAPPINGS" not in script
+    assert "graph.links" not in script
+    assert "removeLink" not in script
+    assert "subgraph" not in script.lower()
+
+
 def _comfyignore_rules():
     rules = []
     for raw in COMFYIGNORE_PATH.read_text(encoding="utf-8").splitlines():
