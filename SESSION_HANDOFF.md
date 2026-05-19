@@ -28,9 +28,9 @@
 > 0.7.3처럼 Active 전망(스캔 결과는 다음 세션이 확인).
 >
 > **미해결/위험:**
-> - README에 Video Preview **텍스트 섹션은 추가**했으나 **실제 노드
->   스크린샷 미첨부**(자동화 브라우저가 ComfyUI에 403, 직접 캡처 불가).
->   `codex/readme-node-screenshots-20260514` 브랜치 또는 사용자가 추가 필요.
+> - ~~README Video Preview 스크린샷 미첨부~~ → **해소**: 사용자가 실제
+>   ComfyUI 캡처 제공, `docs/images/video-preview.jpg`로 추가·README 반영
+>   (`c795158`, docs-only push — pyproject 미변경이라 publish 재트리거 없음).
 > - 작업 내내 워킹트리에 비커밋 `.comfyignore`(M)·`docs/video-to-gif/`(??)
 >   존재 — **내 변경 아님(Codex 추정), 손대지 않음·배포에 미포함.**
 > - `0.7.2` = Flagged는 이전 사가의 잔존 상태(무관).
