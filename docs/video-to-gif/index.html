@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>Deno · Video → GIF / WebP</title>
 <style>
   :root{
@@ -393,7 +395,7 @@
   <div class="pbar idle" id="pbar"><div class="pfill" id="pfill"></div></div>
   <div class="statusrow">
     <span class="status" id="status">Drop a video to begin.</span>
-    <span class="footnote" id="footnote">100% in-browser · ffmpeg.wasm</span>
+    <span class="footnote" id="footnote">100% in-browser · ffmpeg.wasm · build 3</span>
   </div>
 </footer>
 
@@ -888,7 +890,7 @@
     document.body.classList.remove("has","nometa");
     $("noprev").style.display="none"; vid.style.display="";
     S.dur=0; S.start=0; S.end=0; S._file=null; S._noMeta=false; S.cropX=0.5; S.cropY=0.5;
-    status("Drop a video to begin."); footnote.textContent="100% in-browser · ffmpeg.wasm";
+    status("Drop a video to begin."); footnote.textContent="100% in-browser · ffmpeg.wasm · build 3";
     setBar(0);
   }
 
