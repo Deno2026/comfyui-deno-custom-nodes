@@ -96,12 +96,12 @@ function buildDom(node) {
   // is resized (LiteGraph re-calls computeSize during resize).
   widget.computeSize = function (width) {
     if (this.aspectRatio) {
-      // <video> is width:100%;height:auto with no object-fit, so it ALWAYS
-      // renders at its true aspect (never cropped, never letterboxed) even
-      // if this box is a few px off. Height is a plain deterministic
-      // function of width — NO DOM measurement here, so there is no
-      // observe -> setSize -> observe feedback loop (that pegged the GPU).
-      let h = width / this.aspectRatio;
+      // _fitH = the clip's REAL rendered px height for the current element
+      // width (set by applyFit, which runs only when the measured WIDTH
+      // changes). width/aspect is just the estimate before the first
+      // measure. The LiteGraph-passed width != the real element width, so
+      // the estimate alone clipped the bottom — the measure fixes that.
+      let h = this._fitH || (width / this.aspectRatio);
       if (!(h > 0)) h = 0;
       return [width, h];
     }
@@ -112,8 +112,7 @@ function buildDom(node) {
     status.hidden = true;
     if (video.videoWidth && video.videoHeight) {
       widget.aspectRatio = video.videoWidth / video.videoHeight;
-      node.setSize?.(node.computeSize());      // one-shot, no loop
-      node.setDirtyCanvas?.(true, true);
+      applyFit(true);            // measure real width -> exact height
     }
     video.play?.().catch(() => {});
   });
@@ -125,10 +124,29 @@ function buildDom(node) {
   const state = { root, video, status, widget, lastSrc: "", hasAudio: false };
   node.__dvprev = state;
 
-  // NOTE: a ResizeObserver-driven refit lived here and caused an
-  // observe -> setSize -> relayout -> observe loop that pegged the iGPU.
-  // Removed entirely: sizing is now the deterministic computeSize above
-  // plus the user-driven onResize hook — no continuous driver.
+  // Fit the node to the clip's REAL rendered size without a feedback loop.
+  // Measure the element's actual pixel WIDTH and set the widget HEIGHT to
+  // width/aspect. The previous GPU-pegging loop happened because the old
+  // refit reacted to height changes it caused itself; here we ONLY ever
+  // change height, and we only act when the measured WIDTH changes (node
+  // resize / first layout), so "observe -> setSize -> observe" cannot recur.
+  let _lastFitW = -1;
+  function applyFit(force) {
+    if (!widget.aspectRatio) return;
+    const w = root.clientWidth || video.clientWidth;
+    if (!(w > 0)) return;
+    if (!force && Math.abs(w - _lastFitW) < 0.5) return;  // width unchanged
+    _lastFitW = w;
+    widget._fitH = Math.round(w / widget.aspectRatio);
+    node.setSize?.(node.computeSize());
+    node.setDirtyCanvas?.(true, true);
+  }
+  try {
+    state.ro = new ResizeObserver(
+      () => requestAnimationFrame(() => applyFit(false))
+    );
+    state.ro.observe(root);
+  } catch (e) { /* no ResizeObserver: computeSize estimate still renders */ }
 
   // Browsers block unmuted autoplay, so the inline preview starts muted.
   // When the encoded file actually has an audio track, unmute while the
@@ -219,19 +237,8 @@ app.registerExtension({
       return r;
     };
 
-    // Lock node height to the video aspect on resize, so dragging the
-    // node only scales the clip (no empty space appears below it).
-    const onResize = nodeType.prototype.onResize;
-    nodeType.prototype.onResize = function (size) {
-      const r = onResize?.apply(this, arguments);
-      const ar = this.__dvprev?.widget?.aspectRatio;
-      if (ar) {
-        const fit = this.computeSize();
-        if (size) size[1] = fit[1];
-        if (this.size) this.size[1] = fit[1];
-      }
-      return r;
-    };
+    // (No onResize override needed: the width-triggered ResizeObserver in
+    // buildDom re-fits height whenever the node is resized.)
 
     const onExecuted = nodeType.prototype.onExecuted;
     nodeType.prototype.onExecuted = function (output) {
@@ -243,6 +250,7 @@ app.registerExtension({
     const onRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
       const s = this.__dvprev;
+      if (s?.ro) { try { s.ro.disconnect(); } catch (e) {} }
       if (s?.video) {
         try { s.video.pause(); } catch (e) {}
         s.video.removeAttribute("src");
