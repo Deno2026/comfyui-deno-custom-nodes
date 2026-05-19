@@ -12,6 +12,11 @@ const NVIDIA_VSR_DOCS_URL = "https://docs.nvidia.com/maxine/vfx/latest/Filters/V
 
 const FIRST_PASS_CHOICES = ["Off", "Denoise", "Deblur"];
 const UPSCALE_PASS_CHOICES = ["Off", "VSR", "High Bitrate"];
+const UPSCALE_PASS_LABELS = {
+    VSR: "Video SR",
+    "High Bitrate": "High Bitrate",
+    Off: "Off",
+};
 // Display order: most-used effect first, then the other, then Off.
 const FIRST_PASS_ORDER = ["Deblur", "Denoise", "Off"];
 const UPSCALE_PASS_ORDER = ["High Bitrate", "VSR", "Off"];
@@ -311,7 +316,7 @@ function buildControlPanel(node) {
     const grid2 = el("div", "display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:7px; flex:1; min-width:160px;");
     const upscaleButtons = new Map();
     for (const v of UPSCALE_PASS_ORDER) {
-        const b = pill(v, v === "Off" ? "Turn Pass 2 off" : `Upscale: ${v}`, 28, 10);
+        const b = pill(UPSCALE_PASS_LABELS[v] || v, v === "Off" ? "Turn Pass 2 off" : `Upscale: ${UPSCALE_PASS_LABELS[v] || v}`, 28, 10);
         b.onclick = () => setBackend(node, "upscale_pass", v);
         upscaleButtons.set(v, b);
         grid2.append(b);

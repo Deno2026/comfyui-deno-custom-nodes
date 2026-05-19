@@ -21,9 +21,14 @@ const EFFECT_LABELS = {
 };
 const QUALITIES = ["Low", "Medium", "High", "Ultra"];
 const SAME_SIZE_EFFECTS = new Set(["Denoise", "Deblur"]);
-const RESIZE_TYPES = ["Keep Ratio", "Manual", "Preset Ratio", "Same Size"];
+const RESIZE_TYPES = ["Scale", "Keep Ratio", "Manual", "Preset Ratio", "Same Size"];
 const RESIZE_METHODS = ["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"];
 const RESIZE_BUTTONS = [
+    {
+        value: "Scale",
+        label: "Scale",
+        title: "Multiply the source size by 1x - 4x.",
+    },
     {
         value: "Keep Ratio",
         label: "Keep Ratio",
@@ -307,7 +312,7 @@ function buildEasyControlPanel(node) {
     resizeLabel.textContent = "Resize";
 
     const resizeGrid = document.createElement("div");
-    resizeGrid.style.cssText = "display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:7px;";
+    resizeGrid.style.cssText = "display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:7px;";
 
     const resizeButtons = new Map();
     for (const resizeMode of RESIZE_BUTTONS) {
@@ -445,7 +450,7 @@ function getCurrentMode(node) {
 
 function getCurrentResizeType(node) {
     const resizeType = String(getWidget(node, "resize_type")?.value || DEFAULT_RESIZABLE_RESIZE);
-    if (resizeType === "Scale" || resizeType === "Megapixels") {
+    if (resizeType === "Megapixels") {
         return DEFAULT_RESIZABLE_RESIZE;
     }
     if (RESIZE_TYPES.includes(resizeType)) {
@@ -519,7 +524,7 @@ function sanitizeBackendWidgetValues(node) {
     if (modeWidget && !isModeValue(modeWidget.value)) {
         setWidgetValue(node, modeWidget, BACKEND_DEFAULTS.mode, false);
     }
-    if (resizeWidget && (resizeWidget.value === "Scale" || resizeWidget.value === "Megapixels")) {
+    if (resizeWidget && resizeWidget.value === "Megapixels") {
         setWidgetValue(node, resizeWidget, DEFAULT_RESIZABLE_RESIZE, false);
     }
     if (resizeWidget && !RESIZE_TYPES.includes(String(resizeWidget.value))) {
@@ -564,13 +569,14 @@ function updateWidgetVisibility(node) {
     const resizeType = getCurrentResizeType(node);
     const sameSizeOnly = SAME_SIZE_EFFECTS.has(mode.effect);
     const divisibleBy = String(getWidget(node, "divisible_by")?.value || BACKEND_DEFAULTS.divisible_by);
-    const canNeedAspectPolicy = resizeType === "Manual"
+    const canNeedAspectPolicy = resizeType === "Scale"
+        || resizeType === "Manual"
         || resizeType === "Preset Ratio"
         || (resizeType === "Keep Ratio" && divisibleBy !== "1");
 
     setWidgetVisible(getWidget(node, "mode"), false);
     setWidgetVisible(getWidget(node, "resize_type"), false);
-    setWidgetVisible(getWidget(node, "scale"), false);
+    setWidgetVisible(getWidget(node, "scale"), !sameSizeOnly && resizeType === "Scale");
     setWidgetVisible(getWidget(node, "device"), false);
 
     setWidgetVisible(getWidget(node, "megapixels"), !sameSizeOnly && (resizeType === "Keep Ratio" || resizeType === "Preset Ratio"));

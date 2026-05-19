@@ -230,7 +230,7 @@ def test_rtx_vfx_node_is_optional_until_execution():
     inputs = node.INPUT_TYPES()["required"]
 
     assert inputs["mode"][1]["default"] == "VSR Medium"
-    assert inputs["resize_type"][0] == ["Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
+    assert inputs["resize_type"][0] == ["Scale", "Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
     assert inputs["resize_type"][1]["default"] == "Keep Ratio"
     assert inputs["ratio_preset"][0][:3] == ["1:1", "4:5", "5:4"]
     assert "16:9" in inputs["ratio_preset"][0]
@@ -253,6 +253,10 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "const PANEL_BOTTOM_GAP = 10;" in script
     assert "const NVIDIA_VSR_DOCS_URL" in script
     assert 'VSR: "Video SR"' in script
+    assert 'const RESIZE_TYPES = ["Scale", "Keep Ratio", "Manual", "Preset Ratio", "Same Size"];' in script
+    assert 'value: "Scale"' in script
+    assert 'label: "Scale"' in script
+    assert 'resizeType === "Scale"' in script
     assert "Video Super Resolution | Low-res/compressed -> larger, cleaner, sharper" not in script
     assert "Low-res/compressed -> larger, cleaner, sharper" in script
     assert "Clean source -> crisp detail-preserving upscale" in script
@@ -265,6 +269,10 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "node.__denoRtxVfxComputeWrapped" in script
     assert "root.style.width = `${width}px`;" in script
     assert "ui.height() + PANEL_BOTTOM_GAP" in script
+
+    finisher_script = (REPO_ROOT / "web" / "js" / "deno_rtx_vfx_video_finisher.js").read_text(encoding="utf-8")
+    assert 'const UPSCALE_PASS_LABELS = {' in finisher_script
+    assert 'VSR: "Video SR"' in finisher_script
 
 
 def test_deno_image_compare_contract_and_frontend_copy():
@@ -597,6 +605,10 @@ def test_rtx_vfx_target_size_modes_match_visible_resize_choices():
     assert vfx_module._target_size(1920, 1080, "Denoise Medium", "Manual", 2.0, 2.0, 1234, 777, 1, "16:9") == (
         1920,
         1080,
+    )
+    assert vfx_module._target_size(1920, 1080, "VSR Medium", "Scale", 2.0, 2.0, 0, 0, 32, "16:9") == (
+        3840,
+        2176,
     )
 
     keep_width, keep_height = vfx_module._target_size(1920, 1080, "VSR Medium", "Keep Ratio", 2.0, 2.0, 0, 0, 1, "16:9")

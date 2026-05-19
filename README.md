@@ -192,7 +192,7 @@ Main features:
 - exposes four clear effect buttons: Video SR, High Bitrate, Denoise, and Deblur
 - shows a compact mode coach line that explains the selected effect in plain language
 - keeps Low, Medium, High, and Ultra quality as a separate selector
-- for VSR and High Bitrate, supports `Keep Ratio`, `Manual`, and `Preset Ratio` resize choices
+- for Video SR and High Bitrate, supports `Scale`, `Keep Ratio`, `Manual`, and `Preset Ratio` resize choices
 - `Keep Ratio` and `Preset Ratio` use target megapixels; `Manual` uses width and height
 - exposes `divisible_by` alignment for resizable modes, with `32` as the safe default for NVIDIA VFX output
 - does not expose unrestricted `1` alignment in RTX VFX, because arbitrary unaligned sizes can corrupt the NVIDIA VFX result

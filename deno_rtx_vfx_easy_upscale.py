@@ -34,7 +34,7 @@ QUALITY_LEVELS = [
     "Deblur Ultra",
 ]
 
-RESIZE_TYPES = ["Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
+RESIZE_TYPES = ["Scale", "Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
 RTX_VFX_DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"]
 RTX_VFX_DEFAULT_DIVISIBLE_BY = "32"
 RTX_VFX_INSTALL_GUIDE_URL = (
