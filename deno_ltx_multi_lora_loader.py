@@ -53,7 +53,6 @@ class DenoLTXMultiLoraLoader:
     def INPUT_TYPES(cls):
         required: Dict[str, Tuple] = {
             "model": ("MODEL",),
-            "clip": ("CLIP",),
             "active_loras": ("INT", {"default": 1, "min": 0, "max": MAX_LORA_SLOTS, "step": 1}),
         }
 
@@ -78,7 +77,12 @@ class DenoLTXMultiLoraLoader:
             required[_slot_key("trigger", index)] = ("STRING", {"default": "", "multiline": False})
             required[_slot_key("description", index)] = ("STRING", {"default": "", "multiline": True})
 
-        return {"required": required}
+        # clip is OPTIONAL: load_multi_lora already fully handles clip=None
+        # (model-only LoRA stacks, common for LTX). Declaring it required
+        # forced a CLIP wire and made ComfyUI reject prompts that have none.
+        # Only sockets are model + clip, so slot order (model=0, clip=1) is
+        # unchanged -> existing saved workflows keep working.
+        return {"required": required, "optional": {"clip": ("CLIP",)}}
 
     RETURN_TYPES = ("MODEL", "CLIP")
     RETURN_NAMES = ("model", "clip")
@@ -145,7 +149,7 @@ class DenoLTXMultiLoraLoader:
             raise FileNotFoundError(f"LoRA not found in models/loras: {lora_name}")
         return comfy.utils.load_torch_file(lora_path, safe_load=True)
 
-    def load_multi_lora(self, model, clip, active_loras: int, **kwargs):
+    def load_multi_lora(self, model, clip=None, active_loras: int = 1, **kwargs):
         slot_count = self._resolve_slot_count(active_loras)
         current_model = model
         current_clip = clip
