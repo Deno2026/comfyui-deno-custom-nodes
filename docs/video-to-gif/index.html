@@ -50,7 +50,9 @@
     border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--panel),var(--panel2));
     flex:0 0 auto;flex-wrap:wrap;position:relative;
   }
-  .brand{display:flex;align-items:center;gap:10px;font-weight:900;font-size:16px;color:var(--txt-strong)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:900;font-size:16px;
+    color:var(--txt-strong);flex-wrap:wrap}
+  .bt{white-space:nowrap}
   .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
   .brand small{font-weight:600;font-size:11px;color:var(--txt-soft);letter-spacing:.3px}
   .grow{margin-left:auto}
@@ -70,6 +72,28 @@
   .yt:hover{background:rgba(255,0,0,.22);border-color:#ff5252;
     box-shadow:0 0 12px rgba(255,0,0,.30)}
   .yt svg{width:20px;height:20px;display:block}
+
+  /* ---------- mobile / narrow screens ---------- */
+  @media (max-width:640px){
+    header{gap:8px 10px;padding:10px 13px}
+    .brand{font-size:15px;gap:8px;flex:1 1 100%}
+    .brand small{flex:1 1 100%;margin-left:18px;font-size:10px;line-height:1.3}
+    .grow{margin-left:0}
+    .ghost{font-size:11px;padding:6px 11px}
+    #stage{padding:14px}
+    .hint{gap:14px}
+    .hint h2{font-size:18px;line-height:1.3}
+    .hint p{font-size:12px}
+    .drop{width:86vw;max-width:340px;height:150px}
+    .editor{gap:16px}
+    .vwrap{min-height:200px;max-height:52vh}
+    .vwrap video,.vwrap img{max-height:52vh}
+    .row > .lbl{min-width:62px}
+    .seg .btn{font-size:12px;padding:7px 12px}
+    .bigbtns{gap:10px}
+    .bigbtn{flex:1 1 44%;min-width:0;width:auto;height:96px}
+    .estimate .big{font-size:14px}
+  }
 
   main{flex:1 1 auto;position:relative;overflow:auto}
   #stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:22px}
@@ -244,7 +268,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot"></span>Video → GIF / WebP
+  <div class="brand"><span class="dot"></span><span class="bt">Video → GIF / WebP</span>
     <small>· in your browser · nothing uploaded</small></div>
   <button class="ghost grow" id="helpBtn2">? Shortcuts</button>
   <a class="yt" href="https://www.youtube.com/@Denoise-AI" target="_blank"
