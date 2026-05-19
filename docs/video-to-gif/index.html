@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Deno · Video → GIF / WebP</title>
+<style>
+  :root{
+    --bg:#050906; --panel:#0a1410; --panel2:#06100b;
+    --line:rgba(72,255,132,.32); --line-soft:rgba(72,255,132,.16);
+    --txt:#dfffea; --txt-strong:#9dffba; --txt-soft:#7fb893;
+    --accent:#48ff84; --accent-dim:rgba(72,255,132,.14);
+    --active:rgba(31,96,50,.92); --inactive:rgba(9,15,11,.92);
+    --warn:#ffcf6a; --r:12px;
+  }
+  @font-face{font-family:'Inter';font-style:normal;font-weight:400;font-display:swap;
+    src:url(vendor/fonts/inter-400.woff2) format('woff2')}
+  @font-face{font-family:'Inter';font-style:normal;font-weight:600;font-display:swap;
+    src:url(vendor/fonts/inter-600.woff2) format('woff2')}
+  @font-face{font-family:'Inter';font-style:normal;font-weight:800;font-display:swap;
+    src:url(vendor/fonts/inter-800.woff2) format('woff2')}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 50% -10%,#0c1a12 0%,var(--bg) 60%);
+    color:var(--txt);
+    font:400 14px/1.5 'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+    letter-spacing:.1px;
+    display:flex;flex-direction:column;height:100vh;overflow:hidden;
+    user-select:none;-webkit-user-select:none;
+  }
+  img,video{-webkit-user-drag:none;user-select:none}
+  #trim{touch-action:none}
+  .seg .btn,.go,.btn{touch-action:manipulation}
+  button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+  .btn{
+    background:var(--inactive);border:1px solid rgba(90,130,104,.6);color:var(--txt-strong);
+    padding:8px 13px;border-radius:999px;font-weight:800;font-size:12px;letter-spacing:.2px;
+    transition:.12s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;
+  }
+  .btn:hover{border-color:var(--accent);color:#f0fff4}
+  .btn.on{background:var(--active);border-color:rgba(72,255,132,.95);color:#f0fff4;
+    box-shadow:0 0 14px rgba(72,255,132,.28)}
+  .btn.icn{padding:8px 11px;min-width:38px;justify-content:center}
+  .btn[disabled]{opacity:.4;cursor:not-allowed}
+
+  header{
+    display:flex;align-items:center;gap:14px;padding:12px 16px;
+    border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--panel),var(--panel2));
+    flex:0 0 auto;flex-wrap:wrap;position:relative;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:900;font-size:16px;color:var(--txt-strong)}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  .brand small{font-weight:600;font-size:11px;color:var(--txt-soft);letter-spacing:.3px}
+  .grow{margin-left:auto}
+  .ghost{
+    display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;
+    color:var(--txt-soft);border:1px solid var(--line-soft);border-radius:999px;
+    padding:7px 13px;transition:.12s;background:rgba(6,16,11,.5);
+  }
+  .ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .topnew{color:var(--accent);border-color:var(--accent);background:var(--accent-dim)}
+  .topnew:hover{background:rgba(72,255,132,.22);color:#f0fff4;
+    box-shadow:0 0 12px rgba(72,255,132,.32)}
+  .yt{display:inline-flex;align-items:center;justify-content:center;
+    width:36px;height:30px;border-radius:8px;
+    background:rgba(255,0,0,.10);border:1px solid rgba(255,70,70,.35);
+    transition:.13s;flex:0 0 auto}
+  .yt:hover{background:rgba(255,0,0,.22);border-color:#ff5252;
+    box-shadow:0 0 12px rgba(255,0,0,.30)}
+  .yt svg{width:20px;height:20px;display:block}
+
+  main{flex:1 1 auto;position:relative;overflow:auto}
+  #stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:22px}
+
+  /* ---------- empty / drop state ---------- */
+  .hint{display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center;
+    color:var(--txt-soft);max-width:560px}
+  .hint h2{color:var(--txt-strong);font-size:21px;font-weight:900}
+  .hint p{font-size:13px;line-height:1.7}
+  .drop{
+    width:300px;height:170px;border:2px dashed var(--line);border-radius:16px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+    background:var(--panel2);cursor:pointer;transition:.15s;color:var(--txt-soft);
+  }
+  .drop:hover,.drop.over{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+  .drop .big{font-size:32px;font-weight:900;color:var(--accent);line-height:1}
+  .drop .sub{font-size:13px;font-weight:800}
+  .drop .tip{font-size:11px;opacity:.8}
+  body.dragging #stage{outline:2px dashed var(--accent);outline-offset:-10px}
+  .priv{font-size:12px;color:var(--txt-soft);line-height:1.7}
+  .priv b{color:var(--accent)}
+
+  /* ---------- editor ---------- */
+  .editor{display:none;gap:26px;width:100%;max-width:1140px;align-items:flex-start;flex-wrap:wrap}
+  body.has .hint{display:none}
+  body.has .editor{display:flex}
+  .previewcol{flex:1 1 460px;min-width:300px;display:flex;flex-direction:column;gap:12px}
+  .ctrlcol{flex:1 1 420px;min-width:320px;display:flex;flex-direction:column;gap:12px}
+  .vwrap{
+    position:relative;width:100%;background:#020403;border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;
+    min-height:300px;max-height:72vh;
+  }
+  .vwrap video,.vwrap img{display:block;max-width:100%;max-height:72vh;object-fit:contain;background:#000}
+  .vtag{
+    position:absolute;top:10px;left:12px;z-index:6;font-size:11px;font-weight:800;
+    color:var(--txt-soft);background:rgba(6,16,11,.82);border:1px solid var(--line-soft);
+    border-radius:999px;padding:5px 12px;pointer-events:none;
+  }
+  .vtag b{color:var(--accent)}
+  .cropbox{
+    position:absolute;z-index:4;display:none;border:1.5px solid var(--accent);
+    border-radius:2px;touch-action:none;
+    box-shadow:0 0 0 9999px rgba(2,4,3,.62),0 0 14px rgba(72,255,132,.45) inset;
+  }
+  .cropbox::before{
+    content:"";position:absolute;inset:0;margin:auto;width:26px;height:26px;
+    border:2px solid rgba(234,255,241,.9);border-radius:50%;opacity:.85;
+    background:radial-gradient(circle,rgba(72,255,132,.25) 40%,transparent 42%);
+  }
+  .cropbox::after{
+    content:attr(data-r);position:absolute;left:50%;bottom:6px;transform:translateX(-50%);
+    font-size:11px;font-weight:800;color:var(--accent);background:rgba(6,16,11,.85);
+    border:1px solid var(--line-soft);border-radius:999px;padding:3px 10px;white-space:nowrap;
+  }
+  .noprev{
+    position:absolute;inset:0;z-index:5;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px;
+    color:var(--txt-soft);font-weight:800;font-size:14px;
+  }
+  .noprev .ic{font-size:34px;color:var(--accent);line-height:1}
+  .noprev .s{font-weight:600;font-size:12px;color:var(--txt-soft);opacity:.8}
+  body.nometa #trim,body.nometa .tinfo{display:none}
+  .pp{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    z-index:6;cursor:pointer;color:var(--accent);font-size:46px;
+    text-shadow:0 0 18px rgba(72,255,132,.5);opacity:0;transition:.15s;pointer-events:none;
+  }
+  .vwrap.paused .pp{opacity:.92}
+
+  /* trim timeline — same scrub DNA as Video Compare */
+  .trim{position:relative;height:42px;display:flex;align-items:center;cursor:pointer;
+    margin:2px 2px 0;touch-action:none}
+  .trim .track{position:absolute;left:0;right:0;height:8px;border-radius:4px;background:rgba(72,255,132,.14)}
+  .trim .sel{position:absolute;height:8px;border-radius:4px;background:rgba(72,255,132,.34)}
+  .trim .play{position:absolute;width:2px;height:26px;background:#eafff1;border-radius:2px;
+    box-shadow:0 0 7px rgba(255,255,255,.5);transform:translateX(-1px);pointer-events:none}
+  .trim .h{position:absolute;width:18px;height:32px;border-radius:6px;background:var(--accent);
+    box-shadow:0 0 10px rgba(72,255,132,.7);transform:translateX(-50%);cursor:ew-resize;
+    border:1px solid #eafff1}
+  .trim .h::before{content:"";position:absolute;left:50%;top:50%;
+    transform:translate(-50%,-50%);width:2px;height:14px;border-radius:2px;
+    background:rgba(5,12,8,.6);box-shadow:-4px 0 0 rgba(5,12,8,.6),4px 0 0 rgba(5,12,8,.6)}
+  .trim .h::after{content:"";position:absolute;inset:-14px -16px;border-radius:12px}
+  .tinfo{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--txt-soft);
+    font-variant-numeric:tabular-nums;flex-wrap:wrap}
+  .tinfo b{color:var(--accent);font-weight:800}
+  .tinfo .grow{margin-left:auto}
+
+  .rows{display:flex;flex-direction:column;gap:9px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .row > .lbl{font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--txt-soft);
+    text-transform:uppercase;min-width:74px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg .btn{font-size:12px;padding:7px 14px}
+
+  .go{
+    margin-top:2px;align-self:flex-start;display:inline-flex;align-items:center;gap:9px;
+    padding:11px 26px;border:1px solid var(--accent);color:var(--accent);
+    background:var(--accent-dim);border-radius:999px;font-weight:900;font-size:14px;
+    letter-spacing:.3px;transition:.13s;
+  }
+  .go:hover{background:rgba(72,255,132,.22);color:#f0fff4;box-shadow:0 0 16px rgba(72,255,132,.4)}
+  .go[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none;background:var(--accent-dim)}
+  .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .out-meta{font-size:12px;color:var(--txt-soft);font-variant-numeric:tabular-nums}
+  .out-meta b{color:var(--accent);font-weight:800}
+  .warnline{font-size:12px;color:var(--warn);font-weight:700;display:none;line-height:1.5}
+  .warnline.show{display:block}
+  .estimate{
+    display:none;border:1px solid var(--line);border-radius:12px;padding:11px 14px;
+    background:rgba(6,16,11,.55);font-size:12px;line-height:1.55;color:var(--txt-soft);
+  }
+  .estimate.show{display:block}
+  .estimate .big{font-size:15px;font-weight:900;color:var(--accent);
+    font-variant-numeric:tabular-nums}
+  .estimate.over .big{color:var(--warn)}
+  .estimate .lim{display:block;margin-top:3px;font-size:11px;color:var(--txt-soft);opacity:.85}
+  .estimate .lim b{color:var(--accent)}
+  .estimate.over .lim b{color:var(--warn)}
+  .lower{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
+  .leftcol{flex:1 1 460px;min-width:300px;display:flex;flex-direction:column;gap:9px}
+  .bigbtns{display:flex;gap:14px;flex-wrap:wrap;align-content:flex-start}
+  .bigbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+    width:130px;height:108px;border:1px solid var(--line);border-radius:18px;
+    background:rgba(6,16,11,.6);color:var(--txt-strong);font-weight:800;font-size:14px;
+    letter-spacing:.2px;transition:.13s}
+  .bigbtn .bi{font-size:34px;line-height:1;color:var(--accent)}
+  .bigbtn:hover{border-color:var(--accent);background:var(--accent-dim);color:#f0fff4;
+    box-shadow:0 0 18px rgba(72,255,132,.32)}
+  .bigbtn:hover .bi{filter:drop-shadow(0 0 8px rgba(72,255,132,.6))}
+  .bigbtn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;
+    background:rgba(6,16,11,.6);border-color:var(--line);color:var(--txt-strong)}
+  .bigbtn.save:not(:disabled){border-color:var(--accent);color:var(--accent);
+    background:var(--accent-dim)}
+
+  footer{
+    flex:0 0 auto;border-top:1px solid var(--line);
+    background:linear-gradient(180deg,var(--panel2),var(--panel));padding:10px 16px;
+    display:flex;flex-direction:column;gap:8px;
+  }
+  .pbar{position:relative;height:6px;border-radius:3px;background:rgba(72,255,132,.12);overflow:hidden}
+  .pfill{position:absolute;left:0;top:0;height:6px;border-radius:3px;background:var(--accent);width:0;
+    transition:width .2s ease;box-shadow:0 0 10px rgba(72,255,132,.5)}
+  .pbar.idle .pfill{width:0}
+  .pbar.busy.indef .pfill{width:32% !important;animation:slide 1.1s ease-in-out infinite}
+  @keyframes slide{0%{left:-32%}100%{left:100%}}
+  .statusrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px}
+  .status{font-weight:800;color:var(--txt-strong)}
+  .status.err{color:#ff9a9a}
+  .status.ok{color:var(--accent)}
+  .footnote{color:var(--txt-soft);font-size:11px;margin-left:auto;font-variant-numeric:tabular-nums}
+
+  .toast{
+    position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:40;
+    background:rgba(6,16,11,.96);border:1px solid var(--line);border-radius:999px;
+    padding:9px 18px;font-size:13px;font-weight:800;color:var(--txt-strong);
+    opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;max-width:90vw;
+  }
+  .toast.show{opacity:1}
+  .help{
+    position:fixed;right:14px;bottom:60px;z-index:40;background:rgba(6,16,11,.97);
+    border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:12px;
+    color:var(--txt-soft);max-width:320px;display:none;line-height:1.95;
+  }
+  .help.show{display:block}
+  .help h3{color:var(--txt-strong);font-size:13px;margin-bottom:6px}
+  .help kbd{background:#0e2016;border:1px solid var(--line);border-radius:5px;
+    padding:1px 6px;color:var(--accent);font-size:11px;font-weight:800}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span>Video → GIF / WebP
+    <small>· in your browser · nothing uploaded</small></div>
+  <button class="ghost grow" id="helpBtn2">? Shortcuts</button>
+  <a class="yt" href="https://www.youtube.com/@Denoise-AI" target="_blank"
+     rel="noopener noreferrer" title="Denoise AI · YouTube channel">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#ff3b3b" d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12 31 31 0 0 0 1 16.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6A3 3 0 0 0 23 16.8 31 31 0 0 0 23.5 12 31 31 0 0 0 23 7.2Z"/>
+      <path fill="#050906" d="M9.8 15.3V8.7L15.5 12Z"/>
+    </svg>
+  </a>
+</header>
+
+<main>
+  <div id="stage">
+    <!-- empty state -->
+    <div class="hint" id="hint">
+      <h2>Turn a video into a looping GIF or WebP</h2>
+      <div class="drop" id="drop">
+        <span class="big">＋</span>
+        <span class="sub">Drop a video here</span>
+        <span class="tip">or click to choose · mp4 · webm · mov · mkv</span>
+      </div>
+      <p class="priv">Perfect for posts that want a short looping clip instead of a video link.<br>
+        <b>Everything runs inside your browser</b> — your video is never uploaded anywhere.</p>
+    </div>
+
+    <!-- editor -->
+    <div class="editor" id="editor">
+      <div class="previewcol">
+      <div class="vwrap paused" id="vwrap">
+        <video id="vid" playsinline preload="auto" muted loop></video>
+        <img id="outImg" alt="" style="display:none">
+        <span class="vtag" id="vtag">source</span>
+        <div class="cropbox" id="cropbox" data-r=""></div>
+        <div class="noprev" id="noprev">
+          <span class="ic">▣</span>
+          <span>This clip can't preview in your browser</span>
+          <span class="s">ffmpeg will still convert it — pick options below and Convert</span>
+        </div>
+        <div class="pp" id="pp">►</div>
+      </div>
+
+      <div class="trim" id="trim">
+        <div class="track"></div>
+        <div class="sel" id="tsel"></div>
+        <div class="play" id="tplay"></div>
+        <div class="h" id="hStart" style="left:0%"></div>
+        <div class="h" id="hEnd" style="left:100%"></div>
+      </div>
+      <div class="tinfo">
+        <span>Start <b id="lStart">00:00.0</b></span>
+        <span>End <b id="lEnd">00:00.0</b></span>
+        <span>Clip <b id="lDur">0.0s</b></span>
+        <span class="grow"></span>
+        <button class="btn" id="fullBtn">Whole video</button>
+      </div>
+      </div><!-- /previewcol -->
+      <div class="ctrlcol">
+      <div class="rows">
+        <div class="row">
+          <span class="lbl">Format</span>
+          <div class="seg" id="segFmt">
+            <button class="btn on" data-fmt="gif">GIF</button>
+            <button class="btn" data-fmt="webp">WebP <span style="opacity:.7;font-weight:700">(smaller)</span></button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lbl">Size</span>
+          <div class="seg" id="segSize">
+            <button class="btn" data-w="0">Original</button>
+            <button class="btn" data-w="640">640 px</button>
+            <button class="btn on" data-w="480">480 px</button>
+            <button class="btn" data-w="360">360 px</button>
+            <button class="btn" data-w="240">240 px</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lbl">Shape</span>
+          <div class="seg" id="segRatio">
+            <button class="btn on" data-r="orig">Original</button>
+            <button class="btn" data-r="1:1">1:1 <span style="opacity:.7;font-weight:700">(YouTube)</span></button>
+            <button class="btn" data-r="4:5">4:5</button>
+            <button class="btn" data-r="4:3">4:3</button>
+            <button class="btn" data-r="16:9">16:9</button>
+            <button class="btn" data-r="9:16">9:16</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lbl">Frames/s</span>
+          <div class="seg" id="segFps">
+            <button class="btn" data-fps="10">10</button>
+            <button class="btn" data-fps="12">12</button>
+            <button class="btn on" data-fps="15">15</button>
+            <button class="btn" data-fps="20">20</button>
+            <button class="btn" data-fps="24">24</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lbl">Quality</span>
+          <div class="seg" id="segQ">
+            <button class="btn" data-q="low">Lighter file</button>
+            <button class="btn on" data-q="med">Balanced</button>
+            <button class="btn" data-q="high">Best looking</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="estimate" id="estimate"></div>
+      <div class="warnline" id="warnline"></div>
+      <div class="bigbtns">
+        <button class="bigbtn" id="newBtn" title="Open another video">
+          <span class="bi">＋</span><span>New video</span></button>
+        <button class="bigbtn save" id="saveBtn" disabled title="Convert and save in one step">
+          <span class="bi">⤓</span><span id="saveLbl">Save</span></button>
+      </div>
+      <div class="out-meta" id="outMeta"></div>
+      </div><!-- /ctrlcol -->
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="pbar idle" id="pbar"><div class="pfill" id="pfill"></div></div>
+  <div class="statusrow">
+    <span class="status" id="status">Drop a video to begin.</span>
+    <span class="footnote" id="footnote">100% in-browser · ffmpeg.wasm</span>
+  </div>
+</footer>
+
+<div class="toast" id="toast"></div>
+<div class="help" id="help">
+  <h3>Shortcuts</h3>
+  <kbd>O</kbd> open video · <kbd>Space</kbd> play / pause preview<br>
+  <kbd>[</kbd> set start here · <kbd>]</kbd> set end here<br>
+  <kbd>←</kbd><kbd>→</kbd> nudge preview · <kbd>Enter</kbd> save<br>
+  <kbd>N</kbd> new video · <kbd>?</kbd> this help<br>
+  <span style="color:var(--txt-soft);opacity:.8">GIF works everywhere · WebP is much smaller at the same quality.</span>
+</div>
+
+<input type="file" id="file" accept="video/*,.mp4,.webm,.mov,.mkv,.m4v,.ogv,.avi">
+
+<!-- ffmpeg.wasm (pinned). Engine core is fetched only on the first convert. -->
+<script src="vendor/ffmpeg.js"></script>
+<script src="vendor/util.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const vid=$("vid"), vwrap=$("vwrap"), outImg=$("outImg"), vtag=$("vtag"),
+        trim=$("trim"), tsel=$("tsel"), tplay=$("tplay"),
+        hStart=$("hStart"), hEnd=$("hEnd"),
+        lStart=$("lStart"), lEnd=$("lEnd"), lDur=$("lDur"),
+        pbar=$("pbar"), pfill=$("pfill"), statusEl=$("status"),
+        footnote=$("footnote"), saveBtn=$("saveBtn"),
+        outMeta=$("outMeta"), warnline=$("warnline"), estimateEl=$("estimate"),
+        toastEl=$("toast"), helpEl=$("help");
+  const YT_LIMIT = 16*1024*1024;   // YouTube community post media limit ≈ 16 MB
+
+  const S = {
+    fmt:"gif", w:480, fps:15, q:"med", ratio:"orig",
+    cropX:0.5, cropY:0.5,
+    dur:0, start:0, end:0, fileName:"clip", busy:false,
+    drag:null, outURL:null, outBlob:null, ext:".mp4",
+  };
+  const even = n => { n=Math.round(n); return Math.max(2, n-(n%2)); };
+  const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+  function ratioVal(){
+    if(S.ratio==="orig") return null;
+    const p=S.ratio.split(":"); return (+p[0])/(+p[1]);   // target width/height
+  }
+  function cropDims(){
+    const iw=vid.videoWidth||0, ih=vid.videoHeight||0, ar=ratioVal();
+    if(!ar||!iw||!ih) return {cw:even(iw),ch:even(ih),crop:false};
+    return {cw:even(Math.min(iw, ih*ar)), ch:even(Math.min(ih, iw/ar)), crop:true};
+  }
+  function outDims(){
+    const vw=vid.videoWidth||0, vh=vid.videoHeight||0, ar=ratioVal();
+    if(ar){ const c=cropDims();
+      if(S.w>0){ const ow=even(S.w); return {w:ow,h:even(ow*c.ch/c.cw)}; }
+      return {w:c.cw,h:c.ch}; }
+    if(S.w>0) return {w:even(S.w), h:even(S.w*vh/Math.max(vw,1))};
+    return {w:even(vw), h:even(vh)};
+  }
+  // rough size estimate (real size shown after Convert). Heuristic bytes/px/frame.
+  function estClip(){
+    const o=outDims();
+    if(!o.w||!o.h) return null;
+    if(!(S.dur>0)) return {unknown:true,w:o.w,h:o.h};
+    const dur=Math.max(0.1,S.end-S.start);
+    const frames=Math.max(1,Math.round(dur*S.fps));
+    const bpp = S.fmt==="gif"
+      ? (S.q==="low"?0.20 : S.q==="high"?0.62 : 0.40)
+      : (S.q==="low"?0.030 : S.q==="high"?0.130 : 0.070);
+    const bytes=Math.max(9000, Math.round(frames*o.w*o.h*bpp)+12000);
+    return {bytes,dur,frames,w:o.w,h:o.h};
+  }
+  function updateEstimate(){
+    if(!S._file || !document.body.classList.contains("has")){
+      estimateEl.classList.remove("show","over"); return;
+    }
+    const e=estClip();
+    estimateEl.classList.add("show");
+    if(!e || e.unknown){
+      estimateEl.classList.remove("over");
+      estimateEl.innerHTML =
+        `Estimated size: <span class="big">—</span>`+
+        `<span class="lim">Shown once the clip length is known. `+
+        `<b>YouTube community posts: ≈ 16 MB</b> per image.</span>`;
+      return;
+    }
+    const over = e.bytes > YT_LIMIT;
+    estimateEl.classList.toggle("over",over);
+    estimateEl.innerHTML =
+      `Estimated output: <span class="big">≈ ${fmtSize(e.bytes)}</span> `+
+      `<span style="opacity:.8">· ${e.w}×${e.h} · ${e.dur.toFixed(1)}s · ${S.fps}fps · ${S.fmt.toUpperCase()}</span>`+
+      `<span class="lim"><b>YouTube community posts: ≈ 16 MB</b> per image — `+
+      (over ? `over the limit. Trim shorter, or try WebP / smaller size / lower fps.`
+            : `you're within it.`)+`</span>`;
+  }
+  // full ffmpeg filter chain: fps -> (center-crop to shape, fill) -> scale
+  function buildVChain(fps){
+    const ar=ratioVal();
+    if(ar){
+      if(vid.videoWidth && vid.videoHeight){
+        const c=cropDims(), o=outDims();
+        const iw=vid.videoWidth, ih=vid.videoHeight;
+        const x=Math.round(clamp((iw-c.cw)*S.cropX,0,iw-c.cw));
+        const y=Math.round(clamp((ih-c.ch)*S.cropY,0,ih-c.ch));
+        return `fps=${fps},crop=${c.cw}:${c.ch}:${x}:${y},scale=${o.w}:${o.h}:flags=lanczos`;
+      }
+      // dimensions unknown (no preview): crop via ffmpeg expressions
+      const cropExpr=`crop='trunc(min(iw,ih*${ar})/2)*2':'trunc(min(ih,iw/${ar})/2)*2'`;
+      return `fps=${fps},${cropExpr}` +
+        (S.w>0 ? `,scale=${even(S.w)}:-2:flags=lanczos` : "");
+    }
+    if(S.w>0) return `fps=${fps},scale=${S.w}:-2:flags=lanczos`;
+    return `fps=${fps},scale=trunc(iw/2)*2:trunc(ih/2)*2`;
+  }
+  let cropGeo=null;
+  function drawCrop(){
+    const box=$("cropbox"), ar=ratioVal();
+    if(!ar || !vid.videoWidth || outImg.style.display!=="none"){
+      box.style.display="none"; cropGeo=null; return;
+    }
+    const er=vid.getBoundingClientRect(), wr=vwrap.getBoundingClientRect();
+    if(er.width<4 || er.height<4){ box.style.display="none"; cropGeo=null; return; }
+    const vAR=vid.videoWidth/vid.videoHeight, eAR=er.width/er.height;
+    let pw,ph;
+    if(eAR>vAR){ ph=er.height; pw=ph*vAR; } else { pw=er.width; ph=pw/vAR; }
+    let cw,ch;
+    if(ar > pw/ph){ cw=pw; ch=cw/ar; } else { ch=ph; cw=ch*ar; }
+    const pl=(er.left-wr.left)+(er.width-pw)/2;   // painted video top-left
+    const pt=(er.top-wr.top)+(er.height-ph)/2;
+    const availW=Math.max(0,pw-cw), availH=Math.max(0,ph-ch);
+    const movable = availW>2 || availH>2;
+    box.dataset.r = S.ratio + (movable ? " · drag to move" : " · fill");
+    box.style.display="block";
+    box.style.pointerEvents = movable ? "auto" : "none";
+    box.style.cursor = movable ? "move" : "default";
+    box.style.width=cw+"px"; box.style.height=ch+"px";
+    box.style.left=(pl+availW*clamp(S.cropX,0,1))+"px";
+    box.style.top =(pt+availH*clamp(S.cropY,0,1))+"px";
+    cropGeo={availW,availH};
+  }
+  window.addEventListener("resize",()=>{ requestAnimationFrame(drawCrop); });
+  // drag the crop box to pick which part of a wider/taller clip is kept
+  (()=>{
+    const box=$("cropbox"); let d=null;
+    box.addEventListener("pointerdown",e=>{
+      if(!cropGeo || (cropGeo.availW<=2 && cropGeo.availH<=2)) return;
+      e.preventDefault(); e.stopPropagation();
+      d={px:e.clientX,py:e.clientY,x0:S.cropX,y0:S.cropY};
+      box.setPointerCapture(e.pointerId);
+    });
+    box.addEventListener("pointermove",e=>{
+      if(!d||!cropGeo) return;
+      if(cropGeo.availW>2) S.cropX=clamp(d.x0+(e.clientX-d.px)/cropGeo.availW,0,1);
+      if(cropGeo.availH>2) S.cropY=clamp(d.y0+(e.clientY-d.py)/cropGeo.availH,0,1);
+      drawCrop();
+    });
+    const end=()=>{ if(d){ d=null; clearOutput(); toast("Crop position set — Convert to apply"); } };
+    box.addEventListener("pointerup",end);
+    box.addEventListener("pointercancel",end);
+    box.addEventListener("click",e=>e.stopPropagation());
+  })();
+  function updateVTag(){
+    if(!vid.videoWidth) return;
+    const o=outDims();
+    vtag.innerHTML=`source <b>${vid.videoWidth}×${vid.videoHeight}</b> → out <b>${o.w}×${o.h}</b>`;
+  }
+
+  /* ---------- helpers ---------- */
+  function fmtT(s){
+    s=Math.max(0,s||0);
+    const mm=Math.floor(s/60), ss=Math.floor(s%60), t=Math.floor((s*10)%10);
+    return `${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}.${t}`;
+  }
+  function fmtSize(b){
+    if(b>=1048576) return (b/1048576).toFixed(b>=10485760?0:1)+" MB";
+    if(b>=1024) return (b/1024).toFixed(0)+" KB";
+    return b+" B";
+  }
+  let toastT;
+  function toast(m){
+    toastEl.textContent=m; toastEl.classList.add("show");
+    clearTimeout(toastT); toastT=setTimeout(()=>toastEl.classList.remove("show"),2200);
+  }
+  function status(msg,cls){
+    statusEl.textContent=msg;
+    statusEl.className="status"+(cls?(" "+cls):"");
+  }
+  function setBar(pct){
+    pbar.classList.remove("indef");
+    pbar.classList.toggle("idle",pct<=0);
+    pbar.classList.toggle("busy",pct>0);
+    pfill.style.width=Math.max(0,Math.min(100,pct))+"%";
+  }
+  function setBarIndef(on){
+    pbar.classList.toggle("idle",!on);
+    pbar.classList.toggle("busy",on);
+    pbar.classList.toggle("indef",on);
+    if(on) pfill.style.width="32%";
+  }
+
+  /* ---------- load a source video ---------- */
+  function openFile(file){
+    if(!file) return;
+    const okType = (file.type && file.type.startsWith("video/")) ||
+      /\.(mp4|webm|mov|mkv|m4v|ogv|avi)$/i.test(file.name);
+    if(!okType){ toast("That doesn't look like a video file."); return; }
+    clearOutput();
+    clearTimeout(S._metaTimer);
+    if(vid.src) URL.revokeObjectURL(vid.src);
+    const m=/\.[a-z0-9]+$/i.exec(file.name||"");
+    S.ext = m ? m[0].toLowerCase() : ".mp4";
+    S.fileName = (file.name||"clip").replace(/\.[^.]+$/,"") || "clip";
+    S._file=file; S._noMeta=false;
+    // Show the editor right away. Conversion is done by ffmpeg.wasm, which
+    // decodes the file itself — it never needs the browser to PREVIEW the
+    // source codec. So a clip the browser can't play (e.g. HEVC .mov from a
+    // phone / screen recorder) must still be convertible.
+    document.body.classList.remove("nometa");
+    document.body.classList.add("has");
+    $("noprev").style.display="none";
+    vid.style.display="";
+    status("Loading preview…");
+    footnote.textContent=`${(file.size/1048576).toFixed(1)} MB · ${file.name||"clip"}`;
+    vid.onloadedmetadata=()=>{
+      clearTimeout(S._metaTimer);
+      S.dur=vid.duration||0;
+      // late metadata must not disrupt an active or finished conversion
+      if(S.busy || S.outBlob) return;
+      S._noMeta=false; document.body.classList.remove("nometa");
+      $("noprev").style.display="none"; vid.style.display="";
+      S.dur=vid.duration||0; S.start=0; S.end=S.dur;
+      updateVTag(); checkWarn();
+      drawTrim(); status("Set the clip & options, then Save.");
+      seekPreview(0); playPreview();
+      requestAnimationFrame(drawCrop); setTimeout(drawCrop,160);
+      footnote.textContent=`source ${vid.videoWidth}×${vid.videoHeight} · ${(file.size/1048576).toFixed(1)} MB`;
+    };
+    vid.onerror=()=>onNoMeta();
+    vid.src=URL.createObjectURL(file);
+    vid.load();
+    S._metaTimer=setTimeout(()=>{ if(!vid.videoWidth) onNoMeta(); },5000);
+  }
+  // Browser can't preview this source — fall back to whole-clip convert.
+  function onNoMeta(){
+    clearTimeout(S._metaTimer);
+    if(vid.videoWidth) return;                 // metadata raced in — keep it
+    S._noMeta=true; S.dur=0; S.start=0; S.end=0;
+    document.body.classList.add("nometa");
+    vid.style.display="none"; try{vid.pause();}catch(e){}
+    $("noprev").style.display="flex";
+    vtag.innerHTML=`<b>preview not supported here</b> · conversion still works`;
+    checkWarn(); updateGoLabel();
+    status("This clip can't preview in your browser — conversion still works (whole clip, up to 60s).");
+  }
+  function checkWarn(){
+    const msgs=[];
+    if(S._noMeta){
+      msgs.push("No preview for this file — the whole clip (max 60s) is converted.");
+    } else if(S.dur>0){
+      const o=outDims();
+      if(o.w&&o.h){
+        const dur=Math.max(0.1,S.end-S.start);
+        const work=Math.round(dur*S.fps)*o.w*o.h;   // frames × pixels
+        const heavy = S.fmt==="gif" ? work>5.0e7 : work>1.2e8;
+        if(heavy) msgs.push("Heavy job — building this in the browser can be slow and memory-hungry. Trimming, a smaller size, or lower fps keeps it quick.");
+      }
+    }
+    warnline.textContent=msgs.join("  ");
+    warnline.classList.toggle("show",msgs.length>0);
+  }
+
+  /* ---------- trim timeline ---------- */
+  function drawTrim(){
+    const d=S.dur||1;
+    const a=Math.max(0,Math.min(1,S.start/d))*100;
+    const b=Math.max(0,Math.min(1,S.end/d))*100;
+    hStart.style.left=a+"%"; hEnd.style.left=b+"%";
+    tsel.style.left=a+"%"; tsel.style.width=Math.max(0,b-a)+"%";
+    lStart.textContent=fmtT(S.start);
+    lEnd.textContent=fmtT(S.end);
+    lDur.textContent=(Math.max(0,S.end-S.start)).toFixed(1)+"s";
+    updateGoLabel();
+  }
+  function trimFrac(clientX){
+    const r=trim.getBoundingClientRect();
+    return Math.max(0,Math.min(1,(clientX-r.left)/r.width));
+  }
+  trim.addEventListener("pointerdown",e=>{
+    if(!S.dur) return;
+    const f=trimFrac(e.clientX), t=f*S.dur;
+    const dA=Math.abs(t-S.start), dB=Math.abs(t-S.end);
+    S.drag = dA<=dB ? "start":"end";
+    trim.setPointerCapture(e.pointerId);
+    moveHandle(t);
+  });
+  trim.addEventListener("pointermove",e=>{ if(S.drag) moveHandle(trimFrac(e.clientX)*S.dur); });
+  const endDrag=()=>{ if(S.drag){ S.drag=null; seekPreview(S.start); } };
+  trim.addEventListener("pointerup",endDrag);
+  trim.addEventListener("pointercancel",endDrag);
+  function moveHandle(t){
+    t=Math.max(0,Math.min(S.dur,t));
+    if(S.drag==="start") S.start=Math.min(t,S.end-0.1);
+    else S.end=Math.max(t,S.start+0.1);
+    S.start=Math.max(0,S.start); S.end=Math.min(S.dur,S.end);
+    drawTrim();
+  }
+  $("fullBtn").onclick=()=>{ S.start=0; S.end=S.dur; drawTrim(); seekPreview(0); };
+
+  /* ---------- preview playback (loops the selected range) ---------- */
+  function seekPreview(t){ try{ vid.currentTime=Math.max(0,Math.min(S.dur,t)); }catch(e){} }
+  function playPreview(){ vid.play().then(()=>vwrap.classList.remove("paused")).catch(()=>{}); }
+  function pausePreview(){ vid.pause(); vwrap.classList.add("paused"); }
+  function togglePreview(){ if(outImg.style.display!=="none") return; vid.paused?playPreview():pausePreview(); }
+  vid.addEventListener("timeupdate",()=>{
+    if(vid.currentTime<S.start-0.05 || vid.currentTime>S.end) seekPreview(S.start);
+    if(S.dur>0){
+      tplay.style.left=(Math.max(0,Math.min(1,vid.currentTime/S.dur))*100)+"%";
+    }
+  });
+  vwrap.addEventListener("click",()=>{
+    if(outImg.style.display!=="none"){
+      clearOutputView();
+      status("Back to source — adjust options or drag the crop, then Save again.");
+      return;
+    }
+    togglePreview();
+  });
+
+  /* ---------- option segments ---------- */
+  function wireSeg(id,attr,key,cb){
+    $(id).addEventListener("click",e=>{
+      const b=e.target.closest("button[data-"+attr+"]"); if(!b) return;
+      [...$(id).children].forEach(x=>x.classList.toggle("on",x===b));
+      let v=b.getAttribute("data-"+attr);
+      if(attr==="w"||attr==="fps") v=+v;
+      S[key]=v; if(cb) cb();
+    });
+  }
+  function updateGoLabel(){
+    const lbl=$("saveLbl");
+    if(lbl) lbl.textContent = S.busy ? "Saving…" : ("Save "+(S.fmt==="gif"?"GIF":"WebP"));
+    saveBtn.disabled = S.busy || !S._file;
+    updateEstimate();
+    checkWarn();
+  }
+  wireSeg("segFmt","fmt","fmt",()=>{ clearOutput(); updateGoLabel(); });
+  wireSeg("segSize","w","w",clearOutput);
+  wireSeg("segRatio","r","ratio",()=>{ S.cropX=0.5; S.cropY=0.5; clearOutput(); requestAnimationFrame(drawCrop); });
+  wireSeg("segFps","fps","fps",clearOutput);
+  wireSeg("segQ","q","q",clearOutput);
+
+  /* ---------- ffmpeg engine (lazy) ---------- */
+  let ff=null, ffReady=false, ffLoading=null;
+  async function ensureFF(){
+    if(ffReady) return ff;
+    if(ffLoading) return ffLoading;
+    ffLoading=(async()=>{
+      const FFmpeg = window.FFmpegWASM && window.FFmpegWASM.FFmpeg;
+      const util   = window.FFmpegUtil;
+      if(!FFmpeg || !util) throw new Error("engine script blocked — check your network / ad-blocker");
+      ff=new FFmpeg();
+      ff.on("progress",({progress})=>{
+        if(S._phase==null) return;
+        let p=Math.max(0,Math.min(1,progress||0));
+        const pct = S._phase==="palette" ? p*32 : (32 + p*66);
+        setBar(pct);
+      });
+      // ffmpeg.js and its worker (vendor/814.ffmpeg.js) are served from the
+      // same origin, so it spawns a normal classic worker that can import the
+      // core — no cross-origin worker hacks. Only the big (~32 MB) wasm binary
+      // is pulled from the CDN (fetched to a blob so it always loads).
+      const coreURL = new URL("vendor/ffmpeg-core.js", location.href).href;
+      const wasmCDN = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm";
+      setBarIndef(true);
+      status("Preparing converter engine (one-time, ~30 MB)…");
+      await ff.load({
+        coreURL,
+        wasmURL: await util.toBlobURL(wasmCDN,"application/wasm"),
+      });
+      ffReady=true;
+      return ff;
+    })();
+    return ffLoading;
+  }
+
+  async function convert(){
+    if(S.busy || !S._file) return;
+    const hasDur = S.dur>0;
+    const dur = hasDur ? Math.max(0.1, S.end-S.start) : 60;
+    S.busy=true; outMeta.textContent=""; updateGoLabel();
+    clearOutputView();
+    const t0=performance.now();
+    try{
+      const f=await ensureFF();
+      setBarIndef(false); setBar(2);
+      status("Reading video…");
+      const inName="in"+S.ext;
+      await f.writeFile(inName, await window.FFmpegUtil.fetchFile(S._file));
+      const fps=S.fps;
+      const ss = hasDur ? String(S.start.toFixed(3)) : "0";
+      const tt = String(dur.toFixed(3));
+      const vch=buildVChain(fps);
+      let outName, mime;
+
+      if(S.fmt==="gif"){
+        const colors = S.q==="low"?128 : S.q==="high"?256 : 192;
+        const dither = S.q==="low"?"dither=none"
+          : S.q==="high"?"dither=sierra2_4a:diff_mode=rectangle"
+          : "dither=bayer:bayer_scale=3";
+        S._phase="palette"; status("Analyzing colors…"); setBar(4);
+        await f.exec(["-ss",ss,"-t",tt,"-i",inName,"-vf",
+          `${vch},palettegen=max_colors=${colors}:stats_mode=diff`,
+          "-y","pal.png"]);
+        S._phase="encode"; status("Encoding GIF…"); setBar(34);
+        await f.exec(["-ss",ss,"-t",tt,"-i",inName,"-i","pal.png","-lavfi",
+          `${vch}[x];[x][1:v]paletteuse=${dither}`,
+          "-loop","0","-y","out.gif"]);
+        try{ await f.deleteFile("pal.png"); }catch(e){}
+        outName="out.gif"; mime="image/gif";
+      } else {
+        const qv = S.q==="low"?42 : S.q==="high"?82 : 64;
+        S._phase="encode"; status("Encoding WebP…"); setBar(8);
+        await f.exec(["-ss",ss,"-t",tt,"-i",inName,"-an","-vf",
+          vch,"-c:v","libwebp","-lossless","0",
+          "-q:v",String(qv),"-compression_level","6","-loop","0",
+          "-y","out.webp"]);
+        outName="out.webp"; mime="image/webp";
+      }
+
+      S._phase=null;
+      const data=await f.readFile(outName);
+      try{ await f.deleteFile(inName); }catch(e){}
+      try{ await f.deleteFile(outName); }catch(e){}
+      const blob=new Blob([data.buffer],{type:mime});
+      if(S.outURL) URL.revokeObjectURL(S.outURL);
+      S.outBlob=blob; S.outURL=URL.createObjectURL(blob);
+
+      outImg.src=S.outURL; outImg.style.display="";
+      vid.style.display="none"; vwrap.classList.remove("paused");
+      vtag.innerHTML=`result · <b>${S.fmt.toUpperCase()}</b>`;
+      const secs=((performance.now()-t0)/1000).toFixed(1);
+      setBar(100); status("Rendered — saving…","ok");
+      outMeta.innerHTML=`Saved file: <b>${S.fmt.toUpperCase()}</b> · ${fmtSize(blob.size)} · ${dur.toFixed(1)}s · ${fps}fps · rendered in ${secs}s`;
+      setTimeout(()=>{ if(!S.busy) setBar(0); },1400);
+    }catch(err){
+      S._phase=null; setBarIndef(false); setBar(0);
+      console.error(err);
+      status("Conversion failed: "+(err&&err.message||err),"err");
+      toast("Conversion failed — try a shorter clip or smaller size.");
+    }finally{
+      S.busy=false; updateGoLabel();
+    }
+  }
+
+  function clearOutputView(){
+    outImg.style.display="none"; outImg.removeAttribute("src");
+    if(S._noMeta){
+      vid.style.display="none"; $("noprev").style.display="flex";
+      vtag.innerHTML=`<b>preview not supported here</b> · conversion still works`;
+      return;
+    }
+    vid.style.display=""; updateVTag();
+    if(vid.src) playPreview();
+    requestAnimationFrame(drawCrop);
+  }
+  function clearOutput(){
+    if(S.outURL){ URL.revokeObjectURL(S.outURL); S.outURL=null; }
+    S.outBlob=null;
+    outMeta.textContent="";
+    if(document.body.classList.contains("has")) clearOutputView();
+    updateGoLabel();
+  }
+
+  // One step: Save = convert (shows "Saving…") then auto-download.
+  async function saveFlow(){
+    if(S.busy || !S._file) return;
+    await convert();
+    if(!S.outBlob) return;            // conversion failed — status already set
+    const name=`${S.fileName}-deno.${S.fmt}`;
+    const a=document.createElement("a");
+    a.href=S.outURL; a.download=name;
+    document.body.appendChild(a); a.click(); a.remove();
+    status("Saved "+name,"ok");
+    toast("Saved · "+fmtSize(S.outBlob.size));
+  }
+  saveBtn.onclick=saveFlow;
+  // "New video" goes straight to the file picker
+  $("newBtn").onclick=()=>$("file").click();
+  function resetAll(){
+    pausePreview(); clearOutput();
+    clearTimeout(S._metaTimer);
+    if(vid.src) URL.revokeObjectURL(vid.src);
+    vid.removeAttribute("src"); vid.load();
+    document.body.classList.remove("has","nometa");
+    $("noprev").style.display="none"; vid.style.display="";
+    S.dur=0; S.start=0; S.end=0; S._file=null; S._noMeta=false; S.cropX=0.5; S.cropY=0.5;
+    status("Drop a video to begin."); footnote.textContent="100% in-browser · ffmpeg.wasm";
+    setBar(0);
+  }
+
+  /* ---------- pickers + drag & drop ---------- */
+  $("drop").onclick=()=>$("file").click();
+  $("file").onchange=e=>openFile(e.target.files[0]);
+  let dd=0;
+  window.addEventListener("dragenter",e=>{e.preventDefault(); if(++dd) document.body.classList.add("dragging");});
+  window.addEventListener("dragover",e=>e.preventDefault());
+  window.addEventListener("dragleave",e=>{e.preventDefault(); if(--dd<=0) document.body.classList.remove("dragging");});
+  window.addEventListener("drop",e=>{
+    e.preventDefault(); dd=0; document.body.classList.remove("dragging");
+    const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(f) openFile(f);
+  });
+  const dz=$("drop");
+  dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over");});
+  dz.addEventListener("dragleave",()=>dz.classList.remove("over"));
+  dz.addEventListener("drop",()=>dz.classList.remove("over"));
+
+  /* ---------- help + keyboard ---------- */
+  function toggleHelp(){ helpEl.classList.toggle("show"); }
+  $("helpBtn2").onclick=toggleHelp;
+  window.addEventListener("keydown",e=>{
+    if(e.target.tagName==="INPUT") return;
+    const k=e.key;
+    if(k==="o"||k==="O"){ e.preventDefault(); $("file").click(); }
+    else if(k==="n"||k==="N"){ e.preventDefault(); $("file").click(); }
+    else if(k==="?") toggleHelp();
+    else if(!document.body.classList.contains("has")) return;
+    else if(k===" "){ e.preventDefault(); togglePreview(); }
+    else if(k==="Enter"){ e.preventDefault(); saveFlow(); }
+    else if(k==="["){ S.start=Math.min(vid.currentTime,S.end-0.1); drawTrim(); toast("Start "+fmtT(S.start)); }
+    else if(k==="]"){ S.end=Math.max(vid.currentTime,S.start+0.1); drawTrim(); toast("End "+fmtT(S.end)); }
+    else if(k==="ArrowLeft"){ e.preventDefault(); seekPreview(vid.currentTime-(e.shiftKey?1:1/Math.max(S.fps,1))); }
+    else if(k==="ArrowRight"){ e.preventDefault(); seekPreview(vid.currentTime+(e.shiftKey?1:1/Math.max(S.fps,1))); }
+  });
+
+  updateGoLabel();
+})();
+</script>
+</body>
+</html>
