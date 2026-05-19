@@ -133,6 +133,8 @@ Main features:
 - each node reuses one temp file, overwritten every run, so heavy iteration never piles up temp storage
 - needs PyAV (`pip install av`); if it is missing the node shows a clear one-line install hint instead of failing the graph
 
+![Deno Video Preview](docs/images/video-preview.jpg)
+
 ### `(Deno) RTX Video Super Resolution`
 
 Optional Windows/NVIDIA RTX Video Super Resolution helper node for users who want to try NVIDIA VFX inside ComfyUI without manually hunting for the right Python environment.
