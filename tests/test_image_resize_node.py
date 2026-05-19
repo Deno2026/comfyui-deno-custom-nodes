@@ -474,6 +474,11 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert "function togglePlay(node)" in script
     assert "function getTimeline(node)" in script
     assert "function loopOf(node)" in script
+    assert "⛶ Full" in script
+    assert "Full screen compare view" in script
+    assert ".dvp:fullscreen" in script
+    assert "requestFullscreen" in script
+    assert "document.fullscreenElement === d.root" in script
     assert "output.deno_video_compare" in script
     assert "createBufferSource" in script
     assert "requestAnimationFrame(tick)" in script

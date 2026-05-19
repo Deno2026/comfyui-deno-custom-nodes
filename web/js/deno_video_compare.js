@@ -52,6 +52,7 @@ const CSS = `
 .dvp .modes{display:flex;gap:5px;flex-wrap:wrap}
 .dvp .swap{border-color:#48ff84;color:#48ff84;font-weight:900}
 .dvp .lbl{border-color:#7fb893;color:#9dffba;font-weight:800}
+.dvp .fs{border-color:#7fb893;color:#9dffba;font-weight:900}
 .dvp .info{width:22px;height:22px;border-radius:50%;border:1.5px solid #48ff84;
   color:#48ff84;font-weight:900;font-size:12px;display:flex;align-items:center;
   justify-content:center;background:rgba(7,16,11,.85)}
@@ -108,6 +109,18 @@ const CSS = `
   line-height:1.7;display:none}
 .dvp .pop.show{display:block}
 .dvp .pop b{color:#9dffba}
+.dvp:fullscreen{position:fixed;inset:0;width:100vw;height:100vh;
+  border-radius:0;border:0;background:#050906}
+.dvp:-webkit-full-screen{position:fixed;inset:0;width:100vw;height:100vh;
+  border-radius:0;border:0;background:#050906}
+.dvp:fullscreen .bar{padding:10px 14px}
+.dvp:-webkit-full-screen .bar{padding:10px 14px}
+.dvp:fullscreen .stage{min-height:0}
+.dvp:-webkit-full-screen .stage{min-height:0}
+.dvp:fullscreen .btn{font-size:12px}
+.dvp:-webkit-full-screen .btn{font-size:12px}
+.dvp:fullscreen .meta,.dvp:fullscreen .wlink{font-size:11px}
+.dvp:-webkit-full-screen .meta,.dvp:-webkit-full-screen .wlink{font-size:11px}
 `;
 
 function el(tag, cls, html) {
@@ -204,6 +217,10 @@ app.registerExtension({
         try { stopAudioSources(this); } catch (e) {}
         if (s.actx) { try { s.actx.close(); } catch (e) {} s.actx = null; }
         if (s.cache) s.cache.clear();
+        if (s.dom?.onFullscreenChange) {
+          document.removeEventListener("fullscreenchange", s.dom.onFullscreenChange);
+          document.removeEventListener("webkitfullscreenchange", s.dom.onFullscreenChange);
+        }
       }
       return onRemoved?.apply(this, arguments);
     };
@@ -283,6 +300,9 @@ function buildDom(node) {
   labelsBtn.title = "Stamp the A/B + resolution badges onto the SAVED " +
     "video output (the in-node preview always shows them anyway)";
   ctrls.appendChild(labelsBtn);
+  const fsBtn = el("button", "btn fs", "⛶ Full");
+  fsBtn.title = "Full screen compare view";
+  ctrls.appendChild(fsBtn);
   const infoBtn = el("button", "info", "i");
   const pop = el("div", "pop",
     "<b>Video Compare (player)</b><br>" +
@@ -350,7 +370,7 @@ function buildDom(node) {
     badgeA, badgeB, tglBadge, sinfoA, sinfoB, hint,
     scrub, fill: scrub.querySelector(".fill"), head: scrub.querySelector(".hd"),
     time, meta, playBtn, loopBtn, spdBtn, modeBtns, audN, audA, audB,
-    labelsBtn,
+    labelsBtn, fsBtn,
   };
   st.dom = dom;
 
@@ -362,7 +382,7 @@ function buildDom(node) {
   node.__dvpWidget = widget;
 
   wireInteractions(node, dom,
-    { swapBtn, labelsBtn, playBtn, loopBtn, backBtn, fwdBtn, spdBtn });
+    { swapBtn, labelsBtn, fsBtn, playBtn, loopBtn, backBtn, fwdBtn, spdBtn });
   applyMode(node); applyTgl(node); updateLabels(node);
   render(node);
 }
@@ -1001,6 +1021,33 @@ function wireInteractions(node, d, btns) {
     s.burnLabels = !s.burnLabels;
     setWidget(node, "burn_labels", s.burnLabels);
     btns.labelsBtn.classList.toggle("on", s.burnLabels);
+  };
+  const updateFsButton = () => {
+    const active = document.fullscreenElement === d.root ||
+      document.webkitFullscreenElement === d.root;
+    btns.fsBtn.textContent = active ? "⛶ Exit" : "⛶ Full";
+    btns.fsBtn.classList.toggle("on", active);
+    requestAnimationFrame(() => render(node));
+  };
+  d.onFullscreenChange = updateFsButton;
+  document.addEventListener("fullscreenchange", updateFsButton);
+  document.addEventListener("webkitfullscreenchange", updateFsButton);
+  btns.fsBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+  btns.fsBtn.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      if (document.fullscreenElement === d.root ||
+          document.webkitFullscreenElement === d.root) {
+        if (document.exitFullscreen) document.exitFullscreen();
+        else document.webkitExitFullscreen?.();
+      } else if (d.root.requestFullscreen) {
+        d.root.requestFullscreen();
+      } else if (d.root.webkitRequestFullscreen) {
+        d.root.webkitRequestFullscreen();
+      }
+    } catch (err) { /* fullscreen may be blocked by browser policy */ }
+    updateFsButton();
   };
   const setAud = (a) => { markGesture(node); s.audio = a; applyAudioGains(node); };
   d.audN.onclick = () => setAud("none");
