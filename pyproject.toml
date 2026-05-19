@@ -1,7 +1,7 @@
 [project]
 name = "deno-custom-nodes"
 description = "DENO ComfyUI custom nodes for RTX Video Super Resolution, NVIDIA VFX/nvvfx, LTX 2.3 video workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, advanced image sources, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
-version = "0.7.8"
+version = "0.7.9"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
