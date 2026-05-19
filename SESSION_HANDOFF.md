@@ -1,5 +1,42 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 최신 세션 (2026-05-19, Claude Opus 4.7) — 0.7.3 잠재버그 리뷰 → 0.7.4 배포
+>
+> **요청:** 0.7.3 잠재버그 리뷰(GPT Pro 리뷰 검증) + 병렬 Codex가 추가한
+> 새 `(Deno) Video Preview` 노드(`cb1e1c4`)의 무음/UI 손질 + 공개 배포.
+>
+> **수정 (origin/main `c4870f9` 위 12커밋, 04bb5da):**
+> - `29a888e` 4건: LTX Multi LoRA `alpha=None` 스케일(값÷rank→값 그대로),
+>   Multi Image Loader 실패 시 보고 크기로 출력(64×64 더미 제거),
+>   LTX Sequencer `assert`→`ValueError`, `__init__` 노드별 임포트 격리.
+>   #6 메모리·#7 픽셀·#8b latent는 의도된 설계라 유지(GPT 과장 판정).
+> - `(Deno) Video Preview`: 백엔드 오디오 추출을 video_compare 수준으로
+>   견고화(dict/obj/tuple·numpy·[N,C] 대응 + 실패 시 silent→log) → 무음 해결.
+>   프런트엔드: VHS식 player(컨트롤 크롬 제거, hover=소리, click=일시정지,
+>   Full screen 버튼, wheel→캔버스). 크기 fit은 최종적으로 **검증된 VHS 공식
+>   `(node.size[0]-20)/aspect+10`** 으로 확정(측정/ResizeObserver 방식은
+>   GPU 100%·리사이즈 떨림 유발 → 전부 제거, 단일 컨트롤러).
+>
+> **검증:** py_compile + `node --check` + tests **50/50**(ComfyUI portable),
+> 원본↔실행본 해시 일치, 실런타임 재시작 후 `/object_info`·라이브 실행 OK.
+> 사용자 화면 확인으로 무음·크롭·여백·떨림 해소 최종 컨펌.
+>
+> **배포 (2026-05-19 사용자 승인):** `c4870f9..04bb5da` → origin/main push,
+> publish 워크플로 run **26069940343 = success**, Registry **0.7.4 =
+> NodeVersionStatusPending**(0.7.3과 동일 경로; latest_version 노출은 인덱싱
+> 지연 — §6대로 1회 확인 후 폴링 안 함). CI 트리거-리터럴 가드 green이라
+> 0.7.3처럼 Active 전망(스캔 결과는 다음 세션이 확인).
+>
+> **미해결/위험:**
+> - README에 Video Preview **텍스트 섹션은 추가**했으나 **실제 노드
+>   스크린샷 미첨부**(자동화 브라우저가 ComfyUI에 403, 직접 캡처 불가).
+>   `codex/readme-node-screenshots-20260514` 브랜치 또는 사용자가 추가 필요.
+> - 작업 내내 워킹트리에 비커밋 `.comfyignore`(M)·`docs/video-to-gif/`(??)
+>   존재 — **내 변경 아님(Codex 추정), 손대지 않음·배포에 미포함.**
+> - `0.7.2` = Flagged는 이전 사가의 잔존 상태(무관).
+>
+> ---
+
 > ## ▶ 최신 세션 (2026-05-18, Claude Opus 4.7) — 0.7.2도 Flagged → 0.7.3
 >
 > **0.7.2 결과 = Flagged.** 단 사유 1건뿐이고 `SESSION_HANDOFF.md`/`AGENTS.md`/
