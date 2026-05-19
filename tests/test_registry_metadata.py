@@ -30,6 +30,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "NVIDIA VFX/nvvfx" in description
     assert "LTX 2.3" in description
     assert "image and video compare" in description
+    assert "Video to GIF/WebP" in description
     assert "visual workflow utilities" in description
     assert pyproject["project"]["requires-python"] == ">=3.10"
     assert pyproject["project"]["license"] == {"file": "LICENSE"}

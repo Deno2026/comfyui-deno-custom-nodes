@@ -6,7 +6,7 @@ Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas.
-The pack also includes lightweight frontend helpers such as **DENO Visual Fold**, a visual-only way to fold selected canvas nodes into a small chip without changing graph execution or creating a subgraph.
+The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold** and the no-install **Video to GIF/WebP** converter page.
 
 ## Included Nodes
 
@@ -316,6 +316,8 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `video preview`
 - `video to gif`
 - `gif webp`
+- `webp converter`
+- `video converter`
 - `ltx`
 - `ltx 2.3`
 - `ltx sequencer`
