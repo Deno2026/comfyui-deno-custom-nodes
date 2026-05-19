@@ -19,6 +19,7 @@ docs/DENO_NODE_RETROSPECTIVE.md
 docs/DENO_NODE_VISUAL_IDENTITY.md
 
 tools/install_rtx_vfx.bat
+tools/install_rtx_vfx_bat.zip
 tools/compare_rtx_vfx_env.ps1
 tools/test_portable_baseline.ps1
 tools/rtx_vfx_env_report_*.json

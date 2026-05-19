@@ -46,6 +46,9 @@ For ComfyUI Manager / Registry installs, manual installer scripts may be exclude
 Direct BAT download:
 <https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat>
 
+ZIP fallback if your browser or Windows blocks `.bat` downloads:
+<https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip>
+
 Raw text fallback:
 <https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/tools/install_rtx_vfx.bat>
 

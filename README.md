@@ -149,7 +149,7 @@ Beginner install flow:
 1. Install or update `deno-custom-nodes`, then start ComfyUI.
 2. Add `(Deno) RTX Video Super Resolution` and run it once with an image.
 3. If NVIDIA VFX is missing, close every ComfyUI window/process.
-4. If `tools/install_rtx_vfx.bat` is missing from your local node folder, download it directly: [install_rtx_vfx.bat](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat)
+4. If `tools/install_rtx_vfx.bat` is missing from your local node folder, download it directly: [install_rtx_vfx.bat](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat). If your browser or Windows blocks `.bat` downloads, use the ZIP fallback: [install_rtx_vfx_bat.zip](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip)
 5. Run `install_rtx_vfx.bat`, confirm the shown ComfyUI Python, and wait for the green `INSTALL COMPLETE` message.
 6. Restart ComfyUI completely, then use `(Deno) RTX Video Super Resolution` again.
 
@@ -189,7 +189,7 @@ Main features:
 - if NVIDIA VFX reports an unsupported runtime feature, the node shows a readable GPU/driver/runtime-path message instead of a raw stack trace
 - if NVIDIA Broadcast/NGX VFX DLLs from another RTX node are already loaded, the node reports that native runtime conflict separately from GPU/driver support
 - if another Broadcast-based RTX node works while DENO fails, treat it as a native runtime conflict, not proof that the DENO install is broken
-- manual installer scripts are kept out of the Comfy Registry package and remain available as a direct [installer BAT download](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat)
+- manual installer scripts are kept out of the Comfy Registry package and remain available as a direct [installer BAT download](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat) plus a [ZIP fallback](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip) for browsers or Windows security prompts that block `.bat` downloads
 - exposes four clear effect buttons: Video SR, High Bitrate, Denoise, and Deblur
 - shows a compact mode coach line that explains the selected effect in plain language
 - keeps Low, Medium, High, and Ultra quality as a separate selector
@@ -203,6 +203,8 @@ Main features:
 - Easy Upscale outputs: `images`
 
 Latest installer BAT direct download: <https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx.bat>
+
+If the `.bat` download is blocked, use the ZIP fallback: <https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip>
 
 ### `(Deno) LTX Sequencer`
 
