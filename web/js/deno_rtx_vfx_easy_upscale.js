@@ -205,6 +205,7 @@ function buildEasyControlPanel(node) {
         font:11px sans-serif;
         margin-bottom:${PANEL_BOTTOM_GAP}px;
     `;
+    installCanvasWheelForwarding(root);
 
     const header = document.createElement("div");
     header.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px;";
@@ -377,6 +378,34 @@ function buildEasyControlPanel(node) {
             applySize();
         },
     };
+}
+
+function installCanvasWheelForwarding(root) {
+    root.addEventListener("wheel", (event) => {
+        const canvas = app.canvas?.canvas;
+        if (!canvas) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        canvas.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            deltaX: event.deltaX,
+            deltaY: event.deltaY,
+            deltaZ: event.deltaZ,
+            deltaMode: event.deltaMode,
+            screenX: event.screenX,
+            screenY: event.screenY,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey,
+            shiftKey: event.shiftKey,
+            metaKey: event.metaKey,
+        }));
+    }, { passive: false });
 }
 
 function createPillButton(label, title, height, fontSize) {

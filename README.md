@@ -175,6 +175,7 @@ Main features:
 - uses NVIDIA's official `nvidia-vfx` / `nvvfx.VideoSuperRes` package path
 - links from the node UI to NVIDIA's official Video Super Resolution documentation
 - shows a compact RTX panel with effect buttons, a separate quality selector, a mode-coach line, and only the resize controls that apply to the selected effect
+- single-pass and 2-pass RTX panels pass mouse-wheel scrolling through to the ComfyUI canvas, so normal canvas zoom still works while the pointer is over the node
 - installer targets the Python used by the current ComfyUI install
 - installer refuses to continue if ComfyUI is still running with that Python
 - installer asks before installing into the detected Python

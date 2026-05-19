@@ -217,6 +217,7 @@ function buildControlPanel(node) {
         gap:9px; overflow:hidden; font:11px sans-serif;
         margin-bottom:${PANEL_BOTTOM_GAP}px;
     `);
+    installCanvasWheelForwarding(root);
 
     /* --- header: identity + (i) help --- */
     const header = el("div", "display:flex; align-items:flex-start; justify-content:space-between; gap:10px;");
@@ -421,6 +422,34 @@ function buildControlPanel(node) {
         },
     };
     return ui;
+}
+
+function installCanvasWheelForwarding(root) {
+    root.addEventListener("wheel", (event) => {
+        const canvas = app.canvas?.canvas;
+        if (!canvas) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        canvas.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            deltaX: event.deltaX,
+            deltaY: event.deltaY,
+            deltaZ: event.deltaZ,
+            deltaMode: event.deltaMode,
+            screenX: event.screenX,
+            screenY: event.screenY,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey,
+            shiftKey: event.shiftKey,
+            metaKey: event.metaKey,
+        }));
+    }, { passive: false });
 }
 
 function setBackend(node, name, value) {

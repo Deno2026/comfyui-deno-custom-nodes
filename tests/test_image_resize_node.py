@@ -269,10 +269,16 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "node.__denoRtxVfxComputeWrapped" in script
     assert "root.style.width = `${width}px`;" in script
     assert "ui.height() + PANEL_BOTTOM_GAP" in script
+    assert "installCanvasWheelForwarding(root);" in script
+    assert 'root.addEventListener("wheel"' in script
+    assert "new WheelEvent" in script
 
     finisher_script = (REPO_ROOT / "web" / "js" / "deno_rtx_vfx_video_finisher.js").read_text(encoding="utf-8")
     assert 'const UPSCALE_PASS_LABELS = {' in finisher_script
     assert 'VSR: "Video SR"' in finisher_script
+    assert "installCanvasWheelForwarding(root);" in finisher_script
+    assert 'root.addEventListener("wheel"' in finisher_script
+    assert "new WheelEvent" in finisher_script
 
 
 def test_deno_image_compare_contract_and_frontend_copy():
