@@ -65,10 +65,11 @@ def test_publish_workflow_exists_and_fails_without_registry_secret():
     assert "personal_access_token: ${{ env.REGISTRY_ACCESS_TOKEN }}" in workflow
 
 
-def test_registry_package_excludes_manual_installers_and_local_harnesses():
+def test_registry_package_includes_public_rtx_installer_but_excludes_local_harnesses():
     comfyignore = COMFYIGNORE_PATH.read_text()
 
-    assert "tools/install_rtx_vfx.bat" in comfyignore
+    assert "tools/install_rtx_vfx.bat" not in comfyignore
+    assert "tools/install_rtx_vfx_bat.zip" not in comfyignore
     assert "tools/test_portable_baseline.ps1" in comfyignore
     assert "docs/PORTABLE_TEST_BASELINE.md" in comfyignore
     assert "tools/DENO_RTX_VFX_runtime_path.txt" in comfyignore

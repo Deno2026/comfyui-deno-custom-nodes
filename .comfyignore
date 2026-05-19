@@ -1,6 +1,7 @@
 # Keep the Registry/Manager package focused on runtime node files.
-# Manual installers and local test harnesses stay available on GitHub,
-# but are intentionally excluded from the packaged Manager install.
+# The RTX VFX installer BAT and ZIP fallback are intentionally shipped because
+# the public setup flow points users to the installed tools folder.
+# Local diagnostics, logs, and developer harnesses stay out of the package.
 
 .github/
 .pytest_cache/
@@ -18,8 +19,6 @@ AGENTS.md
 docs/DENO_NODE_RETROSPECTIVE.md
 docs/DENO_NODE_VISUAL_IDENTITY.md
 
-tools/install_rtx_vfx.bat
-tools/install_rtx_vfx_bat.zip
 tools/compare_rtx_vfx_env.ps1
 tools/test_portable_baseline.ps1
 tools/rtx_vfx_env_report_*.json
