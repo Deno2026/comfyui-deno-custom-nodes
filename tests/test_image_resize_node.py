@@ -259,7 +259,7 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert 'resizeType === "Scale"' in script
     assert "How to install" in script
     assert "Copy steps" in script
-    assert "RTX_VFX_INSTALL_GUIDE.md" in script
+    assert "https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/" in script
     assert "raw/refs/heads/main/tools/install_rtx_vfx_bat.zip" not in script
     assert "install_rtx_vfx_bat.zip" in script
     assert "Video Super Resolution | Low-res/compressed -> larger, cleaner, sharper" not in script
@@ -364,17 +364,12 @@ def test_deno_image_compare_contract_and_frontend_copy():
 
 
 def test_deno_image_compare_runtime_semantics_when_torch_available():
-    saved_torch_modules = {name: sys.modules.get(name) for name in ("torch", "torch.nn", "torch.nn.functional")}
-    for name in saved_torch_modules:
-        sys.modules.pop(name, None)
-
-    try:
-        import torch
-    except ImportError:
-        for name, module in saved_torch_modules.items():
-            if module is not None:
-                sys.modules[name] = module
-        return
+    torch = sys.modules.get("torch")
+    if torch is None:
+        try:
+            import torch
+        except ImportError:
+            return
 
     if not hasattr(torch, "zeros"):
         return

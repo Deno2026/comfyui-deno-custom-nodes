@@ -1,11 +1,15 @@
 # DENO RTX VFX Install Guide
 
+Prefer the standalone visual web page:
+
+<https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/>
+
 This guide is for Windows users who installed `deno-custom-nodes` from ComfyUI Manager and need NVIDIA RTX VFX for:
 
 - `(Deno) RTX Video Super Resolution`
 - `(Deno) RTX Video Super Resolution (2 Pass)`
 
-The ComfyUI Manager package does not include the installer BAT file. The RTX node opens this GitHub guide instead, so the install steps stay easy to follow without putting installer scripts inside the Registry package.
+The ComfyUI Manager package does not include the installer BAT file. The RTX node opens the standalone visual web page instead, so the install steps stay easy to follow without putting installer scripts inside the Registry package.
 
 ## If You Are a Beginner, Copy This Into GPT First
 
@@ -17,20 +21,21 @@ I am a beginner using ComfyUI on Windows.
 Please guide me step by step to install DENO RTX VFX for the ComfyUI node:
 (Deno) RTX Video Super Resolution.
 
-Use this official DENO GitHub guide as the source:
-https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/docs/RTX_VFX_INSTALL_GUIDE.md
+Use this official DENO visual install page as the source:
+https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/
 
 Important safety checks:
 1. Tell me to download only from the official Deno2026 GitHub repository.
 2. Explain that the installer prepares NVIDIA's official nvidia-vfx Python package from NVIDIA's package index, https://pypi.nvidia.com.
 3. Tell me not to run any BAT file from an unknown mirror, reupload, Discord attachment, or random website.
 4. Tell me to close every ComfyUI window before running the installer.
-5. Tell me that the ZIP normally downloads to my Windows Downloads folder.
-6. Tell me to right-click install_rtx_vfx_bat.zip, choose Extract All, and open the extracted install_rtx_vfx_bat folder.
-7. Tell me to double-click install_rtx_vfx.bat only after extraction.
-8. When the black installer window shows a Python path and asks "Install RTX VFX here?", help me check that the path belongs to my ComfyUI install before I type Y.
-9. If the path looks wrong, tell me to type N and stop instead of guessing.
-10. After INSTALL COMPLETE, tell me to fully restart ComfyUI before testing the node again.
+5. Tell me that the ZIP may first download to my Windows Downloads folder.
+6. Tell me to open my ComfyUI folder, then open custom_nodes\deno-custom-nodes\tools\.
+7. Tell me to move install_rtx_vfx_bat.zip into the deno-custom-nodes\tools folder before extracting it.
+8. Tell me to right-click the ZIP inside tools, choose Extract All, and run install_rtx_vfx.bat only from the extracted installer files inside tools.
+9. When the black installer window shows a Windows path and asks "Install RTX VFX here?", help me check that the path is inside my ComfyUI app before I type Y.
+10. If the path looks wrong, tell me to type N and stop instead of guessing.
+11. After INSTALL COMPLETE, tell me to fully restart ComfyUI before testing the node again.
 
 Please do not skip steps. Ask me what I see on screen after each step.
 ```
@@ -61,25 +66,35 @@ On this page, click this link:
 
 [Download install_rtx_vfx_bat.zip](https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip)
 
-Your browser will usually save it into the Windows `Downloads` folder.
+Your browser will usually save it into the Windows `Downloads` folder first.
 
 ![Step 2 - download ZIP](images/rtx-vfx-install/step-2-download-zip.svg)
 
-## Step 3. Extract the ZIP in `Downloads`
+## Step 3. Move the ZIP into the DENO tools folder
 
-Open Windows File Explorer and go to `Downloads`.
+Open your ComfyUI folder, then open:
 
-Right-click `install_rtx_vfx_bat.zip`, then choose `Extract All`.
+```text
+ComfyUI\custom_nodes\deno-custom-nodes\tools
+```
 
-Press `Extract`.
+Move `install_rtx_vfx_bat.zip` from `Downloads` into that `tools` folder.
+
+Do not extract it in `Downloads`.
 
 ![Step 3 - extract ZIP](images/rtx-vfx-install/step-3-extract-zip.svg)
 
-## Step 4. Open the extracted folder
+## Step 4. Extract the ZIP inside `tools`
 
-After extraction, open the new folder:
+Right-click `install_rtx_vfx_bat.zip` inside `tools`, then choose `Extract All`.
 
-`install_rtx_vfx_bat`
+Press `Extract`.
+
+After extraction, you should see `install_rtx_vfx.bat` either directly in `tools` or inside a new extracted folder named:
+
+```text
+install_rtx_vfx_bat
+```
 
 Inside it, you should see:
 
@@ -90,19 +105,31 @@ Inside it, you should see:
 
 ## Step 5. Run `install_rtx_vfx.bat`
 
-Double-click:
+Double-click `install_rtx_vfx.bat` from the extracted installer files inside the DENO `tools` folder:
 
-`install_rtx_vfx.bat`
+```text
+ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat
+```
+
+If Windows created an `install_rtx_vfx_bat` subfolder, open that subfolder and run the BAT inside it.
 
 If Windows shows a security warning, continue only if the file came from this official Deno2026 GitHub repository.
 
 ![Step 5 - run BAT](images/rtx-vfx-install/step-5-run-bat.svg)
 
-## Step 6. Confirm the ComfyUI Python path
+## Step 6. Confirm the shown ComfyUI location
 
-The black installer window will show the Python path it wants to modify.
+The black installer window will show a Windows path and ask:
 
-If the path belongs to the ComfyUI you use, type:
+```text
+Install RTX VFX here?
+```
+
+Type `Y` only if that path is inside the same ComfyUI app you just closed.
+
+Seeing `python_embeded` or `python.exe` is normal. The important part is that the path belongs to your ComfyUI install.
+
+If it matches, type:
 
 ```text
 Y
@@ -110,7 +137,7 @@ Y
 
 Then press Enter.
 
-If the path looks wrong, type:
+If the path points somewhere unfamiliar, type:
 
 ```text
 N
@@ -118,7 +145,7 @@ N
 
 Then press Enter. Nothing is changed when you choose `N`.
 
-![Step 6 - confirm Python](images/rtx-vfx-install/step-6-confirm-python.svg)
+![Step 6 - confirm shown ComfyUI location](images/rtx-vfx-install/step-6-confirm-python.svg)
 
 ## Step 7. Wait for `INSTALL COMPLETE`
 

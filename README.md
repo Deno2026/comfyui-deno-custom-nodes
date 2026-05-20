@@ -150,12 +150,13 @@ Beginner install flow:
 2. Add `(Deno) RTX Video Super Resolution` and run it once with an image.
 3. If NVIDIA VFX is missing, close every ComfyUI window/process.
 4. Click the node's `How to install` button.
-5. Follow the illustrated GitHub guide: download the ZIP from that page, open your Windows `Downloads` folder, extract the ZIP, open the extracted folder, and double-click `install_rtx_vfx.bat`.
-6. If the BAT asks `Install RTX VFX here?`, check that the shown Python path belongs to your ComfyUI, then type `Y` and press Enter.
+5. Follow the visual web install guide: download the ZIP from that page, move it into `ComfyUI\custom_nodes\deno-custom-nodes\tools`, extract it there, and run `install_rtx_vfx.bat` from the extracted installer files inside that `tools` folder.
+6. If the BAT asks `Install RTX VFX here?`, type `Y` only when the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type `N` and stop.
 7. Wait for the green `INSTALL COMPLETE` message.
 8. Restart ComfyUI completely, then use `(Deno) RTX Video Super Resolution` again.
 
-For the full screenshot-style beginner walkthrough, see [`docs/RTX_VFX_INSTALL_GUIDE.md`](docs/RTX_VFX_INSTALL_GUIDE.md).
+For the full beginner-friendly visual walkthrough, open the [DENO RTX VFX install page](https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/).
+If a tutorial video tells you to open the `tools` folder after installing from ComfyUI Manager, open `tools/OPEN_INSTALL_GUIDE.txt`; it points to the same current install page.
 
 Official NVIDIA references:
 
@@ -191,7 +192,8 @@ Main features:
 - if NVIDIA VFX reports an unsupported runtime feature, the node shows a readable GPU/driver/runtime-path message instead of a raw stack trace
 - if NVIDIA Broadcast/NGX VFX DLLs from another RTX node are already loaded, the node reports that native runtime conflict separately from GPU/driver support
 - if another Broadcast-based RTX node works while DENO fails, treat it as a native runtime conflict, not proof that the DENO install is broken
-- keeps the installer BAT and ZIP on GitHub instead of inside the Manager package, while the node UI provides a `How to install` button that opens the illustrated GitHub guide plus a `Copy steps` helper
+- keeps the installer BAT and ZIP on GitHub instead of inside the Manager package, while the node UI provides a `How to install` button that opens the visual web install page plus a `Copy steps` helper
+- keeps a small `tools/OPEN_INSTALL_GUIDE.txt` file in Manager installs so the `tools` folder still exists for users following older tutorial videos
 - exposes four clear effect buttons: Video SR, High Bitrate, Denoise, and Deblur
 - shows a compact mode coach line that explains the selected effect in plain language
 - keeps Low, Medium, High, and Ultra quality as a separate selector

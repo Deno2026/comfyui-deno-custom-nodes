@@ -1,0 +1,24 @@
+DENO RTX VFX install helper
+
+If you installed deno-custom-nodes through ComfyUI Manager, this tools folder is
+kept here on purpose so it matches older tutorial videos.
+
+The RTX VFX installer BAT is not packaged directly inside the Manager install.
+Open the visual install guide instead:
+
+https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/
+
+Beginner flow:
+1. Close every ComfyUI window.
+2. Open the guide above.
+3. Download the installer ZIP from the official Deno2026 GitHub link on that page.
+4. Move the ZIP into this DENO tools folder:
+   ComfyUI\custom_nodes\deno-custom-nodes\tools
+5. Right-click the ZIP inside this tools folder and choose Extract All.
+6. Run install_rtx_vfx.bat from the extracted installer files inside this tools folder.
+7. Type Y only if the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type N and stop.
+8. Wait for INSTALL COMPLETE.
+9. Restart ComfyUI.
+
+Do not run RTX VFX installer files from unknown mirrors, reuploads, Discord
+attachments, or random websites.

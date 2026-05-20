@@ -13,9 +13,12 @@ PUBLISH_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "publish_registry.
 COMFYIGNORE_PATH = REPO_ROOT / ".comfyignore"
 PRESTARTUP_PATH = REPO_ROOT / "prestartup_script.py"
 INSTALL_BAT_PATH = REPO_ROOT / "tools" / "install_rtx_vfx.bat"
+TOOLS_INSTALL_GUIDE_STUB_PATH = REPO_ROOT / "tools" / "OPEN_INSTALL_GUIDE.txt"
 README_PATH = REPO_ROOT / "README.md"
 RTX_INSTALL_GUIDE_PATH = REPO_ROOT / "docs" / "RTX_VFX_INSTALL_GUIDE.md"
+RTX_WEB_INSTALL_GUIDE_PATH = REPO_ROOT / "docs" / "rtx-vfx-install" / "index.html"
 RTX_INSTALLER_README_PATH = REPO_ROOT / "tools" / "README_RTX_VFX_EASY_INSTALL.md"
+WEB_INSTALL_GUIDE_URL = "https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/"
 ZIP_INSTALLER_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip"
 
 
@@ -68,12 +71,19 @@ def test_publish_workflow_exists_and_fails_without_registry_secret():
 
 def test_registry_package_links_public_rtx_installer_but_excludes_flagged_files():
     comfyignore = COMFYIGNORE_PATH.read_text()
+    tools_stub = TOOLS_INSTALL_GUIDE_STUB_PATH.read_text(encoding="utf-8")
 
+    assert TOOLS_INSTALL_GUIDE_STUB_PATH.exists()
+    assert "tools/OPEN_INSTALL_GUIDE.txt" not in comfyignore
+    assert WEB_INSTALL_GUIDE_URL in tools_stub
+    assert ZIP_INSTALLER_URL not in tools_stub
+    assert "install_rtx_vfx.bat" in tools_stub
     assert "tools/install_rtx_vfx.bat" in comfyignore
     assert "tools/install_rtx_vfx_bat.zip" in comfyignore
     assert "tools/README_RTX_VFX_EASY_INSTALL.md" in comfyignore
     assert "docs/RTX_VFX_INSTALL_GUIDE.md" in comfyignore
     assert "docs/images/rtx-vfx-install/" in comfyignore
+    assert "docs/rtx-vfx-install/" in comfyignore
     assert "tools/test_portable_baseline.ps1" in comfyignore
     assert "docs/PORTABLE_TEST_BASELINE.md" in comfyignore
     assert "tools/DENO_RTX_VFX_runtime_path.txt" in comfyignore
@@ -235,16 +245,20 @@ def test_rtx_vfx_installer_requires_prestartup_hook_before_success():
 def test_rtx_vfx_docs_route_installs_through_illustrated_github_guide():
     readme = README_PATH.read_text(encoding="utf-8")
     install_guide = RTX_INSTALL_GUIDE_PATH.read_text(encoding="utf-8")
+    web_guide = RTX_WEB_INSTALL_GUIDE_PATH.read_text(encoding="utf-8")
     installer_readme = RTX_INSTALLER_README_PATH.read_text(encoding="utf-8")
     node_source = (REPO_ROOT / "deno_rtx_vfx_easy_upscale.py").read_text(encoding="utf-8")
     easy_frontend = (REPO_ROOT / "web" / "js" / "deno_rtx_vfx_easy_upscale.js").read_text(encoding="utf-8")
     finisher_frontend = (REPO_ROOT / "web" / "js" / "deno_rtx_vfx_video_finisher.js").read_text(encoding="utf-8")
 
-    assert "docs/RTX_VFX_INSTALL_GUIDE.md" in readme
-    assert "docs/RTX_VFX_INSTALL_GUIDE.md" in node_source
-    assert "docs/RTX_VFX_INSTALL_GUIDE.md" in easy_frontend
-    assert "docs/RTX_VFX_INSTALL_GUIDE.md" in finisher_frontend
+    assert WEB_INSTALL_GUIDE_URL in readme
+    assert WEB_INSTALL_GUIDE_URL in install_guide
+    assert WEB_INSTALL_GUIDE_URL in installer_readme
+    assert WEB_INSTALL_GUIDE_URL in node_source
+    assert WEB_INSTALL_GUIDE_URL in easy_frontend
+    assert WEB_INSTALL_GUIDE_URL in finisher_frontend
     assert ZIP_INSTALLER_URL in install_guide
+    assert ZIP_INSTALLER_URL in web_guide
     assert ZIP_INSTALLER_URL in installer_readme
     assert ZIP_INSTALLER_URL not in readme
     assert ZIP_INSTALLER_URL not in node_source
@@ -257,6 +271,12 @@ def test_rtx_vfx_docs_route_installs_through_illustrated_github_guide():
     assert "blob/main/tools/install_rtx_vfx.bat" not in readme
     assert "blob/main/tools/install_rtx_vfx.bat" not in install_guide
     assert "blob/main/tools/install_rtx_vfx.bat" not in node_source
+    assert "Copy GPT prompt" in web_guide
+    assert "Extract All" in web_guide
+    assert "INSTALL COMPLETE" in web_guide
+    assert "https://pypi.nvidia.com" in web_guide
+    for step in range(1, 8):
+        assert f"step-{step}" in web_guide
 
 
 def test_rtx_vfx_node_info_prefers_install_steps_over_mode_repeats():
@@ -265,10 +285,12 @@ def test_rtx_vfx_node_info_prefers_install_steps_over_mode_repeats():
     assert "RTX VFX install steps" in node_source
     assert "Close every ComfyUI window first" in node_source
     assert "Click this node's `How to install` button" in node_source
-    assert "Follow the illustrated GitHub guide" in node_source
-    assert "Right-click `install_rtx_vfx_bat.zip`, choose `Extract All`" in node_source
-    assert "Double-click `install_rtx_vfx.bat`" in node_source
-    assert "type `Y` only when the shown Python path belongs to this ComfyUI" in node_source
+    assert "Follow the visual web install guide" in node_source
+    assert r"ComfyUI\custom_nodes\deno-custom-nodes\tools" in node_source
+    assert "Move `install_rtx_vfx_bat.zip` into that `tools` folder" in node_source
+    assert "Right-click the ZIP inside `tools`, choose `Extract All`" in node_source
+    assert "Double-click `install_rtx_vfx.bat` from inside `tools`" in node_source
+    assert "type `Y` only when the shown Windows path is inside this ComfyUI app" in node_source
     assert "green `INSTALL COMPLETE` message" in node_source
     assert "Easy install steps:" in node_source
     assert "Full install guide:" in node_source

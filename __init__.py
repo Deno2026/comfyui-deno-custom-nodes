@@ -8,11 +8,17 @@ from typing import Tuple
 import torch
 import torch.nn.functional as F
 
-from .deno_rtx_vfx_runtime import prefer_rtx_vfx_runtime_path
+try:
+    from .deno_rtx_vfx_runtime import prefer_rtx_vfx_runtime_path
+except ImportError:
+    from deno_rtx_vfx_runtime import prefer_rtx_vfx_runtime_path
 
 prefer_rtx_vfx_runtime_path()
 
-from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
+try:
+    from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
+except ImportError:
+    from deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
 
 INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
 

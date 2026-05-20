@@ -9,19 +9,19 @@ const PANEL_MIN_WIDTH = MIN_WIDTH - NODE_WIDGET_SIDE_MARGIN;
 const PANEL_BOTTOM_GAP = 10;
 const PANEL_FALLBACK_HEIGHT = 400;
 const NVIDIA_VSR_DOCS_URL = "https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html";
-const RTX_VFX_INSTALL_GUIDE_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/docs/RTX_VFX_INSTALL_GUIDE.md";
+const RTX_VFX_INSTALL_GUIDE_URL = "https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/";
 const RTX_VFX_INSTALL_STEPS = [
     "DENO RTX VFX manual install",
     "",
     "1. Close every ComfyUI window first.",
     "2. Click the How to install button in the node.",
-    "3. Follow the illustrated GitHub guide step by step.",
+    "3. Follow the visual web install guide step by step.",
     "4. Download the ZIP from that guide page.",
-    "5. Open your Windows Downloads folder.",
-    "6. Right-click install_rtx_vfx_bat.zip and choose Extract All.",
-    "7. Open the extracted install_rtx_vfx_bat folder.",
-    "8. Double-click install_rtx_vfx.bat.",
-    "9. If it asks Install RTX VFX here?, type Y and press Enter.",
+    "5. Open ComfyUI\\custom_nodes\\deno-custom-nodes\\tools.",
+    "6. Move install_rtx_vfx_bat.zip into that tools folder.",
+    "7. Right-click the ZIP inside tools and choose Extract All.",
+    "8. Double-click install_rtx_vfx.bat from the extracted installer files inside tools.",
+    "9. If it asks Install RTX VFX here?, type Y only if the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type N and stop.",
     "10. Wait for INSTALL COMPLETE.",
     "11. Start ComfyUI again.",
     "12. Run (Deno) RTX Video Super Resolution.",
@@ -223,7 +223,7 @@ function createInstallGuideControls(onToggle) {
     guideLink.href = RTX_VFX_INSTALL_GUIDE_URL;
     guideLink.target = "_blank";
     guideLink.rel = "noopener noreferrer";
-    guideLink.title = "Open the illustrated GitHub install guide.";
+    guideLink.title = "Open the visual web install guide.";
     guideLink.onclick = (event) => event.stopPropagation();
 
     const copyButton = pill("Copy steps", "Copy the manual install checklist.", 26, 9);

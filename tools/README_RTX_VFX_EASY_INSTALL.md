@@ -18,25 +18,26 @@ The DENO node uses NVIDIA's official `nvidia-vfx` / `nvvfx.VideoSuperRes` path. 
 3. Run it once with an image.
 4. If NVIDIA VFX is already available, you are done.
 5. If NVIDIA VFX is missing, click the node's `How to install` button.
-6. Follow the illustrated GitHub guide:
-   <https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/docs/RTX_VFX_INSTALL_GUIDE.md>
+6. Follow the visual web install guide:
+   <https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/>
 7. Close every ComfyUI window/process before running the BAT.
 
 ## How to install NVIDIA VFX
 
-If you are reading this file after extracting `install_rtx_vfx_bat.zip`, start at step 5.
+If you are reading this file from the DENO `tools` folder, start at step 2.
 
-1. Open the illustrated guide:
-   <https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/docs/RTX_VFX_INSTALL_GUIDE.md>
+1. Open the visual web install guide:
+   <https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/>
 2. Click the ZIP download link on that guide page.
-3. Open your Windows `Downloads` folder.
-4. Right-click `install_rtx_vfx_bat.zip`, choose `Extract All`, and press `Extract`.
-5. Open the extracted `install_rtx_vfx_bat` folder.
-6. Double-click:
+3. Open your ComfyUI folder, then open:
+   `custom_nodes\deno-custom-nodes\tools`
+4. Move `install_rtx_vfx_bat.zip` from `Downloads` into that `tools` folder.
+5. Right-click the ZIP inside `tools`, choose `Extract All`, and press `Extract`.
+6. Double-click `install_rtx_vfx.bat` from the extracted installer files inside `tools`:
    `install_rtx_vfx.bat`
-7. The black installer window shows the Python path it will modify.
-8. If that path belongs to your ComfyUI, type `Y` and press Enter.
-9. If the path looks wrong, type `N` and press Enter. Nothing is changed when you choose `N`.
+7. The black installer window shows the Windows path it will modify.
+8. If that path is inside the ComfyUI app you just closed, type `Y` and press Enter.
+9. If the path looks wrong or unfamiliar, type `N` and press Enter. Nothing is changed when you choose `N`.
 10. Wait until it says `INSTALL COMPLETE`.
 11. Press any key to close the installer window.
 12. Start ComfyUI again. A full restart is required.
@@ -53,16 +54,16 @@ After install, it checks whether NVIDIA's `VideoSuperRes` effect can actually be
 When ComfyUI starts, the DENO node prefers the recorded `C:\Users\Public\DENO\nvvfx_runtime` path only if the fallback marker is active. If the normal ComfyUI Python path works, DENO uses the same `nvvfx` package path as other RTX nodes.
 The node never tries to unload and reload NVIDIA's native extension inside a running ComfyUI process. If another extension already loaded `nvvfx` from a conflicting path, close every ComfyUI window/process completely and start ComfyUI again.
 
-For ComfyUI Manager / Registry installs, the RTX nodes show a `How to install` button that opens the illustrated GitHub guide. The BAT and ZIP stay on GitHub instead of inside the Manager package so the Registry security scanner does not block the node pack.
+For ComfyUI Manager / Registry installs, the RTX nodes show a `How to install` button that opens the visual web install guide. The BAT and ZIP stay on GitHub instead of inside the Manager package so the Registry security scanner does not block the node pack.
 
 ZIP download:
 <https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip>
 
 The BAT intentionally refuses to continue if ComfyUI is still running with the selected Python. Close ComfyUI first, then run it again.
 
-The BAT shows the exact Python it will modify and asks `Install RTX VFX here?`.
+The BAT shows the exact Windows path it will modify and asks `Install RTX VFX here?`.
 
-- Choose `Y` if the shown path belongs to the ComfyUI you just closed.
+- Choose `Y` if the shown path is inside the ComfyUI app you just closed.
 - Choose `N` if the path looks wrong or you use a different ComfyUI app. Nothing is changed when you choose `N`.
 - For custom installs, set `COMFYUI_PYTHON` to the correct `python.exe` path and run the BAT again.
 - When you choose `Y`, the BAT reinstalls `nvidia-vfx` into that Python so old or broken files are overwritten cleanly.
