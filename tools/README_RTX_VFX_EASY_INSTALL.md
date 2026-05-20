@@ -65,6 +65,7 @@ The BAT shows the exact Windows path it will modify and asks `Install RTX VFX he
 
 - Choose `Y` if the shown path is inside the ComfyUI app you just closed.
 - Choose `N` if the path looks wrong or you use a different ComfyUI app. Nothing is changed when you choose `N`.
+- Seeing words like `python_embeded` or `python.exe` is normal. The beginner rule is simpler: the shown path must be inside your ComfyUI folder.
 - For custom installs, set `COMFYUI_PYTHON` to the correct `python.exe` path and run the BAT again.
 - When you choose `Y`, the BAT reinstalls `nvidia-vfx` into that Python so old or broken files are overwritten cleanly.
 

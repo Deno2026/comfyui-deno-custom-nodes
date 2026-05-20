@@ -40,7 +40,7 @@ Important safety checks:
 Please do not skip steps. Ask me what I see on screen after each step.
 ```
 
-This GPT prompt is only a helper. It cannot guarantee safety by itself. The real safety rule is simple: use the official Deno2026 GitHub links on this page, check the shown ComfyUI Python path, and do not run installer files from unknown sources.
+This GPT prompt is only a helper. It cannot guarantee safety by itself. The real safety rule is simple: use the official Deno2026 GitHub links on this page, check that the shown Windows path belongs to the ComfyUI app you just closed, and do not run installer files from unknown sources.
 
 ## Before You Start
 
@@ -50,7 +50,7 @@ This GPT prompt is only a helper. It cannot guarantee safety by itself. The real
 - Close every ComfyUI window before running the installer.
 - Only download the ZIP from this Deno2026 GitHub repository.
 - The installer uses NVIDIA's official `nvidia-vfx` Python package path from `https://pypi.nvidia.com`.
-- The BAT shows the exact ComfyUI Python path before installing and lets you choose `Y` or `N`.
+- The BAT shows the exact ComfyUI location before installing and lets you choose `Y` or `N`.
 - The BAT does not ask for passwords.
 - Do not use installer files from mirrors, reuploads, Discord attachments, or random websites.
 
