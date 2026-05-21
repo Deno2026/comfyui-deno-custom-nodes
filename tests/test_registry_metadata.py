@@ -107,15 +107,42 @@ def test_visual_fold_frontend_is_visual_only():
 
     assert "Deno: Fold Selected" in script
     assert "Deno: Unfold Group" in script
-    assert "Folded ·" in script
+    assert "Deno: Rename Fold Group" in script
+    assert "function renameFoldGroup" in script
+    assert "function foldDisplayLabel" in script
+    assert "function foldedChipWidth" in script
+    assert "function ensureRenameButton" in script
+    assert "function updateRenameButton" in script
+    assert "function showRenameDialog" in script
+    assert "deno-visual-rename-dialog" in script
+    assert "Rename Fold Group" in script
+    assert "Deno Rename Fold Group" in script
+    assert "function foldedAnchorFromCanvas" in script
+    assert "function rememberCanvasPointer" in script
+    assert "window.prompt" not in script
     assert "__denoVisualFold" in script
     assert "function appGraph()" in script
     assert "deno-visual-fold-tooltip" in script
     assert "deno-visual-fold-button" in script
+    assert "Deno Align Selected Nodes" in script
+    assert "Align Left" in script
+    assert "Align Right" in script
+    assert "Align Top" in script
+    assert "Align Bottom" in script
+    assert "Distribute Horizontal" in script
+    assert "Distribute Vertical" in script
+    assert "Deno: Align" in script
+    assert "function alignSelectedNodes" in script
+    assert "function distributeSelectedNodes" in script
+    assert "function addAlignMenuOptions" in script
+    assert "if (node?.selected) result.push(node);" in script
+    assert "node?.flags?.collapsed" in script
+    assert "_collapsed_width" in script
     assert "foldedAnchorAt" in script
     assert "foldedAnchorAtClient" in script
     assert "refreshFoldedLooks" in script
     assert "updateFoldButton" in script
+    assert "updateAlignButton" in script
     assert "syncFoldedMotion" in script
     assert "patchMotionSync" in script
     assert "canvasPrototype" in script
