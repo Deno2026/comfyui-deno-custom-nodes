@@ -15,6 +15,16 @@ Run these directly in your browser:
 - [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - compare two rendered videos with slider, side-by-side, difference, and toggle views.
 - [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - trim, crop, resize, and export short clips as GIF or smaller WebP files.
 
+## DENO Visual Fold
+
+![DENO Visual Fold](docs/images/deno-visual-fold.webp)
+
+DENO Visual Fold is a visual-only cleanup helper for large ComfyUI graphs. It is enabled automatically when the latest Deno Custom Nodes package is installed or updated.
+
+Select two or more nodes and a green `Fold` button appears near the top-right of the canvas. Click it to collapse the selected nodes into one compact visual group; use `Unfold` to restore them.
+
+This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph, which can be powerful, but it may not be ideal when a workflow depends on keeping `Get` / `Set` nodes or parent-child graph structure visible in the main graph. Visual Fold is meant for simple visual organization only. It does not turn the selected nodes into a subgraph or change the workflow logic.
+
 ## Included Nodes
 
 ### `(Deno) Resize Box`
@@ -363,6 +373,7 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `lora loader`
 - `gguf`
 - `visual fold`
+- `fold selected nodes`
 - `workflow tools`
 
 ## Install
