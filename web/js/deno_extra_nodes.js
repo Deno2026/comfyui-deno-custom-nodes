@@ -568,6 +568,12 @@ function setupMultiImageLoader(node, options = {}) {
             setPaths(nextPaths);
         };
 
+        card.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            showImageCardMenu(event, path, image);
+        });
+
         card.addEventListener("dragstart", () => {
             draggedCard = card;
             placeholder = createPlaceholder();
@@ -1286,6 +1292,145 @@ function setInputImageSource(image, path) {
         }
     };
     image.src = urls[urlIndex] || "";
+}
+
+function showImageCardMenu(event, path, image) {
+    new LiteGraph.ContextMenu(["Copy Image", "Copy Image Path"], {
+        event,
+        title: "Image",
+        className: "dark",
+        scale: Math.max(1, app.canvas?.ds?.scale ?? 1),
+        callback: async (value) => {
+            const selected = String(value?.content ?? value?.value ?? value);
+            if (selected === "Copy Image Path") {
+                await copyTextToClipboard(String(path || ""));
+                showLoaderToast("Image path copied.");
+                return;
+            }
+            try {
+                await copyImageElementToClipboard(image, path);
+                showLoaderToast("Image copied.");
+            } catch (error) {
+                console.warn("[DenoMultiImageLoader] Copy image failed.", error);
+                const copiedPath = await copyTextToClipboard(String(path || ""));
+                showLoaderToast(copiedPath ? "Copy image failed. Path copied." : "Copy image failed.");
+            }
+        },
+    });
+}
+
+async function copyImageElementToClipboard(image, path) {
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+        throw new Error("Image clipboard is not available in this browser.");
+    }
+    const sourceImage = await ensureLoadedImage(image, path);
+    const width = Number(sourceImage.naturalWidth || sourceImage.width || 0);
+    const height = Number(sourceImage.naturalHeight || sourceImage.height || 0);
+    if (!(width > 0) || !(height > 0)) {
+        throw new Error("Image is not loaded yet.");
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+        throw new Error("Canvas is not available.");
+    }
+    context.drawImage(sourceImage, 0, 0, width, height);
+    const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((result) => {
+            if (result) {
+                resolve(result);
+            } else {
+                reject(new Error("Could not encode image for clipboard."));
+            }
+        }, "image/png");
+    });
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+}
+
+function ensureLoadedImage(image, path) {
+    if (image?.complete && Number(image.naturalWidth || 0) > 0) {
+        return Promise.resolve(image);
+    }
+
+    const urls = createInputImageViewUrls(path);
+    return new Promise((resolve, reject) => {
+        const fallbackImage = new Image();
+        let urlIndex = 0;
+        fallbackImage.onload = () => resolve(fallbackImage);
+        fallbackImage.onerror = () => {
+            urlIndex += 1;
+            if (urlIndex < urls.length) {
+                fallbackImage.src = urls[urlIndex];
+                return;
+            }
+            reject(new Error("Could not load input image."));
+        };
+        fallbackImage.src = urls[urlIndex] || "";
+    });
+}
+
+async function copyTextToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (_error) {
+            // Fall through to the legacy clipboard path.
+        }
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    let copied = false;
+    try {
+        copied = document.execCommand("copy");
+    } catch (_error) {
+        copied = false;
+    }
+    textarea.remove();
+    return copied;
+}
+
+function showLoaderToast(message) {
+    ensureLoaderToastStyles();
+    document.querySelectorAll(".deno-multi-image-loader-toast").forEach((toast) => toast.remove());
+    const toast = document.createElement("div");
+    toast.className = "deno-multi-image-loader-toast";
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    window.setTimeout(() => toast.remove(), 1450);
+}
+
+function ensureLoaderToastStyles() {
+    if (document.getElementById("deno-multi-image-loader-toast-styles")) {
+        return;
+    }
+    const style = document.createElement("style");
+    style.id = "deno-multi-image-loader-toast-styles";
+    style.textContent = `
+        .deno-multi-image-loader-toast {
+            position: fixed;
+            left: 50%;
+            bottom: 32px;
+            z-index: 100001;
+            transform: translateX(-50%);
+            border: 1px solid rgba(72, 255, 132, 0.6);
+            border-radius: 999px;
+            background: rgba(4, 12, 8, 0.98);
+            color: #dfffea;
+            padding: 8px 12px;
+            font: 700 12px/1 sans-serif;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+            pointer-events: none;
+        }
+    `;
+    document.head.appendChild(style);
 }
 
 function computeLoaderPresetDims(ratioX, ratioY, megapixels, divisibleBy) {

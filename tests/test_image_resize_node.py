@@ -836,6 +836,18 @@ def test_multi_image_loader_returns_batch_and_int_dimensions():
     assert node_cls.CATEGORY == "Deno/Image"
 
 
+def test_multi_image_loader_frontend_supports_copy_image_context_menu():
+    script = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
+
+    assert 'card.addEventListener("contextmenu"' in script
+    assert "showImageCardMenu(event, path, image)" in script
+    assert '"Copy Image"' in script
+    assert "copyImageElementToClipboard" in script
+    assert "ClipboardItem" in script
+    assert '"image/png"' in script
+    assert "Copy image failed. Path copied." in script
+
+
 def test_advanced_image_source_loader_declares_external_outputs():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoAdvancedImageSourceLoader"]
@@ -1214,6 +1226,17 @@ def test_ltx_multi_lora_loader_declares_compact_av_controls():
     assert list(required).index("trigger_1") > list(required).index("video_8")
     assert node_cls.RETURN_TYPES == ("MODEL", "CLIP")
     assert node_cls.RETURN_NAMES == ("model", "clip")
+
+
+def test_ltx_multi_lora_frontend_supports_power_lora_style_row_order_menu():
+    script = (REPO_ROOT / "web" / "js" / "deno_ltx_multi_lora.js").read_text(encoding="utf-8")
+
+    assert '"Move Up"' in script
+    assert '"Move Down"' in script
+    assert '"Remove"' in script
+    assert "function moveLoraSlot" in script
+    assert "function swapSlotValues" in script
+    assert "swapSlotValues(node, fromIndex, toIndex)" in script
 
 
 def test_ltx_multi_lora_metadata_fields_do_not_affect_loading():

@@ -652,15 +652,68 @@ async function showLoraChooser(event, node, index) {
 }
 
 function showRemoveLoraMenu(event, node, index) {
-    new LiteGraph.ContextMenu(["Remove"], {
+    const count = activeCount(node);
+    const enabled = getValue(node, `enabled_${index}`, true);
+    const menuItems = [
+        {
+            content: `${enabled ? "Disable" : "Enable"}`,
+            callback: () => toggleLoraSlot(node, index),
+        },
+        null,
+        {
+            content: "Move Up",
+            disabled: index <= 1,
+            callback: () => moveLoraSlot(node, index, index - 1),
+        },
+        {
+            content: "Move Down",
+            disabled: index >= count,
+            callback: () => moveLoraSlot(node, index, index + 1),
+        },
+        {
+            content: "Remove",
+            callback: () => removeLoraSlot(node, index),
+        },
+    ];
+
+    new LiteGraph.ContextMenu(menuItems, {
         event,
         title: `LoRA Slot ${index}`,
         className: "dark",
         scale: Math.max(1, app.canvas?.ds?.scale ?? 1),
-        callback: () => {
-            removeLoraSlot(node, index);
-        },
     });
+}
+
+function toggleLoraSlot(node, index) {
+    const count = activeCount(node);
+    if (index < 1 || index > count) {
+        return;
+    }
+
+    const enabledKey = `enabled_${index}`;
+    setValue(node, enabledKey, !getValue(node, enabledKey, true));
+    rebuildUi(node);
+}
+
+function moveLoraSlot(node, fromIndex, toIndex) {
+    const count = activeCount(node);
+    if (fromIndex < 1 || fromIndex > count || toIndex < 1 || toIndex > count || fromIndex === toIndex) {
+        return;
+    }
+
+    swapSlotValues(node, fromIndex, toIndex);
+    rebuildUi(node);
+}
+
+function swapSlotValues(node, firstIndex, secondIndex) {
+    for (const prefix of slotValuePrefixes()) {
+        const firstKey = `${prefix}_${firstIndex}`;
+        const secondKey = `${prefix}_${secondIndex}`;
+        const firstValue = getValue(node, firstKey, defaultSlotValue(prefix));
+        const secondValue = getValue(node, secondKey, defaultSlotValue(prefix));
+        setValue(node, firstKey, secondValue);
+        setValue(node, secondKey, firstValue);
+    }
 }
 
 function removeLoraSlot(node, index) {
