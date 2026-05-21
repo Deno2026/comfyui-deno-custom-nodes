@@ -6,7 +6,14 @@ Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas.
-The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold** and the no-install **Video to GIF/WebP** converter page.
+The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, the no-install **Video Compare** page, and the **Video to GIF/WebP** converter page.
+
+## Web Tools
+
+Run these directly in your browser:
+
+- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - compare two rendered videos with slider, side-by-side, difference, and toggle views.
+- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - trim, crop, resize, and export short clips as GIF or smaller WebP files.
 
 ## Included Nodes
 
@@ -206,6 +213,23 @@ Main features:
 - shows resize controls only when they apply to the selected effect
 - Easy Upscale outputs: `images`
 
+### `(Deno) RTX Video Super Resolution (2 Pass)`
+
+Two-pass RTX finishing node for full video workflows. It can run an optional same-size `Denoise` or `Deblur` pass first, then an optional `VSR` or `High Bitrate` upscale pass.
+
+Example workflow:
+
+- [RTX 2-pass upscale workflow](docs/workflows/deno-rtx-lowram-metabatch.json)
+
+Main features:
+
+- includes both `Low System Memory` and `High System Memory` lanes in the example workflow
+- the low-memory lane uses VHS Meta Batch so longer videos can be processed in smaller frame chunks
+- uses `VHS_VideoInfoSource` to carry the source FPS into `VHS_VideoCombine`
+- preserves source audio through the VHS load/combine path
+- useful when finishing actual encoded video outputs, not just testing a single image batch
+- outputs: `images`
+
 ### `(Deno) LTX Sequencer`
 
 LTX guide sequencer tuned for multi-image workflows.
@@ -311,6 +335,10 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `comfyui custom nodes`
 - `rtx super`
 - `rtx video super resolution`
+- `rtx 2 pass`
+- `2 pass upscale`
+- `low ram workflow`
+- `meta batch`
 - `video super resolution`
 - `nvidia vfx`
 - `nvvfx`
