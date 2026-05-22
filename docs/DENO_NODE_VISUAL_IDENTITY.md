@@ -13,6 +13,7 @@ The preferred DENO visual direction is represented by:
 - `(Deno) Advanced Image Source Loader`
 - `(Deno) LTX Prompt Guide`
 - `(Deno) Easy Model Download Helper`
+- `(Deno) Multi LoRA Loader`
 - `(Deno) LTX Multi LoRA Loader`
 - `(Deno) LTX Sequencer`
 

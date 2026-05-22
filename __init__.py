@@ -370,6 +370,7 @@ _OPTIONAL_NODES = (
     ("deno_ltx_sequencer_plus", "DenoLTXSequencer", "(Deno) LTX Sequencer"),
     ("deno_ltx23_preset_loader", "DenoLTX23PresetLoader", "(Deno) LTX Model Loader"),
     ("deno_ltx_model_downloader", "DenoLTXModelDownloader", "(Deno) Easy Model Download Helper"),
+    ("deno_multi_lora_loader", "DenoMultiLoraLoader", "(Deno) Multi LoRA Loader"),
     ("deno_ltx_multi_lora_loader", "DenoLTXMultiLoraLoader", "(Deno) LTX Multi LoRA Loader"),
     ("deno_ltx_prompt_guide", "DenoLTXPromptGuide", "(Deno) LTX Prompt Guide"),
     ("deno_rtx_vfx_easy_upscale", "DenoRTXVFXEasyUpscale", "(Deno) RTX Video Super Resolution"),

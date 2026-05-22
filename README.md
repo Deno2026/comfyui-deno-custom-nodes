@@ -23,6 +23,8 @@ DENO Visual Fold is a visual-only cleanup helper for large ComfyUI graphs. It is
 
 Select two or more nodes and a green `Fold` button appears near the top-right of the canvas. Click it to collapse the selected nodes into one compact visual group; use `Unfold` to restore them.
 
+You can also select one normal ComfyUI group and use `Fold Group` to collapse the nodes inside that group while keeping the workflow logic untouched. When two or more groups are selected, the same toolbar adds `Align` actions for left/right/top/bottom alignment and horizontal/vertical spacing.
+
 This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph, which can be powerful, but it may not be ideal when a workflow depends on keeping `Get` / `Set` nodes or parent-child graph structure visible in the main graph. Visual Fold is meant for simple visual organization only. It does not turn the selected nodes into a subgraph or change the workflow logic.
 
 ## Included Nodes

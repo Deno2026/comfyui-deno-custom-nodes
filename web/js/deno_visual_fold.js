@@ -9,13 +9,16 @@ const HIDDEN_H = 2;
 const HIDDEN_TITLE = "\u200b";
 const HOVER_MAX_ITEMS = 12;
 const FOLD_LABEL = "Deno: Fold Selected";
+const FOLD_GROUP_LABEL = "Deno: Fold Selected Group";
 const UNFOLD_LABEL = "Deno: Unfold Group";
 const RENAME_LABEL = "Deno: Rename Fold Group";
 const FLOAT_BUTTON_LABEL = "Fold";
+const FLOAT_FOLD_GROUP_LABEL = "Fold Group";
 const FLOAT_UNFOLD_LABEL = "Unfold";
 const FLOAT_RENAME_LABEL = "Rename";
 const FLOAT_ALIGN_LABEL = "Align";
 const ALIGN_MENU_PREFIX = "Deno: Align";
+const GROUP_ALIGN_MENU_PREFIX = "Deno: Align Groups";
 const CHIP_MAX_W = 260;
 const LABEL_MAX_LENGTH = 34;
 
@@ -42,9 +45,21 @@ function graphNodes() {
   return appGraph()?._nodes || [];
 }
 
+function graphGroups() {
+  const graph = appGraph();
+  const groups = graph?._groups || graph?.groups || [];
+  return Array.isArray(groups) ? groups : [];
+}
+
 function nodeById(id) {
   const graph = appGraph();
   return graph?.getNodeById?.(Number(id)) || graph?.getNodeById?.(id);
+}
+
+function addUnique(result, item) {
+  if (item && !result.includes(item)) {
+    result.push(item);
+  }
 }
 
 function selectedNodes(fallback) {
@@ -74,6 +89,35 @@ function selectedNodes(fallback) {
 
 function selectedAlignNodes(fallback) {
   return selectedNodes(fallback).filter((node) => node && !foldMeta(node) && node.pos && typeof node.pos === "object");
+}
+
+function selectedGroups(fallback) {
+  const result = [];
+  const groups = graphGroups();
+  const selectedItems = app.canvas?.selectedItems;
+
+  if (selectedItems && typeof selectedItems.has === "function") {
+    for (const group of groups) {
+      if (selectedItems.has(group)) addUnique(result, group);
+    }
+  }
+
+  addUnique(result, app.canvas?.selected_group);
+  addUnique(result, app.canvas?.selectedGroup);
+
+  for (const group of groups) {
+    if (group?.selected) addUnique(result, group);
+  }
+
+  if (fallback && groups.includes(fallback)) {
+    addUnique(result, fallback);
+  }
+
+  return result.filter((group) => groups.includes(group));
+}
+
+function selectedAlignGroups(fallback) {
+  return selectedGroups(fallback).filter((group) => !!groupBounds(group));
 }
 
 function foldMeta(node) {
@@ -136,11 +180,138 @@ function foldedChipWidth(meta) {
   return Math.min(CHIP_MAX_W, Math.max(CHIP_W, estimated));
 }
 
+function groupLabel(group) {
+  return normalizeFoldLabel(group?.title || group?.name || "Group");
+}
+
+function rectArray(value) {
+  if (!value || typeof value.length !== "number" || value.length < 4) return null;
+  return [
+    Number(value[0] || 0),
+    Number(value[1] || 0),
+    Number(value[2] || 0),
+    Number(value[3] || 0),
+  ];
+}
+
+function groupBounds(group) {
+  if (!group) return null;
+  const raw = rectArray(group.boundingRect)
+    || rectArray(group._bounding)
+    || rectArray(group.bounding)
+    || rectArray(group.getBounding?.());
+  if (raw) {
+    return { x: raw[0], y: raw[1], w: raw[2], h: raw[3] };
+  }
+
+  const pos = group.pos || group._pos;
+  const size = group.size || group._size;
+  if (pos && size && typeof pos.length === "number" && typeof size.length === "number") {
+    return {
+      x: Number(pos[0] || 0),
+      y: Number(pos[1] || 0),
+      w: Number(size[0] || 0),
+      h: Number(size[1] || 0),
+    };
+  }
+  return null;
+}
+
+function setRectArray(target, x, y, w, h) {
+  if (!target || typeof target.length !== "number" || target.length < 4) return false;
+  if (Number.isFinite(x)) target[0] = x;
+  if (Number.isFinite(y)) target[1] = y;
+  if (Number.isFinite(w)) target[2] = Math.max(1, w);
+  if (Number.isFinite(h)) target[3] = Math.max(1, h);
+  return true;
+}
+
+function setGroupBounds(group, x, y, w, h) {
+  if (!group) return;
+  const target = group.boundingRect || group._bounding || group.bounding || group.getBounding?.();
+  if (setRectArray(target, x, y, w, h)) return;
+
+  if (group.pos && typeof group.pos.length === "number") {
+    if (Number.isFinite(x)) group.pos[0] = x;
+    if (Number.isFinite(y)) group.pos[1] = y;
+  }
+  if (group.size && typeof group.size.length === "number") {
+    if (Number.isFinite(w)) group.size[0] = Math.max(1, w);
+    if (Number.isFinite(h)) group.size[1] = Math.max(1, h);
+  }
+}
+
+function groupSnapshot(group) {
+  const box = groupBounds(group);
+  if (!box) return null;
+  return {
+    id: group.id,
+    title: group.title,
+    bounding: [box.x, box.y, box.w, box.h],
+    color: storeOwnValue(group, "color"),
+    fontSize: storeOwnValue(group, "font_size"),
+    flags: { ...(group.flags || {}) },
+  };
+}
+
+function groupBySnapshot(snapshot) {
+  if (!snapshot) return null;
+  const groups = graphGroups();
+  return groups.find((group) => String(group.id) === String(snapshot.id))
+    || groups.find((group) => group.title === snapshot.title)
+    || null;
+}
+
+function restoreGroupSnapshot(snapshot, dx = 0, dy = 0) {
+  const group = groupBySnapshot(snapshot);
+  if (!group || !Array.isArray(snapshot?.bounding)) return null;
+
+  setGroupBounds(
+    group,
+    Number(snapshot.bounding[0] || 0) + dx,
+    Number(snapshot.bounding[1] || 0) + dy,
+    Number(snapshot.bounding[2] || 0),
+    Number(snapshot.bounding[3] || 0),
+  );
+  group.title = snapshot.title;
+  group.flags = { ...(snapshot.flags || {}) };
+  restoreOwnValue(group, "color", snapshot.color);
+  restoreOwnValue(group, "font_size", snapshot.fontSize);
+  return group;
+}
+
+function groupContainsNode(group, node) {
+  const box = groupBounds(group);
+  if (!box || !node?.pos) return false;
+  const [w, h] = nodeSize(node);
+  const cx = Number(node.pos[0] || 0) + w * 0.5;
+  const cy = Number(node.pos[1] || 0) + h * 0.5;
+  return cx >= box.x && cx <= box.x + box.w && cy >= box.y && cy <= box.y + box.h;
+}
+
+function nodesInGroup(group) {
+  return graphNodes().filter((node) => node && !foldMeta(node) && groupContainsNode(group, node));
+}
+
+function collapseGroupToFoldChip(group, anchor) {
+  const meta = foldMeta(anchor);
+  if (!group || !anchor || !meta) return;
+
+  const pos = anchor.pos || meta.basePos || [0, 0];
+  const chipWidth = foldedChipWidth(meta);
+  setGroupBounds(group, Number(pos[0] || 0) - 8, Number(pos[1] || 0) - 8, chipWidth + 16, CHIP_H + 16);
+  group.title = "";
+  group.color = "rgba(0,0,0,0)";
+  group.flags = { ...(group.flags || {}), denoVisualFoldCollapsed: true };
+  group.selected = false;
+}
+
 function baseMeta(node, groupId, index, count, anchorId, baseX, baseY) {
   return {
     version: 1,
     groupId,
     label: "",
+    sourceGroup: null,
     index,
     count,
     anchorId,
@@ -181,13 +352,49 @@ function applyFoldLook(node, meta, visualBasePos = null, preserveAnchorPos = fal
 }
 
 function selectOnly(node) {
+  selectMany([node]);
+}
+
+function selectMany(nodes) {
   const canvas = app.canvas;
-  if (!canvas || !node) return;
+  const clean = Array.from(new Set((nodes || []).filter(Boolean)));
+  if (!canvas || !clean.length) return;
+  const selectedSet = new Set(clean);
 
   for (const item of graphNodes()) {
-    item.selected = item === node;
+    item.selected = selectedSet.has(item);
   }
-  canvas.selected_nodes = { [node.id]: node };
+  for (const group of graphGroups()) {
+    group.selected = false;
+  }
+  canvas.selected_nodes = {};
+  for (const item of clean) {
+    canvas.selected_nodes[item.id] = item;
+  }
+  canvas.selectedItems?.clear?.();
+  for (const item of clean) {
+    canvas.selectedItems?.add?.(item);
+  }
+  canvas.selected_group = null;
+  canvas.selectedGroup = null;
+}
+
+function selectGroup(group) {
+  const canvas = app.canvas;
+  if (!canvas || !group) return false;
+
+  for (const item of graphNodes()) {
+    item.selected = false;
+  }
+  for (const item of graphGroups()) {
+    item.selected = item === group;
+  }
+  canvas.selected_nodes = {};
+  canvas.selectedItems?.clear?.();
+  canvas.selectedItems?.add?.(group);
+  canvas.selected_group = group;
+  canvas.selectedGroup = group;
+  return true;
 }
 
 function canvasPrototype() {
@@ -197,23 +404,46 @@ function canvasPrototype() {
   return app.canvas?.constructor?.prototype || null;
 }
 
-function foldNodes(nodes) {
+function foldNodes(nodes, options = {}) {
   const clean = nodes.filter((node) => node && !foldMeta(node));
   if (!clean.length) return;
 
   const anchor = pickAnchor(clean);
   const ordered = [anchor, ...clean.filter((node) => node !== anchor)];
-  const [baseX, baseY] = bounds(clean);
+  const [defaultX, defaultY] = bounds(clean);
+  const baseX = Number(options.basePos?.[0] ?? defaultX);
+  const baseY = Number(options.basePos?.[1] ?? defaultY);
   const groupId = `deno-fold-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
   ordered.forEach((node, index) => {
     node.properties = node.properties || {};
     const meta = baseMeta(node, groupId, index, ordered.length, anchor.id, baseX, baseY);
+    meta.label = normalizeFoldLabel(options.label);
+    meta.sourceGroup = options.sourceGroup || null;
     node.properties[META_KEY] = meta;
     applyFoldLook(node, meta);
   });
   selectOnly(anchor);
   dirty();
+  return anchor;
+}
+
+function foldGroup(group) {
+  const snapshot = groupSnapshot(group);
+  if (!snapshot) return null;
+
+  group.recomputeInsideNodes?.();
+  const box = groupBounds(group);
+  const titleHeight = Number(group.titleHeight || (group.font_size || 24) * 1.4 || 30);
+  const basePos = box ? [box.x + 8, box.y + Math.min(titleHeight + 8, Math.max(8, box.h - CHIP_H - 8))] : null;
+  const anchor = foldNodes(nodesInGroup(group), {
+    label: groupLabel(group),
+    sourceGroup: snapshot,
+    basePos,
+  });
+  if (anchor) collapseGroupToFoldChip(group, anchor);
+  dirty();
+  return anchor;
 }
 
 function groupFor(node) {
@@ -233,6 +463,7 @@ function unfoldGroup(node) {
     || group[0];
   const dx = Number(currentAnchor?.pos?.[0] || 0) - Number(anchorMeta?.basePos?.[0] || 0);
   const dy = Number(currentAnchor?.pos?.[1] || 0) - Number(anchorMeta?.basePos?.[1] || 0);
+  const sourceGroup = anchorMeta?.sourceGroup || null;
 
   for (const item of group) {
     const meta = foldMeta(item);
@@ -249,6 +480,10 @@ function unfoldGroup(node) {
     restoreOwnValue(item, "bgcolor", meta.bgcolor);
     restoreOwnValue(item, "_collapsed_width", meta.collapsedWidth);
     delete item.properties[META_KEY];
+  }
+  const restoredGroup = restoreGroupSnapshot(sourceGroup, dx, dy);
+  if (!selectGroup(restoredGroup)) {
+    selectMany(group);
   }
   dirty();
 }
@@ -724,6 +959,13 @@ function ensureFoldButton() {
       return;
     }
 
+    const groups = selectedGroups();
+    if (groups.length === 1 && nodesInGroup(groups[0]).length) {
+      foldGroup(groups[0]);
+      updateFoldButton();
+      return;
+    }
+
     const clean = selectedNodes().filter((node) => !foldMeta(node));
     if (clean.length > 1) {
       foldNodes(clean);
@@ -831,9 +1073,99 @@ function distributeSelectedNodes(axis) {
   dirty();
 }
 
+function selectedGroupBounds(groups) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const group of groups) {
+    const box = groupBounds(group);
+    if (!box) continue;
+    minX = Math.min(minX, box.x);
+    minY = Math.min(minY, box.y);
+    maxX = Math.max(maxX, box.x + box.w);
+    maxY = Math.max(maxY, box.y + box.h);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return null;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function moveGroup(group, x, y) {
+  const box = groupBounds(group);
+  if (!box) return;
+  const nextX = Number.isFinite(x) ? x : box.x;
+  const nextY = Number.isFinite(y) ? y : box.y;
+  const dx = nextX - box.x;
+  const dy = nextY - box.y;
+  if (dx === 0 && dy === 0) return;
+
+  if (typeof group.move === "function") {
+    group.move(dx, dy);
+  } else {
+    setGroupBounds(group, nextX, nextY, box.w, box.h);
+  }
+}
+
+function alignSelectedGroups(action) {
+  const groups = selectedAlignGroups();
+  if (groups.length < 2) return;
+
+  const box = selectedGroupBounds(groups);
+  if (!box) return;
+
+  for (const group of groups) {
+    const groupBox = groupBounds(group);
+    if (!groupBox) continue;
+    if (action === "left") moveGroup(group, box.minX, null);
+    else if (action === "right") moveGroup(group, box.maxX - groupBox.w, null);
+    else if (action === "top") moveGroup(group, null, box.minY);
+    else if (action === "bottom") moveGroup(group, null, box.maxY - groupBox.h);
+  }
+  dirty();
+}
+
+function distributeSelectedGroups(axis) {
+  const groups = selectedAlignGroups();
+  if (groups.length < 3) return;
+
+  const box = selectedGroupBounds(groups);
+  if (!box) return;
+
+  const isHorizontal = axis === "horizontal";
+  const sorted = [...groups].sort((a, b) => {
+    const av = groupBounds(a)?.[isHorizontal ? "x" : "y"] ?? 0;
+    const bv = groupBounds(b)?.[isHorizontal ? "x" : "y"] ?? 0;
+    return av - bv;
+  });
+  const start = isHorizontal ? box.minX : box.minY;
+  const end = isHorizontal ? box.maxX : box.maxY;
+  const total = sorted.reduce((sum, group) => {
+    const groupBox = groupBounds(group);
+    return sum + (groupBox ? groupBox[isHorizontal ? "w" : "h"] : 0);
+  }, 0);
+  const gap = Math.max(0, (end - start - total) / (sorted.length - 1));
+
+  let cursor = start;
+  for (const group of sorted) {
+    const groupBox = groupBounds(group);
+    if (!groupBox) continue;
+    if (isHorizontal) moveGroup(group, cursor, null);
+    else moveGroup(group, null, cursor);
+    cursor += groupBox[isHorizontal ? "w" : "h"] + gap;
+  }
+  dirty();
+}
+
 function runAlignAction(action) {
   hideAlignMenu();
-  if (action === "horizontal") distributeSelectedNodes("horizontal");
+  const groups = selectedAlignGroups();
+  if (groups.length >= 2) {
+    if (action === "horizontal") distributeSelectedGroups("horizontal");
+    else if (action === "vertical") distributeSelectedGroups("vertical");
+    else alignSelectedGroups(action);
+  } else if (action === "horizontal") distributeSelectedNodes("horizontal");
   else if (action === "vertical") distributeSelectedNodes("vertical");
   else alignSelectedNodes(action);
   updateFoldButton();
@@ -896,7 +1228,8 @@ function showAlignMenu() {
   if (!menu || !alignButtonEl) return;
 
   const rect = alignButtonEl.getBoundingClientRect();
-  const canDistribute = selectedAlignNodes().length >= 3;
+  const groups = selectedAlignGroups();
+  const canDistribute = groups.length >= 2 ? groups.length >= 3 : selectedAlignNodes().length >= 3;
   for (const button of menu.querySelectorAll(".deno-visual-align-item")) {
     const isDistribution = button.dataset.action === "horizontal" || button.dataset.action === "vertical";
     button.disabled = isDistribution && !canDistribute;
@@ -927,8 +1260,8 @@ function ensureAlignButton() {
   alignButtonEl.type = "button";
   alignButtonEl.className = "deno-visual-fold-button deno-visual-align-button";
   alignButtonEl.textContent = FLOAT_ALIGN_LABEL;
-  alignButtonEl.title = "Align or distribute selected nodes";
-  alignButtonEl.setAttribute("aria-label", "Deno Align Selected Nodes");
+  alignButtonEl.title = "Align or distribute selected nodes or groups";
+  alignButtonEl.setAttribute("aria-label", "Deno Align Selected Nodes or Groups");
   alignButtonEl.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1038,23 +1371,26 @@ function updateFoldButton() {
 
   const selected = selectedNodes();
   const folded = selected.find((node) => foldMeta(node));
+  const groups = selectedGroups();
+  const foldableGroup = !folded && groups.length === 1 && nodesInGroup(groups[0]).length ? groups[0] : null;
   const clean = selected.filter((node) => !foldMeta(node));
   const actionNodes = folded ? [folded] : clean;
-  const action = folded ? FLOAT_UNFOLD_LABEL : FLOAT_BUTTON_LABEL;
+  const action = folded ? FLOAT_UNFOLD_LABEL : (foldableGroup ? FLOAT_FOLD_GROUP_LABEL : FLOAT_BUTTON_LABEL);
 
-  if ((!folded && clean.length < 2) || !actionNodes.length) {
+  if (!folded && !foldableGroup && clean.length < 2) {
     detachFoldButton();
     return;
   }
 
-  if (!selectedBounds(actionNodes) || !attachFoldButtonToToolbar(button)) {
+  const actionBounds = foldableGroup ? selectedGroupBounds([foldableGroup]) : selectedBounds(actionNodes);
+  if (!actionBounds || !attachFoldButtonToToolbar(button)) {
     detachFoldButton();
     return;
   }
 
-  button.textContent = !folded && clean.length > 9 ? `Fold ${clean.length}` : action;
-  button.title = folded ? "Unfold this group" : "Fold selected nodes";
-  button.setAttribute("aria-label", folded ? "Deno Unfold Group" : "Deno Fold Selected Nodes");
+  button.textContent = !folded && !foldableGroup && clean.length > 9 ? `Fold ${clean.length}` : action;
+  button.title = folded ? "Unfold this group" : (foldableGroup ? "Fold selected ComfyUI group" : "Fold selected nodes");
+  button.setAttribute("aria-label", folded ? "Deno Unfold Group" : (foldableGroup ? "Deno Fold Selected Group" : "Deno Fold Selected Nodes"));
 }
 
 function updateRenameButton() {
@@ -1075,6 +1411,17 @@ function updateAlignButton() {
   const button = ensureAlignButton();
   if (!button) return;
 
+  const groups = selectedAlignGroups();
+  if (groups.length >= 2) {
+    if (!selectedGroupBounds(groups) || !attachAlignButtonToToolbar(button)) {
+      detachAlignButton();
+      return;
+    }
+    button.title = "Align or distribute selected groups";
+    button.setAttribute("aria-label", "Deno Align Selected Groups");
+    return;
+  }
+
   const clean = selectedAlignNodes();
   if (clean.length < 2) {
     detachAlignButton();
@@ -1085,6 +1432,8 @@ function updateAlignButton() {
     detachAlignButton();
     return;
   }
+  button.title = "Align or distribute selected nodes";
+  button.setAttribute("aria-label", "Deno Align Selected Nodes");
 }
 
 function refreshFoldedLooks() {
@@ -1108,6 +1457,7 @@ function setupOverlayLoop() {
   if (overlayTimer) return;
   overlayTimer = setInterval(() => {
     setupMouseTracking();
+    patchExistingGroups();
     refreshFoldedLooks();
     updateFoldButton();
     updateRenameButton();
@@ -1146,8 +1496,55 @@ function addFoldMenuOptions(node, options) {
   }
 }
 
+function addGroupFoldMenuOptions(group, options) {
+  if (!group || !Array.isArray(options) || !nodesInGroup(group).length) return;
+  if (hasMenuItem(options, FOLD_GROUP_LABEL)) return;
+
+  options.unshift({
+    content: `${FOLD_GROUP_LABEL}: ${groupLabel(group)}`,
+    callback: () => foldGroup(group),
+  });
+}
+
 function addAlignMenuOptions(options, fallbackNode = null) {
   if (!Array.isArray(options)) return;
+
+  const groups = selectedAlignGroups();
+  if (groups.length >= 2) {
+    if (hasMenuItem(options, GROUP_ALIGN_MENU_PREFIX)) return;
+    const items = [
+      {
+        content: `${GROUP_ALIGN_MENU_PREFIX} Left`,
+        callback: () => alignSelectedGroups("left"),
+      },
+      {
+        content: `${GROUP_ALIGN_MENU_PREFIX} Right`,
+        callback: () => alignSelectedGroups("right"),
+      },
+      {
+        content: `${GROUP_ALIGN_MENU_PREFIX} Top`,
+        callback: () => alignSelectedGroups("top"),
+      },
+      {
+        content: `${GROUP_ALIGN_MENU_PREFIX} Bottom`,
+        callback: () => alignSelectedGroups("bottom"),
+      },
+    ];
+    if (groups.length >= 3) {
+      items.push(
+        {
+          content: `${GROUP_ALIGN_MENU_PREFIX} Space Horizontal`,
+          callback: () => distributeSelectedGroups("horizontal"),
+        },
+        {
+          content: `${GROUP_ALIGN_MENU_PREFIX} Space Vertical`,
+          callback: () => distributeSelectedGroups("vertical"),
+        },
+      );
+    }
+    options.unshift(...items, null);
+    return;
+  }
 
   const selected = selectedAlignNodes(fallbackNode);
   if (selected.length < 2 || hasMenuItem(options, ALIGN_MENU_PREFIX)) return;
@@ -1195,6 +1592,8 @@ function hasMenuItem(options, label) {
 function addSelectedMenuOptions(options) {
   const selected = selectedNodes();
   const folded = selected.find((node) => foldMeta(node));
+  const groups = selectedGroups();
+  const foldableGroup = !folded && groups.length === 1 && nodesInGroup(groups[0]).length ? groups[0] : null;
   const clean = selected.filter((node) => !foldMeta(node));
 
   const items = [];
@@ -1208,6 +1607,12 @@ function addSelectedMenuOptions(options) {
     items.push({
       content: UNFOLD_LABEL,
       callback: () => unfoldGroup(folded),
+    });
+  }
+  if (foldableGroup && !hasMenuItem(options, FOLD_GROUP_LABEL)) {
+    items.push({
+      content: `${FOLD_GROUP_LABEL}: ${groupLabel(foldableGroup)}`,
+      callback: () => foldGroup(foldableGroup),
     });
   }
   if (clean.length && !hasMenuItem(options, FOLD_LABEL)) {
@@ -1247,6 +1652,20 @@ function patchMenuTarget(target) {
     return result;
   };
   target.__denoVisualFoldMenuPatched = true;
+}
+
+function patchGroupMenuTarget(group) {
+  if (!group || group.__denoVisualFoldGroupMenuPatched || typeof group.getMenuOptions !== "function") return;
+  const original = group.getMenuOptions;
+  group.getMenuOptions = function () {
+    const options = original?.apply(this, arguments) || [];
+    if (Array.isArray(options)) {
+      addGroupFoldMenuOptions(this, options);
+      addAlignMenuOptions(options);
+    }
+    return options;
+  };
+  group.__denoVisualFoldGroupMenuPatched = true;
 }
 
 function patchCanvasMenu() {
@@ -1322,11 +1741,18 @@ function patchExistingNodes() {
   }
 }
 
+function patchExistingGroups() {
+  for (const group of graphGroups()) {
+    patchGroupMenuTarget(group);
+  }
+}
+
 function installLatePatches(attempt = 0) {
   const patchedCanvas = patchCanvasMenu();
   const patchedDrawing = patchNodeDrawing();
   const patchedMotion = patchMotionSync();
   patchExistingNodes();
+  patchExistingGroups();
   setupOverlayLoop();
   if ((!patchedCanvas || !patchedDrawing || !patchedMotion || attempt < 8) && attempt < 20) {
     setTimeout(() => installLatePatches(attempt + 1), 250);

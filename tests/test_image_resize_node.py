@@ -178,6 +178,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoLTXSequencer",
         "DenoLTX23PresetLoader",
         "DenoLTXModelDownloader",
+        "DenoMultiLoraLoader",
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
         "DenoRTXVFXEasyUpscale",
@@ -192,6 +193,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX23PresetLoader"] == "(Deno) LTX Model Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXModelDownloader"] == "(Deno) Easy Model Download Helper"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiLoraLoader"] == "(Deno) Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno) RTX Video Super Resolution"
@@ -1228,6 +1230,26 @@ def test_ltx_multi_lora_loader_declares_compact_av_controls():
     assert node_cls.RETURN_NAMES == ("model", "clip")
 
 
+def test_multi_lora_loader_declares_generic_model_clip_controls():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiLoraLoader"]
+    input_types = node_cls.INPUT_TYPES()
+    required = input_types["required"]
+
+    assert node_cls.CATEGORY == "Deno/LoRA"
+    assert input_types["optional"]["clip"][0] == "CLIP"
+    assert required["active_loras"][0] == "INT"
+    assert required["lora_1"][0][0] == "__none__"
+    assert required["model_strength_1"][0] == "FLOAT"
+    assert required["clip_strength_1"][0] == "FLOAT"
+    assert "video_1" not in required
+    assert "audio_1" not in required
+    assert required["trigger_1"][0] == "STRING"
+    assert required["description_1"][1]["multiline"] is True
+    assert node_cls.RETURN_TYPES == ("MODEL", "CLIP")
+    assert node_cls.RETURN_NAMES == ("model", "clip")
+
+
 def test_ltx_multi_lora_frontend_supports_power_lora_style_row_order_menu():
     script = (REPO_ROOT / "web" / "js" / "deno_ltx_multi_lora.js").read_text(encoding="utf-8")
 
@@ -1239,9 +1261,32 @@ def test_ltx_multi_lora_frontend_supports_power_lora_style_row_order_menu():
     assert "swapSlotValues(node, fromIndex, toIndex)" in script
 
 
+def test_multi_lora_frontend_uses_generic_model_clip_columns():
+    script = (REPO_ROOT / "web" / "js" / "deno_multi_lora.js").read_text(encoding="utf-8")
+
+    assert 'const NODE_NAME = "DenoMultiLoraLoader"' in script
+    assert '"model_strength"' in script
+    assert '"clip_strength"' in script
+    assert '"Model strength"' in script
+    assert '"CLIP strength"' in script
+    assert '"video"' not in script
+    assert '"audio"' not in script
+    assert "/object_info/DenoMultiLoraLoader" in script
+    assert "function moveLoraSlot" in script
+    assert "function swapSlotValues" in script
+
+
 def test_ltx_multi_lora_metadata_fields_do_not_affect_loading():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXMultiLoraLoader"]
+    model = object()
+    clip = object()
+    assert node_cls().load_multi_lora(model, clip, 1, lora_1="__none__", trigger_1="deno style") == (model, clip)
+
+
+def test_multi_lora_metadata_fields_do_not_affect_loading():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiLoraLoader"]
     model = object()
     clip = object()
     assert node_cls().load_multi_lora(model, clip, 1, lora_1="__none__", trigger_1="deno style") == (model, clip)

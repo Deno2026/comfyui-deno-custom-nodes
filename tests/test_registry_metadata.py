@@ -106,11 +106,20 @@ def test_visual_fold_frontend_is_visual_only():
     script = (REPO_ROOT / "web" / "js" / "deno_visual_fold.js").read_text(encoding="utf-8")
 
     assert "Deno: Fold Selected" in script
+    assert "Deno: Fold Selected Group" in script
     assert "Deno: Unfold Group" in script
     assert "Deno: Rename Fold Group" in script
     assert "function renameFoldGroup" in script
+    assert "function foldGroup" in script
     assert "function foldDisplayLabel" in script
     assert "function foldedChipWidth" in script
+    assert "function graphGroups" in script
+    assert "function selectedGroups" in script
+    assert "function groupBounds" in script
+    assert "function setGroupBounds" in script
+    assert "function nodesInGroup" in script
+    assert "function collapseGroupToFoldChip" in script
+    assert "sourceGroup" in script
     assert "function ensureRenameButton" in script
     assert "function updateRenameButton" in script
     assert "function showRenameDialog" in script
@@ -132,9 +141,13 @@ def test_visual_fold_frontend_is_visual_only():
     assert "Distribute Horizontal" in script
     assert "Distribute Vertical" in script
     assert "Deno: Align" in script
+    assert "Deno: Align Groups" in script
     assert "function alignSelectedNodes" in script
     assert "function distributeSelectedNodes" in script
+    assert "function alignSelectedGroups" in script
+    assert "function distributeSelectedGroups" in script
     assert "function addAlignMenuOptions" in script
+    assert "function patchGroupMenuTarget" in script
     assert "if (node?.selected) result.push(node);" in script
     assert "node?.flags?.collapsed" in script
     assert "_collapsed_width" in script
