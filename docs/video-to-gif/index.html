@@ -154,6 +154,18 @@
     font-size:11px;font-weight:800;color:var(--accent);background:rgba(6,16,11,.85);
     border:1px solid var(--line-soft);border-radius:999px;padding:3px 10px;white-space:nowrap;
   }
+  .cropbox.nomove::before{display:none}      /* box fills the frame — nothing to move */
+  /* corner grips — drag to resize the crop area (works with mouse and touch) */
+  .cropbox .cnr{
+    position:absolute;width:16px;height:16px;z-index:7;
+    background:var(--accent);border:2px solid #eafff1;border-radius:4px;
+    box-shadow:0 0 8px rgba(72,255,132,.75);touch-action:none;
+  }
+  .cropbox .cnr::after{content:"";position:absolute;inset:-15px}  /* finger-friendly hit area */
+  .cropbox .cnr.tl{left:0;top:0;transform:translate(-50%,-50%);cursor:nwse-resize}
+  .cropbox .cnr.tr{right:0;top:0;transform:translate(50%,-50%);cursor:nesw-resize}
+  .cropbox .cnr.bl{left:0;bottom:0;transform:translate(-50%,50%);cursor:nesw-resize}
+  .cropbox .cnr.br{right:0;bottom:0;transform:translate(50%,50%);cursor:nwse-resize}
   .noprev{
     position:absolute;inset:0;z-index:5;display:none;flex-direction:column;
     align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px;
@@ -306,7 +318,10 @@
         <video id="vid" playsinline preload="auto" muted loop></video>
         <img id="outImg" alt="" style="display:none">
         <span class="vtag" id="vtag">source</span>
-        <div class="cropbox" id="cropbox" data-r=""></div>
+        <div class="cropbox" id="cropbox" data-r="">
+          <span class="cnr tl"></span><span class="cnr tr"></span>
+          <span class="cnr bl"></span><span class="cnr br"></span>
+        </div>
         <div class="noprev" id="noprev">
           <span class="ic">▣</span>
           <span>This clip can't preview in your browser</span>
@@ -398,7 +413,7 @@
   <div class="pbar idle" id="pbar"><div class="pfill" id="pfill"></div></div>
   <div class="statusrow">
     <span class="status" id="status">Drop a video to begin.</span>
-    <span class="footnote" id="footnote">100% in-browser · ffmpeg.wasm · build 4</span>
+    <span class="footnote" id="footnote">100% in-browser · ffmpeg.wasm · build 5</span>
   </div>
 </footer>
 
@@ -409,6 +424,7 @@
   <kbd>[</kbd> set start here · <kbd>]</kbd> set end here<br>
   <kbd>←</kbd><kbd>→</kbd> nudge preview · <kbd>Enter</kbd> save<br>
   <kbd>N</kbd> new video · <kbd>?</kbd> this help<br>
+  <span style="color:var(--txt-soft);opacity:.8">Pick a Shape (1:1, 4:5…), then drag the green box <b>corners to resize</b> and drag <b>inside to move</b> — only that area is exported.</span><br>
   <span style="color:var(--txt-soft);opacity:.8">GIF works everywhere · WebP is much smaller at the same quality.</span>
 </div>
 
@@ -430,10 +446,11 @@
         outMeta=$("outMeta"), warnline=$("warnline"), estimateEl=$("estimate"),
         toastEl=$("toast"), helpEl=$("help");
   const YT_LIMIT = 16*1024*1024;   // YouTube community post media limit ≈ 16 MB
+  const CROP_MIN = 0.12;           // smallest the crop box can be dragged (12% of full)
 
   const S = {
     fmt:"gif", w:480, fps:15, q:"med", ratio:"orig",
-    cropX:0.5, cropY:0.5,
+    cropX:0.5, cropY:0.5, cropScale:1,
     dur:0, start:0, end:0, fileName:"clip", busy:false,
     drag:null, outURL:null, outBlob:null, ext:".mp4",
   };
@@ -446,7 +463,8 @@
   function cropDims(){
     const iw=vid.videoWidth||0, ih=vid.videoHeight||0, ar=ratioVal();
     if(!ar||!iw||!ih) return {cw:even(iw),ch:even(ih),crop:false};
-    return {cw:even(Math.min(iw, ih*ar)), ch:even(Math.min(ih, iw/ar)), crop:true};
+    const s=clamp(S.cropScale||1,CROP_MIN,1);   // crop-box zoom (drag the corners)
+    return {cw:even(Math.min(iw, ih*ar)*s), ch:even(Math.min(ih, iw/ar)*s), crop:true};
   }
   function outDims(){
     const vw=vid.videoWidth||0, vh=vid.videoHeight||0, ar=ratioVal();
@@ -530,20 +548,26 @@
     const vAR=vid.videoWidth/vid.videoHeight, eAR=er.width/er.height;
     let pw,ph;
     if(eAR>vAR){ ph=er.height; pw=ph*vAR; } else { pw=er.width; ph=pw/vAR; }
-    let cw,ch;
-    if(ar > pw/ph){ cw=pw; ch=cw/ar; } else { ch=ph; cw=ch*ar; }
+    // cw0/ch0 = largest box of the chosen shape that fits the painted video …
+    let cw0,ch0;
+    if(ar > pw/ph){ cw0=pw; ch0=cw0/ar; } else { ch0=ph; cw0=ch0*ar; }
+    // … then shrink it by the user's zoom (drag the corner grips to resize)
+    const s=clamp(S.cropScale||1,CROP_MIN,1);
+    const cw=cw0*s, ch=ch0*s;
     const pl=(er.left-wr.left)+(er.width-pw)/2;   // painted video top-left
     const pt=(er.top-wr.top)+(er.height-ph)/2;
     const availW=Math.max(0,pw-cw), availH=Math.max(0,ph-ch);
     const movable = availW>2 || availH>2;
-    box.dataset.r = S.ratio + (movable ? " · drag to move" : " · fill");
+    const cd=cropDims();
+    box.dataset.r = S.ratio + " · " + cd.cw + "×" + cd.ch;
+    box.classList.toggle("nomove",!movable);
     box.style.display="block";
-    box.style.pointerEvents = movable ? "auto" : "none";
+    box.style.pointerEvents="auto";
     box.style.cursor = movable ? "move" : "default";
     box.style.width=cw+"px"; box.style.height=ch+"px";
     box.style.left=(pl+availW*clamp(S.cropX,0,1))+"px";
     box.style.top =(pt+availH*clamp(S.cropY,0,1))+"px";
-    cropGeo={availW,availH};
+    cropGeo={availW,availH,pw,ph,pl,pt,cw0,ch0};
   }
   window.addEventListener("resize",()=>{ requestAnimationFrame(drawCrop); });
   // Robust redraw: after un-hiding the <video> (post-conversion / ratio change)
@@ -576,10 +600,60 @@
       if(cropGeo.availH>2) S.cropY=clamp(d.y0+(e.clientY-d.py)/cropGeo.availH,0,1);
       drawCrop();
     });
-    const end=()=>{ if(d){ d=null; clearOutput(); toast("Crop position set — Convert to apply"); } };
+    const end=()=>{ if(d){ d=null; clearOutput(); toast("Crop position set — Save to apply"); } };
     box.addEventListener("pointerup",end);
     box.addEventListener("pointercancel",end);
     box.addEventListener("click",e=>e.stopPropagation());
+  })();
+  /* drag a corner grip to resize the crop box — pick just one part / zoom in.
+     The opposite corner stays pinned; the shape's aspect ratio stays locked. */
+  (()=>{
+    const box=$("cropbox");
+    let d=null;
+    function start(e,cnr){
+      if(!cropGeo) return;
+      e.preventDefault(); e.stopPropagation();
+      const g=cropGeo, s=clamp(S.cropScale||1,CROP_MIN,1);
+      d={
+        cnr, w:g.cw0*s, h:g.ch0*s,
+        L:g.pl+g.availW*clamp(S.cropX,0,1),
+        T:g.pt+g.availH*clamp(S.cropY,0,1),
+        wr:vwrap.getBoundingClientRect(),
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    function move(e){
+      if(!d || !cropGeo) return;
+      const g=cropGeo;
+      const mx=e.clientX-d.wr.left, my=e.clientY-d.wr.top;   // painted-area coords
+      const bAR=g.cw0/g.ch0, minCW=g.cw0*CROP_MIN;
+      let rawW,rawH,anchorL,anchorT;
+      // anchor = the corner opposite the grip being dragged (it stays put)
+      if(d.cnr==="br"){      anchorL=d.L;       anchorT=d.T;       rawW=mx-anchorL;  rawH=my-anchorT;  }
+      else if(d.cnr==="bl"){ anchorL=d.L+d.w;  anchorT=d.T;       rawW=anchorL-mx;  rawH=my-anchorT;  }
+      else if(d.cnr==="tr"){ anchorL=d.L;       anchorT=d.T+d.h;  rawW=mx-anchorL;  rawH=anchorT-my;  }
+      else {                 anchorL=d.L+d.w;  anchorT=d.T+d.h;  rawW=anchorL-mx;  rawH=anchorT-my;  } // tl
+      const cw=clamp(Math.max(rawW,rawH*bAR),minCW,g.cw0);
+      const ch=cw/bAR;
+      let L=(d.cnr==="br"||d.cnr==="tr") ? anchorL : anchorL-cw;
+      let T=(d.cnr==="br"||d.cnr==="bl") ? anchorT : anchorT-ch;
+      L=clamp(L,g.pl,g.pl+g.pw-cw);   // keep the box inside the painted video
+      T=clamp(T,g.pt,g.pt+g.ph-ch);
+      S.cropScale=clamp(cw/g.cw0,CROP_MIN,1);
+      const aW=g.pw-cw, aH=g.ph-ch;
+      S.cropX = aW>2 ? clamp((L-g.pl)/aW,0,1) : 0.5;
+      S.cropY = aH>2 ? clamp((T-g.pt)/aH,0,1) : 0.5;
+      drawCrop(); updateVTag(); updateEstimate();
+    }
+    const end=()=>{ if(d){ d=null; clearOutput(); toast("Crop area set — Save to apply"); } };
+    ["tl","tr","bl","br"].forEach(k=>{
+      const el=box.querySelector(".cnr."+k); if(!el) return;
+      el.addEventListener("pointerdown",e=>start(e,k));
+      el.addEventListener("pointermove",move);
+      el.addEventListener("pointerup",end);
+      el.addEventListener("pointercancel",end);
+      el.addEventListener("click",e=>e.stopPropagation());
+    });
   })();
   function updateVTag(){
     if(!vid.videoWidth) return;
@@ -767,7 +841,14 @@
   }
   wireSeg("segFmt","fmt","fmt",()=>{ clearOutput(); updateGoLabel(); });
   wireSeg("segSize","w","w",clearOutput);
-  wireSeg("segRatio","r","ratio",()=>{ S.cropX=0.5; S.cropY=0.5; clearOutput(); scheduleCropRedraw(); });
+  wireSeg("segRatio","r","ratio",()=>{
+    S.cropX=0.5; S.cropY=0.5; S.cropScale=1;
+    clearOutput(); scheduleCropRedraw();
+    if(ratioVal() && !S._cropHintShown){
+      S._cropHintShown=true;
+      toast("Drag the box corners to resize · drag inside to move");
+    }
+  });
   wireSeg("segFps","fps","fps",clearOutput);
   wireSeg("segQ","q","q",clearOutput);
 
@@ -915,8 +996,9 @@
     vid.removeAttribute("src"); vid.load();
     document.body.classList.remove("has","nometa");
     $("noprev").style.display="none"; vid.style.display="";
-    S.dur=0; S.start=0; S.end=0; S._file=null; S._noMeta=false; S.cropX=0.5; S.cropY=0.5;
-    status("Drop a video to begin."); footnote.textContent="100% in-browser · ffmpeg.wasm · build 4";
+    S.dur=0; S.start=0; S.end=0; S._file=null; S._noMeta=false;
+    S.cropX=0.5; S.cropY=0.5; S.cropScale=1;
+    status("Drop a video to begin."); footnote.textContent="100% in-browser · ffmpeg.wasm · build 5";
     setBar(0);
   }
 
