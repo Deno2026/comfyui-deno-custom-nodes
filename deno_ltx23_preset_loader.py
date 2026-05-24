@@ -349,6 +349,7 @@ class DenoLTX23PresetLoader:
     DESCRIPTION = (
         "Unified LTX model loader for beginner workflows.\n"
         "Choose Checkpoint Style, KJ Style, or GGUF Style and output MODEL/CLIP/video+audio VAE from one node.\n"
+        "Checkpoint Style uses the selected checkpoint as the CLIP projection file; text_projection is only for KJ/GGUF Style.\n"
         "GGUF Style requires ComfyUI-GGUF. KJ/GGUF Style requires comfyui-kjnodes.\n"
         "YouTube: https://www.youtube.com/@Denoise-AI"
     )

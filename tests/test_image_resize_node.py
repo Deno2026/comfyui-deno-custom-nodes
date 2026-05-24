@@ -845,8 +845,11 @@ def test_multi_image_loader_frontend_supports_copy_image_context_menu():
     assert "showImageCardMenu(event, path, image)" in script
     assert '"Copy Image"' in script
     assert "copyImageElementToClipboard" in script
+    assert "resolveInputImageCopyPath" in script
+    assert "/deno/input-image-path" in script
     assert "ClipboardItem" in script
     assert '"image/png"' in script
+    assert "Full image path copied." in script
     assert "Copy image failed. Path copied." in script
 
 
@@ -941,6 +944,38 @@ def test_multi_image_loader_input_browser_lists_subfolders():
     assert [entry["name"] for entry in nested_listing["files"]] == ["shots/nested.webp"]
     assert traversal_listing["folders"] == []
     assert traversal_listing["files"] == []
+
+
+def test_multi_image_loader_resolves_copy_path_inside_input_folder():
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_input_directory = folder_paths.get_input_directory
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        subfolder = Path(temp_dir) / "shots"
+        subfolder.mkdir()
+        image_file = subfolder / "nested.png"
+        image_file.write_bytes(b"image")
+        outside_file = Path(temp_dir).parent / "outside.png"
+
+        folder_paths.get_input_directory = lambda: temp_dir
+        try:
+            resolved_path = board._resolve_input_image_copy_path("shots/nested.png")
+            missing_path = board._resolve_input_image_copy_path("shots/missing.png")
+            traversal_path = board._resolve_input_image_copy_path("../outside.png")
+            drive_like_path = board._resolve_input_image_copy_path("C:/outside.png")
+            absolute_path = board._resolve_input_image_copy_path(str(image_file))
+            outside_absolute_path = board._resolve_input_image_copy_path(str(outside_file))
+        finally:
+            folder_paths.get_input_directory = original_get_input_directory
+
+    assert resolved_path == os.path.realpath(image_file)
+    assert absolute_path == os.path.realpath(image_file)
+    assert missing_path is None
+    assert traversal_path is None
+    assert drive_like_path is None
+    assert outside_absolute_path is None
 
 
 def test_advanced_image_source_loader_lists_and_expands_external_folders():
@@ -1070,6 +1105,80 @@ def test_ltx_model_loader_declares_three_loading_modes():
     assert node_cls.CATEGORY == "Deno/LTX"
     assert "ComfyUI-GGUF" in node_cls.DESCRIPTION
     assert "comfyui-kjnodes" in node_cls.DESCRIPTION
+
+
+def test_ltx_model_loader_frontend_hides_text_projection_for_checkpoint_style():
+    script = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
+
+    assert 'toggleWidgetVisibility(getWidget(this, "checkpoint_name"), checkpointMode);' in script
+    assert 'toggleWidgetVisibility(getWidget(this, "text_projection_name"), kjMode || ggufMode);' in script
+
+
+def test_ltx_model_loader_checkpoint_style_uses_checkpoint_as_clip_projection():
+    package = load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx23_preset_loader"]
+    nodes_module = sys.modules["nodes"]
+    comfy_extras = sys.modules["comfy_extras"]
+
+    calls = {}
+    nodes_lt_audio = types.ModuleType("comfy_extras.nodes_lt_audio")
+
+    class LTXAVTextEncoderLoader:
+        @classmethod
+        def execute(cls, text_encoder, ckpt_name, device="default"):
+            calls["clip"] = (text_encoder, ckpt_name, device)
+            return ("checkpoint_style_clip",)
+
+    class LTXVAudioVAELoader:
+        @classmethod
+        def execute(cls, ckpt_name):
+            calls["audio_vae"] = ckpt_name
+            return ("audio_vae",)
+
+    class DualCLIPLoaderMustNotRun:
+        def load_clip(self, *args, **kwargs):
+            raise AssertionError("Checkpoint Style must not use DualCLIPLoader/text_projection.")
+
+    nodes_lt_audio.LTXAVTextEncoderLoader = LTXAVTextEncoderLoader
+    nodes_lt_audio.LTXVAudioVAELoader = LTXVAudioVAELoader
+
+    original_dual_clip_loader = nodes_module.DualCLIPLoader
+    original_nodes_lt_audio = sys.modules.get("comfy_extras.nodes_lt_audio")
+    original_comfy_extras_nodes_lt_audio = getattr(comfy_extras, "nodes_lt_audio", None)
+
+    nodes_module.DualCLIPLoader = DualCLIPLoaderMustNotRun
+    sys.modules["comfy_extras.nodes_lt_audio"] = nodes_lt_audio
+    comfy_extras.nodes_lt_audio = nodes_lt_audio
+    try:
+        result = module.DenoLTX23PresetLoader().load_ltx_model(
+            "Checkpoint Style",
+            "ltx-2.3-22b-dev.safetensors",
+            "gemma_3_12B_it_fp4_mixed.safetensors",
+            "unused_text_projection.safetensors",
+            "unused_diffusion.safetensors",
+            "__none__",
+            "unused_video_vae.safetensors",
+            "unused_audio_vae.safetensors",
+            "cpu",
+            "default",
+        )
+    finally:
+        nodes_module.DualCLIPLoader = original_dual_clip_loader
+        if original_nodes_lt_audio is None:
+            sys.modules.pop("comfy_extras.nodes_lt_audio", None)
+        else:
+            sys.modules["comfy_extras.nodes_lt_audio"] = original_nodes_lt_audio
+        if original_comfy_extras_nodes_lt_audio is None:
+            try:
+                delattr(comfy_extras, "nodes_lt_audio")
+            except AttributeError:
+                pass
+        else:
+            comfy_extras.nodes_lt_audio = original_comfy_extras_nodes_lt_audio
+
+    assert result == ("model", "checkpoint_style_clip", "video_vae", "audio_vae")
+    assert calls["clip"] == ("gemma_3_12B_it_fp4_mixed.safetensors", "ltx-2.3-22b-dev.safetensors", "cpu")
+    assert calls["audio_vae"] == "ltx-2.3-22b-dev.safetensors"
 
 
 def test_ltx_model_loader_has_friendly_gguf_dependency_errors():

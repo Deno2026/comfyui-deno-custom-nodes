@@ -59,6 +59,36 @@ def _resolve_input_browser_dir(input_dir: str, relative_path: str) -> str | None
     return candidate_dir if os.path.isdir(candidate_dir) else None
 
 
+def _resolve_input_image_copy_path(path: str | None) -> str | None:
+    raw_path = str(path or "").strip()
+    if not raw_path:
+        return None
+
+    if os.path.isabs(raw_path):
+        candidate_path = os.path.realpath(raw_path)
+        return candidate_path if os.path.isfile(candidate_path) else None
+
+    folder_paths = _get_folder_paths()
+    if folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
+        return None
+
+    browser_path = _normalize_input_browser_path(raw_path)
+    if browser_path is None:
+        return None
+
+    input_dir = os.path.realpath(folder_paths.get_input_directory())
+    candidate_path = os.path.realpath(os.path.join(input_dir, browser_path))
+
+    try:
+        common_path = os.path.commonpath([os.path.normcase(input_dir), os.path.normcase(candidate_path)])
+    except ValueError:
+        return None
+
+    if common_path != os.path.normcase(input_dir):
+        return None
+    return candidate_path if os.path.isfile(candidate_path) else None
+
+
 def _to_input_relative_path(input_dir: str, full_path: str) -> str:
     relative = os.path.relpath(full_path, input_dir)
     if relative == ".":
@@ -139,6 +169,17 @@ async def deno_input_folder_images(request):
     if browser_path is None:
         return web.json_response({"error": "Invalid input folder path."}, status=400)
     return web.json_response(_list_input_folder_entries(browser_path))
+
+
+@PromptServer.instance.routes.get("/deno/input-image-path")
+async def deno_input_image_path(request):
+    requested_path = request.query.get("path", "")
+    resolved_path = _resolve_input_image_copy_path(requested_path)
+    return web.json_response({
+        "path": requested_path,
+        "resolved_path": resolved_path or "",
+        "exists": bool(resolved_path),
+    })
 
 
 def _split_paths(image_paths: str) -> List[str]:

@@ -311,6 +311,7 @@ function setupLtxPresetLoader(node) {
         toggleWidgetVisibility(getWidget(this, "gguf_unet_name"), ggufMode);
         toggleWidgetVisibility(getWidget(this, "video_vae_name"), kjMode || ggufMode);
         toggleWidgetVisibility(getWidget(this, "audio_vae_name"), kjMode || ggufMode);
+        toggleWidgetVisibility(getWidget(this, "text_projection_name"), kjMode || ggufMode);
         const weightWidget = getWeightDtypeWidget();
         toggleWidgetVisibility(weightWidget, kjMode);
 
@@ -1303,8 +1304,8 @@ function showImageCardMenu(event, path, image) {
         callback: async (value) => {
             const selected = String(value?.content ?? value?.value ?? value);
             if (selected === "Copy Image Path") {
-                await copyTextToClipboard(String(path || ""));
-                showLoaderToast("Image path copied.");
+                await copyTextToClipboard(await resolveInputImageCopyPath(path));
+                showLoaderToast("Full image path copied.");
                 return;
             }
             try {
@@ -1312,11 +1313,31 @@ function showImageCardMenu(event, path, image) {
                 showLoaderToast("Image copied.");
             } catch (error) {
                 console.warn("[DenoMultiImageLoader] Copy image failed.", error);
-                const copiedPath = await copyTextToClipboard(String(path || ""));
+                const copiedPath = await copyTextToClipboard(await resolveInputImageCopyPath(path));
                 showLoaderToast(copiedPath ? "Copy image failed. Path copied." : "Copy image failed.");
             }
         },
     });
+}
+
+async function resolveInputImageCopyPath(path) {
+    const storedPath = String(path || "");
+    if (!storedPath) {
+        return "";
+    }
+    try {
+        const response = await api.fetchApi(`/deno/input-image-path?path=${encodeURIComponent(storedPath)}`);
+        if (response?.ok) {
+            const payload = await response.json();
+            const resolvedPath = String(payload?.resolved_path || "");
+            if (resolvedPath) {
+                return resolvedPath;
+            }
+        }
+    } catch (error) {
+        console.warn("[DenoMultiImageLoader] Resolve image path failed.", error);
+    }
+    return storedPath;
 }
 
 async function copyImageElementToClipboard(image, path) {
