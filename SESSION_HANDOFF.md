@@ -1,5 +1,117 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 하드 규칙 보강 (2026-05-26, Codex) — ComfyUI 재시작 전 기존 프로세스 종료
+>
+> **요청/맥락:** 사용자가 ComfyUI를 새로 켤 때 기존 실행본을 같이 종료하지 않으면
+> 프로세스/창이 계속 쌓인다고 지적. 앞으로 SageAttention bat 재시작 시 기존
+> ComfyUI를 남겨두지 말 것을 요청.
+>
+> **규칙:**
+> - SageAttention bat를 새로 실행하기 전에는 먼저 ComfyUI queue가 idle인지 확인한다.
+> - idle이면 기존 Easy Install ComfyUI `main.py` 프로세스를 종료한다.
+> - 기존 프로세스가 남아 있는 상태에서 `Start ComfyUI SageAttention.bat`를 추가로
+>   띄워 ComfyUI 인스턴스를 누적하지 않는다.
+> - 작업 실행 중이면 중간 종료하지 않고, 위험을 보고하거나 idle까지 기다린다.
+> - 새 실행은 기존 규칙대로 반드시 보이는
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\Start ComfyUI SageAttention.bat`
+>   로만 한다.
+>
+> **규칙 반영 위치:**
+> - `C:\Users\aions\Documents\Codex\전역설정.md`
+> - `E:\DENO-Repos\comfyui-deno-custom-nodes\AGENTS.md`
+>
+> ---
+
+> ## ▶ 최신 로컬 수정 (2026-05-26, Codex) — Visual Fold stale group 선택 오인 방지
+>
+> **요청/맥락:** 사용자가 Fold 기능과 Align/정렬 기능을 쓰다 보면, 정렬 완료 후
+> 정렬된 일반 노드 3개를 다시 선택했는데 실제 ComfyUI group이 아닌 상태에서도
+> `Fold Group` 옵션이 갑자기 뜬다고 제보.
+>
+> **원인:** `web/js/deno_visual_fold.js`의 `selectedGroups()`가
+> `app.canvas.selected_group` / `selectedGroup` legacy 값을 그대로 신뢰하고 있었음.
+> ComfyUI가 정렬/선택 전환 후 이 값을 비우지 않으면, 현재는 일반 노드를
+> 선택한 상태인데도 이전 group 객체를 아직 선택된 group처럼 판단할 수 있었음.
+>
+> **수정:**
+> - 일반 노드가 하나라도 선택되어 있으면 stale legacy group selection을 무시.
+> - `Fold Group` 버튼/메뉴는 `clean.length === 0`일 때만, 즉 일반 선택 노드가
+>   없는 진짜 group 선택 상태에서만 표시되도록 제한.
+> - `tests/test_registry_metadata.py`에 stale group 방지 문자열 회귀 테스트 추가.
+> - `CHANGELOG.md` Unreleased에 Visual Fold stale group 선택 방지 항목 추가.
+> - README의 RTX VFX `divisible_by` 설명이 0.7.19 변경 전 기준으로 남아 있어,
+>   기본값 `1` / 필요 시 `32` 사용 설명으로 갱신.
+>
+> **검증:**
+> - `node --check web/js/deno_visual_fold.js` 통과.
+> - `python -m pytest tests/test_registry_metadata.py tests/test_image_resize_node.py`
+>   → 60 passed.
+> - `git diff --check` 통과.
+> - 실행본
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`
+>   에 `web\js\deno_visual_fold.js` 복사 후 SHA256 일치 확인.
+> - 큐 idle 확인 후 기존 ComfyUI PID `30184` 종료.
+> - 숨김 실행 없이
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\Start ComfyUI SageAttention.bat`
+>   를 보이는 창으로 재실행.
+> - `/system_stats` 확인 완료.
+> - served JS에서 `const hasSelectedNodes = selectedNodes().length > 0;`,
+>   `Normal node selection wins.`, `clean.length === 0 && groups.length === 1`
+>   포함 확인.
+>
+> **사용자 테스트:** Chrome 새로고침 후, 일반 노드 3개 선택 상태에서 toolbar/context
+> menu에 `Fold Group`이 뜨지 않고 일반 `Fold`/`Align`만 뜨는지 확인.
+>
+> ---
+
+> ## ▶ 최신 로컬 수정 (2026-05-26, Codex) — RTX VFX 패널 캔버스 휠/휠클릭 네비게이션 보존
+>
+> **요청/맥락:** 사용자가 DENO 노드 상단/패널 위에서 마우스 휠 또는 휠클릭을
+> 사용할 때 커스텀 DOM이 ComfyUI 캔버스보다 우선되어 캔버스 줌/팬이 작동하지
+> 않는 경우가 많다고 지적. 이어서 2 Pass RTX 노드도 제대로 작동하지 않는다고
+> 확인 요청.
+>
+> **확인:** `web/js/deno_rtx_vfx_video_finisher.js`와
+> `web/js/deno_rtx_vfx_easy_upscale.js`에는 wheel forwarding만 있었고,
+> Video Compare처럼 middle-button / wheel-click drag를 ComfyUI canvas pan으로
+> 처리하는 로직이 없었음.
+>
+> **수정:**
+> - `AGENTS.md`에 frontend interaction hard rule 추가:
+>   DOM widget/preview/overlay가 ComfyUI canvas navigation을 삼키지 말 것.
+> - `docs/DENO_NODE_RETROSPECTIVE.md`의 LiteGraph pitfall 및 검증 루틴에
+>   wheel zoom/scroll, middle-click pan 확인 항목 추가.
+> - `web/js/deno_rtx_vfx_video_finisher.js`: 2 Pass RTX 패널 위
+>   middle-button drag → ComfyUI canvas pan, middle auxclick 억제 추가.
+> - `web/js/deno_rtx_vfx_easy_upscale.js`: Easy RTX 패널에도 동일 적용.
+> - 텍스트 입력류(`input`, `textarea`, `contenteditable`)는 예외로 남겨둠.
+> - `tests/test_image_resize_node.py`: RTX frontend에 pointerdown/auxclick/pan 로직이
+>   포함되는지 회귀 테스트 추가.
+> - `CHANGELOG.md`: Unreleased에 RTX VFX 패널 navigation 보존 항목 추가.
+>
+> **검증:**
+> - `node --check web/js/deno_rtx_vfx_easy_upscale.js` 통과.
+> - `node --check web/js/deno_rtx_vfx_video_finisher.js` 통과.
+> - `python -m pytest tests/test_image_resize_node.py` → 48 passed.
+> - `git diff --check` 통과.
+> - 실행본
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`
+>   에 두 RTX JS 파일 복사 후 SHA256 일치 확인.
+> - 큐 idle 확인 후 기존 ComfyUI PID `26704` 종료.
+> - 숨김 실행 없이
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\Start ComfyUI SageAttention.bat`
+>   를 보이는 창으로 재실행.
+> - `/system_stats` 확인 완료, argv는
+>   `ComfyUI\main.py --windows-standalone-build --use-sage-attention`.
+> - served JS에서 `root.addEventListener("pointerdown")`,
+>   `root.addEventListener("auxclick")`, `canvas.ds.offset[0]`,
+>   `isEditableTextTarget` 포함 확인.
+>
+> **사용자 테스트:** Chrome 새로고침 후 2 Pass RTX 노드 패널 위에서
+> 마우스 휠 줌/스크롤과 휠클릭 드래그 pan을 확인하면 됨.
+>
+> ---
+
 > ## ▶ 배포 기록 (2026-05-26, Codex) — 0.7.19 Registry 제출 완료
 >
 > **요청/맥락:** 사용자가 RTX VFX 영상 크롭/패딩 완화 수정까지 배포 진행 요청.

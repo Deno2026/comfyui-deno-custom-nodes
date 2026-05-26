@@ -516,6 +516,51 @@ function installCanvasWheelForwarding(root) {
             metaKey: event.metaKey,
         }));
     }, { passive: false });
+
+    root.addEventListener("pointerdown", (event) => {
+        if (event.button !== 1 || isEditableTextTarget(event.target)) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const canvas = app.canvas;
+        if (!canvas?.ds?.offset) {
+            return;
+        }
+        let lastX = event.clientX;
+        let lastY = event.clientY;
+        const move = (moveEvent) => {
+            const scale = canvas.ds.scale || 1;
+            canvas.ds.offset[0] += (moveEvent.clientX - lastX) / scale;
+            canvas.ds.offset[1] += (moveEvent.clientY - lastY) / scale;
+            lastX = moveEvent.clientX;
+            lastY = moveEvent.clientY;
+            if (canvas.setDirty) {
+                canvas.setDirty(true, true);
+            } else {
+                app.graph?.setDirtyCanvas?.(true, true);
+            }
+        };
+        const up = () => {
+            window.removeEventListener("pointermove", move, true);
+            window.removeEventListener("pointerup", up, true);
+        };
+        window.addEventListener("pointermove", move, true);
+        window.addEventListener("pointerup", up, true);
+    }, true);
+
+    root.addEventListener("auxclick", (event) => {
+        if (event.button !== 1 || isEditableTextTarget(event.target)) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    }, true);
+}
+
+function isEditableTextTarget(target) {
+    const element = target?.closest?.("input, textarea, [contenteditable='true']");
+    return Boolean(element);
 }
 
 function setBackend(node, name, value) {

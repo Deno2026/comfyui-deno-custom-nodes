@@ -41,6 +41,7 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
 
 - Arrow-click numeric widgets can fail when custom drawing/event handling blocks default LiteGraph behavior.
 - Right-click and drag events often need explicit canvas-coordinate handling.
+- Custom DOM widgets and node-top overlays can swallow ComfyUI canvas navigation. Wheel over a DENO node should still reach the ComfyUI canvas for zoom/scroll unless the user is inside an intentional local scroll area. Middle-click / wheel-click drag over non-text controls should pan the canvas or be explicitly forwarded.
 - Dynamic rows need both row-level behavior and node-level fallback context menus.
 - Node size can reset if `computeSize`, `setSize`, or custom draw logic fights the user's manual resize.
 - Expanding/collapsing one area must not accidentally resize unrelated text areas.
@@ -91,9 +92,10 @@ Run this before saying a node is done:
 8. Confirm `/object_info` for changed nodes.
 9. If frontend changed, confirm served JS contains the new behavior.
 10. Open the node in the real ComfyUI frontend when the change affects UI or user interaction.
-11. Check for clipped text, broken layout, awkward sizing, unreadable labels, asymmetric UI, and buttons/toggles/dropdowns that do not respond.
-12. For complex multi-part nodes, test each major function and make sure one fix did not break another feature.
-13. Explain what was verified and what still requires browser-side user confirmation.
+11. Check that wheel over the node still controls ComfyUI canvas zoom/scroll and middle-click / wheel-click drag still pans the canvas unless the pointer is inside a deliberate local scroll area.
+12. Check for clipped text, broken layout, awkward sizing, unreadable labels, asymmetric UI, and buttons/toggles/dropdowns that do not respond.
+13. For complex multi-part nodes, test each major function and make sure one fix did not break another feature.
+14. Explain what was verified and what still requires browser-side user confirmation.
 
 ## 11. Deployment Routine
 

@@ -115,6 +115,9 @@ def test_visual_fold_frontend_is_visual_only():
     assert "function foldedChipWidth" in script
     assert "function graphGroups" in script
     assert "function selectedGroups" in script
+    assert "const hasSelectedNodes = selectedNodes().length > 0;" in script
+    assert "Normal node selection wins." in script
+    assert "clean.length === 0 && groups.length === 1" in script
     assert "function groupBounds" in script
     assert "function setGroupBounds" in script
     assert "function nodesInGroup" in script

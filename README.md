@@ -222,8 +222,8 @@ Main features:
 - keeps Low, Medium, High, and Ultra quality as a separate selector
 - for Video SR and High Bitrate, supports `Scale`, `Keep Ratio`, `Manual`, and `Preset Ratio` resize choices
 - `Keep Ratio` and `Preset Ratio` use target megapixels; `Manual` uses width and height
-- exposes `divisible_by` alignment for resizable modes, with `32` as the safe default for NVIDIA VFX output
-- does not expose unrestricted `1` alignment in RTX VFX, because arbitrary unaligned sizes can corrupt the NVIDIA VFX result
+- exposes `divisible_by` alignment for resizable modes, with `1` as the default so standard video sizes such as 1920x1080 stay exact
+- higher alignment values such as `32` remain available when a workflow specifically needs forced multiple-of-N output
 - shows `Center Crop (Fill)` / `Fit (Letterbox/Pillarbox)` when a manual, preset-ratio, or aligned keep-ratio resize can change aspect ratio
 - `Denoise` and `Deblur` keep the original size and hide resize controls, matching NVIDIA's same-size VSR modes
 - shows resize controls only when they apply to the selected effect

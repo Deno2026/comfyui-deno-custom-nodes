@@ -95,18 +95,23 @@ function selectedGroups(fallback) {
   const result = [];
   const groups = graphGroups();
   const selectedItems = app.canvas?.selectedItems;
+  const hasSelectedNodes = selectedNodes().length > 0;
 
-  if (selectedItems && typeof selectedItems.has === "function") {
-    for (const group of groups) {
-      if (selectedItems.has(group)) addUnique(result, group);
+  // ComfyUI can leave legacy selected_group / selectedGroup state behind
+  // after node alignment or selection changes. Normal node selection wins.
+  if (!hasSelectedNodes) {
+    if (selectedItems && typeof selectedItems.has === "function") {
+      for (const group of groups) {
+        if (selectedItems.has(group)) addUnique(result, group);
+      }
     }
-  }
 
-  addUnique(result, app.canvas?.selected_group);
-  addUnique(result, app.canvas?.selectedGroup);
+    addUnique(result, app.canvas?.selected_group);
+    addUnique(result, app.canvas?.selectedGroup);
 
-  for (const group of groups) {
-    if (group?.selected) addUnique(result, group);
+    for (const group of groups) {
+      if (group?.selected) addUnique(result, group);
+    }
   }
 
   if (fallback && groups.includes(fallback)) {
@@ -1372,8 +1377,8 @@ function updateFoldButton() {
   const selected = selectedNodes();
   const folded = selected.find((node) => foldMeta(node));
   const groups = selectedGroups();
-  const foldableGroup = !folded && groups.length === 1 && nodesInGroup(groups[0]).length ? groups[0] : null;
   const clean = selected.filter((node) => !foldMeta(node));
+  const foldableGroup = !folded && clean.length === 0 && groups.length === 1 && nodesInGroup(groups[0]).length ? groups[0] : null;
   const actionNodes = folded ? [folded] : clean;
   const action = folded ? FLOAT_UNFOLD_LABEL : (foldableGroup ? FLOAT_FOLD_GROUP_LABEL : FLOAT_BUTTON_LABEL);
 
@@ -1593,8 +1598,8 @@ function addSelectedMenuOptions(options) {
   const selected = selectedNodes();
   const folded = selected.find((node) => foldMeta(node));
   const groups = selectedGroups();
-  const foldableGroup = !folded && groups.length === 1 && nodesInGroup(groups[0]).length ? groups[0] : null;
   const clean = selected.filter((node) => !foldMeta(node));
+  const foldableGroup = !folded && clean.length === 0 && groups.length === 1 && nodesInGroup(groups[0]).length ? groups[0] : null;
 
   const items = [];
   if (folded && !hasMenuItem(options, RENAME_LABEL)) {

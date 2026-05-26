@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## 0.7.20 - 2026-05-26
+
+- RTX VFX node panels keep ComfyUI canvas wheel and middle-click navigation available.
+- Visual Fold no longer shows Fold Group from stale group selection while normal nodes are selected.
+
 ## 0.7.19 - 2026-05-26
 
 - Video Compare output naming polish.

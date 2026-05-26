@@ -278,6 +278,10 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "ui.height() + PANEL_BOTTOM_GAP" in script
     assert "installCanvasWheelForwarding(root);" in script
     assert 'root.addEventListener("wheel"' in script
+    assert 'root.addEventListener("pointerdown"' in script
+    assert 'root.addEventListener("auxclick"' in script
+    assert "event.button !== 1" in script
+    assert "canvas.ds.offset[0]" in script
     assert "new WheelEvent" in script
 
     finisher_script = (REPO_ROOT / "web" / "js" / "deno_rtx_vfx_video_finisher.js").read_text(encoding="utf-8")
@@ -285,6 +289,10 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert 'VSR: "Video SR"' in finisher_script
     assert "installCanvasWheelForwarding(root);" in finisher_script
     assert 'root.addEventListener("wheel"' in finisher_script
+    assert 'root.addEventListener("pointerdown"' in finisher_script
+    assert 'root.addEventListener("auxclick"' in finisher_script
+    assert "event.button !== 1" in finisher_script
+    assert "canvas.ds.offset[0]" in finisher_script
     assert "new WheelEvent" in finisher_script
     assert 'const DIVISIBLE_BY_VALUES = ["1", "8", "16", "32", "64", "128"];' in finisher_script
     assert 'divisible_by: "1"' in finisher_script
