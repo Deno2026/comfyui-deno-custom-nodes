@@ -22,6 +22,42 @@
 >
 > ---
 
+> ## ▶ 배포 기록 (2026-05-26, Codex) — 0.7.20 Registry 제출 완료
+>
+> **요청/맥락:** 사용자가 현재 기준 변경분 전체 배포를 요청. 이번 배포에는
+> RTX VFX 패널의 ComfyUI 캔버스 휠/휠클릭 네비게이션 보존, Visual Fold stale
+> group 선택 오인 방지, README의 RTX VFX `divisible_by` 설명 정정이 포함됨.
+>
+> **배포 커밋:**
+> - `7e22fc5` — `Release 0.7.20 canvas navigation fixes`
+> - `pyproject.toml` `0.7.19 → 0.7.20`.
+> - `CHANGELOG.md`에 `0.7.20 - 2026-05-26` 공개 항목 추가.
+> - `origin/main`으로 push 완료.
+>
+> **GitHub Actions:**
+> - Publish workflow:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26432248474`
+> - CI workflow:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26432248498`
+> - Pages workflow:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26432248030`
+> - 결과: 세 workflow 모두 `success`.
+>
+> **Registry 1회 확인 결과:**
+> - API: `https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true`
+> - `0.7.20` 버전 생성됨:
+>   `NodeVersionStatusPending`, `status_reason=""`,
+>   `comfy_node_extract_status="pending"`.
+> - 다운로드 URL:
+>   `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.20/node.zip`
+>
+> **다음 확인 규칙:** 추가 폴링은 하지 않음. 사용자가 다시 상태 확인을 요청하면
+> Registry API를 1회 확인한다. `0.7.20`이 Active가 되고 latest도 `0.7.20`이면
+> 완료 보고. Flagged/Rejected가 되면 `status_reason`을 먼저 보고 해당 파일만
+> 최소 수정한다.
+>
+> ---
+
 > ## ▶ 최신 로컬 수정 (2026-05-26, Codex) — Visual Fold stale group 선택 오인 방지
 >
 > **요청/맥락:** 사용자가 Fold 기능과 Align/정렬 기능을 쓰다 보면, 정렬 완료 후
