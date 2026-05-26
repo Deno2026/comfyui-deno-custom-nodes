@@ -1,5 +1,327 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 최신 로컬 수정 (2026-05-26, Codex) — RTX VFX 영상 크롭/패딩 완화
+>
+> **요청/맥락:** Reddit 댓글에서 1280×720 이미지를 1920×1080 또는
+> 2560×1440으로 RTX 2 Pass 업스케일할 때 양쪽/전체가 잘리고, `resize_type`,
+> `divisible_by`, `resize_method`, 강제 width/height, 외부 resize 노드를 바꿔도
+> 달라지지 않는다는 보고를 확인. 첨부 스크린샷은 2 Pass 노드가
+> `Manual`, `1920×1080`, `divisible_by=32`, `Fit (Letterbox/Pillarbox)`로
+> 설정되어 있었음.
+>
+> **진단:** 기존 RTX VFX 노드는 영상 표준 해상도에도 `divisible_by=32`만 허용해
+> 1920×1080 같은 목표를 내부에서 1920×1088처럼 올릴 수 있었다. 이러면 사용자는
+> 16:9를 지정했다고 생각해도 NVIDIA VFX 단계에는 미묘하게 다른 비율이 들어가며,
+> 패딩/크롭/검은 여백이 섞여 보일 수 있다. NVIDIA 문서상 업스케일 계열은 가로/세로
+> 스케일 비율 일치가 중요하므로, 영상 크기에서는 정확한 목표 크기를 우선하도록 수정.
+>
+> **수정:**
+> - `deno_rtx_vfx_easy_upscale.py`: RTX VFX `divisible_by` 선택지에 `1` 추가,
+>   기본값을 `1`로 변경.
+> - `web/js/deno_rtx_vfx_easy_upscale.js`: frontend 기본값/허용값 동기화.
+> - `web/js/deno_rtx_vfx_video_finisher.js`: 2 Pass frontend 기본값/허용값 동기화,
+>   하단 안내를 `use divisible_by 1 for exact video sizes`로 변경.
+> - `tests/test_image_resize_node.py`: 1280×720 → 1920×1080 수동 목표가
+>   `divisible_by=1`에서 그대로 유지되는 회귀 테스트 추가.
+> - `CHANGELOG.md`: 공개 사용자 체감 변경으로 짧게 기록.
+>
+> **검증:**
+> - `python -m py_compile deno_rtx_vfx_easy_upscale.py deno_rtx_vfx_video_finisher.py`
+>   통과.
+> - `node --check web/js/deno_rtx_vfx_easy_upscale.js` 및
+>   `node --check web/js/deno_rtx_vfx_video_finisher.js` 통과.
+> - `python -m pytest tests/test_image_resize_node.py` → 48 passed.
+> - 실행본 복사:
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`
+>   에 `deno_rtx_vfx_easy_upscale.py`,
+>   `web\js\deno_rtx_vfx_easy_upscale.js`,
+>   `web\js\deno_rtx_vfx_video_finisher.js` 복사 후 SHA256 일치 확인.
+> - ComfyUI는 숨김 실행 없이
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\Start ComfyUI SageAttention.bat`
+>   를 보이는 창으로 실행.
+> - `/system_stats` 확인: argv는
+>   `ComfyUI\main.py --windows-standalone-build --use-sage-attention`.
+> - `/object_info/DenoRTXVFXEasyUpscale` 및
+>   `/object_info/DenoRTXVFXVideoFinisher`에서 `divisible_by` 선택지
+>   `["1","8","16","32","64","128"]`, 기본값 `"1"` 확인.
+> - served JS에서도 2 Pass 안내/기본값 반영 확인.
+>
+> **사용자 테스트 권장:** Chrome 새로고침 후 RTX 2 Pass 노드에서
+> `Manual`, `1920×1080` 또는 `2560×1440`, `divisible_by=1`,
+> `Fit (Letterbox/Pillarbox)`로 다시 테스트. 기존 워크플로 저장값이
+> `32`로 남아 있으면 직접 `1`로 바꿔야 한다.
+>
+> ---
+
+> ## ▶ 하드 규칙 보강 (2026-05-24, Codex) — ComfyUI 재시작은 숨김 실행 금지
+>
+> **요청/맥락:** 사용자가 ComfyUI 재시작을 백그라운드/숨김 실행으로 띄우지 말고,
+> 항상 `Start ComfyUI SageAttention.bat` 파일로 보이는 창에서 실행하라고 지적.
+> 숨김 실행으로 포트만 점유하면 사용자가 직접 실행하려 할 때 "이미 실행 중"으로
+> 보여 불편해짐.
+>
+> **절대 규칙:**
+> - SageAttention ComfyUI 재시작은 반드시
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\Start ComfyUI SageAttention.bat`
+>   를 보이는 콘솔 창으로 실행한다.
+> - `Start-Process -WindowStyle Hidden`, 백그라운드 서비스식 실행, 숨김 포트 점유
+>   재시작 금지.
+> - 재시작 전 큐 idle 확인은 유지한다.
+> - 재시작 후 `/system_stats` 또는 `/object_info/<NodeName>` 확인은 유지한다.
+>
+> **규칙 반영 위치:**
+> - `C:\Users\aions\Documents\Codex\전역설정.md`
+> - `E:\DENO-Repos\comfyui-deno-custom-nodes\AGENTS.md`
+>
+> ---
+
+> ## ▶ 운영 설정 원복 (2026-05-24, Codex) — SageAttention reserve VRAM 제거
+>
+> **요청/맥락:** 사용자가 `--reserve-vram 3` 적용 후 ComfyUI가 체감상 너무 느려졌고,
+> Dynamic VRAM이 무효화되는지 확인 요청. 코드 확인 결과 reserve 옵션은
+> Dynamic VRAM을 끄지는 않지만 ComfyUI의 사용 가능 VRAM 계산을 보수적으로
+> 만들어 큰 워크플로에서 모델 부분 로딩/오프로딩이 늘 수 있음.
+>
+> **변경:**
+> - `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\Start ComfyUI SageAttention.bat`
+>   실행 줄에서 `--reserve-vram 3` 제거.
+> - 변경 전 백업:
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\codex-backups\20260524-reset-reserve-vram\`
+>
+> **검증:**
+> - ComfyUI 큐가 비어 있음을 확인한 뒤 재시작.
+> - `/system_stats`에서 argv가
+>   `ComfyUI\main.py --windows-standalone-build --use-sage-attention`만 포함하고
+>   `--reserve-vram`이 없는 것 확인.
+> - 재시작 후에도 VRAM이 높게 보이는 원인은 reserve가 아니라
+>   Ollama `gemma4:31b-it-q4_K_M`이 다시 GPU에 올라와 약 24.6GB를 점유한 것.
+>
+> **현재 권장:** OBS 1080p/30fps 병행만 고려하면 기본값 또는 필요 시
+> `--reserve-vram 1.5~2` 정도가 현실적. Ollama 대형 모델이 같이 올라와 있으면
+> reserve 값과 무관하게 ComfyUI가 느려질 수 있으므로 먼저 Ollama 모델 언로드 확인.
+>
+> ---
+
+> ## ▶ 문서 운영 추가 (2026-05-24, Codex) — 공개 Changelog + GitHub Release 템플릿
+>
+> **요청/맥락:** 사용자가 버그 수정/업데이트 내역을 GitHub 쪽에 남길 공식 공간이
+> 필요하다고 판단. 단, README가 길어지는 것은 피하고, 공개 표기는 짧고
+> 표면적인 사용자 체감 변경만 남기며 내부 구현 세부사항은 굳이 공개 기록에
+> 쓰지 않기를 원함.
+>
+> **수정:**
+> - `CHANGELOG.md` 추가. 최신 항목만 짧게 노출하고, 이전 공개 하이라이트는
+>   GitHub Markdown `<details>` 접기/펼치기 섹션으로 정리.
+> - `.github/RELEASE_TEMPLATE.md` 추가. 실제 GitHub Release 작성 시
+>   `Public Highlights`는 짧게 쓰고, 호환성/이슈 링크는 접힌 섹션에 넣는
+>   형식으로 고정.
+> - `README.md`에는 긴 변경 내역을 넣지 않고 `CHANGELOG.md` 링크만 추가.
+> - `.github/pull_request_template.md` 체크리스트에 사용자 체감 변경 시
+>   `CHANGELOG.md` 갱신 항목 추가.
+>
+> **운영 원칙:**
+> - README에는 변경 내역을 누적하지 않는다.
+> - GitHub Release/CHANGELOG는 사용자에게 보이는 결과 중심으로만 짧게 쓴다.
+> - 세부 구현, 로컬 검증, 런타임 복사/재시작 같은 내부 기록은
+>   `SESSION_HANDOFF.md`에 남긴다.
+> - 실제 GitHub Release 발행은 태그/버전 배포 시점의 공개 액션이므로,
+>   이번 변경에서는 템플릿과 changelog 기반만 준비하고 릴리즈 발행은 하지 않음.
+>
+> ---
+
+> ## ▶ 운영 규칙 추가 (2026-05-24, Codex) — 노드 수정 후 SageAttention 자동 재시작
+>
+> **요청/맥락:** 사용자가 DENO ComfyUI 노드 로컬 수정/업데이트 후에는
+> 별도 지시 없이도 에이전트가 ComfyUI SageAttention bat를 재시작해 띄워두고,
+> 사용자는 Chrome 새로고침만으로 바로 테스트할 수 있기를 요청.
+>
+> **추가한 규칙 위치:**
+> - `C:\Users\aions\Documents\Codex\전역설정.md` §4 기본 검증 루틴.
+> - `E:\DENO-Repos\comfyui-deno-custom-nodes\AGENTS.md`.
+>
+> **규칙 요약:**
+> - DENO ComfyUI 노드의 로컬 런타임 파일(Python/JS)을 수정하거나 실행본에
+>   복사한 뒤에는 기본적으로
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\Start ComfyUI SageAttention.bat`
+>   를 재시작해 띄운다.
+> - 문서/README/테스트만 바꾼 경우에는 재시작하지 않는다.
+> - 큐가 실행 중이면 중간에 죽이지 말고 idle 확인 후 재시작하거나 위험을 보고한다.
+> - 재시작 후 `/system_stats` 또는 `/object_info/<NodeName>` 응답을 확인하고,
+>   frontend 변경은 사용자가 Chrome 새로고침 후 바로 테스트할 수 있게 보고한다.
+>
+> **현재 세션:** 규칙 기록 후, 직전 Video Compare 런타임 수정분이 바로 테스트될
+> 수 있도록 `Start ComfyUI SageAttention.bat`를 실행함. `/system_stats` 응답
+> 확인 완료, argv에 `--use-sage-attention --reserve-vram 3` 표시 확인.
+> `/object_info/DenoVideoCompare` 응답 확인 완료. served JS
+> `/extensions/deno-custom-nodes/deno_video_compare.js`에서도 `Output Badges`,
+> `Output` 라벨 문구가 반영되고 옛 `Output Images SBS/Diff` 문자열이 없는 것
+> 확인 완료. 사용자는 Chrome 새로고침 후 테스트하면 됨.
+>
+> ---
+
+> ## ▶ 운영 설정 변경 (2026-05-24, Codex) — Easy Install SageAttention reserve VRAM 3GB
+>
+> **요청/맥락:** 사용자가 OBS 1080p/30fps 녹화 위주로 ComfyUI를 함께 쓸 예정이라
+> 기존 6GB reserve는 과하다고 판단. 바탕화면 `ComfyUI - Sage Attention.lnk`
+> 실행 경로의 현재 설정을 확인한 뒤 3GB reserve 적용을 요청.
+>
+> **확인한 현재 경로:**
+> - 바로가기: `C:\Users\aions\Desktop\ComfyUI - Sage Attention.lnk`
+> - 대상: `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\Start ComfyUI SageAttention.bat`
+> - 기존 실행 줄에는 `--reserve-vram`이 없었고 `--use-sage-attention`만 있었음.
+>
+> **변경:**
+> - `Start ComfyUI SageAttention.bat` 실행 줄 끝에 `--reserve-vram 3` 추가.
+> - FlashAttention/기본 Start bat/포트/브릿지/ComfyUI 프로세스는 건드리지 않음.
+> - 원본 백업:
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\codex-backups\20260524-reserve-vram-3\Start ComfyUI SageAttention.bat.before-reserve-vram-3`
+>
+> **검증:**
+> - 바로가기 대상이 수정한 bat 파일과 일치함을 확인.
+> - 수정 후 실행 줄:
+>   `.\python_embeded\python.exe -I -W ignore::FutureWarning ComfyUI\main.py --windows-standalone-build --use-sage-attention --reserve-vram 3`
+> - ComfyUI는 실행하지 않음.
+>
+> **롤백:** 위 백업 파일을 원래 이름으로 되돌리거나, 실행 줄 끝의
+> `--reserve-vram 3`만 제거하면 된다.
+>
+> ---
+
+> ## ▶ 최신 로컬 수정 (2026-05-24, Codex) — Video Compare 출력 라벨/Slider 선/Output Badges UX
+>
+> **요청/맥락:** 사용자가 `(Deno) Video Compare`의 출력 단자 표시가
+> `SBS/Diff`처럼 보여 4개 모드 중 2개만 출력되는 것처럼 보인다고 확인 요청.
+> 이어서 Slider 저장 출력의 구분선을 프리뷰처럼 DENO green으로 맞추고,
+> `Labels` 버튼이 의미가 모호하니 출력물에 라벨/뱃지를 붙이는 용도임을
+> 더 직관적으로 보이게 해달라고 요청.
+>
+> **수정:**
+> - `deno_video_compare.py`: Slider 모드 저장 출력 구분선을 흰색 `(1,1,1)`
+>   에서 DENO green `#48ff84`로 변경.
+> - `web/js/deno_video_compare.js`: 출력 단자 라벨을
+>   `Output Images SBS/Diff`에서 `Output`으로 단순화.
+> - 같은 JS에서 `🏷 Labels` 버튼/툴팁/도움말 문구를
+>   `🏷 Output Badges`로 변경해 "저장 출력에 A/B + 해상도 뱃지 추가" 용도를
+>   바로 읽히게 정리.
+> - `README.md`와 테스트 문구도 새 이름에 맞춤.
+>
+> **검증:**
+> - `node --check web/js/deno_video_compare.js` 통과.
+> - `python -m py_compile deno_video_compare.py` 통과.
+> - `python -m pytest tests/test_image_resize_node.py -q` → **48 passed**.
+> - 실행본
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`
+>   에 `deno_video_compare.py`, `web/js/deno_video_compare.js`만 복사했고,
+>   원본↔실행본 SHA256 해시 일치 확인.
+> - 실행본 파일 기준 `node --check`, `py_compile`도 통과.
+>
+> **주의/다음:** ComfyUI 프로세스 재시작이나 브라우저 캔버스 조작은 하지 않음.
+> 현재 실행 중인 ComfyUI에 Python 변경을 반영하려면 재시작이 필요하고,
+> 프론트 JS 라벨 반영은 브라우저 새로고침/캐시 갱신이 필요할 수 있음.
+> 사용자 승인 전 버전 bump, 커밋, push, Registry 재배포 금지.
+>
+> ---
+
+> ## ▶ 후속 확인 (2026-05-24 10:04 KST, Codex) — 0.7.18 Registry still pending
+>
+> **이어받은 작업:** 직전 핸드오프의 "다음 세션이 할 일"에 따라 Registry
+> API 상태를 1회 확인함. 불필요한 재배포/반복 폴링은 하지 않음.
+>
+> **확인 결과:**
+> - 로컬 원본 repo `E:\DENO-Repos\comfyui-deno-custom-nodes`:
+>   `main` = `origin/main`, 최신 커밋 `dc06dc8`, `pyproject.toml` 버전
+>   `0.7.18`.
+> - Working tree에는 `SESSION_HANDOFF.md`만 수정 상태. 이는 배포 커밋 이후의
+>   로컬 문서 기록이며, 사용자 별도 요청 전에는 커밋/푸시하지 말 것.
+> - `https://api.comfy.org/nodes/deno-custom-nodes/versions?statuses=NodeVersionStatusPending&include_status_reason=true`
+>   응답에서 `0.7.18 = NodeVersionStatusPending`,
+>   `comfy_node_extract_status = pending`, `status_reason = ""`.
+> - `https://api.comfy.org/nodes/deno-custom-nodes` 응답에서
+>   `latest_version.version = 0.7.17`, `latest_version.status =
+>   NodeVersionStatusActive`.
+>
+> **다음 행동:**
+> 1. 지금 상태는 Registry 인덱싱/스캔 대기이므로 재배포하지 않는다.
+> 2. 사용자가 다시 확인을 요청하면 위 두 API를 1회만 다시 확인한다.
+> 3. `0.7.18`이 Active가 되고 latest도 `0.7.18`이면 사용자에게 완료 보고.
+> 4. Flagged/Rejected/status_reason이 생기면 reason을 먼저 보고, 원인 파일만
+>    최소 수정 후 새 버전으로 처리한다.
+>
+> ---
+
+> ## ▶ 최신 세션 (2026-05-24, Codex) — 0.7.18: Copy path + LTX Checkpoint UI 계약 수정
+>
+> **요청/맥락:** 사용자가 `(Deno) Multi Image Loader`의 이미지 우클릭
+> `Copy Image Path`가 실제 파일 경로를 제대로 복사하지 않는 것 같다고 제보.
+> 이어서 `(Deno) LTX Model Loader`의 `Checkpoint Style`에서는 `text_projection`
+> 이 필요 없고, `clip` 쪽에는 checkpoint 파일이 projection 역할로 들어가는
+> 것이 맞다고 지적. 두 수정 모두 배포까지 요청.
+>
+> **수정 1 — Multi Image Loader Copy Path:**
+> - 원인: 프론트 메뉴가 카드에 저장된 내부 경로 문자열(`subfolder/image.png`
+>   등)을 그대로 클립보드에 복사함. 사용자가 기대한 것은 실제 Windows 파일
+>   전체 경로.
+> - 백엔드 `deno_multi_image_board.py`에 `/deno/input-image-path` API 추가.
+>   상대 경로는 ComfyUI input 폴더 안에서만 안전하게 realpath로 해석하고,
+>   `../`, drive-like path 등 traversal은 차단. 절대 경로도 실제 파일일 때만
+>   반환.
+> - 프론트 `web/js/deno_extra_nodes.js`의 `Copy Image Path` 및 이미지 복사
+>   실패 fallback이 새 API를 거쳐 실제 경로를 복사하도록 변경.
+>
+> **수정 2 — LTX Model Loader Checkpoint Style:**
+> - 실제 ComfyUI `LTXAVTextEncoderLoader` 확인 결과, Checkpoint Style은
+>   `text_encoder + checkpoint` 조합으로 CLIP을 만들며 별도 `text_projection`
+>   을 쓰지 않음.
+> - `deno_ltx23_preset_loader.py` 설명문에 이 계약을 명시.
+> - `web/js/deno_extra_nodes.js`에서 `text_projection_name` 위젯은
+>   `KJ Style` 또는 `GGUF Style`일 때만 표시되도록 수정.
+> - 테스트에서 Checkpoint Style이 `DualCLIPLoader/text_projection` 경로를
+>   타지 않는 것을 강제.
+>
+> **검증:**
+> - `node --check web/js/deno_extra_nodes.js` 통과.
+> - `python -m py_compile deno_ltx23_preset_loader.py deno_multi_image_board.py`
+>   통과.
+> - `python -m pytest tests/test_image_resize_node.py -q` → **48 passed**.
+> - 원본 repo `E:\DENO-Repos\comfyui-deno-custom-nodes`와 실행본
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`
+>   사이 변경 런타임 파일 해시 일치 확인:
+>   `deno_ltx23_preset_loader.py`, `deno_multi_image_board.py`,
+>   `web/js/deno_extra_nodes.js`, `pyproject.toml`.
+>
+> **배포:**
+> - `pyproject.toml` **0.7.17 → 0.7.18**.
+> - 커밋: `dc06dc8 Fix LTX checkpoint mode and image path copy`.
+> - `origin/main` push 완료. 로컬 `main` = `origin/main`, working tree clean.
+> - GitHub Actions:
+>   - CI run `26347938480` = **success**.
+>   - Publish to Comfy registry run `26347938481` = **success**.
+> - Comfy Registry 확인:
+>   - `latest_version`은 아직 **0.7.17 Active**.
+>   - **0.7.18 = NodeVersionStatusPending**, `status_reason` 빈 문자열,
+>     `comfy_node_extract_status = pending`.
+>   - Pending zip:
+>     `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.18/node.zip`.
+>
+> **다음 세션이 할 일:**
+> 1. Registry API로 `0.7.18` 상태를 한 번 확인:
+>    `https://api.comfy.org/nodes/deno-custom-nodes/versions?statuses=NodeVersionStatusPending&include_status_reason=true`
+>    및 `https://api.comfy.org/nodes/deno-custom-nodes`.
+> 2. `0.7.18`이 Active가 되고 `latest_version.version == "0.7.18"`이면
+>    사용자에게 간단히 보고. Registry 캐시 지연일 수 있으므로 불필요한 재배포
+>    금지.
+> 3. 만약 Flagged/Rejected/status_reason 발생 시 reason을 먼저 확인하고,
+>    원인 파일만 최소 수정 후 새 버전으로 재배포.
+> 4. 사용자가 실사용 테스트를 요청하면 ComfyUI 완전 재시작 후
+>    `(Deno) Multi Image Loader` 우클릭 Copy Image Path와
+>    `(Deno) LTX Model Loader` Checkpoint Style UI에서 `text_projection`
+>    숨김을 확인.
+>
+> **주의:** 이번 핸드오프 문서 수정은 배포 커밋 이후의 로컬 문서 변경이다.
+> 사용자가 별도로 요청하지 않으면 이 문서만 추가 커밋/푸시하지 말 것.
+>
+> ---
+
 > ## ▶ 최신 세션 (2026-05-19, Claude Opus 4.7) — 0.7.5: LTX Multi LoRA clip optional
 >
 > **증상:** 사용자가 Run 누르면 `(Deno) LTX Multi LoRA Loader`에서 막힘.

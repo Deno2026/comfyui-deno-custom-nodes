@@ -158,14 +158,14 @@ def _composite_frames(mode, video_a, video_b, split_position, swap, toggle_image
         out[show_b] = b[show_b]
         return out
 
-    # Slider (default): left part = A, right part = B, thin divider
+    # Slider (default): left part = A, right part = B, DENO green divider.
     split_col = max(1, min(w - 1, int(round(w * float(split_position)))))
     out = a.clone()
     out[:, :, split_col:, :] = b[:, :, split_col:, :]
     line = max(1, w // 400)
     lo = max(0, split_col - line)
     hi = min(w, split_col + line)
-    out[:, :, lo:hi, :] = 1.0
+    out[:, :, lo:hi, :] = out.new_tensor((72 / 255, 1.0, 132 / 255))
     return out.clamp(0.0, 1.0)
 
 

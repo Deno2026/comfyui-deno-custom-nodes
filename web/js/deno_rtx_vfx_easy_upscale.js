@@ -63,7 +63,7 @@ const RESIZE_BUTTONS = [
         title: "Choose a ratio such as 16:9, 9:16, or 1:1 and choose the target megapixels.",
     },
 ];
-const DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"];
+const DIVISIBLE_BY_VALUES = ["1", "8", "16", "32", "64", "128"];
 const DEFAULT_RESIZABLE_RESIZE = "Keep Ratio";
 const BACKEND_DEFAULTS = {
     mode: "VSR Medium",
@@ -72,7 +72,7 @@ const BACKEND_DEFAULTS = {
     megapixels: 2,
     width: 1920,
     height: 1080,
-    divisible_by: "32",
+    divisible_by: "1",
     device: 0,
     ratio_preset: "16:9",
     resize_method: "Center Crop (Fill)",

@@ -8,6 +8,10 @@ This repo is built for global creators and production workflows, with a focus on
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas.
 The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, the no-install **Video Compare** page, and the **Video to GIF/WebP** converter page.
 
+## Release Notes
+
+Public updates are tracked in [CHANGELOG.md](CHANGELOG.md). GitHub Releases should use the same short format, with optional notes hidden in collapsible sections.
+
 ## Web Tools
 
 Run these directly in your browser:
@@ -130,7 +134,7 @@ Main features:
 - hover-move slider, click = play/pause, scrub bar, frame step, speed, loop; hover the preview to hear the selected side
 - shared timeline: both sides play over the same duration, so an upscale (same frame count) stays frame-locked while an FPS-interpolation result (e.g. RIFE 24 to 48) just looks smoother at the same length
 - node resizes to the clip aspect; wheel and middle-drag are passed to the ComfyUI canvas
-- `🏷 Labels` toggle: optionally burns the A/B + resolution badges into the saved output (off by default; the in-node preview always shows them)
+- `🏷 Output Badges` toggle: optionally adds A/B + resolution badges to the saved output (off by default; the in-node preview always shows them)
 - `comparison`: full-resolution **lossless** IMAGE output of the chosen mode (Slider / Side by Side / Difference / Toggle), ready to wire into a save/encode node such as VHS *Video Combine*
 
 Too heavy to run the node? Use the no-install browser tool: **https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/** (also linked at the bottom of the node).

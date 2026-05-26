@@ -46,7 +46,7 @@ const RESIZE_BUTTONS = [
     { value: "Preset Ratio", label: "Ratio", title: "Choose a ratio (16:9, 9:16, 1:1) and megapixels." },
     { value: "Manual", label: "W × H", title: "Type the final width and height." },
 ];
-const DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"];
+const DIVISIBLE_BY_VALUES = ["1", "8", "16", "32", "64", "128"];
 
 const BACKEND_DEFAULTS = {
     first_pass: "Deblur",
@@ -58,7 +58,7 @@ const BACKEND_DEFAULTS = {
     megapixels: 4,
     width: 3840,
     height: 2160,
-    divisible_by: "32",
+    divisible_by: "1",
     ratio_preset: "16:9",
     resize_method: "Center Crop (Fill)",
 };
@@ -408,7 +408,7 @@ function buildControlPanel(node) {
     let refreshLayout = () => {};
     const installGuide = createInstallGuideControls(() => refreshLayout());
     const note = el("div", "color:#7fbf95; font:9px/1.4 sans-serif;",
-        "Fine settings (divisible_by · resize method) are on the node inputs below.");
+        "Fine settings (use divisible_by 1 for exact video sizes) are on the node inputs below.");
     const docsLink = el("a", `
         align-self:flex-start; box-sizing:border-box; padding:4px 8px; border-radius:8px;
         border:1px solid rgba(72,255,132,0.18); background:rgba(0,0,0,0.20);

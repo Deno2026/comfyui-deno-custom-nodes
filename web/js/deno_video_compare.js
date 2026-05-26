@@ -3,7 +3,7 @@ import { api } from "../../scripts/api.js";
 
 // (Deno) Video Compare — interactive A/B compare frontend. Drag-slider /
 // Side by Side / Difference / Toggle, synced playback with hover audio,
-// Swap, and an optional Labels burn-in. The backend writes a downscaled
+// Swap, and optional output badges. The backend writes a downscaled
 // WebP frame sequence (+ raw f32 PCM) into ComfyUI temp; this widget
 // draws it on a <canvas> on a virtual clock (exact A/B sync) and plays
 // audio via WebAudio. No media encoder, no extra server route.
@@ -233,8 +233,8 @@ app.registerExtension({
 
 function applyOutputLabel(node) {
   const o = node && node.outputs && node.outputs[0];
-  if (o && o.label !== "Output Images SBS/Diff") {
-    o.label = "Output Images SBS/Diff";
+  if (o && o.label !== "Output") {
+    o.label = "Output";
     node.setDirtyCanvas?.(true, true);
   }
 }
@@ -300,9 +300,8 @@ function buildDom(node) {
   swapBtn.title = TAGLINE;
   ctrls.appendChild(swapBtn);
   const labelsBtn = el("button", "btn lbl" + (st.burnLabels ? " on" : ""),
-    "🏷 Labels");
-  labelsBtn.title = "Stamp the A/B + resolution badges onto the SAVED " +
-    "video output (the in-node preview always shows them anyway)";
+    "🏷 Output Badges");
+  labelsBtn.title = "Add A/B + resolution badges to the saved output";
   ctrls.appendChild(labelsBtn);
   const fsBtn = el("button", "btn fs", "⛶ Full");
   fsBtn.title = "Full screen compare view";
@@ -313,8 +312,8 @@ function buildDom(node) {
     "Drag the divider (or just move the mouse) to wipe A/B. " +
     "Modes: Slider / Side by Side / Difference / Toggle. " +
     "Hover the preview to hear that side; wheel zooms the graph. " +
-    "<br><br><b>🏷 Labels</b>: also stamps the A/B + resolution badges " +
-    "into the saved video. The <b>comparison</b> output is " +
+    "<br><br><b>🏷 Output Badges</b>: adds A/B + resolution badges " +
+    "to the saved output. The <b>Output</b> socket is " +
     "full-resolution and lossless.");
   infoBtn.onclick = () => pop.classList.toggle("show");
   ctrls.appendChild(infoBtn);

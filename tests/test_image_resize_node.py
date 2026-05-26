@@ -240,8 +240,8 @@ def test_rtx_vfx_node_is_optional_until_execution():
     assert inputs["resize_method"][0] == ["Center Crop (Fill)", "Fit (Letterbox/Pillarbox)"]
     assert inputs["resize_method"][1]["default"] == "Center Crop (Fill)"
     assert inputs["scale"][1]["default"] == 2.0
-    assert inputs["divisible_by"][0] == ["8", "16", "32", "64", "128"]
-    assert inputs["divisible_by"][1]["default"] == "32"
+    assert inputs["divisible_by"][0] == ["1", "8", "16", "32", "64", "128"]
+    assert inputs["divisible_by"][1]["default"] == "1"
     assert inputs["device"][1]["default"] == 0
     assert node.RETURN_TYPES == ("IMAGE",)
     assert node.RETURN_NAMES == ("images",)
@@ -286,6 +286,9 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "installCanvasWheelForwarding(root);" in finisher_script
     assert 'root.addEventListener("wheel"' in finisher_script
     assert "new WheelEvent" in finisher_script
+    assert 'const DIVISIBLE_BY_VALUES = ["1", "8", "16", "32", "64", "128"];' in finisher_script
+    assert 'divisible_by: "1"' in finisher_script
+    assert "use divisible_by 1 for exact video sizes" in finisher_script
     assert "repairShiftedBackendWidgetValues(node);" in finisher_script
     assert "looksShiftedByOne" in finisher_script
     assert "first_quality: String(value(\"upscale_pass\"))" in finisher_script
@@ -491,6 +494,9 @@ def test_deno_video_compare_contract_and_frontend_copy():
     assert "Synced A/B playback on a shared timeline." in script
     assert "node.addDOMWidget(WIDGET_NAME" in script
     assert "function handleExecuted(node, output)" in script
+    assert 'o.label !== "Output"' in script
+    assert "Output Images SBS/Diff" not in script
+    assert "Output Badges" in script
     assert "function startPlayback(node)" in script
     assert "function pausePlayback(node)" in script
     assert "function togglePlay(node)" in script
@@ -571,6 +577,11 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
             assert fn.endswith(".webp")
         assert payload["preview_capped"] is False
         assert payload["output_fullres"] is True
+        split_col = out.shape[2] // 2
+        divider = out[:, :, split_col, :]
+        assert float((divider[..., 0] - (72 / 255)).abs().max()) < 1e-5
+        assert float((divider[..., 1] - 1.0).abs().max()) < 1e-5
+        assert float((divider[..., 2] - (132 / 255)).abs().max()) < 1e-5
 
         # burn_labels stamps the saved output; off must leave it untouched
         on = node.compare_videos(
@@ -604,13 +615,13 @@ def test_rtx_vfx_target_size_modes_match_visible_resize_choices():
     load_package()
     vfx_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_easy_upscale"]
 
-    assert vfx_module._safe_divisible_by("1") == 32
+    assert vfx_module._safe_divisible_by("1") == 1
     assert vfx_module._safe_divisible_by("32") == 32
-    assert vfx_module._safe_divisible_by("bad") == 32
+    assert vfx_module._safe_divisible_by("bad") == 1
 
     assert vfx_module._target_size(1920, 1080, "VSR Medium", "Manual", 2.0, 2.0, 1234, 777, 1, "16:9") == (
-        1248,
-        800,
+        1234,
+        777,
     )
     assert vfx_module._target_size(1920, 1080, "VSR Medium", "Manual", 2.0, 2.0, 1234, 777, 32, "16:9") == (
         1248,
@@ -623,6 +634,14 @@ def test_rtx_vfx_target_size_modes_match_visible_resize_choices():
     assert vfx_module._target_size(1920, 1080, "VSR Medium", "Scale", 2.0, 2.0, 0, 0, 32, "16:9") == (
         3840,
         2176,
+    )
+    assert vfx_module._target_size(1920, 1080, "VSR Medium", "Scale", 2.0, 2.0, 0, 0, 1, "16:9") == (
+        3840,
+        2160,
+    )
+    assert vfx_module._target_size(1280, 720, "VSR Medium", "Manual", 2.0, 2.0, 1920, 1080, 1, "16:9") == (
+        1920,
+        1080,
     )
 
     keep_width, keep_height = vfx_module._target_size(1920, 1080, "VSR Medium", "Keep Ratio", 2.0, 2.0, 0, 0, 1, "16:9")
@@ -652,9 +671,8 @@ def test_rtx_vfx_target_size_modes_match_visible_resize_choices():
     )
 
     assert keep_width > keep_height
-    assert (keep_width, keep_height) == (keep_aligned_width, keep_aligned_height)
-    assert keep_width % 32 == 0
-    assert keep_height % 32 == 0
+    assert keep_width > 0
+    assert keep_height > 0
     assert abs((keep_width / keep_height) - (16 / 9)) / (16 / 9) < 0.01
     assert keep_aligned_width % 32 == 0
     assert keep_aligned_height % 32 == 0

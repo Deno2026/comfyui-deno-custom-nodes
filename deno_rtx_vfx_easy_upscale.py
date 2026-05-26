@@ -35,8 +35,9 @@ QUALITY_LEVELS = [
 ]
 
 RESIZE_TYPES = ["Scale", "Keep Ratio", "Manual", "Preset Ratio", "Same Size"]
-RTX_VFX_DIVISIBLE_BY_VALUES = ["8", "16", "32", "64", "128"]
-RTX_VFX_DEFAULT_DIVISIBLE_BY = "32"
+# RTX VFX scales video frames directly; exact video ratios avoid unintended crop/pad.
+RTX_VFX_DIVISIBLE_BY_VALUES = ["1", "8", "16", "32", "64", "128"]
+RTX_VFX_DEFAULT_DIVISIBLE_BY = "1"
 RTX_VFX_INSTALL_GUIDE_URL = (
     "https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/"
 )

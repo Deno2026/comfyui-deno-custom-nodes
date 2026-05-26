@@ -1,0 +1,38 @@
+# Changelog
+
+Public, user-facing release notes for Deno Custom Nodes.
+
+This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
+
+## 0.7.19 - 2026-05-26
+
+- Video Compare output naming polish.
+- RTX VFX upscale sizing now supports exact video sizes without forced 32px rounding.
+- Public changelog and release-note workflow added.
+
+<details>
+<summary>Previous Public Highlights</summary>
+
+### 0.7.18 - 2026-05-24
+
+- Multi Image Loader path-copy reliability update.
+- LTX checkpoint-style loader UI compatibility update.
+
+### 0.7.17 - 2026-05-22
+
+- Added DENO Visual Fold workflow cleanup tools.
+- Added the generic Multi LoRA Loader.
+- Added LoRA row ordering controls.
+
+### 0.7.10 - 2026-05
+
+- Added RTX VFX helper and installer flow polish.
+
+</details>
+
+## Release Note Style
+
+- Keep each public entry short and outcome-focused.
+- Prefer what users can see or benefit from.
+- Avoid file-level or implementation-level detail here.
+- Put technical investigation, verification notes, and local runtime details in `SESSION_HANDOFF.md`.
