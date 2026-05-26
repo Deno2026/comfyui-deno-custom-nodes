@@ -1,5 +1,40 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 배포 기록 (2026-05-26, Codex) — 0.7.19 Registry 제출 완료
+>
+> **요청/맥락:** 사용자가 RTX VFX 영상 크롭/패딩 완화 수정까지 배포 진행 요청.
+> 직전 확인에서 Registry 최신 `0.7.18`은 `NodeVersionStatusActive`였으므로
+> 이번 배포 버전을 `0.7.19`로 올림.
+>
+> **배포 커밋:**
+> - `fe99d18` — `Release 0.7.19 RTX sizing fixes`
+> - `pyproject.toml` `0.7.18 → 0.7.19`.
+> - `CHANGELOG.md`에 `0.7.19 - 2026-05-26` 공개 항목 추가.
+> - `origin/main`으로 push 완료.
+>
+> **GitHub Actions:**
+> - Publish workflow:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26428760682`
+> - 결과: `success`.
+> - 참고: GitHub runner가 Node.js 20 actions deprecation warning을 표시했지만,
+>   publish job 자체는 성공.
+>
+> **Registry 1회 확인 결과:**
+> - API: `https://api.comfy.org/nodes/deno-custom-nodes`
+> - latest 노출은 확인 시점 기준 아직 `0.7.18 Active`.
+> - `0.7.19` 버전은 생성됨:
+>   `NodeVersionStatusPending`, `status_reason=""`,
+>   `comfy_node_extract_status="pending"`.
+> - 다운로드 URL:
+>   `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.19/node.zip`
+>
+> **다음 확인 규칙:** 추가 폴링은 하지 않음. 사용자가 다시 상태 확인을 요청하면
+> Registry API를 1회 확인한다. `0.7.19`가 Active가 되고 latest도 `0.7.19`이면
+> 완료 보고. Flagged/Rejected가 되면 `status_reason`을 먼저 보고 해당 파일만
+> 최소 수정한다.
+>
+> ---
+
 > ## ▶ 최신 로컬 수정 (2026-05-26, Codex) — RTX VFX 영상 크롭/패딩 완화
 >
 > **요청/맥락:** Reddit 댓글에서 1280×720 이미지를 1920×1080 또는
