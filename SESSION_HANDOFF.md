@@ -20,6 +20,14 @@
 >   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26510068139`
 > - 결과: 세 workflow 모두 `success`.
 >
+> **배포 후속 안전장치:**
+> - 배포 기록 문서만 올린 `d469f23`에서 Publish workflow가 다시 실행되어
+>   `The node version already exists`로 실패했으나, 위 Publish 성공 및 Registry
+>   `0.7.21` 생성 확인 때문에 실제 배포 실패는 아님.
+> - `.github/workflows/publish_registry.yml`에 publish eligibility 단계를 추가:
+>   `pyproject.toml` 미변경 push 또는 Registry에 이미 있는 같은 버전은 publish를
+>   실패시키지 않고 정상 스킵한다.
+>
 > **Registry 1회 확인 결과:**
 > - API: `https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true`
 > - `0.7.21` 버전 생성됨:

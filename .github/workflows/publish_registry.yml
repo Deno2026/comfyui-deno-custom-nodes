@@ -26,7 +26,57 @@ jobs:
             exit 1
           fi
 
+      - name: Check publish eligibility
+        id: publish-check
+        shell: bash
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ] && [ -n "$EVENT_BEFORE" ] && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            if ! git diff --name-only "$EVENT_BEFORE" "$GITHUB_SHA" | grep -qx "pyproject.toml"; then
+              echo "pyproject.toml was not changed; skipping registry publish."
+              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          VERSION="$(python - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as file:
+              print(tomllib.load(file)["project"]["version"])
+          PY
+          )"
+
+          python - "$VERSION" <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          version = sys.argv[1]
+          url = "https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true"
+
+          with urllib.request.urlopen(url, timeout=30) as response:
+              versions = json.load(response)
+
+          exists = any(item.get("version") == version for item in versions)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+              output.write(f"should_publish={'false' if exists else 'true'}\n")
+
+          if exists:
+              print(f"Version {version} already exists; skipping registry publish.")
+          else:
+              print(f"Version {version} is not registered yet; publishing.")
+          PY
+
       - name: Publish Custom Node
+        if: steps.publish-check.outputs.should_publish == 'true'
         uses: Comfy-Org/publish-node-action@main
         with:
           personal_access_token: ${{ env.REGISTRY_ACCESS_TOKEN }}
