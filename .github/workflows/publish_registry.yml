@@ -36,7 +36,11 @@ jobs:
           set -euo pipefail
 
           if [ "$EVENT_NAME" = "push" ] && [ -n "$EVENT_BEFORE" ] && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            if ! git diff --name-only "$EVENT_BEFORE" "$GITHUB_SHA" | grep -qx "pyproject.toml"; then
+            if ! git cat-file -e "$EVENT_BEFORE^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$EVENT_BEFORE" || true
+            fi
+
+            if git cat-file -e "$EVENT_BEFORE^{commit}" 2>/dev/null && ! git diff --name-only "$EVENT_BEFORE" "$GITHUB_SHA" | grep -qx "pyproject.toml"; then
               echo "pyproject.toml was not changed; skipping registry publish."
               echo "should_publish=false" >> "$GITHUB_OUTPUT"
               exit 0
