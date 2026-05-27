@@ -1,5 +1,52 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 배포 기록 (2026-05-27, Codex) — 0.7.22 Registry 제출 완료
+>
+> **요청/맥락:** 사용자가 Video Preview 정보 배지와 LTX Model Loader 드롭다운
+> 안전 패치를 현재 기준으로 배포 요청.
+>
+> **배포 커밋:**
+> - `17e56ea` — `Release 0.7.22 preview metadata and LTX dropdown safety`
+> - `pyproject.toml` `0.7.21 → 0.7.22`.
+> - `CHANGELOG.md`에 `0.7.22 - 2026-05-27` 공개 항목 추가.
+> - `main`으로 push 완료.
+>
+> **배포 중 발견/수정한 파이프라인 이슈:**
+> - 첫 자동 Publish workflow(`26518362614`)는 GitHub Actions상 success였지만
+>   `Publish Custom Node` 단계가 skipped였음.
+> - 원인: shallow checkout에서 `github.event.before` 커밋을 찾지 못해
+>   `pyproject.toml` 변경 감지가 실패.
+> - `3ac29ae` — `Fix registry publish eligibility on shallow checkout`에서
+>   이전 커밋이 없으면 fetch 후 비교하도록 수정.
+> - 이후 `workflow_dispatch`로 publish 재실행.
+>
+> **GitHub Actions:**
+> - Publish workflow 수동 실행:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26518524183`
+> - CI workflow:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26518516013`
+> - Pages workflow:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26518512973`
+> - 결과: 세 workflow 모두 `success`.
+>
+> **Registry 1회 확인 결과:**
+> - API: `https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true`
+> - `0.7.22` 버전 생성됨:
+>   `NodeVersionStatusPending`, `status_reason=""`,
+>   `comfy_node_extract_status="pending"`.
+> - CDN zip HEAD 확인 성공:
+>   `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.22/node.zip`
+>   (`200`, `application/zip`, 약 `10.6MB`).
+> - 확인 시점의 top-level latest는 Registry 캐시 때문에 `0.7.20`/`0.7.21`
+>   사이에서 흔들렸고, 아직 `0.7.22` Active/latest 전환 전.
+>
+> **다음 확인 규칙:** 추가 폴링은 하지 않음. 사용자가 다시 상태 확인을 요청하면
+> Registry API를 1회 확인한다. `0.7.22`가 Active가 되고 latest도 `0.7.22`이면
+> 완료 보고. Flagged/Rejected가 되면 `status_reason`을 먼저 보고 해당 파일만
+> 최소 수정한다.
+>
+> ---
+
 > ## ▶ 최신 로컬 수정 (2026-05-27, Codex) — LTX Model Loader 없는 모델 파일 드롭다운 제거
 >
 > **요청/맥락:** 사용자가 체크포인트를 바꿨는데 `ltx-2.3-22b-dev.safetensors`
