@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## 0.7.22 - 2026-05-27
+
+- Video Preview shows a compact current-video info badge with resolution, FPS, frame count, and duration.
+- LTX Model Loader model dropdowns now hide recommended files that are not actually installed and avoid auto-selecting unrelated models.
+
 ## 0.7.21 - 2026-05-27
 
 - Video Preview, Video Compare, and Image Compare preserve user-resized node sizes instead of repeatedly snapping back to media auto-fit.

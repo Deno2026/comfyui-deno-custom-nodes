@@ -31,6 +31,12 @@ const CSS = `
   color:#bdffd2;background:rgba(5,9,6,.6);border:1px solid rgba(120,255,160,.4);
   border-radius:6px;cursor:pointer;user-select:none;opacity:.8;z-index:2}
 .dvprev .fs:hover{opacity:1;background:rgba(12,32,18,.92)}
+.dvprev .mi{position:absolute;left:7px;top:7px;max-width:calc(100% - 150px);
+  padding:3px 8px;font:700 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  color:#dfffea;background:rgba(5,9,6,.66);border:1px solid rgba(72,255,132,.38);
+  border-radius:6px;user-select:none;pointer-events:none;opacity:.88;z-index:2;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dvprev .mi[hidden]{display:none}
 `;
 
 function ensureStyles() {
@@ -109,6 +115,65 @@ function syncAudioMute(state) {
   state.video.muted = !(state.hasAudio && state.hovering);
 }
 
+function formatFps(value) {
+  const fps = Number(value) || 0;
+  if (!(fps > 0)) return "";
+  const rounded = Math.round(fps * 100) / 100;
+  return `${Number.isInteger(rounded) ? Math.round(rounded) : rounded}fps`;
+}
+
+function formatDuration(frameCount, fps, fallbackDuration) {
+  let seconds = 0;
+  if (Number(frameCount) > 0 && Number(fps) > 0) {
+    seconds = Number(frameCount) / Number(fps);
+  } else if (Number.isFinite(fallbackDuration) && fallbackDuration > 0) {
+    seconds = Number(fallbackDuration);
+  }
+  if (!(seconds > 0)) return "";
+  if (seconds >= 10) return `${Math.round(seconds)}s`;
+  return `${Math.round(seconds * 10) / 10}s`;
+}
+
+function previewInfo(meta, video) {
+  const width = Number(meta?.width) || Number(video?.videoWidth) || 0;
+  const height = Number(meta?.height) || Number(video?.videoHeight) || 0;
+  const fps = Number(meta?.frame_rate) || 0;
+  const frameCount = Number(meta?.frame_count) || 0;
+  const duration = formatDuration(frameCount, fps, Number(video?.duration));
+  const parts = [];
+  if (width > 0 && height > 0) parts.push(`${Math.round(width)}x${Math.round(height)}`);
+  const fpsText = formatFps(fps);
+  if (fpsText) parts.push(fpsText);
+  if (frameCount > 0) parts.push(`${Math.round(frameCount)}f`);
+  if (duration) parts.push(duration);
+
+  const detail = [];
+  if (width > 0 && height > 0) detail.push(`Resolution: ${Math.round(width)}x${Math.round(height)}`);
+  if (fpsText) detail.push(`FPS: ${fpsText}`);
+  if (frameCount > 0) detail.push(`Frames: ${Math.round(frameCount)}`);
+  if (duration) detail.push(`Duration: ${duration}`);
+  detail.push(meta?.has_audio ? "Audio: yes" : "Audio: no");
+
+  return {
+    label: parts.join(" | "),
+    title: detail.join("\n"),
+  };
+}
+
+function updateInfoBadge(state, meta) {
+  if (!state?.infoBadge) return;
+  const info = previewInfo(meta || state.currentMeta, state.video);
+  if (!info.label) {
+    state.infoBadge.hidden = true;
+    state.infoBadge.textContent = "";
+    state.infoBadge.title = "";
+    return;
+  }
+  state.infoBadge.textContent = info.label;
+  state.infoBadge.title = info.title || "Video info";
+  state.infoBadge.hidden = false;
+}
+
 function nativeWidgetsHeight(node) {
   const rowH = (window.LiteGraph && window.LiteGraph.NODE_WIDGET_HEIGHT) || 20;
   let height = 0;
@@ -178,11 +243,12 @@ function buildDom(node) {
   ensureStyles();
 
   const state = {
-    root: null, video: null, status: null, widget: null,
+    root: null, video: null, status: null, infoBadge: null, widget: null,
     lastSrc: "", hasAudio: false, aspectRatio: 0,
     autoFitApplied: false, autoSizing: false,
     userSized: isManualSized(node), resizeTrackingArmed: false,
     hovering: false,
+    currentMeta: null,
   };
   node.__dvprev = state;
 
@@ -207,6 +273,10 @@ function buildDom(node) {
     if (node.__dvprev?.lastSrc) window.open(node.__dvprev.lastSrc, "_blank");
   };
 
+  const infoBadge = document.createElement("div");
+  infoBadge.className = "mi";
+  infoBadge.hidden = true;
+
   const fsBtn = document.createElement("div");
   fsBtn.className = "fs";
   fsBtn.textContent = "⛶ Full screen";
@@ -227,6 +297,7 @@ function buildDom(node) {
   });
 
   root.appendChild(video);
+  root.appendChild(infoBadge);
   root.appendChild(status);
   root.appendChild(fsBtn);
 
@@ -237,6 +308,7 @@ function buildDom(node) {
   state.root = root;
   state.video = video;
   state.status = status;
+  state.infoBadge = infoBadge;
   state.widget = widget;
 
   // Fill the user-chosen node height, but subtract the same fixed chrome
@@ -257,6 +329,7 @@ function buildDom(node) {
       maybeFitNodeToAspect(node, state.aspectRatio, state);
       node.setDirtyCanvas?.(true, true);
     }
+    updateInfoBadge(state);
     const playResult = video.play?.();
     if (playResult?.then) {
       playResult.then(() => syncAudioMute(state)).catch(() => syncAudioMute(state));
@@ -323,6 +396,7 @@ function handleExecuted(node, output) {
   if (!meta || !meta.filename) return;
 
   const st = buildDom(node);
+  st.currentMeta = meta;
   st.hasAudio = !!meta.has_audio;
   const metaWidth = Number(meta.width) || 0;
   const metaHeight = Number(meta.height) || 0;
@@ -342,6 +416,7 @@ function handleExecuted(node, output) {
   delete st.status.dataset.audioHint;
   st.status.hidden = false;
   st.status.textContent = "Loading preview…";
+  updateInfoBadge(st, meta);
   // Keep muted autoplay reliable while preserving the existing hover state.
   // If the pointer is already over the node when metadata finishes, audio
   // should start without requiring a leave-and-enter dance.

@@ -1,5 +1,69 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 최신 로컬 수정 (2026-05-27, Codex) — LTX Model Loader 없는 모델 파일 드롭다운 제거
+>
+> **요청/맥락:** 사용자가 체크포인트를 바꿨는데 `ltx-2.3-22b-dev.safetensors`
+> 같은 실제로 없는 파일이 `(Deno) LTX Model Loader` 선택 목록에 계속 보이는
+> 이유를 물었고, 같은 사례가 다른 노드에도 있는지 전체 확인을 요청.
+>
+> **확인 결과:**
+> - 같은 패턴은 여러 노드에 흩어진 것이 아니라 `deno_ltx23_preset_loader.py`
+>   안의 공통 드롭다운 생성 함수에 집중되어 있었음.
+> - 영향 범위: `checkpoint_name`, `diffusion_model_name`, `gguf_unet_name`,
+>   `video_vae_name`, `audio_vae_name`, `text_encoder_name`,
+>   `text_projection_name`.
+> - `deno_multi_lora_loader.py`, `deno_ltx_multi_lora_loader.py`는
+>   `__none__ + 실제 발견 목록` 구조라 같은 문제는 아니었음.
+>
+> **수정:**
+> - 추천 파일명은 실제 `folder_paths.get_filename_list(...)`에서 발견된 경우에만
+>   드롭다운 상단으로 정렬되도록 변경.
+> - 추천 LTX 계열 파일이 없고 다른 모델만 있을 때는 아무 파일이나 자동 선택하지
+>   않고 `__none__`을 기본값으로 표시하도록 보수적으로 보완.
+> - 모델이 하위 폴더에 들어간 경우도 basename이 유일하게 일치하면 추천 파일로
+>   인식해서 기존 workflow/사용자 폴더 정리 방식과 충돌을 줄임.
+> - 저장된 workflow의 기존 widget 이름/순서/socket contract는 변경하지 않음.
+>
+> **검증 포인트:**
+> - `tests/test_image_resize_node.py`에 없는 추천 파일명이 목록에 섞이지 않는
+>   회귀 테스트, 관련 없는 모델만 있을 때 `__none__` 기본값 테스트, 하위 폴더
+>   추천 파일 basename 매칭 테스트 추가.
+> - `python -m py_compile deno_ltx23_preset_loader.py` 통과.
+> - `python -m pytest` 전체 `65 passed`.
+> - 런타임 복사 후 source/runtime SHA256 일치 확인.
+> - 기존 ComfyUI 종료 후 `Start ComfyUI SageAttention.bat`로 재시작 완료.
+> - `/object_info/DenoLTX23PresetLoader`에서 현재 PC 기준 기본값 유지 확인:
+>   checkpoint=`ltx-2.3-22b-dev-fp8.safetensors`,
+>   text_encoder=`gemma_3_12B_it_fp4_mixed.safetensors`,
+>   text_projection=`ltx-2.3_text_projection_bf16.safetensors`.
+> - `ltx-2.3-22b-dev.safetensors`, `comfy_gemma_3_12B_it.safetensors` 같은
+>   현재 미설치 추천값은 런타임 목록에 표시되지 않음.
+>
+> ---
+
+> ## ▶ 최신 로컬 수정 (2026-05-27, Codex) — Video Preview 현재 영상 정보 배지
+>
+> **요청/맥락:** 사용자가 `(Deno) Video Preview`에서 현재 재생 중인 영상의
+> 해상도, FPS 같은 정보를 우측 상단 Full screen 버튼처럼 좌측 상단에 표시하고
+> 싶다고 요청.
+>
+> **수정:**
+> - `web/js/deno_video_preview.js`에 좌측 상단 metadata badge(`.mi`) 추가.
+> - 백엔드가 이미 넘기는 `width`, `height`, `frame_rate`, `frame_count`,
+>   `has_audio`를 사용하므로 Python node contract는 변경하지 않음.
+> - 표시 예: `1920x1080 | 30fps | 120f | 4s`.
+> - badge는 `max-width: calc(100% - 150px)`, ellipsis 처리로 우측 Full screen
+>   버튼과 겹치지 않게 함. 전체 정보는 hover title에 resolution/FPS/frames/
+>   duration/audio로 제공.
+> - `README.md`, `CHANGELOG.md`, `tests/test_image_resize_node.py`에 반영.
+>
+> **주의/다음 단계:**
+> - 아직 공개 배포/버전 bump는 하지 않음. 사용자 화면 확인 후 배포 요청 시
+>   `Unreleased` 항목을 새 버전으로 이동해 배포.
+> - 런타임 복사 후 ComfyUI SageAttention bat 재시작까지 진행할 것.
+>
+> ---
+
 > ## ▶ 배포 기록 (2026-05-27, Codex) — 0.7.21 Registry 제출 완료
 >
 > **요청/맥락:** 사용자가 `(Deno) Video Preview` 수동 크기 보존, 내부 높이 추종,

@@ -29,6 +29,7 @@ KJ_INSTALL_MESSAGE = (
     "Install 'comfyui-kjnodes' from ComfyUI Manager, restart ComfyUI completely, then run again.\n"
     "This Deno node uses KJNodes for the LTX video/audio VAE loaders."
 )
+NONE_OPTION = "__none__"
 COMFY_METADATA_MESSAGE = (
     "[Deno] GGUF Style requires a newer ComfyUI core with diffusion-model metadata support.\n"
     "Update ComfyUI, update ComfyUI-GGUF, restart ComfyUI completely, then run again."
@@ -48,53 +49,96 @@ def _add_unique(items: List[str], value: str) -> None:
         items.append(value)
 
 
-def _build_combo_options(folder_name: str, recommended: Sequence[str]) -> List[str]:
+def _find_existing_choice(options: Sequence[str], desired: str) -> Optional[str]:
+    desired_norm = _normalize_name(desired).casefold()
+    for item in options:
+        if _normalize_name(item).casefold() == desired_norm:
+            return item
+
+    desired_base = _basename(desired).casefold()
+    basename_matches = [
+        item for item in options if _basename(item).casefold() == desired_base
+    ]
+    if len(basename_matches) == 1:
+        return basename_matches[0]
+    return None
+
+
+def _ordered_existing_options(discovered: Sequence[str], recommended: Sequence[str]) -> List[str]:
     options: List[str] = []
     for item in recommended:
+        existing = _find_existing_choice(discovered, item)
+        if existing:
+            _add_unique(options, existing)
+
+    for item in discovered:
         _add_unique(options, item)
 
+    if not options:
+        options.append(NONE_OPTION)
+    return options
+
+
+def _default_existing_choice(
+    options: Sequence[str],
+    preferred: Sequence[str],
+    *,
+    fallback_to_first: bool = False,
+) -> str:
+    for item in preferred:
+        existing = _find_existing_choice(options, item)
+        if existing and existing != NONE_OPTION:
+            return existing
+    if fallback_to_first:
+        for item in options:
+            if item != NONE_OPTION:
+                return item
+    return NONE_OPTION
+
+
+def _combo_options_with_default(
+    options: Sequence[str],
+    preferred: Sequence[str],
+    *,
+    fallback_to_first: bool = False,
+) -> tuple[List[str], str]:
+    normalized_options = list(options)
+    default = _default_existing_choice(
+        normalized_options,
+        preferred,
+        fallback_to_first=fallback_to_first,
+    )
+    if default == NONE_OPTION and NONE_OPTION not in normalized_options:
+        normalized_options.insert(0, NONE_OPTION)
+    return normalized_options, default
+
+
+def _build_combo_options(folder_name: str, recommended: Sequence[str]) -> List[str]:
     try:
         discovered = folder_paths.get_filename_list(folder_name)
     except Exception:
         discovered = []
 
-    for item in discovered:
-        _add_unique(options, item)
-
-    if not options:
-        options.append("__none__")
-    return options
+    return _ordered_existing_options(discovered, recommended)
 
 
 def _build_text_projection_options(recommended: Sequence[str]) -> List[str]:
-    options: List[str] = []
-    for item in recommended:
-        _add_unique(options, item)
-
     try:
         discovered = folder_paths.get_filename_list("text_encoders")
     except Exception:
         discovered = []
 
-    for item in discovered:
-        _add_unique(options, item)
-
-    if not options:
-        options.append("__none__")
-    return options
+    return _ordered_existing_options(discovered, recommended)
 
 
 def _get_gguf_choices() -> List[str]:
-    options: List[str] = []
-    for item in RECOMMENDED_GGUF_UNETS:
-        _add_unique(options, item)
-
+    discovered_options: List[str] = []
     try:
         discovered = folder_paths.get_filename_list("unet_gguf")
     except Exception:
         discovered = []
     for item in discovered:
-        _add_unique(options, item)
+        _add_unique(discovered_options, item)
 
     for folder_name in ("diffusion_models", "unet"):
         try:
@@ -103,11 +147,9 @@ def _get_gguf_choices() -> List[str]:
             discovered = []
         for item in discovered:
             if item.lower().endswith(".gguf"):
-                _add_unique(options, item)
+                _add_unique(discovered_options, item)
 
-    if not options:
-        options.append("__none__")
-    return options
+    return _ordered_existing_options(discovered_options, RECOMMENDED_GGUF_UNETS)
 
 
 def _find_custom_nodes_root() -> Path:
@@ -385,36 +427,66 @@ class DenoLTX23PresetLoader:
 
     @classmethod
     def INPUT_TYPES(cls):
+        checkpoint_options, checkpoint_default = _combo_options_with_default(
+            _build_combo_options("checkpoints", cls._RECOMMENDED_CHECKPOINTS),
+            cls._RECOMMENDED_CHECKPOINTS,
+        )
+        diffusion_options, diffusion_default = _combo_options_with_default(
+            _build_combo_options("diffusion_models", cls._RECOMMENDED_DIFFUSION),
+            cls._RECOMMENDED_DIFFUSION,
+        )
+        gguf_options, gguf_default = _combo_options_with_default(
+            _get_gguf_choices(),
+            RECOMMENDED_GGUF_UNETS,
+        )
+        vae_options = _build_combo_options("vae", cls._RECOMMENDED_VAE)
+        video_vae_options, video_vae_default = _combo_options_with_default(
+            vae_options,
+            ["LTX23_video_vae_bf16.safetensors"],
+        )
+        audio_vae_options, audio_vae_default = _combo_options_with_default(
+            vae_options,
+            ["LTX23_audio_vae_bf16.safetensors"],
+        )
+        text_encoder_options, text_encoder_default = _combo_options_with_default(
+            _build_combo_options("text_encoders", cls._RECOMMENDED_TEXT_ENCODERS),
+            [cls._RECOMMENDED_TEXT_ENCODERS[1], *cls._RECOMMENDED_TEXT_ENCODERS],
+        )
+        text_projection_options, text_projection_default = _combo_options_with_default(
+            _build_text_projection_options(cls._RECOMMENDED_TEXT_PROJECTION),
+            [cls._RECOMMENDED_TEXT_PROJECTION[2], *cls._RECOMMENDED_TEXT_PROJECTION],
+        )
+
         return {
             "required": {
                 "pipeline_mode": (PIPELINE_MODES, {"default": "Checkpoint Style"}),
                 "checkpoint_name": (
-                    _build_combo_options("checkpoints", cls._RECOMMENDED_CHECKPOINTS),
-                    {"default": cls._RECOMMENDED_CHECKPOINTS[0]},
+                    checkpoint_options,
+                    {"default": checkpoint_default},
                 ),
                 "diffusion_model_name": (
-                    _build_combo_options("diffusion_models", cls._RECOMMENDED_DIFFUSION),
-                    {"default": cls._RECOMMENDED_DIFFUSION[0]},
+                    diffusion_options,
+                    {"default": diffusion_default},
                 ),
                 "gguf_unet_name": (
-                    _get_gguf_choices(),
-                    {"default": _get_gguf_choices()[0]},
+                    gguf_options,
+                    {"default": gguf_default},
                 ),
                 "video_vae_name": (
-                    _build_combo_options("vae", cls._RECOMMENDED_VAE),
-                    {"default": "LTX23_video_vae_bf16.safetensors"},
+                    video_vae_options,
+                    {"default": video_vae_default},
                 ),
                 "audio_vae_name": (
-                    _build_combo_options("vae", cls._RECOMMENDED_VAE),
-                    {"default": "LTX23_audio_vae_bf16.safetensors"},
+                    audio_vae_options,
+                    {"default": audio_vae_default},
                 ),
                 "text_encoder_name": (
-                    _build_combo_options("text_encoders", cls._RECOMMENDED_TEXT_ENCODERS),
-                    {"default": cls._RECOMMENDED_TEXT_ENCODERS[1]},
+                    text_encoder_options,
+                    {"default": text_encoder_default},
                 ),
                 "text_projection_name": (
-                    _build_text_projection_options(cls._RECOMMENDED_TEXT_PROJECTION),
-                    {"default": cls._RECOMMENDED_TEXT_PROJECTION[2]},
+                    text_projection_options,
+                    {"default": text_projection_default},
                 ),
                 "clip_device": (DEVICE_CHOICES, {"default": "default"}),
                 "weight_dtype": (DTYPE_CHOICES, {"default": "default"}),

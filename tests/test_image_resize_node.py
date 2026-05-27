@@ -223,6 +223,19 @@ def test_deno_video_preview_passes_canvas_navigation_events():
     assert "hovering: false" in script
 
 
+def test_deno_video_preview_shows_current_video_metadata_badge():
+    script = (REPO_ROOT / "web" / "js" / "deno_video_preview.js").read_text(encoding="utf-8")
+
+    assert 'infoBadge.className = "mi"' in script
+    assert "updateInfoBadge" in script
+    assert "previewInfo" in script
+    assert "frame_rate" in script
+    assert "frame_count" in script
+    assert "has_audio" in script
+    assert 'parts.join(" | ")' in script
+    assert "max-width:calc(100% - 150px)" in script
+
+
 def test_preview_nodes_preserve_user_resized_node_size():
     video_preview = (REPO_ROOT / "web" / "js" / "deno_video_preview.js").read_text(encoding="utf-8")
     video_compare = (REPO_ROOT / "web" / "js" / "deno_video_compare.js").read_text(encoding="utf-8")
@@ -1151,13 +1164,137 @@ def test_ltx_model_loader_declares_three_loading_modes():
     input_types = node_cls.INPUT_TYPES()
 
     assert input_types["required"]["pipeline_mode"][0] == ["Checkpoint Style", "KJ Style", "GGUF Style"]
-    assert "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf" in input_types["required"]["gguf_unet_name"][0]
+    assert input_types["required"]["gguf_unet_name"][0] == ["__none__"]
     assert input_types["required"]["clip_device"][0] == ["default", "cpu"]
     assert node_cls.RETURN_TYPES == ("MODEL", "CLIP", "VAE", "VAE")
     assert node_cls.RETURN_NAMES == ("model", "clip", "video_vae", "audio_vae")
     assert node_cls.CATEGORY == "Deno/LTX"
     assert "ComfyUI-GGUF" in node_cls.DESCRIPTION
     assert "comfyui-kjnodes" in node_cls.DESCRIPTION
+
+
+def test_ltx_model_loader_only_lists_installed_model_files():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTX23PresetLoader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_filename_list = folder_paths.get_filename_list
+
+    installed_files = {
+        "checkpoints": ["ltx-2.3-22b-dev-fp8.safetensors"],
+        "diffusion_models": [
+            "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors",
+            "not-a-gguf.safetensors",
+        ],
+        "text_encoders": [
+            "gemma_3_12B_it_fp4_mixed.safetensors",
+            "ltx-2.3_text_projection_bf16.safetensors",
+        ],
+        "vae": ["LTX23_video_vae_bf16.safetensors", "LTX23_audio_vae_bf16.safetensors"],
+        "unet": ["LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf"],
+        "unet_gguf": [],
+    }
+
+    try:
+        folder_paths.get_filename_list = lambda folder_name: installed_files.get(folder_name, [])
+        required = node_cls.INPUT_TYPES()["required"]
+    finally:
+        folder_paths.get_filename_list = original_get_filename_list
+
+    checkpoint_options, checkpoint_config = required["checkpoint_name"]
+    assert checkpoint_options == ["ltx-2.3-22b-dev-fp8.safetensors"]
+    assert checkpoint_config["default"] == "ltx-2.3-22b-dev-fp8.safetensors"
+    assert "ltx-2.3-22b-dev.safetensors" not in checkpoint_options
+
+    diffusion_options, diffusion_config = required["diffusion_model_name"]
+    assert diffusion_options == [
+        "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors",
+        "not-a-gguf.safetensors",
+    ]
+    assert diffusion_config["default"] == "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors"
+    assert "ltx-2.3-22b-dev_transformer_only_bf16.safetensors" not in diffusion_options
+
+    gguf_options, gguf_config = required["gguf_unet_name"]
+    assert gguf_options == ["LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf"]
+    assert gguf_config["default"] == "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf"
+
+    text_encoder_options, text_encoder_config = required["text_encoder_name"]
+    assert text_encoder_options[0] == "gemma_3_12B_it_fp4_mixed.safetensors"
+    assert text_encoder_config["default"] == "gemma_3_12B_it_fp4_mixed.safetensors"
+    assert "comfy_gemma_3_12B_it.safetensors" not in text_encoder_options
+
+    text_projection_options, text_projection_config = required["text_projection_name"]
+    assert text_projection_options[0] == "ltx-2.3_text_projection_bf16.safetensors"
+    assert text_projection_config["default"] == "ltx-2.3_text_projection_bf16.safetensors"
+    assert "ltx-2.3-22b-dev.safetensors" not in text_projection_options
+
+
+def test_ltx_model_loader_uses_none_when_only_unrelated_models_exist():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTX23PresetLoader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_filename_list = folder_paths.get_filename_list
+
+    installed_files = {
+        "checkpoints": ["sdxl_base.safetensors"],
+        "diffusion_models": ["flux-dev.safetensors"],
+        "text_encoders": ["clip_l.safetensors"],
+        "vae": ["ae.safetensors"],
+        "unet": ["z-image-Q3_K_M.gguf"],
+        "unet_gguf": [],
+    }
+
+    try:
+        folder_paths.get_filename_list = lambda folder_name: installed_files.get(folder_name, [])
+        required = node_cls.INPUT_TYPES()["required"]
+    finally:
+        folder_paths.get_filename_list = original_get_filename_list
+
+    for field_name in (
+        "checkpoint_name",
+        "diffusion_model_name",
+        "gguf_unet_name",
+        "video_vae_name",
+        "audio_vae_name",
+        "text_encoder_name",
+        "text_projection_name",
+    ):
+        options, config = required[field_name]
+        assert options[0] == "__none__"
+        assert config["default"] == "__none__"
+
+    assert "sdxl_base.safetensors" in required["checkpoint_name"][0]
+    assert "flux-dev.safetensors" in required["diffusion_model_name"][0]
+    assert "z-image-Q3_K_M.gguf" in required["gguf_unet_name"][0]
+    assert "ae.safetensors" in required["video_vae_name"][0]
+    assert "clip_l.safetensors" in required["text_encoder_name"][0]
+
+
+def test_ltx_model_loader_promotes_recommended_files_inside_subfolders():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTX23PresetLoader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_filename_list = folder_paths.get_filename_list
+
+    installed_files = {
+        "checkpoints": [
+            "other/model.safetensors",
+            "LTX2.3/ltx-2.3-22b-dev-fp8.safetensors",
+        ],
+        "diffusion_models": [],
+        "text_encoders": [],
+        "vae": [],
+        "unet": [],
+        "unet_gguf": [],
+    }
+
+    try:
+        folder_paths.get_filename_list = lambda folder_name: installed_files.get(folder_name, [])
+        checkpoint_options, checkpoint_config = node_cls.INPUT_TYPES()["required"]["checkpoint_name"]
+    finally:
+        folder_paths.get_filename_list = original_get_filename_list
+
+    assert checkpoint_options[0] == "LTX2.3/ltx-2.3-22b-dev-fp8.safetensors"
+    assert checkpoint_config["default"] == "LTX2.3/ltx-2.3-22b-dev-fp8.safetensors"
 
 
 def test_ltx_model_loader_frontend_hides_text_projection_for_checkpoint_style():

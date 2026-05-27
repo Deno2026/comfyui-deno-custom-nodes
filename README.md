@@ -153,6 +153,7 @@ Main features:
 
 - `images` (IMAGE batch) in, `images` straight-through out, `frame_rate`, and an optional `audio` input that is muxed into the preview as AAC (tolerant of dict / object / `(waveform, sr)` AUDIO and `[C,N]` / `[N,C]` shapes; if audio can't be used it is logged and the video still previews)
 - clean auto-looping in-node player like the VHS preview: no control chrome, **hover to hear audio**, **click = play/pause**, a **Full screen** button, and the wheel is passed through to the ComfyUI canvas
+- a compact top-left info badge shows the current preview's resolution, FPS, frame count, and duration
 - the node fits the clip aspect and stays fitted as it is resized
 - each node reuses one temp file, overwritten every run, so heavy iteration never piles up temp storage
 - needs PyAV (`pip install av`); if it is missing the node shows a clear one-line install hint instead of failing the graph
