@@ -1,5 +1,40 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 배포 기록 (2026-05-27, Codex) — 0.7.21 Registry 제출 완료
+>
+> **요청/맥락:** 사용자가 `(Deno) Video Preview` 수동 크기 보존, 내부 높이 추종,
+> hover-to-hear 오디오 재동기화가 정상 작동한다고 확인 후 현재 기준 배포 요청.
+>
+> **배포 커밋:**
+> - `742be6a` — `Release 0.7.21 preview sizing fixes`
+> - `pyproject.toml` `0.7.20 → 0.7.21`.
+> - `CHANGELOG.md`에 `0.7.21 - 2026-05-27` 공개 항목 추가.
+> - `origin/main`으로 push 완료.
+>
+> **GitHub Actions:**
+> - Publish workflow:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26510069640`
+> - CI workflow:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26510069505`
+> - Pages workflow:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/actions/runs/26510068139`
+> - 결과: 세 workflow 모두 `success`.
+>
+> **Registry 1회 확인 결과:**
+> - API: `https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true`
+> - `0.7.21` 버전 생성됨:
+>   `NodeVersionStatusPending`, `status_reason=""`,
+>   `comfy_node_extract_status="pending"`.
+> - 다운로드 URL:
+>   `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.21/node.zip`
+>
+> **다음 확인 규칙:** 추가 폴링은 하지 않음. 사용자가 다시 상태 확인을 요청하면
+> Registry API를 1회 확인한다. `0.7.21`이 Active가 되고 latest도 `0.7.21`이면
+> 완료 보고. Flagged/Rejected가 되면 `status_reason`을 먼저 보고 해당 파일만
+> 최소 수정한다.
+>
+> ---
+
 > ## ▶ 최신 로컬 수정 (2026-05-27, Codex) — Preview 노드 수동 크기 보존
 >
 > **요청/맥락:** 사용자가 `(Deno) Video Preview`가 영상 재생/로드 때마다 노드 크기를
