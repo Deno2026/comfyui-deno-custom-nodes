@@ -11,14 +11,17 @@ import { api } from "../../scripts/api.js";
 const NODE_NAME = "DenoVideoPreview";
 const WIDGET_NAME = "deno_video_preview";
 const NODE_MIN_W = 320;
-// Compact starting height only; after the first run loadedmetadata snaps
-// the node to the exact video aspect (no leftover empty area).
+// Compact starting height only. The first successful preview may fit once,
+// but user-resized nodes keep their chosen size across later runs.
 const NODE_DEFAULT_H = 200;
+const PREVIEW_MIN_H = 120;
+const NODE_VERTICAL_CHROME = 90;
+const MANUAL_SIZE_PROP = "__denoVideoPreviewManualSize";
 
 const CSS = `
 .dvprev{position:absolute;inset:0;overflow:hidden;background:#000;
   font:11px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-.dvprev video{display:block;width:100%;height:auto;background:#000}
+.dvprev video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
 .dvprev .st{position:absolute;left:0;right:0;bottom:0;padding:4px 8px;
   font-size:11px;color:#9dffba;text-align:center;cursor:pointer;
   background:rgba(5,9,6,.74)}
@@ -86,9 +89,102 @@ function installMiddleMouseCanvasPan(root) {
   }, true);
 }
 
+function ensureProperties(node) {
+  if (!node.properties) node.properties = {};
+  return node.properties;
+}
+
+function isManualSized(node) {
+  return Boolean(node?.properties?.[MANUAL_SIZE_PROP]);
+}
+
+function setManualSized(node, value) {
+  const props = ensureProperties(node);
+  if (value) props[MANUAL_SIZE_PROP] = true;
+  else delete props[MANUAL_SIZE_PROP];
+}
+
+function syncAudioMute(state) {
+  if (!state?.video) return;
+  state.video.muted = !(state.hasAudio && state.hovering);
+}
+
+function nativeWidgetsHeight(node) {
+  const rowH = (window.LiteGraph && window.LiteGraph.NODE_WIDGET_HEIGHT) || 20;
+  let height = 0;
+  for (const widget of node.widgets || []) {
+    if (widget === node.__dvprev?.widget || widget.name === WIDGET_NAME) continue;
+    if (widget.hidden) continue;
+    let widgetHeight = rowH;
+    if (typeof widget.computeSize === "function") {
+      const computed = widget.computeSize(node.size?.[0] || NODE_MIN_W);
+      widgetHeight = computed && computed[1] > 0 ? computed[1] : 0;
+    }
+    if (widgetHeight > 0) height += widgetHeight + 4;
+  }
+  return height;
+}
+
+function desiredNodeHeightForAspect(node, aspectRatio) {
+  const width = Math.max(Number(node.size?.[0]) || NODE_MIN_W, NODE_MIN_W);
+  const previewWidth = Math.max(width - 20, 80);
+  const previewHeight = previewWidth / aspectRatio;
+  return Math.max(
+    NODE_DEFAULT_H,
+    Math.round(previewHeight + nativeWidgetsHeight(node) + NODE_VERTICAL_CHROME)
+  );
+}
+
+function setNodeSize(node, size, state) {
+  const st = state || node.__dvprev;
+  if (!node.setSize) return;
+  if (st) st.autoSizing = true;
+  node.setSize(size);
+  queueMicrotask(() => {
+    if (st) st.autoSizing = false;
+  });
+}
+
+function maybeFitNodeToAspect(node, aspectRatio, state) {
+  const st = state || node.__dvprev;
+  if (!st || !(aspectRatio > 0) || st.autoFitApplied || isManualSized(node)) {
+    return;
+  }
+  const width = Math.max(Number(node.size?.[0]) || NODE_MIN_W, NODE_MIN_W);
+  const height = desiredNodeHeightForAspect(node, aspectRatio);
+  st.autoFitApplied = true;
+  if (Math.abs((Number(node.size?.[1]) || 0) - height) > 6) {
+    setNodeSize(node, [width, height], st);
+  }
+}
+
+function installManualResizeTracking(node) {
+  if (node.__dvprevResizeWrapped) return;
+  node.__dvprevResizeWrapped = true;
+  const originalOnResize = node.onResize;
+  node.onResize = function () {
+    const result = originalOnResize?.apply(this, arguments);
+    const st = this.__dvprev;
+    if (st?.resizeTrackingArmed && !st.autoSizing) {
+      st.userSized = true;
+      setManualSized(this, true);
+    }
+    return result;
+  };
+}
+
 function buildDom(node) {
   if (node.__dvprev) return node.__dvprev;
   ensureStyles();
+
+  const state = {
+    root: null, video: null, status: null, widget: null,
+    lastSrc: "", hasAudio: false, aspectRatio: 0,
+    autoFitApplied: false, autoSizing: false,
+    userSized: isManualSized(node), resizeTrackingArmed: false,
+    hovering: false,
+  };
+  node.__dvprev = state;
 
   const root = document.createElement("div");
   root.className = "dvprev";
@@ -138,55 +234,59 @@ function buildDom(node) {
     serialize: false,
     hideOnZoom: false,
   });
-  // Proven VHS-preview sizing: height tracks the NODE width (node.size[0]),
-  // not the passed widget `width` (which is narrower and made the box too
-  // short -> bottom crop). The `-20` approximates the DOM-widget side
-  // padding so the box stays slightly TALLER than the real video, and the
-  // `+10` slack guarantees it never ends up shorter than the clip (so
-  // overflow:hidden can't crop it). Pure function of node width -> no
-  // measurement, no observer -> LiteGraph is the only sizing controller,
-  // so resizing is smooth (no jitter) and there is no GPU loop.
+  state.root = root;
+  state.video = video;
+  state.status = status;
+  state.widget = widget;
+
+  // Fill the user-chosen node height, but subtract the same fixed chrome
+  // allowance used by the stable video compare widget. If the subtraction is
+  // too small, LiteGraph feeds widget height back into node height and grows.
   widget.computeSize = function (width) {
-    if (this.aspectRatio) {
-      let h = (node.size[0] - 20) / this.aspectRatio + 10;
-      if (!(h > 0)) h = 0;
-      return [width, h];
-    }
-    return [width, 80];
+    const nodeHeight = Number(node.size?.[1]) || NODE_DEFAULT_H;
+    return [
+      Math.max(Number(width) || NODE_MIN_W, NODE_MIN_W),
+      Math.max(PREVIEW_MIN_H, nodeHeight - NODE_VERTICAL_CHROME - nativeWidgetsHeight(node)),
+    ];
   };
 
   video.addEventListener("loadedmetadata", () => {
     status.hidden = true;
     if (video.videoWidth && video.videoHeight) {
-      widget.aspectRatio = video.videoWidth / video.videoHeight;
-      // one-shot apply now that the aspect is known (no observer/loop)
-      node.setSize?.(node.computeSize());
+      state.aspectRatio = video.videoWidth / video.videoHeight;
+      maybeFitNodeToAspect(node, state.aspectRatio, state);
       node.setDirtyCanvas?.(true, true);
     }
-    video.play?.().catch(() => {});
+    const playResult = video.play?.();
+    if (playResult?.then) {
+      playResult.then(() => syncAudioMute(state)).catch(() => syncAudioMute(state));
+    } else {
+      syncAudioMute(state);
+    }
   });
   video.addEventListener("error", () => {
     status.hidden = false;
     status.textContent = "Inline preview failed. Click to open the video.";
   });
 
-  const state = { root, video, status, widget, lastSrc: "", hasAudio: false };
-  node.__dvprev = state;
+  installManualResizeTracking(node);
+  queueMicrotask(() => { state.resizeTrackingArmed = true; });
 
-  // NOTE: deliberately NO ResizeObserver. Height comes solely from the
-  // calibrated computeSize above with LiteGraph as the single sizing
-  // controller. That removes the resize jitter (two controllers fighting
-  // over height) and the earlier observe -> setSize -> observe GPU loop.
+  // NOTE: deliberately NO ResizeObserver. Widget height follows the node
+  // height with a fixed chrome subtraction, so user resizing fills the inside
+  // while avoiding the old measured observe -> setSize loop.
 
   // Browsers block unmuted autoplay, so the inline preview starts muted.
   // When the encoded file actually has an audio track, unmute while the
   // pointer is over the preview (mirrors the familiar VHS hover-to-hear
   // behaviour) and clear the hint once the user has heard it.
-  video.addEventListener("pointerenter", () => {
-    if (state.hasAudio) video.muted = false;
+  root.addEventListener("pointerenter", () => {
+    state.hovering = true;
+    syncAudioMute(state);
   });
-  video.addEventListener("pointerleave", () => {
-    video.muted = true;
+  root.addEventListener("pointerleave", () => {
+    state.hovering = false;
+    syncAudioMute(state);
   });
 
   // Click toggles play/pause (no player chrome, so this is the control).
@@ -224,6 +324,12 @@ function handleExecuted(node, output) {
 
   const st = buildDom(node);
   st.hasAudio = !!meta.has_audio;
+  const metaWidth = Number(meta.width) || 0;
+  const metaHeight = Number(meta.height) || 0;
+  if (metaWidth > 0 && metaHeight > 0) {
+    st.aspectRatio = metaWidth / metaHeight;
+    maybeFitNodeToAspect(node, st.aspectRatio, st);
+  }
   const params = new URLSearchParams({
     filename: meta.filename,
     subfolder: meta.subfolder || "",
@@ -236,7 +342,9 @@ function handleExecuted(node, output) {
   delete st.status.dataset.audioHint;
   st.status.hidden = false;
   st.status.textContent = "Loading preview…";
-  // each run re-mutes so muted-autoplay keeps working; hover re-unmutes
+  // Keep muted autoplay reliable while preserving the existing hover state.
+  // If the pointer is already over the node when metadata finishes, audio
+  // should start without requiring a leave-and-enter dance.
   st.video.muted = true;
   st.video.src = src;
   st.video.load();
@@ -250,13 +358,13 @@ app.registerExtension({
     const onCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
-      buildDom(this);
+      const st = buildDom(this);
       if ((this.size?.[0] || 0) < NODE_MIN_W ||
           (this.size?.[1] || 0) < NODE_DEFAULT_H) {
-        this.setSize?.([
+        setNodeSize(this, [
           Math.max(this.size?.[0] || 0, NODE_MIN_W),
           Math.max(this.size?.[1] || 0, NODE_DEFAULT_H),
-        ]);
+        ], st);
       }
       return r;
     };

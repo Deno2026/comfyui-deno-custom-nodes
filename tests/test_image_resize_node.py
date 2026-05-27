@@ -217,6 +217,33 @@ def test_deno_video_preview_passes_canvas_navigation_events():
     assert 'root.addEventListener("auxclick"' in script
     assert 'video.addEventListener("click"' in script
     assert 'fsBtn.addEventListener("click"' in script
+    assert "syncAudioMute" in script
+    assert 'root.addEventListener("pointerenter"' in script
+    assert 'root.addEventListener("pointerleave"' in script
+    assert "hovering: false" in script
+
+
+def test_preview_nodes_preserve_user_resized_node_size():
+    video_preview = (REPO_ROOT / "web" / "js" / "deno_video_preview.js").read_text(encoding="utf-8")
+    video_compare = (REPO_ROOT / "web" / "js" / "deno_video_compare.js").read_text(encoding="utf-8")
+    image_compare = (REPO_ROOT / "web" / "js" / "deno_image_compare.js").read_text(encoding="utf-8")
+
+    assert "__denoVideoPreviewManualSize" in video_preview
+    assert "maybeFitNodeToAspect" in video_preview
+    assert "object-fit:contain" in video_preview
+    assert "node.setSize?.(node.computeSize())" not in video_preview
+    assert "NODE_VERTICAL_CHROME" in video_preview
+    assert "Fill the user-chosen node height" in video_preview
+    assert "state.widgetHeight" not in video_preview
+    assert "previewHeightForNodeHeight" not in video_preview
+
+    assert "__denoVideoCompareManualSize" in video_compare
+    assert "resizeTrackingArmed" in video_compare
+    assert "if (!force && isManualSized(node)) return;" in video_compare
+
+    assert "__denoImageCompareManualSize" in image_compare
+    assert "installManualResizeTracking" in image_compare
+    assert "if (isManualSized(node))" in image_compare
 
 
 def test_rtx_vfx_preflight_node_is_not_registered():

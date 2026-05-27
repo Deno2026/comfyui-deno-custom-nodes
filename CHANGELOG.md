@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## 0.7.21 - 2026-05-27
+
+- Video Preview, Video Compare, and Image Compare preserve user-resized node sizes instead of repeatedly snapping back to media auto-fit.
+- Video Preview keeps hover-to-hear audio active when a new preview finishes loading under the cursor.
+
 ## 0.7.20 - 2026-05-26
 
 - RTX VFX node panels keep ComfyUI canvas wheel and middle-click navigation available.

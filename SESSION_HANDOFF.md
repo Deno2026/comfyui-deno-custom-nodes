@@ -1,5 +1,72 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 최신 로컬 수정 (2026-05-27, Codex) — Preview 노드 수동 크기 보존
+>
+> **요청/맥락:** 사용자가 `(Deno) Video Preview`가 영상 재생/로드 때마다 노드 크기를
+> 이상하게 바꾼다고 제보. 특히 사용자가 수동으로 조절한 노드 크기를 보존하는 장치가
+> 없고, 유사 preview 노드도 같이 봐야 한다고 요청.
+>
+> **후보 판단:**
+> - 동시 패치 대상: `(Deno) Video Preview`, `(Deno) Video Compare`,
+>   `(Deno) Image Compare`.
+> - 제외: Multi Image Loader, Advanced Image Source Loader, LoRA/RTX/LTX 설정 패널.
+>   이쪽은 미디어 auto-fit보다 패널 최소 높이/클리핑 방지 성격이 강해 이번 증상과
+>   다르고, 무리하게 건드리면 저장 workflow나 widget order 리스크가 더 큼.
+>
+> **수정:**
+> - `web/js/deno_video_preview.js`
+>   - `loadedmetadata`마다 `node.setSize(node.computeSize())`로 크기를 다시 덮는 경로 제거.
+>   - 첫 유효 preview만 1회 auto-fit하고, 이후 실행/재생은 사용자가 고른 노드 크기 유지.
+>   - `__denoVideoPreviewManualSize` property로 수동 resize 상태 저장.
+>   - `<video>`를 `width:100%; height:100%; object-fit:contain`으로 바꿔 잘림 대신
+>     컨테이너 안에 letterbox/contain 되도록 변경.
+>   - 사용자 확인 중 "노드가 무한하게 아래로 길어지는" 회귀가 발견되어 즉시 hotfix:
+>     `state.widgetHeight`/`previewHeightForNodeHeight` 상태 계산을 제거하고,
+>     `Video Compare`처럼 `node height - fixed chrome - native widget height` 방식으로
+>     내부 프리뷰가 사용자 노드 높이를 따라오되 무한 성장하지 않게 조정.
+>   - 사용자가 마우스를 노드 위에 올린 상태에서 새 preview decode가 끝나면
+>     `pointerenter`가 다시 발생하지 않아 오디오가 계속 muted로 남던 문제 수정:
+>     `hovering` 상태와 `syncAudioMute()`를 추가해 loadedmetadata/play 이후 즉시 반영.
+> - `web/js/deno_video_compare.js`
+>   - `__denoVideoCompareManualSize` property 추가.
+>   - 사용자 resize 후에는 `fitNode()`가 실행 결과에 맞춰 높이를 다시 snap하지 않도록 제한.
+> - `web/js/deno_image_compare.js`
+>   - `__denoImageCompareManualSize` property 추가.
+>   - 사용자 resize 후에는 이미지 load/execute에서 `resizeNodeToImage()`가 높이를 다시
+>     덮지 않고 현재 노드 크기 기반 panel만 유지.
+> - `AGENTS.md`, `docs/DENO_NODE_RETROSPECTIVE.md`에 preview sizing hard rule 추가.
+> - `CHANGELOG.md` Unreleased에 사용자 체감 변경 기록.
+> - `tests/test_image_resize_node.py`에 세 preview 노드의 수동 크기 보존 회귀 테스트 추가.
+>
+> **검증:**
+> - `node --check web/js/deno_video_preview.js` 통과.
+> - `node --check web/js/deno_video_compare.js` 통과.
+> - `node --check web/js/deno_image_compare.js` 통과.
+> - `python -m pytest tests/test_image_resize_node.py tests/test_registry_metadata.py`
+>   → 61 passed.
+> - `git diff --check` 통과(CRLF warning만 표시).
+> - 실행본
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`
+>   에 세 JS 파일 복사 후 SHA256 일치 확인.
+> - ComfyUI queue idle 확인 후 기존 8188 실행본 PID `40880` 및 bat shell PID `35424`
+>   종료. 이후 숨김 실행 없이
+>   `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\Start ComfyUI SageAttention.bat`
+>   를 보이는 창으로 재실행.
+> - `/system_stats` 확인: argv는
+>   `ComfyUI\main.py --windows-standalone-build --use-sage-attention`.
+> - served JS 확인:
+>   - `deno_video_preview.js`: `ManualSize`, `object-fit:contain`,
+>     기존 `node.setSize?.(node.computeSize())` 없음, `syncAudioMute` 포함.
+>   - `deno_video_compare.js`, `deno_image_compare.js`: `ManualSize` 포함.
+> - `/object_info/DenoVideoPreview`, `/object_info/DenoVideoCompare`,
+>   `/object_info/DenoImageCompare` 응답 정상.
+>
+> **미검증/사용자 테스트:** Playwright가 현재 Codex 세션에 설치되어 있지 않아
+> 자동 브라우저 렌더 e2e는 미실행. Chrome 새로고침 후 Video Preview 노드를 손으로
+> 원하는 크기로 조절하고 같은/다른 영상을 다시 실행했을 때 노드 크기가 튀지 않는지 확인.
+>
+> ---
+
 > ## ▶ 하드 규칙 보강 (2026-05-26, Codex) — ComfyUI 재시작 전 기존 프로세스 종료
 >
 > **요청/맥락:** 사용자가 ComfyUI를 새로 켤 때 기존 실행본을 같이 종료하지 않으면

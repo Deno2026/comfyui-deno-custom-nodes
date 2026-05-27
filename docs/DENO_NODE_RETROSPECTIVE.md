@@ -44,6 +44,7 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
 - Custom DOM widgets and node-top overlays can swallow ComfyUI canvas navigation. Wheel over a DENO node should still reach the ComfyUI canvas for zoom/scroll unless the user is inside an intentional local scroll area. Middle-click / wheel-click drag over non-text controls should pan the canvas or be explicitly forwarded.
 - Dynamic rows need both row-level behavior and node-level fallback context menus.
 - Node size can reset if `computeSize`, `setSize`, or custom draw logic fights the user's manual resize.
+- Media preview nodes must not call `setSize` on every image/video load after the user has resized the node. Auto-fit only for a first useful default or an explicit fit command; otherwise contain/letterbox the media inside the user's chosen node box.
 - Expanding/collapsing one area must not accidentally resize unrelated text areas.
 - If a value should persist across workflow reloads, do not normalize it back to defaults during frontend setup.
 

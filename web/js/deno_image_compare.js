@@ -12,6 +12,7 @@ const PREVIEW_MIN_HEIGHT = 300;
 const PREVIEW_MAX_HEIGHT = 760;
 const MODES = ["Slider", "Side by Side", "Difference", "Toggle"];
 const HIDDEN_WIDGETS = ["mode", "split_position", "toggle_image", "swap"];
+const MANUAL_SIZE_PROP = "__denoImageCompareManualSize";
 
 const COLORS = {
     panelA: "rgba(3, 12, 8, 0.99)",
@@ -80,6 +81,7 @@ function setupImageCompareNode(node) {
         removeCompareOutputs(node);
         ensureCanvasWidget(node);
         wrapComputeSize(node);
+        installManualResizeTracking(node);
         resizeNodeToPanel(node);
         requestNodeRedraw(node);
     } finally {
@@ -555,13 +557,71 @@ function wrapComputeSize(node) {
     node.__denoImageCompareComputeWrapped = true;
 }
 
+function ensureProperties(node) {
+    if (!node.properties) {
+        node.properties = {};
+    }
+    return node.properties;
+}
+
+function isManualSized(node) {
+    return Boolean(node?.properties?.[MANUAL_SIZE_PROP]);
+}
+
+function setManualSized(node, value) {
+    const props = ensureProperties(node);
+    if (value) {
+        props[MANUAL_SIZE_PROP] = true;
+    } else {
+        delete props[MANUAL_SIZE_PROP];
+    }
+}
+
+function setNodeSize(node, size) {
+    if (!node.setSize) {
+        return;
+    }
+    node.__denoImageCompareAutoSizing = true;
+    node.setSize(size);
+    queueMicrotask(() => {
+        node.__denoImageCompareAutoSizing = false;
+    });
+}
+
+function installManualResizeTracking(node) {
+    if (node.__denoImageCompareResizeWrapped) {
+        return;
+    }
+    node.__denoImageCompareResizeWrapped = true;
+    const originalOnResize = node.onResize;
+    node.onResize = function () {
+        const result = originalOnResize?.apply(this, arguments);
+        if (
+            this.__denoImageCompareResizeTrackingArmed &&
+            !this.__denoImageCompareAutoSizing &&
+            !this.__denoImageCompareSettingUp
+        ) {
+            setManualSized(this, true);
+        }
+        return result;
+    };
+    queueMicrotask(() => {
+        node.__denoImageCompareResizeTrackingArmed = true;
+    });
+}
+
 function resizeNodeToPanel(node) {
     const width = Math.max(Number(node.size?.[0]) || MIN_WIDTH, MIN_WIDTH);
     const height = Math.max(Number(node.size?.[1]) || 0, DEFAULT_NODE_HEIGHT);
-    node.setSize?.([width, height]);
+    setNodeSize(node, [width, height]);
 }
 
 function resizeNodeToImage(node) {
+    if (isManualSized(node)) {
+        resizeNodeToPanel(node);
+        return;
+    }
+
     const pair = getDisplayPair(node);
     const item = pair.a?.loaded ? pair.a : pair.b?.loaded ? pair.b : null;
     if (!item?.width || !item?.height) {
@@ -581,7 +641,7 @@ function resizeNodeToImage(node) {
     const desiredNodeHeight = Math.max(IMAGE_NODE_MIN_HEIGHT, desiredPreviewHeight + IMAGE_CONTROLS_HEIGHT + NODE_VERTICAL_CHROME);
     const currentHeight = Number(node.size?.[1]) || 0;
     if (Math.abs(currentHeight - desiredNodeHeight) > 12) {
-        node.setSize?.([width, desiredNodeHeight]);
+        setNodeSize(node, [width, desiredNodeHeight]);
     } else {
         resizeNodeToPanel(node);
     }

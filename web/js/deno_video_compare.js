@@ -19,6 +19,7 @@ const NODE_DEFAULT_H = 620;
 const CACHE_BUDGET = 420;
 const PRELOAD_AHEAD = 18;
 const PRELOAD_BEHIND = 4;
+const MANUAL_SIZE_PROP = "__denoVideoCompareManualSize";
 
 const CSS = `
 .dvp{position:absolute;inset:0;display:flex;flex-direction:column;
@@ -157,6 +158,18 @@ function isFullscreenRoot(root) {
   return document.fullscreenElement === root ||
     document.webkitFullscreenElement === root;
 }
+function ensureProperties(node) {
+  if (!node.properties) node.properties = {};
+  return node.properties;
+}
+function isManualSized(node) {
+  return Boolean(node?.properties?.[MANUAL_SIZE_PROP]);
+}
+function setManualSized(node, value) {
+  const props = ensureProperties(node);
+  if (value) props[MANUAL_SIZE_PROP] = true;
+  else delete props[MANUAL_SIZE_PROP];
+}
 function fmt(x) {
   x = Math.max(0, x || 0);
   const mm = Math.floor(x / 60), ss = Math.floor(x % 60),
@@ -177,6 +190,7 @@ function getState(node) {
       scrubbing: false, draggingSplit: false, panning: false,
       panStart: null, down: null, raf: 0, dom: null,
       ar: 16 / 9, _fitting: false, _wasPlaying: false, burnLabels: false,
+      manualSized: isManualSized(node), resizeTrackingArmed: false,
       // audio (Phase 2): WebAudio fed by raw planar f32 PCM
       actx: null, master: null, gA: null, gB: null,
       bufA: null, bufB: null, srcA: null, srcB: null,
@@ -243,6 +257,7 @@ function setupNode(node) {
   if (!node || node.__dvpSetup) return;
   node.__dvpSetup = true;
   const st = getState(node);
+  st.manualSized = isManualSized(node);
 
   for (const n of HIDDEN_WIDGETS) hideWidget(getWidget(node, n));
   applyOutputLabel(node);
@@ -259,18 +274,23 @@ function setupNode(node) {
 
   buildDom(node);
   if ((node.size?.[0] || 0) < NODE_MIN_W || (node.size?.[1] || 0) < NODE_DEFAULT_H) {
-    node.setSize?.([Math.max(node.size?.[0] || 0, NODE_MIN_W),
-                    Math.max(node.size?.[1] || 0, NODE_DEFAULT_H)]);
+    setNodeSize(node, [Math.max(node.size?.[0] || 0, NODE_MIN_W),
+                       Math.max(node.size?.[1] || 0, NODE_DEFAULT_H)], st);
   }
   if (!node.__dvpResizeWrapped) {
     node.__dvpResizeWrapped = true;
     const orz = node.onResize;
     node.onResize = function () {
       const r = orz?.apply(this, arguments);
-      fitNode(this);
+      const state = getState(this);
+      if (state.resizeTrackingArmed && !state._fitting) {
+        state.manualSized = true;
+        setManualSized(this, true);
+      }
       return r;
     };
   }
+  queueMicrotask(() => { st.resizeTrackingArmed = true; });
   if (!st.raf) st.raf = requestAnimationFrame(loopOf(node));
 }
 
@@ -738,8 +758,16 @@ function nativeWidgetsHeight(node) {
   }
   return h;
 }
-function fitNode(node) {
+function setNodeSize(node, size, state) {
+  const s = state || getState(node);
+  if (!node.setSize) return;
+  s._fitting = true;
+  node.setSize(size);
+  s._fitting = false;
+}
+function fitNode(node, { force = false } = {}) {
   const s = getState(node), d = s.dom;
+  if (!force && isManualSized(node)) return;
   if (!d || !s.ar || s._fitting || !node.size) return;
   const kids = d.root.children;
   const topH = kids[0] ? kids[0].offsetHeight : 38;
@@ -748,9 +776,7 @@ function fitNode(node) {
   const stageW = Math.max(w - 2, 80);
   const want = Math.round(90 + nativeWidgetsHeight(node) + topH + botH + stageW / s.ar);
   if (Math.abs((Number(node.size[1]) || 0) - want) > 4) {
-    s._fitting = true;
-    node.setSize([w, want]);
-    s._fitting = false;
+    setNodeSize(node, [w, want], s);
     node.setDirtyCanvas?.(true, true);
   }
 }
