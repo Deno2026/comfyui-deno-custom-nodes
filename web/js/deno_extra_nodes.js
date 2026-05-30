@@ -8,6 +8,20 @@ const LOADER_MIN_SIZE = [360, 520];
 const LOADER_KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
 const LOADER_PRESET_MODE = "Preset Ratio";
 const LOADER_MANUAL_MODE = "Manual Input";
+const LTX_MODE_NAMES = ["Checkpoint Style", "KJ Style", "GGUF Style"];
+const LTX_SERIALIZED_WIDGET_COUNT = 10;
+const LTX_SERIALIZED_WIDGET_NAMES = [
+    "pipeline_mode",
+    "checkpoint_name",
+    "diffusion_model_name",
+    "gguf_unet_name",
+    "video_vae_name",
+    "audio_vae_name",
+    "text_encoder_name",
+    "text_projection_name",
+    "clip_device",
+    "weight_dtype",
+];
 
 window.__denoLtxSequencerNodes = window.__denoLtxSequencerNodes || new Set();
 
@@ -36,12 +50,137 @@ function patchMultiImageLoader(nodeType, options = {}) {
 }
 
 function patchLtxPresetLoader(nodeType) {
+    const configure = nodeType.prototype.configure;
+    nodeType.prototype.configure = function (info) {
+        normalizeLtxLegacyWidgetValues(info);
+        return configure?.apply(this, arguments);
+    };
+
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
         const result = onNodeCreated?.apply(this, arguments);
         setupLtxPresetLoader(this);
         return result;
     };
+}
+
+function normalizeLtxLegacyWidgetValues(info) {
+    const normalized = getNormalizedLtxSerializedValues(info?.widgets_values);
+    if (normalized) {
+        info.widgets_values = normalized;
+    }
+}
+
+function getNormalizedLtxSerializedValues(values) {
+    if (!Array.isArray(values)) {
+        return null;
+    }
+    if (!LTX_MODE_NAMES.includes(values[0])) {
+        return null;
+    }
+    if (values.length >= LTX_SERIALIZED_WIDGET_COUNT + 1 && (values[1] === "" || values[1] == null)) {
+        return [values[0], ...values.slice(2, LTX_SERIALIZED_WIDGET_COUNT + 1)];
+    }
+    if (values.length >= LTX_SERIALIZED_WIDGET_COUNT) {
+        return values.slice(0, LTX_SERIALIZED_WIDGET_COUNT);
+    }
+    return null;
+}
+
+function applyLtxSerializedValuesToWidgets(node, values) {
+    const normalized = getNormalizedLtxSerializedValues(values);
+    if (!normalized) {
+        return false;
+    }
+
+    for (let i = 0; i < LTX_SERIALIZED_WIDGET_NAMES.length; i += 1) {
+        const widget = getWidget(node, LTX_SERIALIZED_WIDGET_NAMES[i]);
+        if (widget) {
+            widget.value = normalized[i];
+        }
+    }
+
+    node.properties = node.properties || {};
+    node.properties.pipeline_mode = normalized[0];
+    node.widgets_values = normalized;
+    return true;
+}
+
+function getComboValues(widget) {
+    const values = widget?.options?.values;
+    if (typeof values === "function") {
+        try {
+            const resolved = values(widget);
+            return Array.isArray(resolved) ? resolved : [];
+        } catch {
+            return [];
+        }
+    }
+    if (Array.isArray(values)) {
+        return values;
+    }
+    if (values && typeof values === "object") {
+        return Object.keys(values);
+    }
+    return [];
+}
+
+function chooseLtxFallbackValue(widgetName, values, currentValue) {
+    if (values.includes(currentValue)) {
+        return currentValue;
+    }
+
+    const preferredByWidget = {
+        checkpoint_name: ["ltx-2.3-22b-dev-fp8.safetensors"],
+        diffusion_model_name: [
+            "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors",
+            "ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors",
+        ],
+        gguf_unet_name: [
+            "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf",
+            "LTX-2.3-22B-distilled-1.1-Q2_K.gguf",
+            "ltx-2.3-22b-dev-Q4_K_M.gguf",
+        ],
+        video_vae_name: ["LTX23_video_vae_bf16.safetensors"],
+        audio_vae_name: ["LTX23_audio_vae_bf16.safetensors"],
+        text_encoder_name: ["gemma_3_12B_it_fp4_mixed.safetensors", "gemma_3_12B_it_fp8_scaled.safetensors"],
+        text_projection_name: ["ltx-2.3_text_projection_bf16.safetensors"],
+        clip_device: ["default"],
+        weight_dtype: ["default"],
+    };
+
+    for (const preferred of preferredByWidget[widgetName] || []) {
+        if (values.includes(preferred)) {
+            return preferred;
+        }
+    }
+
+    return values.find((value) => value !== "__none__") ?? values[0];
+}
+
+function sanitizeLtxWidgetValues(node) {
+    let changed = false;
+    for (const widgetName of LTX_SERIALIZED_WIDGET_NAMES) {
+        const widget = getWidget(node, widgetName);
+        const values = getComboValues(widget);
+        if (!widget || values.length === 0) {
+            continue;
+        }
+
+        const nextValue = chooseLtxFallbackValue(widgetName, values, widget.value);
+        if (nextValue !== undefined && widget.value !== nextValue) {
+            widget.value = nextValue;
+            changed = true;
+        }
+    }
+
+    const serializedValues = LTX_SERIALIZED_WIDGET_NAMES.map((widgetName) => getWidget(node, widgetName)?.value);
+    if (serializedValues.every((value) => value !== undefined)) {
+        node.widgets_values = serializedValues;
+        node.properties = node.properties || {};
+        node.properties.pipeline_mode = serializedValues[0];
+    }
+    return changed;
 }
 
 function setupLtxPresetLoader(node) {
@@ -66,7 +205,7 @@ function setupLtxPresetLoader(node) {
         pointer-events: auto;
     `;
 
-    const modeNames = ["Checkpoint Style", "KJ Style", "GGUF Style"];
+    const modeNames = LTX_MODE_NAMES;
     const modeButtons = new Map();
 
     const createModeButton = (modeName, label) => {
@@ -114,6 +253,13 @@ function setupLtxPresetLoader(node) {
     });
     modeDomWidget.computeSize = () => [Math.max(node.size?.[0] ?? 0, 320), 30];
 
+    const originalOnSerialize = node.onSerialize;
+    node.onSerialize = function (info) {
+        const result = originalOnSerialize?.apply(this, arguments);
+        normalizeLtxLegacyWidgetValues(info);
+        return result;
+    };
+
     const reorderWidgetSequence = () => {
         if (!Array.isArray(node.widgets)) {
             return;
@@ -156,6 +302,8 @@ function setupLtxPresetLoader(node) {
         }
     }
     reorderWidgetSequence();
+    applyLtxSerializedValuesToWidgets(node, node.widgets_values);
+    sanitizeLtxWidgetValues(node);
 
     const migrateLegacyWeightWidget = () => {
         const legacyWidget = getWidget(node, "split_weight_dtype");
@@ -299,6 +447,7 @@ function setupLtxPresetLoader(node) {
 
     node._denoUpdateLtxPresetVisibility = function () {
         migrateLegacyWeightWidget();
+        sanitizeLtxWidgetValues(this);
         applyCompactLabels();
         reorderWidgetSequence();
         const mode = getWidget(this, "pipeline_mode")?.value ?? this.properties?.pipeline_mode ?? "Checkpoint Style";
@@ -351,6 +500,8 @@ function setupLtxPresetLoader(node) {
     }
 
     setTimeout(() => {
+        applyLtxSerializedValuesToWidgets(node, node.widgets_values);
+        sanitizeLtxWidgetValues(node);
         migrateLegacyWeightWidget();
         applyCompactLabels();
         node._denoUpdateLtxPresetVisibility?.();

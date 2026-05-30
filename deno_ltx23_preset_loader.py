@@ -131,6 +131,80 @@ def _build_text_projection_options(recommended: Sequence[str]) -> List[str]:
     return _ordered_existing_options(discovered, recommended)
 
 
+def _normalize_pipeline_mode(pipeline_mode: str) -> str:
+    mode = (pipeline_mode or "").strip()
+    if mode in PIPELINE_MODES:
+        return mode
+    raise RuntimeError(
+        f"[Deno] Unknown LTX pipeline mode: {pipeline_mode!r}.\n"
+        "Reload the workflow, select Checkpoint/KJ/GGUF Style again, then run it once more."
+    )
+
+
+def _require_selected(value: str, field_name: str, pipeline_mode: str) -> str:
+    normalized = _normalize_name(value)
+    if not normalized or normalized == NONE_OPTION:
+        raise RuntimeError(
+            f"[Deno] {pipeline_mode} requires '{field_name}', but no valid model is selected.\n"
+            "Select the missing LTX model in the loader, press R to refresh model lists if needed, then run again."
+        )
+    return value
+
+
+def _require_extension(value: str, field_name: str, extension: str, pipeline_mode: str) -> str:
+    selected = _require_selected(value, field_name, pipeline_mode)
+    if not _normalize_name(selected).casefold().endswith(extension.casefold()):
+        raise RuntimeError(
+            f"[Deno] {pipeline_mode} expects '{field_name}' to be a {extension} file, got: {selected!r}.\n"
+            "This can happen when an older workflow loads with shifted widget values. "
+            "Reload the workflow after updating the Deno node, then reselect the model if it still looks wrong."
+        )
+    return selected
+
+
+def _validation_missing_message(field_name: str, pipeline_mode: str) -> str:
+    return (
+        f"[Deno] {pipeline_mode} requires '{field_name}', but no valid model is selected. "
+        "Refresh the model list, then select the missing file again."
+    )
+
+
+def _validate_required_model(
+    value: str,
+    field_name: str,
+    pipeline_mode: str,
+    folder_names: Sequence[str],
+    *,
+    extension: str | None = None,
+) -> str | None:
+    selected = _normalize_name(value)
+    if not selected or selected == NONE_OPTION:
+        return _validation_missing_message(field_name, pipeline_mode)
+    if extension and not selected.casefold().endswith(extension.casefold()):
+        return (
+            f"[Deno] {pipeline_mode} expects '{field_name}' to be a {extension} file, got: {value!r}. "
+            "Reload the workflow after updating the Deno node, then reselect the model if needed."
+        )
+
+    for folder_name in folder_names:
+        try:
+            if folder_paths.get_full_path(folder_name, value):
+                return None
+        except Exception:
+            continue
+
+    return (
+        f"[Deno] {pipeline_mode} selected '{field_name}' is not installed or is no longer in ComfyUI's model list: "
+        f"{value!r}. Refresh the model list, then select an available file."
+    )
+
+
+def _validate_choice(value: str, field_name: str, choices: Sequence[str]) -> str | None:
+    if value in choices:
+        return None
+    return f"[Deno] Invalid LTX '{field_name}' value: {value!r}."
+
+
 def _get_gguf_choices() -> List[str]:
     discovered_options: List[str] = []
     try:
@@ -498,6 +572,65 @@ class DenoLTX23PresetLoader:
     FUNCTION = "load_ltx_model"
     CATEGORY = "Deno/LTX"
 
+    @classmethod
+    def VALIDATE_INPUTS(
+        cls,
+        pipeline_mode,
+        checkpoint_name=None,
+        diffusion_model_name=None,
+        gguf_unet_name=None,
+        video_vae_name=None,
+        audio_vae_name=None,
+        text_encoder_name=None,
+        text_projection_name=None,
+        clip_device=None,
+        weight_dtype=None,
+    ):
+        try:
+            mode = _normalize_pipeline_mode(pipeline_mode)
+        except RuntimeError as exc:
+            return str(exc)
+
+        for error in (
+            _validate_choice(clip_device, "clip_device", DEVICE_CHOICES),
+            _validate_choice(weight_dtype, "weight_dtype", DTYPE_CHOICES),
+        ):
+            if error:
+                return error
+
+        if mode == "Checkpoint Style":
+            checks = (
+                _validate_required_model(checkpoint_name, "checkpoint_name", mode, ("checkpoints",)),
+                _validate_required_model(text_encoder_name, "text_encoder_name", mode, ("text_encoders",)),
+            )
+        elif mode == "KJ Style":
+            checks = (
+                _validate_required_model(diffusion_model_name, "diffusion_model_name", mode, ("diffusion_models",)),
+                _validate_required_model(text_encoder_name, "text_encoder_name", mode, ("text_encoders",)),
+                _validate_required_model(text_projection_name, "text_projection_name", mode, ("text_encoders",)),
+                _validate_required_model(video_vae_name, "video_vae_name", mode, ("vae",)),
+                _validate_required_model(audio_vae_name, "audio_vae_name", mode, ("vae",)),
+            )
+        else:
+            checks = (
+                _validate_required_model(
+                    gguf_unet_name,
+                    "gguf_unet_name",
+                    mode,
+                    ("unet_gguf", "diffusion_models", "unet"),
+                    extension=".gguf",
+                ),
+                _validate_required_model(text_encoder_name, "text_encoder_name", mode, ("text_encoders",)),
+                _validate_required_model(text_projection_name, "text_projection_name", mode, ("text_encoders",)),
+                _validate_required_model(video_vae_name, "video_vae_name", mode, ("vae",)),
+                _validate_required_model(audio_vae_name, "audio_vae_name", mode, ("vae",)),
+            )
+
+        for error in checks:
+            if error:
+                return error
+        return True
+
     def _load_kj_vaes(self, video_vae_name: str, audio_vae_name: str):
         vae_loader_cls = _get_kj_vae_loader_class()
         vae_loader = vae_loader_cls()
@@ -603,13 +736,21 @@ class DenoLTX23PresetLoader:
         clip_device: str,
         weight_dtype: str,
     ):
+        pipeline_mode = _normalize_pipeline_mode(pipeline_mode)
         if pipeline_mode == "Checkpoint Style":
+            checkpoint_name = _require_selected(checkpoint_name, "checkpoint_name", pipeline_mode)
+            text_encoder_name = _require_selected(text_encoder_name, "text_encoder_name", pipeline_mode)
             model, clip, video_vae, audio_vae = self._load_checkpoint_style(
                 checkpoint_name=checkpoint_name,
                 text_encoder_name=text_encoder_name,
                 clip_device=clip_device,
             )
         elif pipeline_mode == "KJ Style":
+            diffusion_model_name = _require_selected(diffusion_model_name, "diffusion_model_name", pipeline_mode)
+            text_encoder_name = _require_selected(text_encoder_name, "text_encoder_name", pipeline_mode)
+            text_projection_name = _require_selected(text_projection_name, "text_projection_name", pipeline_mode)
+            video_vae_name = _require_selected(video_vae_name, "video_vae_name", pipeline_mode)
+            audio_vae_name = _require_selected(audio_vae_name, "audio_vae_name", pipeline_mode)
             _get_kj_vae_loader_class()
             model, clip, video_vae, audio_vae = self._load_kj_style(
                 diffusion_model_name=diffusion_model_name,
@@ -621,6 +762,11 @@ class DenoLTX23PresetLoader:
                 weight_dtype=weight_dtype,
             )
         else:
+            gguf_unet_name = _require_extension(gguf_unet_name, "gguf_unet_name", ".gguf", pipeline_mode)
+            text_encoder_name = _require_selected(text_encoder_name, "text_encoder_name", pipeline_mode)
+            text_projection_name = _require_selected(text_projection_name, "text_projection_name", pipeline_mode)
+            video_vae_name = _require_selected(video_vae_name, "video_vae_name", pipeline_mode)
+            audio_vae_name = _require_selected(audio_vae_name, "audio_vae_name", pipeline_mode)
             _assert_comfy_supports_ltx23_gguf_metadata()
             _get_gguf_loader_class()
             _get_kj_vae_loader_class()

@@ -1,5 +1,37 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 배포 준비/반영 (2026-05-30, Claude) — 0.7.23 LTX Model Loader validation 수정
+>
+> **요청/맥락:** Codex 한도 소진으로 사용자가 Claude에 배포 위임. 데스크탑 ComfyUI에서
+> 이미 검증된 `(Deno) LTX Model Loader` validation 버그픽스를 소스 저장소에 반영·배포.
+>
+> **원인 요약:** 구버전 워크플로에 저장된 LTX Model Loader widget 값이 현재 위젯 순서와
+> 맞지 않아 값이 밀렸고, 숨겨진 비활성 모드 입력값에 남은 미설치
+> `checkpoint_name = ltx-2.3-22b-dev.safetensors`가 ComfyUI 기본 prompt validation에서
+> required combo로 검사돼 실행 직전 0.1초 만에 컷됨.
+>
+> **반영(데스크탑 런타임 → 소스 복사):**
+> - `deno_ltx23_preset_loader.py`: `VALIDATE_INPUTS` 추가 — 현재 선택한 pipeline mode가
+>   실제로 쓰는 입력만 검증하고, 숨겨진 다른 모드의 오래된 값이 실행을 막지 않게 함.
+> - `web/js/deno_extra_nodes.js`: `getNormalizedLtxSerializedValues` /
+>   `applyLtxSerializedValuesToWidgets` / `sanitizeLtxWidgetValues` / `chooseLtxFallbackValue`
+>   — 구버전 11개 widget 값에서 빈 legacy slot 제거, 실제 combo 목록에 없는 값 fallback 처리.
+> - `pyproject.toml` `0.7.22 → 0.7.23`, `CHANGELOG.md` 공개 항목 추가.
+>
+> **검증:**
+> - source↔runtime SHA256 일치(py `882430ee…`, js `8de41d69…`).
+> - `python -m py_compile deno_ltx23_preset_loader.py` 통과.
+> - `node --check web/js/deno_extra_nodes.js` 통과.
+> - `python -m pytest` → 65 passed.
+> - `git status --short` = 위 코드 2파일 + `pyproject.toml`/`CHANGELOG.md`/`SESSION_HANDOFF.md`만.
+>
+> **배포 게이트:** `origin main` push(→ Publish workflow → Registry), tag `v0.7.23`,
+> GitHub Release는 사용자 명시 승인 후 진행. 승인 시 워크플로 3개 success 1회 +
+> Registry API 1회 확인 후 종료(반복 폴링 없음). publish 워크플로는 `push main` +
+> `pyproject.toml` 변경에만 트리거(중복 버전은 자동 skip), tag push는 트리거 안 함.
+>
+> ---
+
 > ## ▶ 배포 기록 (2026-05-27, Codex) — 0.7.22 Registry 제출 완료
 >
 > **요청/맥락:** 사용자가 Video Preview 정보 배지와 LTX Model Loader 드롭다운

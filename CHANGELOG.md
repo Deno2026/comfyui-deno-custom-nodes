@@ -4,6 +4,10 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## 0.7.23 - 2026-05-30
+
+- LTX Model Loader now restores older workflow dropdown values correctly and prevents hidden inactive model fields from blocking Checkpoint, KJ, or GGUF runs.
+
 ## 0.7.22 - 2026-05-27
 
 - Video Preview shows a compact current-video info badge with resolution, FPS, frame count, and duration.
