@@ -1,5 +1,32 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 배포 기록 (2026-05-30, Claude) — 0.7.23 Registry 제출 완료
+>
+> **배포 커밋/태그/릴리즈:**
+> - `78b74df` — `Release 0.7.23 LTX model loader validation fix` (`origin/main` push 완료).
+> - `pyproject.toml` `0.7.22 → 0.7.23`, `CHANGELOG.md` `0.7.23 - 2026-05-30` 추가.
+> - 태그 `v0.7.23` push 완료. GitHub Release `v0.7.23` 생성:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.23`
+>
+> **GitHub Actions (push 트리거, 3개 모두 success):**
+> - Publish to Comfy registry: run `26687481077` (`Publish Custom Node to registry` 잡 실제 실행, 22s).
+> - CI: run `26687481073`. Pages: run `26687480679`.
+> - 유일 경고: Node.js 20 actions deprecation(무해, publish 자체 success).
+>
+> **Registry 1회 확인 결과:**
+> - API: `https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true`
+> - `0.7.23` 생성됨: `NodeVersionStatusPending`, `status_reason=""`,
+>   `comfy_node_extract_status="pending"`.
+> - CDN zip HEAD `200`: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.23/node.zip`.
+> - 확인 시점 top-level latest는 Registry 캐시/인덱싱 때문에 아직 `0.7.22 Active`.
+>   `0.7.23`은 Pending → 스캔 후 Active/latest 전환 예정.
+>
+> **다음 확인 규칙:** 추가 폴링 없음. 사용자가 다시 확인 요청 시 Registry API 1회만 확인.
+> `0.7.23`이 Active·latest가 되면 완료 보고. Flagged/Rejected면 `status_reason`을 먼저 보고
+> 해당 파일만 최소 수정 후 새 버전으로 처리.
+>
+> ---
+
 > ## ▶ 배포 준비/반영 (2026-05-30, Claude) — 0.7.23 LTX Model Loader validation 수정
 >
 > **요청/맥락:** Codex 한도 소진으로 사용자가 Claude에 배포 위임. 데스크탑 ComfyUI에서
