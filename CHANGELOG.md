@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## 0.7.25 - 2026-05-31
+
+- Easy Model Download Helper no longer appears twice in the node list; older workflow IDs are handled as a migration instead.
+- Added the public LTX 2.3 8GB VRAM workflow as a compatibility baseline for future DENO node updates.
+
 ## 0.7.24 - 2026-05-31
 
 - Older workflows that still contain the previous LTX 8GB download helper node now open normally instead of showing an UNKNOWN missing-node box.

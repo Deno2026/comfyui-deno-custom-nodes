@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -9,6 +11,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_INIT = REPO_ROOT / "__init__.py"
+PUBLIC_LTX23_8GB_WORKFLOW = REPO_ROOT / "docs" / "workflows" / "ltx23-8gb-vram-public-baseline.json"
+PUBLIC_LTX23_8GB_WORKFLOW_CANONICAL_SHA256 = "5b58e483ebdce0e12a2363b44f9e9527e58ab90caedb66813fe7ff37633932e8"
 
 
 def install_torch_stub():
@@ -186,7 +190,6 @@ def test_node_registration_exports_expected_nodes():
         "DenoImageCompare",
         "DenoVideoCompare",
         "DenoVideoPreview",
-        "DenoLTX8GBModelDownloader",
     ]
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
@@ -194,8 +197,19 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX23PresetLoader"] == "(Deno) LTX Model Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXModelDownloader"] == "(Deno) Easy Model Download Helper"
-    assert package.NODE_CLASS_MAPPINGS["DenoLTX8GBModelDownloader"] is package.NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
-    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX8GBModelDownloader"] == "(Deno) Easy Model Download Helper"
+    assert "DenoLTX8GBModelDownloader" not in package.NODE_CLASS_MAPPINGS
+    assert package.DENO_NODE_REPLACEMENTS == (
+        {
+            "old_node_id": "DenoLTX8GBModelDownloader",
+            "new_node_id": "DenoLTXModelDownloader",
+            "old_widget_ids": ["model_root", "presets_json"],
+            "input_mapping": [
+                {"new_id": "model_root", "old_id": "model_root"},
+                {"new_id": "presets_json", "old_id": "presets_json"},
+            ],
+            "output_mapping": None,
+        },
+    )
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiLoraLoader"] == "(Deno) Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
@@ -205,6 +219,45 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoCompare"] == "(Deno) Video Compare"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoPreview"] == "(Deno) Video Preview"
     assert package.WEB_DIRECTORY == "./web/js"
+
+
+def test_public_ltx23_8gb_workflow_keeps_deno_node_contracts():
+    package = load_package()
+    workflow = json.loads(PUBLIC_LTX23_8GB_WORKFLOW.read_text(encoding="utf-8"))
+    canonical = json.dumps(workflow, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+    assert hashlib.sha256(canonical).hexdigest() == PUBLIC_LTX23_8GB_WORKFLOW_CANONICAL_SHA256
+
+    node_types = {
+        node.get("type")
+        for node in workflow.get("nodes", [])
+        if isinstance(node, dict) and node.get("type")
+    }
+    deno_node_types = {
+        node_type
+        for node_type in node_types
+        if node_type.startswith("Deno") or "deno" in node_type.lower()
+    }
+
+    assert deno_node_types == {
+        "DenoLTX23PresetLoader",
+        "DenoLTXModelDownloader",
+        "DenoLTXMultiLoraLoader",
+        "DenoLTXPromptGuide",
+        "DenoLTXSequencer",
+        "DenoMultiImageLoader",
+        "DenoResolutionSetup",
+    }
+    assert deno_node_types <= set(package.NODE_CLASS_MAPPINGS)
+    assert "DenoLTX8GBModelDownloader" not in node_types
+    assert "DenoVideoCompareVHS" not in node_types
+
+    ltx_loader_nodes = [node for node in workflow["nodes"] if node.get("type") == "DenoLTX23PresetLoader"]
+    assert len(ltx_loader_nodes) == 1
+    ltx_widgets = ltx_loader_nodes[0]["widgets_values"]
+    assert ltx_widgets[0] == "GGUF Style"
+    assert len(ltx_widgets) == 11
+    assert ltx_widgets[1] == ""
 
 
 def test_deno_video_preview_passes_canvas_navigation_events():

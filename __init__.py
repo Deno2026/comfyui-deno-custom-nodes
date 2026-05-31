@@ -399,11 +399,54 @@ for _module_name, _class_name, _display_name in _OPTIONAL_NODES:
     # was the case while these were eager `from .x import Y` imports).
     globals()[_class_name] = _node_class
 
-if "DenoLTXModelDownloader" in NODE_CLASS_MAPPINGS:
-    # Backward compatibility for workflows saved before the downloader node was
-    # renamed from the LTX 8GB-specific helper to the generic model helper.
-    NODE_CLASS_MAPPINGS["DenoLTX8GBModelDownloader"] = NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
-    NODE_DISPLAY_NAME_MAPPINGS["DenoLTX8GBModelDownloader"] = "(Deno) Easy Model Download Helper"
-    globals()["DenoLTX8GBModelDownloader"] = NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
+DENO_NODE_REPLACEMENTS = (
+    {
+        "old_node_id": "DenoLTX8GBModelDownloader",
+        "new_node_id": "DenoLTXModelDownloader",
+        "old_widget_ids": ["model_root", "presets_json"],
+        "input_mapping": [
+            {"new_id": "model_root", "old_id": "model_root"},
+            {"new_id": "presets_json", "old_id": "presets_json"},
+        ],
+        "output_mapping": None,
+    },
+)
+
+
+def _register_node_replacements():
+    """Register legacy node migrations without adding duplicate menu nodes."""
+    try:
+        server_module = sys.modules.get("server")
+        if server_module is None:
+            return
+        PromptServer = getattr(server_module, "PromptServer", None)
+        manager = getattr(getattr(PromptServer, "instance", None), "node_replace_manager", None)
+        if manager is None:
+            return
+        for replacement in DENO_NODE_REPLACEMENTS:
+            manager.register(_DenoNodeReplacement(replacement))
+    except Exception as exc:
+        logging.debug("[DENO] Node replacement registration skipped: %s", exc)
+
+
+class _DenoNodeReplacement:
+    def __init__(self, replacement):
+        self.old_node_id = replacement["old_node_id"]
+        self.new_node_id = replacement["new_node_id"]
+        self.old_widget_ids = replacement.get("old_widget_ids")
+        self.input_mapping = replacement.get("input_mapping")
+        self.output_mapping = replacement.get("output_mapping")
+
+    def as_dict(self):
+        return {
+            "old_node_id": self.old_node_id,
+            "new_node_id": self.new_node_id,
+            "old_widget_ids": self.old_widget_ids,
+            "input_mapping": list(self.input_mapping) if self.input_mapping else None,
+            "output_mapping": list(self.output_mapping) if self.output_mapping else None,
+        }
+
+
+_register_node_replacements()
 
 WEB_DIRECTORY = "./web/js"

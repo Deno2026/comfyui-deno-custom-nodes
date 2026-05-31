@@ -1,5 +1,51 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 기준 워크플로우 기록 (2026-05-31, Codex) — public LTX 2.3 8GB VRAM workflow
+>
+> **기준 파일:** 사용자가 공개 배포 중인 워크플로
+> `C:\Users\aions\Downloads\LTX2.3 8GB VRAM workflow (1).json`.
+> repo 기준 사본:
+> `docs/workflows/ltx23-8gb-vram-public-baseline.json`.
+>
+> **원칙:** 앞으로 `(Deno) LTX 2.3 8GB VRAM` 공개 워크플로우는 이 파일이 Manager 최신 업데이트 후
+> 바로 열리고, DENO 노드 업데이트 때문에 깨지지 않는 것을 기준점으로 삼는다.
+>
+> **검증 결과:** 워크플로 내 DENO 타입은 `DenoLTX23PresetLoader`, `DenoLTXModelDownloader`,
+> `DenoLTXMultiLoraLoader`, `DenoLTXPromptGuide`, `DenoLTXSequencer`, `DenoMultiImageLoader`,
+> `DenoResolutionSetup`이며 모두 현재 로컬 런타임과 Registry `0.7.24 Active`에서 존재.
+> `DenoLTX23PresetLoader`는 11개짜리 legacy widget array(`GGUF Style`, blank slot 포함)를 들고 있어
+> 0.7.23+의 widget normalization/validation fix가 필수.
+>
+> **자동화:** `tests/test_image_resize_node.py`에
+> `test_public_ltx23_8gb_workflow_keeps_deno_node_contracts` 추가. 기준 워크플로우의 canonical SHA256과
+> DENO node type contract를 검사해, 향후 DENO 노드명/계약 변경으로 이 공개 워크플로우가 깨지면 테스트가 실패하게 함.
+>
+> **외부 의존성 주의:** 이 워크플로우는 DENO만으로 완결되지 않음.
+> `ComfyUI-LTXVideo`, `comfyui-videohelpersuite`, `comfyui-kjnodes`, `ComfyMath`,
+> `GACLove/ComfyUI-VFI`, `comfyui_memory_cleanup`, `comfyui_nvidia_rtx_nodes`,
+> `rgthree-comfy`, 그리고 Get/Set/Note/Markdown 계열 프론트엔드 노드가 필요할 수 있음.
+> 신규 사용자 안내에는 “DENO 노드 최신 업데이트”와 별도로 의존 노드팩 설치 안내가 필요.
+>
+> ---
+
+> ## ▶ 로컬 정리 기록 (2026-05-31, Codex) — Easy Model Download Helper 중복 노드 제거
+>
+> **원인:** `0.7.24`에서 예전 워크플로 `DenoLTX8GBModelDownloader`를 살리기 위해
+> `NODE_CLASS_MAPPINGS`에 alias를 직접 추가했으나, ComfyUI 노드 목록에는
+> `(Deno) Easy Model Download Helper`가 2개 보이는 UX 중복이 생김.
+>
+> **수정:** `DenoLTX8GBModelDownloader`를 실제 노드 등록에서 제거하고,
+> `DenoLTX8GBModelDownloader → DenoLTXModelDownloader`는 ComfyUI node replacement metadata로만 등록.
+> `web/js/deno_ltx_model_downloader.js`도 최신 타입 `DenoLTXModelDownloader`만 대상으로 정리.
+>
+> **검증:** embedded Python 기준 `54 passed`, `py_compile` 통과, `node --check` 통과.
+> source/portable/desktop 해시 일치 확인 후 ComfyUI queue idle 상태에서 기존 PID 종료,
+> `Start ComfyUI SageAttention.bat`로 재시작. `/object_info`에서 `DenoLTX8GBModelDownloader`
+> 사라짐 확인. `/node_replacements`와 `/api/node_replacements` 모두
+> `DenoLTX8GBModelDownloader → DenoLTXModelDownloader` migration 등록 확인.
+>
+> ---
+
 > ## ▶ 배포 기록 (2026-05-31, Codex) — 0.7.24 legacy downloader alias
 >
 > **원인:** 기존 워크플로에 저장된 예전 노드 타입 `DenoLTX8GBModelDownloader`가 최신 팩에서
