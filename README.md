@@ -1,5 +1,7 @@
 # Deno Custom Nodes
 
+[English](README.md) | [한국어](docs/README.ko.md) | [日本語](docs/README.ja.md) | [简体中文](docs/README.zh-CN.md) | [Español](docs/README.es.md) | [Português](docs/README.pt-PT.md) | [Português (Brasil)](docs/README.pt-BR.md) | [Bahasa Indonesia](docs/README.id.md)
+
 [YouTube Channel](https://www.youtube.com/@Denoise-AI)
 
 Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
