@@ -186,6 +186,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoImageCompare",
         "DenoVideoCompare",
         "DenoVideoPreview",
+        "DenoLTX8GBModelDownloader",
     ]
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
@@ -193,6 +194,8 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX23PresetLoader"] == "(Deno) LTX Model Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXModelDownloader"] == "(Deno) Easy Model Download Helper"
+    assert package.NODE_CLASS_MAPPINGS["DenoLTX8GBModelDownloader"] is package.NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX8GBModelDownloader"] == "(Deno) Easy Model Download Helper"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiLoraLoader"] == "(Deno) Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"

@@ -1,5 +1,25 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 배포 준비 (2026-05-31, Codex) — 0.7.24 legacy downloader alias
+>
+> **원인:** 기존 워크플로에 저장된 예전 노드 타입 `DenoLTX8GBModelDownloader`가 최신 팩에서
+> `DenoLTXModelDownloader`로 이름 변경된 뒤 호환 alias 없이 빠져, 설치된 DENO 팩에서도 해당 노드만
+> `UNKNOWN`/Missing Node Pack처럼 표시됨.
+>
+> **수정:** `__init__.py`에서 `DenoLTX8GBModelDownloader`를 `DenoLTXModelDownloader` 클래스에 연결하는
+> backward-compatible alias 추가. `web/js/deno_ltx_model_downloader.js`도 두 타입명 모두에서 같은 DOM UI를
+> 붙이도록 수정. 테스트에 alias 매핑 검증 추가.
+>
+> **로컬 반영/검증:** 포터블 실행본
+> `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`와 데스크탑 실행본
+> `C:\Users\aions\Documents\ComfyUI\custom_nodes\comfyui-deno-custom-nodes`에 동일 패치 반영. Sage Attention BAT로
+> 포터블 재시작 후 `/object_info/DenoLTX8GBModelDownloader`가 `(Deno) Easy Model Download Helper`로 정상 응답 확인.
+>
+> **배포:** `pyproject.toml` `0.7.23 → 0.7.24`, `CHANGELOG.md` 공개 항목 추가. `main` push 시 Registry publish
+> 워크플로가 트리거됨.
+>
+> ---
+
 > ## ▶ 배포 기록 (2026-05-30, Claude) — 0.7.23 Registry 제출 완료
 >
 > **배포 커밋/태그/릴리즈:**

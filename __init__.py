@@ -399,4 +399,11 @@ for _module_name, _class_name, _display_name in _OPTIONAL_NODES:
     # was the case while these were eager `from .x import Y` imports).
     globals()[_class_name] = _node_class
 
+if "DenoLTXModelDownloader" in NODE_CLASS_MAPPINGS:
+    # Backward compatibility for workflows saved before the downloader node was
+    # renamed from the LTX 8GB-specific helper to the generic model helper.
+    NODE_CLASS_MAPPINGS["DenoLTX8GBModelDownloader"] = NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
+    NODE_DISPLAY_NAME_MAPPINGS["DenoLTX8GBModelDownloader"] = "(Deno) Easy Model Download Helper"
+    globals()["DenoLTX8GBModelDownloader"] = NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
+
 WEB_DIRECTORY = "./web/js"

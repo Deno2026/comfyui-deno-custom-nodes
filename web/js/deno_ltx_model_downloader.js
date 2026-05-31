@@ -2,6 +2,8 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const NODE_NAME = "DenoLTXModelDownloader";
+const LEGACY_NODE_NAME = "DenoLTX8GBModelDownloader";
+const NODE_NAMES = new Set([NODE_NAME, LEGACY_NODE_NAME]);
 const ROUTE = "/deno/ltx_model_downloader";
 const MIN_SIZE = [560, 430];
 const PANEL_MIN_HEIGHT = 352;
@@ -72,7 +74,7 @@ const DEFAULT_STATE = {
 app.registerExtension({
     name: "Deno.LTXModelSetupHelper",
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name !== NODE_NAME) {
+        if (!NODE_NAMES.has(nodeData.name)) {
             return;
         }
 
@@ -93,7 +95,7 @@ app.registerExtension({
 });
 
 function setupNode(node) {
-    if (!node || node.type !== NODE_NAME) {
+    if (!node || !NODE_NAMES.has(node.type)) {
         return;
     }
     if (node.__denoLtxSetupReady) {

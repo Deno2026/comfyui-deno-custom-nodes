@@ -4,6 +4,10 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## 0.7.24 - 2026-05-31
+
+- Older workflows that still contain the previous LTX 8GB download helper node now open normally instead of showing an UNKNOWN missing-node box.
+
 ## 0.7.23 - 2026-05-30
 
 - LTX Model Loader now restores older workflow dropdown values correctly and prevents hidden inactive model fields from blocking Checkpoint, KJ, or GGUF runs.
