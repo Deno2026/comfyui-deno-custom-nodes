@@ -1,6 +1,6 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
-> ## ▶ 배포 준비 (2026-05-31, Codex) — 0.7.24 legacy downloader alias
+> ## ▶ 배포 기록 (2026-05-31, Codex) — 0.7.24 legacy downloader alias
 >
 > **원인:** 기존 워크플로에 저장된 예전 노드 타입 `DenoLTX8GBModelDownloader`가 최신 팩에서
 > `DenoLTXModelDownloader`로 이름 변경된 뒤 호환 alias 없이 빠져, 설치된 DENO 팩에서도 해당 노드만
@@ -15,8 +15,27 @@
 > `C:\Users\aions\Documents\ComfyUI\custom_nodes\comfyui-deno-custom-nodes`에 동일 패치 반영. Sage Attention BAT로
 > 포터블 재시작 후 `/object_info/DenoLTX8GBModelDownloader`가 `(Deno) Easy Model Download Helper`로 정상 응답 확인.
 >
-> **배포:** `pyproject.toml` `0.7.23 → 0.7.24`, `CHANGELOG.md` 공개 항목 추가. `main` push 시 Registry publish
-> 워크플로가 트리거됨.
+> **배포 커밋/태그/릴리즈:**
+> - `3d24177` — `Release 0.7.24 legacy downloader compatibility` (`origin/main` push 완료).
+> - `pyproject.toml` `0.7.23 → 0.7.24`, `CHANGELOG.md` `0.7.24 - 2026-05-31` 추가.
+> - 태그 `v0.7.24` push 완료. GitHub Release `v0.7.24` 생성:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.24`
+>
+> **GitHub Actions (push 트리거, 모두 success):**
+> - Publish to Comfy registry: run `26704673262`.
+> - CI: run `26704673263`. Pages: run `26704673092`.
+>
+> **Registry 1회 확인 결과:**
+> - API: `https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true`
+> - `0.7.24` 생성됨: `NodeVersionStatusPending`, `status_reason=""`,
+>   `comfy_node_extract_status="pending"`.
+> - CDN zip HEAD `200`: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.24/node.zip`.
+> - 확인 시점 top-level latest는 Registry 캐시/인덱싱 때문에 아직 `0.7.22 Active`.
+>   `0.7.24`는 Pending → 스캔 후 Active/latest 전환 예정.
+>
+> **다음 확인 규칙:** 추가 폴링 없음. 사용자가 다시 확인 요청 시 Registry API 1회만 확인.
+> `0.7.24`가 Active·latest가 되면 완료 보고. Flagged/Rejected면 `status_reason`을 먼저 보고
+> 해당 파일만 최소 수정 후 새 버전으로 처리.
 >
 > ---
 
