@@ -46,6 +46,50 @@
 >
 > ---
 
+> ## ▶ 배포 기록 (2026-05-31, Codex) — 0.7.25 downloader migration + public workflow baseline
+>
+> **배포 목적:** `0.7.24`의 legacy downloader alias는 기존 워크플로를 살렸지만,
+> ComfyUI 노드 목록에 `(Deno) Easy Model Download Helper`가 중복 표시되는 UX 문제가 있었음.
+> 이번 릴리즈는 예전 `DenoLTX8GBModelDownloader`를 실제 노드 등록에서는 제거하고,
+> ComfyUI node replacement migration으로만 `DenoLTXModelDownloader`에 연결.
+>
+> **추가 기준점:** 사용자가 공개 배포 중인
+> `LTX2.3 8GB VRAM workflow (1).json`을
+> `docs/workflows/ltx23-8gb-vram-public-baseline.json`으로 보관하고,
+> `tests/test_image_resize_node.py`에 canonical SHA256 및 DENO node contract 테스트 추가.
+> 향후 DENO 노드 업데이트로 공개 워크플로우의 DENO 노드명이 깨지면 테스트가 실패하게 됨.
+>
+> **로컬 반영/검증:** 포터블 실행본
+> `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`와 데스크탑 실행본
+> `C:\Users\aions\Documents\ComfyUI\custom_nodes\comfyui-deno-custom-nodes`에 동일 파일 반영 후 해시 일치 확인.
+> embedded Python 기준 `54 passed`, `py_compile` 통과, `node --check` 통과.
+> Sage Attention BAT로 포터블 재시작 후 `/object_info/DenoLTXModelDownloader`와
+> `/object_info/DenoLTX23PresetLoader` 응답 확인. `/object_info/DenoLTX8GBModelDownloader`는 빈 응답,
+> `/node_replacements`와 `/api/node_replacements`는 legacy → current migration 확인.
+>
+> **배포 커밋/태그/릴리즈:**
+> - `e845d0b` — `Release 0.7.25 workflow baseline and downloader migration` (`origin/main` push 완료).
+> - `pyproject.toml` `0.7.24 → 0.7.25`, `CHANGELOG.md` `0.7.25 - 2026-05-31` 추가.
+> - 태그 `v0.7.25` push 완료. GitHub Release `v0.7.25` 생성:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.25`
+>
+> **GitHub Actions (push 트리거, 모두 success):**
+> - Publish to Comfy registry: run `26706594611`.
+> - CI: run `26706594603`. Pages: run `26706594297`.
+>
+> **Registry 1회 확인 결과:**
+> - API: `https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true`
+> - `0.7.25` 생성됨: `NodeVersionStatusPending`, `status_reason=""`,
+>   `comfy_node_extract_status="pending"`.
+> - CDN zip HEAD `200`: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.25/node.zip`.
+> - 확인 시점 `0.7.24`는 `NodeVersionStatusActive`, `0.7.25`는 Pending → 스캔 후 Active/latest 전환 예정.
+>
+> **다음 확인 규칙:** 추가 폴링 없음. 사용자가 다시 확인 요청 시 Registry API 1회만 확인.
+> `0.7.25`가 Active·latest가 되면 완료 보고. Flagged/Rejected면 `status_reason`을 먼저 보고
+> 해당 파일만 최소 수정 후 새 버전으로 처리.
+>
+> ---
+
 > ## ▶ 배포 기록 (2026-05-31, Codex) — 0.7.24 legacy downloader alias
 >
 > **원인:** 기존 워크플로에 저장된 예전 노드 타입 `DenoLTX8GBModelDownloader`가 최신 팩에서
