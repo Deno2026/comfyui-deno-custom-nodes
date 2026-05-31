@@ -2,59 +2,171 @@
 
 [English](../README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-PT.md) | [Português (Brasil)](README.pt-BR.md) | [Bahasa Indonesia](README.id.md)
 
-ComfyUI에서 반복되는 이미지, 비디오, LTX, RTX, 모델 설치 작업을 더 빠르고 편하게 정리하기 위한 Deno 커스텀 노드 모음입니다.
+[YouTube Channel](https://www.youtube.com/@Denoise-AI)
 
-이 문서는 한국어 빠른 안내입니다. 노드별 전체 세부 기능은 원문 [README](../README.md)를 기준으로 유지합니다.
+실제 ComfyUI 작업에서 반복되는 이미지, 비디오, LTX, RTX, 모델 설치 흐름을 더 빠르고 편하게 만들기 위한 Deno 커스텀 노드 모음입니다. 대부분의 Deno 노드는 ComfyUI 캔버스를 벗어나지 않고 도움말을 볼 수 있는 작은 초록색 `i` 버튼을 포함합니다.
+
+## Release Notes
+
+공개 업데이트 내역은 [CHANGELOG.md](../CHANGELOG.md)에 짧게 정리합니다.
+
+## Web Tools
+
+브라우저에서 바로 실행할 수 있는 도구입니다.
+
+- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 두 렌더 영상을 슬라이더, 나란히 보기, 차이 보기, 토글 방식으로 비교합니다.
+- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 짧은 영상을 자르고, 크롭하고, 리사이즈해서 GIF 또는 작은 WebP로 내보냅니다.
+
+## DENO Visual Fold
 
 ![DENO Visual Fold](images/deno-visual-fold.webp)
 
-## 바로 열기
+DENO Visual Fold는 큰 ComfyUI 그래프를 시각적으로 정리하는 기능입니다. 여러 노드 또는 그룹을 접어도 워크플로우 로직은 바뀌지 않습니다.
 
-- GitHub: https://github.com/Deno2026/comfyui-deno-custom-nodes
-- ComfyUI Registry: https://registry.comfy.org/publishers/deno2026/nodes/deno-custom-nodes
-- YouTube: https://www.youtube.com/@Denoise-AI
-- Video Compare: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/
-- Video to GIF/WebP: https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/
-- RTX VFX 설치 가이드: https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/
+두 개 이상의 노드를 선택하면 캔버스 오른쪽 위 근처에 초록색 `Fold` 버튼이 나타납니다. 누르면 선택한 노드가 하나의 시각적 그룹처럼 접히고, `Unfold`로 다시 펼칠 수 있습니다. 일반 ComfyUI 그룹 하나를 선택하면 `Fold Group`으로 그룹 안의 노드를 접을 수 있고, 여러 그룹을 선택하면 정렬 버튼도 함께 나타납니다.
 
-## 설치
+ComfyUI Subgraph는 노드를 하위 그래프로 이동시키는 기능입니다. Visual Fold는 그와 달리 정리 목적의 시각 기능입니다. `Get` / `Set` 노드나 부모-자식 그래프 구조를 그대로 보이게 두고 싶을 때 유용합니다.
 
-가장 쉬운 방법은 ComfyUI Manager 또는 Registry에서 `deno-custom-nodes`를 설치하는 것입니다.
+## Included Nodes
 
-직접 설치하려면 ComfyUI의 `custom_nodes` 폴더 안에서 아래 명령을 실행한 뒤 ComfyUI를 다시 시작하세요.
+### `(Deno) Resize Box`
+
+ComfyUI용 해상도 도우미와 이미지 리사이즈 노드입니다.
+
+![Deno Resize Box](images/resize-box.jpg)
+
+주요 기능: 비율 프리셋, 직접 입력, 메가픽셀 기반 계산, `divisible_by` 정렬, Center Crop과 Fit 리사이즈, 노드 안 비율 미리보기, `image`, `width`, `height` 출력.
+
+### `(Deno) Multi Image Loader`
+
+배치 가이드 워크플로우에 맞춘 다중 이미지 로더입니다.
+
+![Deno Multi Image Loader](images/multi-image-loader.jpg)
+
+주요 기능: 고정 높이 갤러리, 드래그 정렬, 업로드, 드래그 앤 드롭, 이미지 붙여넣기, ComfyUI `input` 폴더 탐색, 중첩 폴더 이미지 추가, 최신순 정렬, 비율 유지/프리셋/직접 입력 리사이즈, `multi_output`, `width`, `height` 출력.
+
+### `(Deno) Advanced Image Source Loader`
+
+외부 폴더, 로컬 경로, 웹 이미지 URL, 혼합 크기 이미지 리스트가 필요한 워크플로우용 고급 이미지 소스 로더입니다.
+
+![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
+
+주요 기능: ComfyUI `input` 폴더와 외부 로컬 폴더 지원, URL/Path 입력, 업로드와 붙여넣기, 썸네일 enable/disable, 드래그 정렬, masonry 스타일 갤러리, 재귀 폴더 로드, 배치 텐서와 `image_list` 출력.
+
+### `(Deno) Image Compare`
+
+ComfyUI 캔버스 안에서 두 이미지를 빠르게 비교하는 A/B 비교 노드입니다.
+
+![Deno Image Compare](images/image-compare.jpg)
+
+주요 기능: `image_a`와 `image_b` 비교, Slider/Side by Side/Difference/Toggle 모드, hover 슬라이더, A/B 라벨, Swap 버튼, 리사이즈 가능한 내부 미리보기.
+
+### `(Deno) Video Compare`
+
+업스케일과 FPS 보간 결과를 ComfyUI 캔버스 안에서 확인하기 위한 비디오 A/B 비교 노드입니다.
+
+주요 기능: `video_a`, `video_b`, 선택적 `audio_a`, `audio_b`, Slider/Side by Side/Difference/Toggle 모드, 재생/일시정지, 스크럽바, 프레임 스텝, 속도, 루프, 출력 배지 토글, `comparison` 이미지 출력.
+
+설치가 부담스러우면 브라우저 도구를 사용할 수 있습니다: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/
+
+![Deno Video Compare - Slider](images/video-compare.png)
+
+![Deno Video Compare - Side by Side](images/video-compare-sbs.png)
+
+![Deno Video Compare - Difference](images/video-compare-diff.png)
+
+### `(Deno) Video Preview`
+
+그래프 중간에서 실제 인코딩된 비디오 결과를 확인하는 풀 해상도 미리보기 노드입니다.
+
+![Deno Video Preview](images/video-preview.jpg)
+
+주요 기능: IMAGE batch 입력과 straight-through 출력, 선택적 오디오 mux, hover 오디오, 클릭 재생/일시정지, Full screen 버튼, 해상도/FPS/프레임/길이 배지, PyAV 누락 시 친절한 설치 힌트.
+
+### `(Deno) RTX Video Super Resolution`
+
+NVIDIA RTX Video Super Resolution을 ComfyUI 안에서 간단히 시도할 수 있는 선택형 Windows/NVIDIA RTX 도우미 노드입니다.
+
+![Deno RTX Video Super Resolution](images/rtx-vfx-easy-upscale-node.png)
+
+초보자 흐름: `deno-custom-nodes` 설치 또는 업데이트, ComfyUI 시작, 노드 추가 후 한 번 실행, NVIDIA VFX가 없다는 안내가 나오면 ComfyUI를 완전히 종료, `How to install` 버튼의 설치 가이드 순서대로 진행, BAT에서 경로를 확인하고 `Y`, 완료 후 ComfyUI 재시작.
+
+NVIDIA 공식 참고 링크: [NVIDIA Maxine Windows Getting Started](https://docs.nvidia.com/deeplearning/maxine/vfx-sdk-programming-guide/index.html), [RTX Video FAQ](https://nvidia.custhelp.com/app/answers/detail/a_id/5448/~/rtx-video-faq).
+
+### `(Deno) RTX Video Super Resolution (2 Pass)`
+
+비디오 전체 마감용 2-pass RTX 처리 노드입니다. 먼저 같은 크기의 `Denoise` 또는 `Deblur`를 선택적으로 실행하고, 그 다음 `VSR` 또는 `High Bitrate` 업스케일을 선택적으로 실행할 수 있습니다.
+
+예제 워크플로우: [RTX 2-pass upscale workflow](workflows/deno-rtx-lowram-metabatch.json)
+
+주요 기능: Low System Memory와 High System Memory 흐름, VHS Meta Batch 기반 저메모리 처리, 원본 FPS 전달, 오디오 보존, 실제 인코딩 비디오 마감에 적합.
+
+### `(Deno) LTX Sequencer`
+
+멀티 이미지 LTX 워크플로우에 맞춘 가이드 시퀀서입니다.
+
+![Deno LTX Sequencer](images/ltx-sequencer.jpg)
+
+주요 기능: `(Deno) Multi Image Loader` 배치 출력과 함께 사용, 가능한 경우 `num_images` 자동 채움, 기존 sync 스타일 유지, 필요한 strength만 수동 제어, bypass로 빠른 A/B 테스트.
+
+### `(Deno) LTX Model Loader`
+
+LTX 2.3 모델 로딩 패턴을 한 노드로 정리한 로더입니다.
+
+![Deno LTX Model Loader](images/ltx-model-loader.jpg)
+
+주요 기능: Checkpoint Style, KJ Style, GGUF Style, `model`, `clip`, `video_vae`, `audio_vae` 출력, ComfyUI 기본 로더와 KJNodes/ComfyUI-GGUF 흐름을 함께 지원.
+
+### `(Deno) Easy Model Download Helper`
+
+권장 모델 파일 세트를 안내하는 프리셋 기반 설치 도우미입니다.
+
+![Deno Easy Model Download Helper](images/easy-model-download-helper.png)
+
+주요 기능: Python에서 직접 다운로드하지 않고 공식 모델 링크를 브라우저로 열기, ComfyUI 모델 루트 표시, workflow 안 creator preset 저장, Hugging Face와 Civitai 링크 지원, 파일이 올바른 모델 폴더에 있는지 확인.
+
+![Hugging Face link guide](images/easy-model-download-helper-huggingface-link.png)
+
+![Civitai page URL guide](images/easy-model-download-helper-civitai-link.png)
+
+![Civitai preset editor guide](images/easy-model-download-helper-civitai-node.png)
+
+### `(Deno) LTX Multi LoRA Loader`
+
+LTX 워크플로우용 Power-LoRA 스타일 다중 LoRA 로더입니다.
+
+![Deno LTX Multi LoRA Loader](images/ltx-multi-lora-loader.png)
+
+주요 기능: 여러 LoRA 추가, 슬롯별 enable, strength/video/audio strength, trigger word와 note 관리, trigger word 복사, 패치된 `model`과 `clip` 출력.
+
+### `(Deno) LTX Prompt Guide`
+
+LTX 프롬프트 인코딩, 선택적 negative prompt, LTX conditioning, 대사 길이 계획을 함께 다루는 프롬프트 도우미입니다.
+
+![Deno LTX Prompt Guide](images/ltx-prompt-guide.png)
+
+주요 기능: positive prompt 인코딩, 접을 수 있는 negative prompt, `frame_rate`가 포함된 LTX conditioning, 따옴표 안 대사 길이 추정, Auto/Korean/English/Japanese/Chinese 대사 추정.
+
+## Why This Exists
+
+이 노드들은 실제 ComfyUI 제작 과정에서 반복되는 세팅 피로를 줄이기 위해 만들어졌습니다. 목표는 거대한 기능 목록이 아니라, 매일 반복하는 워크플로우를 더 빠르고 깨끗하고 가르치기 쉽게 만드는 것입니다.
+
+## Search Tips
+
+GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `visual fold` 같은 키워드로 찾을 수 있습니다.
+
+## Install
+
+ComfyUI의 `custom_nodes` 폴더 안에서 설치합니다.
 
 ```bash
 git clone https://github.com/Deno2026/comfyui-deno-custom-nodes.git
 ```
 
-## 주요 기능
+그 다음 ComfyUI를 다시 시작하세요.
 
-- DENO Visual Fold: 여러 노드나 그룹을 시각적으로 접어서 큰 워크플로우를 정리합니다. 워크플로우 로직은 바꾸지 않습니다.
-- Video Compare 웹 도구: 설치 없이 브라우저에서 두 영상을 슬라이더, 나란히 보기, 차이 보기로 비교합니다.
-- Video to GIF/WebP 웹 도구: 짧은 영상을 잘라 GIF 또는 작은 WebP로 변환합니다.
-- RTX Video Super Resolution 노드: NVIDIA RTX VFX 기반 업스케일을 ComfyUI에서 테스트할 수 있게 돕습니다.
-- LTX 도구: LTX 2.3 모델 로딩, 시퀀스, LoRA, 프롬프트 흐름을 더 편하게 정리합니다.
-- 이미지 로더와 비교 노드: 여러 이미지를 불러오고, 리사이즈하고, 결과를 캔버스 안에서 바로 비교합니다.
+## Links
 
-## 포함된 노드 요약
-
-- `(Deno) Resize Box`: 해상도, 비율, 메가픽셀, 크롭/핏 리사이즈를 정리합니다.
-- `(Deno) Multi Image Loader`: 여러 이미지를 업로드, 붙여넣기, 폴더 탐색으로 불러와 배치 워크플로우에 사용합니다.
-- `(Deno) Advanced Image Source Loader`: 외부 폴더, 로컬 경로, 웹 이미지 URL, 혼합 크기 이미지 리스트를 다룹니다.
-- `(Deno) Image Compare`: 두 이미지를 ComfyUI 캔버스 안에서 바로 비교합니다.
-- `(Deno) Video Compare`: 두 비디오 배치를 프레임 기준으로 비교하고 결과 이미지를 출력합니다.
-- `(Deno) Video Preview`: 중간 결과 비디오를 실제 인코딩 상태로 확인합니다.
-- `(Deno) RTX Video Super Resolution`: NVIDIA VFX 업스케일을 간단히 실행합니다.
-- `(Deno) RTX Video Super Resolution (2 Pass)`: 디노이즈/디블러 1차 처리와 업스케일 2차 처리를 나누어 실행합니다.
-- `(Deno) LTX Sequencer`: LTX 멀티 이미지 워크플로우의 strength 흐름을 정리합니다.
-- `(Deno) LTX Model Loader`: LTX 2.3 체크포인트, KJ, GGUF 로딩 패턴을 한 노드로 정리합니다.
-- `(Deno) Easy Model Download Helper`: 권장 모델 파일 세트를 직접 링크와 경로 안내로 설치할 수 있게 돕습니다.
-- `(Deno) LTX Multi LoRA Loader`: 여러 LTX LoRA와 트리거 단어를 한 노드에서 관리합니다.
-- `(Deno) LTX Prompt Guide`: LTX 프롬프트, 네거티브 프롬프트, 대사 길이 예측을 함께 정리합니다.
-
-## 초보자 안내
-
-- 막히면 오류 메시지와 ComfyUI 화면 스크린샷을 함께 남겨주세요.
-- 토큰, 비밀번호, 인증 코드가 보이는 화면은 가리고 공유하세요.
-- RTX VFX 관련 문제는 먼저 ComfyUI를 완전히 종료한 뒤 설치 가이드를 순서대로 따라가세요.
-- 전체 노드 옵션과 스크린샷은 영어 원문 [README](../README.md)를 참고하세요.
+- YouTube: https://www.youtube.com/@Denoise-AI
+- GitHub: https://github.com/Deno2026/comfyui-deno-custom-nodes
+- Registry: https://registry.comfy.org/publishers/deno2026/nodes/deno-custom-nodes

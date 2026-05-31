@@ -2,59 +2,171 @@
 
 [English](../README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-PT.md) | [Português (Brasil)](README.pt-BR.md) | [Bahasa Indonesia](README.id.md)
 
-Deno Custom Nodes é um pacote de nós personalizados para ComfyUI, feito para deixar fluxos reais de imagem, vídeo, LTX, RTX e preparação de modelos mais rápidos e fáceis de usar.
+[YouTube Channel](https://www.youtube.com/@Denoise-AI)
 
-Esta página é um guia rápido em português do Brasil. Os detalhes completos de cada nó continuam no [README](../README.md) em inglês.
+Deno Custom Nodes é um pacote de nós personalizados para ComfyUI, feito para deixar fluxos reais de imagem, vídeo, LTX, RTX e preparação de modelos mais rápidos, claros e práticos no uso diário. A maioria dos nós Deno inclui um pequeno botão verde `i` para abrir uma ajuda rápida sem sair do canvas do ComfyUI.
+
+## Release Notes
+
+As atualizações públicas ficam registradas em [CHANGELOG.md](../CHANGELOG.md) em formato curto.
+
+## Web Tools
+
+Ferramentas que rodam direto no navegador.
+
+- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - compara dois vídeos renderizados com slider, lado a lado, diferença e toggle.
+- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - corta, recorta, redimensiona e exporta clipes curtos como GIF ou WebP menor.
+
+## DENO Visual Fold
 
 ![DENO Visual Fold](images/deno-visual-fold.webp)
 
-## Links Rápidos
+DENO Visual Fold é uma ajuda visual para organizar grafos grandes do ComfyUI. Dobrar nós ou grupos não muda a lógica do workflow.
 
-- GitHub: https://github.com/Deno2026/comfyui-deno-custom-nodes
-- ComfyUI Registry: https://registry.comfy.org/publishers/deno2026/nodes/deno-custom-nodes
-- YouTube: https://www.youtube.com/@Denoise-AI
-- Video Compare: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/
-- Video to GIF/WebP: https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/
-- Guia de instalação RTX VFX: https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/
+Ao selecionar dois ou mais nós, aparece um botão verde `Fold` perto do canto superior direito do canvas. Ao clicar, os nós selecionados ficam compactados em um grupo visual e podem voltar com `Unfold`. Ao selecionar um grupo comum do ComfyUI, `Fold Group` dobra os nós dentro do grupo; com vários grupos selecionados também aparecem ações de alinhamento.
 
-## Instalação
+Diferente do Subgraph, o Visual Fold não move nós para um grafo filho. Ele serve apenas para organização visual, útil quando você quer manter nós `Get` / `Set` ou a estrutura pai-filho visível no grafo principal.
 
-O jeito mais simples é instalar `deno-custom-nodes` pelo ComfyUI Manager ou pelo Registry.
+## Included Nodes
 
-Para instalar manualmente, rode este comando dentro da pasta `custom_nodes` do ComfyUI e reinicie o ComfyUI.
+### `(Deno) Resize Box`
+
+Nó de resolução e redimensionamento de imagem para ComfyUI.
+
+![Deno Resize Box](images/resize-box.jpg)
+
+Principais recursos: presets de proporção, entrada manual, cálculo por megapixels, alinhamento `divisible_by`, modos Center Crop e Fit, preview de proporção dentro do nó, saídas `image`, `width`, `height`.
+
+### `(Deno) Multi Image Loader`
+
+Carregador de várias imagens pensado para workflows de guia em lote.
+
+![Deno Multi Image Loader](images/multi-image-loader.jpg)
+
+Principais recursos: galeria de altura fixa, reordenação por arrastar, upload, drag-and-drop, colar imagem, navegação pela pasta `input`, subpastas, ordenação por data recente, redimensionamento por proporção/preset/manual, saídas `multi_output`, `width`, `height`.
+
+### `(Deno) Advanced Image Source Loader`
+
+Carregador avançado para workflows que usam pastas externas, caminhos locais, URLs de imagem e listas com tamanhos mistos.
+
+![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
+
+Principais recursos: suporte a `input` e pastas locais externas, entrada URL/Path, upload e paste, ativar/desativar miniaturas, reordenar, galeria estilo masonry, pastas recursivas, saída batch tensor e `image_list`.
+
+### `(Deno) Image Compare`
+
+Nó de comparação A/B para verificar duas imagens diretamente no canvas do ComfyUI.
+
+![Deno Image Compare](images/image-compare.jpg)
+
+Principais recursos: compara `image_a` e `image_b`, modos Slider/Side by Side/Difference/Toggle, slider por hover, etiquetas A/B, botão Swap e preview interno redimensionável.
+
+### `(Deno) Video Compare`
+
+Nó de comparação A/B para revisar resultados de upscale e interpolação FPS dentro do canvas do ComfyUI.
+
+Principais recursos: `video_a`, `video_b`, áudio opcional, modos Slider/Side by Side/Difference/Toggle, play/pause, scrub, frame step, velocidade, loop, badges opcionais e saída `comparison`.
+
+Se o nó for pesado para o seu fluxo, use a ferramenta web: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/
+
+![Deno Video Compare - Slider](images/video-compare.png)
+
+![Deno Video Compare - Side by Side](images/video-compare-sbs.png)
+
+![Deno Video Compare - Difference](images/video-compare-diff.png)
+
+### `(Deno) Video Preview`
+
+Preview de vídeo em resolução completa para conferir uma saída codificada real em qualquer ponto do grafo.
+
+![Deno Video Preview](images/video-preview.jpg)
+
+Principais recursos: entrada IMAGE batch e saída direta, áudio opcional, hover para ouvir, clique para play/pause, botão Full screen, badge de resolução/FPS/frames/duração e aviso claro se faltar PyAV.
+
+### `(Deno) RTX Video Super Resolution`
+
+Nó opcional para Windows/NVIDIA RTX que permite testar NVIDIA RTX Video Super Resolution dentro do ComfyUI.
+
+![Deno RTX Video Super Resolution](images/rtx-vfx-easy-upscale-node.png)
+
+Fluxo para iniciantes: instale ou atualize `deno-custom-nodes`, inicie o ComfyUI, adicione o nó e execute uma vez. Se faltar NVIDIA VFX, feche o ComfyUI completamente, abra `How to install`, siga o guia, confirme que o caminho mostrado pelo BAT pertence ao ComfyUI certo e reinicie o ComfyUI no final.
+
+Links oficiais da NVIDIA: [NVIDIA Maxine Windows Getting Started](https://docs.nvidia.com/deeplearning/maxine/vfx-sdk-programming-guide/index.html), [RTX Video FAQ](https://nvidia.custhelp.com/app/answers/detail/a_id/5448/~/rtx-video-faq).
+
+### `(Deno) RTX Video Super Resolution (2 Pass)`
+
+Nó RTX de duas passagens para acabamento de vídeo. Ele pode executar primeiro `Denoise` ou `Deblur` no mesmo tamanho, e depois um upscale `VSR` ou `High Bitrate`.
+
+Workflow de exemplo: [RTX 2-pass upscale workflow](workflows/deno-rtx-lowram-metabatch.json)
+
+Principais recursos: rotas Low System Memory e High System Memory, processamento em chunks com VHS Meta Batch, preservação de FPS e áudio, pensado para saídas reais de vídeo.
+
+### `(Deno) LTX Sequencer`
+
+Sequenciador de guias para workflows LTX com várias imagens.
+
+![Deno LTX Sequencer](images/ltx-sequencer.jpg)
+
+Principais recursos: trabalha com a saída batch do `(Deno) Multi Image Loader`, pode preencher `num_images`, mantém o fluxo sync, permite controle manual de strength quando necessário e inclui bypass para A/B rápido.
+
+### `(Deno) LTX Model Loader`
+
+Carregador compacto para padrões comuns de modelos LTX 2.3.
+
+![Deno LTX Model Loader](images/ltx-model-loader.jpg)
+
+Principais recursos: Checkpoint Style, KJ Style e GGUF Style, saídas `model`, `clip`, `video_vae`, `audio_vae`, compatível com loaders do ComfyUI, KJNodes e ComfyUI-GGUF.
+
+### `(Deno) Easy Model Download Helper`
+
+Assistente baseado em presets para instalar conjuntos recomendados de arquivos de modelo.
+
+![Deno Easy Model Download Helper](images/easy-model-download-helper.png)
+
+Principais recursos: abre links oficiais no navegador em vez de baixar via Python, mostra raízes de modelos do ComfyUI, salva creator presets no workflow, suporta Hugging Face e Civitai, e verifica se os arquivos estão na pasta correta.
+
+![Hugging Face link guide](images/easy-model-download-helper-huggingface-link.png)
+
+![Civitai page URL guide](images/easy-model-download-helper-civitai-link.png)
+
+![Civitai preset editor guide](images/easy-model-download-helper-civitai-node.png)
+
+### `(Deno) LTX Multi LoRA Loader`
+
+Carregador multi LoRA estilo Power-LoRA para workflows LTX.
+
+![Deno LTX Multi LoRA Loader](images/ltx-multi-lora-loader.png)
+
+Principais recursos: vários LoRAs em um nó, ativação por slot, strength/video/audio strength, trigger word e notas por LoRA, copiar trigger words, saídas `model` e `clip` corrigidas.
+
+### `(Deno) LTX Prompt Guide`
+
+Assistente que combina prompt encoding para LTX, negative prompt opcional, conditioning LTX e planejamento de duração de diálogo.
+
+![Deno LTX Prompt Guide](images/ltx-prompt-guide.png)
+
+Principais recursos: positive prompt encoding, negative prompt dobrável, LTX conditioning com `frame_rate`, estimativa de duração a partir de diálogos entre aspas e suporte Auto/Korean/English/Japanese/Chinese.
+
+## Why This Exists
+
+Esses nós reduzem atritos repetidos no trabalho real com ComfyUI. O objetivo não é ter uma lista enorme de recursos, mas tornar os workflows diários mais rápidos, limpos e fáceis de ensinar.
+
+## Search Tips
+
+Você pode pesquisar por `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `visual fold`.
+
+## Install
+
+Clone dentro da pasta `custom_nodes` do ComfyUI:
 
 ```bash
 git clone https://github.com/Deno2026/comfyui-deno-custom-nodes.git
 ```
 
-## Principais Recursos
+Depois reinicie o ComfyUI.
 
-- DENO Visual Fold: dobra visualmente nós ou grupos grandes sem mudar a lógica do workflow.
-- Video Compare Web Tool: compara dois vídeos no navegador com slider, lado a lado e diferença.
-- Video to GIF/WebP Web Tool: corta clipes curtos e exporta GIF ou WebP menor.
-- RTX Video Super Resolution Node: permite testar NVIDIA RTX VFX dentro do ComfyUI.
-- LTX Tools: organiza carregamento de modelos LTX 2.3, sequências, LoRA e prompts.
-- Image Loader and Compare Nodes: carrega várias imagens, ajusta tamanho e compara resultados no canvas.
+## Links
 
-## Resumo dos Nós
-
-- `(Deno) Resize Box`: organiza resolução, proporção, megapixels e modos crop/fit.
-- `(Deno) Multi Image Loader`: carrega várias imagens com upload, colar e navegação por pastas.
-- `(Deno) Advanced Image Source Loader`: trabalha com pastas externas, caminhos locais, URLs de imagem e listas com tamanhos mistos.
-- `(Deno) Image Compare`: compara duas imagens diretamente no canvas do ComfyUI.
-- `(Deno) Video Compare`: compara dois lotes de vídeo por frame e gera uma imagem de comparação.
-- `(Deno) Video Preview`: pré-visualiza resultados intermediários de vídeo no estado realmente codificado.
-- `(Deno) RTX Video Super Resolution`: executa upscale com NVIDIA VFX de forma simples.
-- `(Deno) RTX Video Super Resolution (2 Pass)`: separa Denoise/Deblur e upscale em duas passagens.
-- `(Deno) LTX Sequencer`: organiza o fluxo de strength em workflows LTX com várias imagens.
-- `(Deno) LTX Model Loader`: junta padrões de carregamento Checkpoint, KJ e GGUF para LTX 2.3.
-- `(Deno) Easy Model Download Helper`: guia a instalação de modelos recomendados com links e pastas claras.
-- `(Deno) LTX Multi LoRA Loader`: gerencia vários LoRAs LTX e trigger words em um só nó.
-- `(Deno) LTX Prompt Guide`: organiza prompts LTX, negative prompts e estimativa de duração de diálogo.
-
-## Para Iniciantes
-
-- Se algo der errado, compartilhe a mensagem de erro e uma captura da tela do ComfyUI.
-- Esconda tokens, senhas e códigos de verificação antes de compartilhar capturas.
-- Para problemas de RTX VFX, feche o ComfyUI completamente e siga o guia de instalação passo a passo.
-- Veja o [README](../README.md) em inglês para todas as opções e capturas dos nós.
+- YouTube: https://www.youtube.com/@Denoise-AI
+- GitHub: https://github.com/Deno2026/comfyui-deno-custom-nodes
+- Registry: https://registry.comfy.org/publishers/deno2026/nodes/deno-custom-nodes

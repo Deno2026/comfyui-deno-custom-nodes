@@ -2,59 +2,171 @@
 
 [English](../README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-PT.md) | [Português (Brasil)](README.pt-BR.md) | [Bahasa Indonesia](README.id.md)
 
-Deno Custom Nodes adalah kumpulan custom node untuk ComfyUI yang membantu workflow gambar, video, LTX, RTX, dan persiapan model terasa lebih cepat, rapi, dan mudah dipakai.
+[YouTube Channel](https://www.youtube.com/@Denoise-AI)
 
-Halaman ini adalah panduan cepat dalam Bahasa Indonesia. Detail lengkap setiap node tetap menggunakan [README](../README.md) berbahasa Inggris sebagai sumber utama.
+Deno Custom Nodes adalah kumpulan custom node untuk ComfyUI yang membantu workflow nyata untuk gambar, video, LTX, RTX, dan persiapan model terasa lebih cepat, jelas, dan nyaman dipakai setiap hari. Sebagian besar node Deno memiliki tombol hijau kecil `i` untuk membuka bantuan cepat tanpa meninggalkan canvas ComfyUI.
+
+## Release Notes
+
+Catatan pembaruan publik disimpan secara ringkas di [CHANGELOG.md](../CHANGELOG.md).
+
+## Web Tools
+
+Alat berikut bisa dibuka langsung di browser.
+
+- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - membandingkan dua video render dengan slider, side-by-side, difference, dan toggle.
+- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - memotong, crop, resize, lalu mengekspor klip pendek sebagai GIF atau WebP kecil.
+
+## DENO Visual Fold
 
 ![DENO Visual Fold](images/deno-visual-fold.webp)
 
-## Link Cepat
+DENO Visual Fold adalah alat visual untuk merapikan graph ComfyUI yang besar. Melipat node atau group tidak mengubah logika workflow.
 
-- GitHub: https://github.com/Deno2026/comfyui-deno-custom-nodes
-- ComfyUI Registry: https://registry.comfy.org/publishers/deno2026/nodes/deno-custom-nodes
-- YouTube: https://www.youtube.com/@Denoise-AI
-- Video Compare: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/
-- Video to GIF/WebP: https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/
-- Panduan instalasi RTX VFX: https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/
+Saat memilih dua node atau lebih, tombol hijau `Fold` muncul di dekat kanan atas canvas. Klik tombol itu untuk melipat node terpilih menjadi satu group visual yang ringkas, lalu gunakan `Unfold` untuk membukanya kembali. Jika memilih satu group ComfyUI biasa, `Fold Group` melipat node di dalam group tersebut; jika memilih beberapa group, aksi align juga muncul.
 
-## Instalasi
+Berbeda dari Subgraph, Visual Fold tidak memindahkan node ke child graph. Ini hanya untuk kerapian visual, berguna saat node `Get` / `Set` atau struktur parent-child tetap ingin terlihat di graph utama.
 
-Cara paling mudah adalah memasang `deno-custom-nodes` lewat ComfyUI Manager atau Registry.
+## Included Nodes
 
-Untuk instalasi manual, jalankan perintah ini di dalam folder `custom_nodes` ComfyUI, lalu restart ComfyUI.
+### `(Deno) Resize Box`
+
+Node pembantu resolusi dan resize gambar untuk ComfyUI.
+
+![Deno Resize Box](images/resize-box.jpg)
+
+Fitur utama: preset rasio, input manual, kalkulasi megapixel, alignment `divisible_by`, mode Center Crop dan Fit, preview rasio di dalam node, output `image`, `width`, `height`.
+
+### `(Deno) Multi Image Loader`
+
+Loader beberapa gambar untuk workflow batch guide.
+
+![Deno Multi Image Loader](images/multi-image-loader.jpg)
+
+Fitur utama: galeri tinggi tetap, drag reorder, upload, drag-and-drop, paste gambar, browser folder `input`, dukungan nested folder, sorting terbaru, resize Keep Ratio/Preset/Manual, output `multi_output`, `width`, `height`.
+
+### `(Deno) Advanced Image Source Loader`
+
+Loader sumber gambar lanjutan untuk folder eksternal, path lokal, URL gambar web, dan daftar gambar dengan ukuran campuran.
+
+![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
+
+Fitur utama: dukungan folder `input` dan folder lokal eksternal, input URL/Path, upload dan paste, enable/disable thumbnail, drag reorder, galeri masonry, recursive folder, output batch tensor dan `image_list`.
+
+### `(Deno) Image Compare`
+
+Node A/B compare untuk membandingkan dua gambar langsung di canvas ComfyUI.
+
+![Deno Image Compare](images/image-compare.jpg)
+
+Fitur utama: membandingkan `image_a` dan `image_b`, mode Slider/Side by Side/Difference/Toggle, slider hover, label A/B, tombol Swap, preview internal yang mengikuti ukuran node.
+
+### `(Deno) Video Compare`
+
+Node A/B compare untuk mengecek hasil upscale dan interpolasi FPS langsung di canvas ComfyUI.
+
+Fitur utama: `video_a`, `video_b`, audio opsional, mode Slider/Side by Side/Difference/Toggle, play/pause, scrub, frame step, speed, loop, output badges opsional, dan output gambar `comparison`.
+
+Jika node terasa berat, gunakan alat web: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/
+
+![Deno Video Compare - Slider](images/video-compare.png)
+
+![Deno Video Compare - Side by Side](images/video-compare-sbs.png)
+
+![Deno Video Compare - Difference](images/video-compare-diff.png)
+
+### `(Deno) Video Preview`
+
+Preview video resolusi penuh untuk mengecek output encoded sungguhan di titik mana pun dalam graph.
+
+![Deno Video Preview](images/video-preview.jpg)
+
+Fitur utama: input IMAGE batch dan output pass-through, audio opsional, hover untuk mendengar audio, klik untuk play/pause, tombol Full screen, badge resolusi/FPS/frame/durasi, dan petunjuk jelas jika PyAV belum terpasang.
+
+### `(Deno) RTX Video Super Resolution`
+
+Node opsional untuk Windows/NVIDIA RTX agar pengguna bisa mencoba NVIDIA RTX Video Super Resolution di dalam ComfyUI.
+
+![Deno RTX Video Super Resolution](images/rtx-vfx-easy-upscale-node.png)
+
+Alur pemula: instal atau update `deno-custom-nodes`, jalankan ComfyUI, tambahkan node lalu jalankan sekali. Jika NVIDIA VFX belum ada, tutup ComfyUI sepenuhnya, buka `How to install`, ikuti panduan, pastikan path BAT berada di ComfyUI yang benar, lalu restart ComfyUI setelah selesai.
+
+Link resmi NVIDIA: [NVIDIA Maxine Windows Getting Started](https://docs.nvidia.com/deeplearning/maxine/vfx-sdk-programming-guide/index.html), [RTX Video FAQ](https://nvidia.custhelp.com/app/answers/detail/a_id/5448/~/rtx-video-faq).
+
+### `(Deno) RTX Video Super Resolution (2 Pass)`
+
+Node RTX dua pass untuk finishing video. Node ini bisa menjalankan `Denoise` atau `Deblur` pada ukuran yang sama terlebih dahulu, lalu menjalankan upscale `VSR` atau `High Bitrate`.
+
+Contoh workflow: [RTX 2-pass upscale workflow](workflows/deno-rtx-lowram-metabatch.json)
+
+Fitur utama: jalur Low System Memory dan High System Memory, proses chunk dengan VHS Meta Batch, mempertahankan FPS dan audio sumber, cocok untuk output video encoded nyata.
+
+### `(Deno) LTX Sequencer`
+
+Guide sequencer untuk workflow LTX multi-gambar.
+
+![Deno LTX Sequencer](images/ltx-sequencer.jpg)
+
+Fitur utama: bekerja dengan output batch dari `(Deno) Multi Image Loader`, bisa mengisi `num_images`, mempertahankan alur sync, memungkinkan kontrol manual strength saat perlu, dan menyediakan bypass untuk A/B cepat.
+
+### `(Deno) LTX Model Loader`
+
+Loader ringkas untuk pola loading model LTX 2.3 yang umum.
+
+![Deno LTX Model Loader](images/ltx-model-loader.jpg)
+
+Fitur utama: Checkpoint Style, KJ Style, GGUF Style, output `model`, `clip`, `video_vae`, `audio_vae`, kompatibel dengan loader ComfyUI, KJNodes, dan ComfyUI-GGUF.
+
+### `(Deno) Easy Model Download Helper`
+
+Helper setup berbasis preset untuk kumpulan file model yang direkomendasikan.
+
+![Deno Easy Model Download Helper](images/easy-model-download-helper.png)
+
+Fitur utama: membuka link model resmi di browser, bukan mengunduh lewat Python; menampilkan root folder model ComfyUI; menyimpan creator preset di workflow; mendukung Hugging Face dan Civitai; memeriksa apakah file sudah berada di folder yang benar.
+
+![Hugging Face link guide](images/easy-model-download-helper-huggingface-link.png)
+
+![Civitai page URL guide](images/easy-model-download-helper-civitai-link.png)
+
+![Civitai preset editor guide](images/easy-model-download-helper-civitai-node.png)
+
+### `(Deno) LTX Multi LoRA Loader`
+
+Loader multi LoRA gaya Power-LoRA untuk workflow LTX.
+
+![Deno LTX Multi LoRA Loader](images/ltx-multi-lora-loader.png)
+
+Fitur utama: banyak LoRA dalam satu node, enable per slot, strength/video/audio strength, trigger word dan catatan LoRA, copy trigger word, output `model` dan `clip` yang sudah dipatch.
+
+### `(Deno) LTX Prompt Guide`
+
+Helper prompt yang menggabungkan prompt encoding LTX, negative prompt opsional, LTX conditioning, dan perencanaan durasi dialog.
+
+![Deno LTX Prompt Guide](images/ltx-prompt-guide.png)
+
+Fitur utama: positive prompt encoding, negative prompt yang bisa dilipat, LTX conditioning dengan `frame_rate`, estimasi durasi dari dialog di dalam tanda kutip, dukungan Auto/Korean/English/Japanese/Chinese.
+
+## Why This Exists
+
+Node ini dibuat untuk mengurangi gesekan setup yang berulang dalam pekerjaan ComfyUI nyata. Tujuannya bukan mengejar daftar fitur besar, tetapi membuat workflow harian lebih cepat, rapi, dan mudah diajarkan.
+
+## Search Tips
+
+Kata kunci yang berguna: `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `visual fold`.
+
+## Install
+
+Clone di dalam folder `custom_nodes` ComfyUI:
 
 ```bash
 git clone https://github.com/Deno2026/comfyui-deno-custom-nodes.git
 ```
 
-## Fitur Utama
+Lalu restart ComfyUI.
 
-- DENO Visual Fold: melipat beberapa node atau group secara visual tanpa mengubah logika workflow.
-- Video Compare Web Tool: membandingkan dua video di browser dengan slider, side-by-side, dan difference.
-- Video to GIF/WebP Web Tool: memotong klip pendek dan mengekspor GIF atau WebP yang lebih kecil.
-- RTX Video Super Resolution Node: membantu mencoba NVIDIA RTX VFX di dalam ComfyUI.
-- LTX Tools: merapikan pemuatan model LTX 2.3, sequence, LoRA, dan alur prompt.
-- Image Loader and Compare Nodes: memuat banyak gambar, resize, dan membandingkan hasil langsung di canvas.
+## Links
 
-## Ringkasan Node
-
-- `(Deno) Resize Box`: mengatur resolusi, rasio, megapixel, dan mode crop/fit.
-- `(Deno) Multi Image Loader`: memuat banyak gambar lewat upload, paste, dan folder browser.
-- `(Deno) Advanced Image Source Loader`: memakai folder eksternal, path lokal, URL gambar web, dan daftar gambar dengan ukuran berbeda.
-- `(Deno) Image Compare`: membandingkan dua gambar langsung di canvas ComfyUI.
-- `(Deno) Video Compare`: membandingkan dua batch video per frame dan menghasilkan output gambar perbandingan.
-- `(Deno) Video Preview`: melihat preview video antara dalam kondisi encoded yang sebenarnya.
-- `(Deno) RTX Video Super Resolution`: menjalankan upscale NVIDIA VFX dengan lebih sederhana.
-- `(Deno) RTX Video Super Resolution (2 Pass)`: memisahkan Denoise/Deblur dan upscale menjadi dua pass.
-- `(Deno) LTX Sequencer`: merapikan alur strength untuk workflow LTX multi-gambar.
-- `(Deno) LTX Model Loader`: menyatukan pola pemuatan Checkpoint, KJ, dan GGUF untuk LTX 2.3.
-- `(Deno) Easy Model Download Helper`: membantu memasang file model rekomendasi dengan link dan folder tujuan yang jelas.
-- `(Deno) LTX Multi LoRA Loader`: mengelola beberapa LoRA LTX dan trigger word dalam satu node.
-- `(Deno) LTX Prompt Guide`: merapikan prompt LTX, negative prompt, dan estimasi durasi dialog.
-
-## Untuk Pemula
-
-- Jika ada masalah, bagikan pesan error dan screenshot layar ComfyUI.
-- Sembunyikan token, password, dan kode verifikasi sebelum membagikan screenshot.
-- Untuk masalah RTX VFX, tutup ComfyUI sepenuhnya lalu ikuti panduan instalasi langkah demi langkah.
-- Lihat [README](../README.md) berbahasa Inggris untuk semua opsi dan screenshot node.
+- YouTube: https://www.youtube.com/@Denoise-AI
+- GitHub: https://github.com/Deno2026/comfyui-deno-custom-nodes
+- Registry: https://registry.comfy.org/publishers/deno2026/nodes/deno-custom-nodes
