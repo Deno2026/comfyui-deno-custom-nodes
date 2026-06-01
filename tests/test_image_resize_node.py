@@ -1,5 +1,6 @@
 import importlib.util
 import hashlib
+import inspect
 import json
 import os
 import sys
@@ -7,6 +8,8 @@ import tempfile
 import types
 import urllib.error
 from pathlib import Path
+
+from PIL import Image
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -973,6 +976,116 @@ def test_multi_image_loader_frontend_supports_copy_image_context_menu():
     assert '"image/png"' in script
     assert "Full image path copied." in script
     assert "Copy image failed. Path copied." in script
+
+
+def test_ltx_loader_frontend_preserves_saved_model_values_when_lists_refresh_empty():
+    script = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
+
+    assert "LTX_MODEL_WIDGET_NAMES" in script
+    assert "shouldPreserveStaleLtxModelValue(widgetName, currentValue)" in script
+    assert "return savedValue !== \"\" && savedValue !== LTX_NONE_VALUE" in script
+
+
+def test_multi_image_loader_errors_when_selected_images_cannot_load():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
+
+    try:
+        node_cls().load_images(
+            "missing_input_image.png",
+            "Manual Input",
+            "16:9",
+            1.0,
+            512,
+            512,
+            "32",
+            "nearest",
+            "Stretch",
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected missing selected image to raise RuntimeError")
+
+    assert "Selected image file(s) could not be loaded" in message
+    assert "missing_input_image.png" in message
+    assert "Re-add the image" in message
+
+
+def test_multi_image_loader_validates_selected_files_before_execution():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_input_directory = folder_paths.get_input_directory
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        subfolder = Path(temp_dir) / "shots"
+        subfolder.mkdir()
+        image_file = subfolder / "nested.png"
+        Image.new("RGB", (2, 2), color=(12, 34, 56)).save(image_file)
+
+        folder_paths.get_input_directory = lambda: temp_dir
+        try:
+            valid_result = node_cls.VALIDATE_INPUTS("shots/nested.png")
+            missing_result = node_cls.VALIDATE_INPUTS("shots/missing.png")
+        finally:
+            folder_paths.get_input_directory = original_get_input_directory
+
+    assert valid_result is True
+    assert "missing or unreadable before execution" in missing_result
+    assert "shots/missing.png" in missing_result
+
+
+def test_multi_image_loader_validate_inputs_does_not_disable_builtin_validation():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
+
+    signature = inspect.signature(node_cls.VALIDATE_INPUTS)
+
+    assert list(signature.parameters) == ["image_paths"]
+    assert all(parameter.kind is not inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
+
+
+def test_multi_image_loader_is_changed_hashes_selected_file_contents():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_input_directory = folder_paths.get_input_directory
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        image_file = Path(temp_dir) / "sample.png"
+        Image.new("RGB", (2, 2), color=(1, 2, 3)).save(image_file)
+
+        folder_paths.get_input_directory = lambda: temp_dir
+        try:
+            first_hash = node_cls.IS_CHANGED(
+                "sample.png",
+                "Manual Input",
+                "16:9",
+                1.0,
+                512,
+                512,
+                "32",
+                "nearest",
+                "Stretch",
+            )
+            Image.new("RGB", (2, 2), color=(4, 5, 6)).save(image_file)
+            second_hash = node_cls.IS_CHANGED(
+                "sample.png",
+                "Manual Input",
+                "16:9",
+                1.0,
+                512,
+                512,
+                "32",
+                "nearest",
+                "Stretch",
+            )
+        finally:
+            folder_paths.get_input_directory = original_get_input_directory
+
+    assert len(first_hash) == 64
+    assert first_hash != second_hash
 
 
 def test_advanced_image_source_loader_declares_external_outputs():

@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## 0.7.26 - 2026-06-01
+
+- LTX Model Loader keeps saved model selections during ComfyUI refresh instead of falling back to `__none__`.
+- Multi Image Loader now stops with a clear error when selected images are missing or unreadable, and refreshes correctly when selected image files change.
+
 ## 0.7.25 - 2026-05-31
 
 - Easy Model Download Helper no longer appears twice in the node list; older workflow IDs are handled as a migration instead.

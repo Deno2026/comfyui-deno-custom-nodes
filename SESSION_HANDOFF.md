@@ -1,5 +1,27 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 로컬 버그픽스 기록 (2026-06-01, Codex) — LTX refresh + Multi Image missing-file guard
+>
+> **제보:** 구독자 제보 기준 `Deno LTX Model Loader`가 ComfyUI F5/R refresh 후 모델 선택값이
+> `__none__`으로 초기화되어 재선택이 필요할 수 있음. `Deno Multi Image Loader`는 장시간 같은
+> I2V 이미지를 사용하다 이미지가 검은 프리뷰/빈 입력처럼 되어 T2V처럼 동작하는 증상이 있음.
+>
+> **수정:** `web/js/deno_extra_nodes.js`에서 LTX 모델 계열 위젯의 저장값이 현재 combo 목록에 없더라도
+> 비어 있지 않은 실제 저장값이면 `__none__`/다른 fallback으로 덮어쓰지 않도록 보존.
+> `deno_multi_image_board.py`에서 사용자가 선택한 `image_paths`가 있는데 로드 실패가 발생하면
+> 검은 placeholder 이미지를 조용히 반환하지 않고 명확한 `RuntimeError`로 중단. 추가로
+> `VALIDATE_INPUTS`에서 실행 전에 선택 이미지 파일이 존재하고 PIL 이미지로 열리는지 확인하며,
+> `IS_CHANGED`에서 선택 파일 내용을 SHA256에 포함해 파일이 바뀌면 ComfyUI 캐시가 무효화되도록 보강.
+>
+> **검증:** `tests/test_image_resize_node.py`에 F5 보존 guard, missing selected image 에러,
+> `VALIDATE_INPUTS`, `IS_CHANGED` 파일 내용 해시 테스트 추가.
+> embedded Python 기준 전체 테스트 `71 passed`, `py_compile deno_multi_image_board.py` 통과,
+> `node --check web/js/deno_extra_nodes.js` 통과.
+>
+> **상태:** 로컬 소스 패치 및 `0.7.26` 버전 bump 준비 완료. GitHub 배포 / Registry publish는 진행 중.
+>
+> ---
+
 > ## ▶ 기준 워크플로우 기록 (2026-05-31, Codex) — public LTX 2.3 8GB VRAM workflow
 >
 > **기준 파일:** 사용자가 공개 배포 중인 워크플로

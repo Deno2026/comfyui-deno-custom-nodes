@@ -22,6 +22,16 @@ const LTX_SERIALIZED_WIDGET_NAMES = [
     "clip_device",
     "weight_dtype",
 ];
+const LTX_NONE_VALUE = "__none__";
+const LTX_MODEL_WIDGET_NAMES = new Set([
+    "checkpoint_name",
+    "diffusion_model_name",
+    "gguf_unet_name",
+    "video_vae_name",
+    "audio_vae_name",
+    "text_encoder_name",
+    "text_projection_name",
+]);
 
 window.__denoLtxSequencerNodes = window.__denoLtxSequencerNodes || new Set();
 
@@ -130,6 +140,10 @@ function chooseLtxFallbackValue(widgetName, values, currentValue) {
         return currentValue;
     }
 
+    if (shouldPreserveStaleLtxModelValue(widgetName, currentValue)) {
+        return currentValue;
+    }
+
     const preferredByWidget = {
         checkpoint_name: ["ltx-2.3-22b-dev-fp8.safetensors"],
         diffusion_model_name: [
@@ -155,7 +169,15 @@ function chooseLtxFallbackValue(widgetName, values, currentValue) {
         }
     }
 
-    return values.find((value) => value !== "__none__") ?? values[0];
+    return values.find((value) => value !== LTX_NONE_VALUE) ?? values[0];
+}
+
+function shouldPreserveStaleLtxModelValue(widgetName, currentValue) {
+    if (!LTX_MODEL_WIDGET_NAMES.has(widgetName)) {
+        return false;
+    }
+    const savedValue = String(currentValue ?? "").trim();
+    return savedValue !== "" && savedValue !== LTX_NONE_VALUE;
 }
 
 function sanitizeLtxWidgetValues(node) {

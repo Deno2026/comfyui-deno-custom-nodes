@@ -1,3 +1,4 @@
+import hashlib
 import os
 import math
 from typing import List, Tuple
@@ -186,6 +187,39 @@ def _split_paths(image_paths: str) -> List[str]:
     return [line.strip() for line in (image_paths or "").splitlines() if line.strip()]
 
 
+def _format_path_preview(paths: List[str]) -> str:
+    preview = ", ".join(paths[:3])
+    if len(paths) > 3:
+        preview += f", ... (+{len(paths) - 3} more)"
+    return preview
+
+
+def _image_file_error(path: str) -> str | None:
+    resolved_path = _resolve_path(path)
+    if resolved_path is None:
+        return path
+    try:
+        with Image.open(resolved_path) as image:
+            image.verify()
+    except Exception:
+        return path
+    return None
+
+
+def _selected_image_errors(image_paths: str) -> List[str]:
+    return [
+        path
+        for path in _split_paths(image_paths)
+        if _image_file_error(path) is not None
+    ]
+
+
+def _hash_file_contents(hasher, path: str) -> None:
+    with open(path, "rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            hasher.update(chunk)
+
+
 def _round_down(value: float, multiple: int) -> int:
     return max(multiple, int(math.floor(float(value) / multiple) * multiple))
 
@@ -357,6 +391,51 @@ class DenoMultiImageLoader:
     FUNCTION = "load_images"
     CATEGORY = "Deno/Image"
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, image_paths):
+        failed_paths = _selected_image_errors(image_paths)
+        if failed_paths:
+            return (
+                "[DenoMultiImageLoader] Selected image file(s) are missing or unreadable before execution: "
+                f"{_format_path_preview(failed_paths)}. Re-add the image from the Upload/Input Folder button, "
+                "then run the workflow again."
+            )
+        return True
+
+    @classmethod
+    def IS_CHANGED(
+        cls,
+        image_paths,
+        mode,
+        ratio_preset,
+        megapixels,
+        width,
+        height,
+        divisible_by,
+        interpolation,
+        resize_method,
+    ):
+        hasher = hashlib.sha256()
+        hasher.update(b"deno_multi_image_loader_v2")
+        for value in (mode, ratio_preset, megapixels, width, height, divisible_by, interpolation, resize_method):
+            hasher.update(str(value).encode("utf-8", "surrogatepass"))
+            hasher.update(b"\0")
+
+        for path in _split_paths(image_paths):
+            hasher.update(path.encode("utf-8", "surrogatepass"))
+            hasher.update(b"\0")
+            resolved_path = _resolve_path(path)
+            if resolved_path is None:
+                hasher.update(b"missing")
+                continue
+            real_path = os.path.realpath(resolved_path)
+            hasher.update(real_path.encode("utf-8", "surrogatepass"))
+            hasher.update(b"\0")
+            _hash_file_contents(hasher, real_path)
+            hasher.update(b"\0")
+
+        return hasher.hexdigest()
+
     def _load_single_image(
         self,
         path: str,
@@ -409,6 +488,7 @@ class DenoMultiImageLoader:
             height = round_up(height, int(divisible_by))
 
         loaded_images = []
+        failed_paths = []
         for path in paths:
             image_tensor = self._load_single_image(
                 path=path,
@@ -419,6 +499,15 @@ class DenoMultiImageLoader:
             )
             if image_tensor is not None:
                 loaded_images.append(image_tensor)
+            else:
+                failed_paths.append(path)
+
+        if failed_paths:
+            raise RuntimeError(
+                "[DenoMultiImageLoader] Selected image file(s) could not be loaded: "
+                f"{_format_path_preview(failed_paths)}. Re-add the image from the Upload/Input Folder button, "
+                "then run the workflow again."
+            )
 
         if loaded_images:
             can_batch = all(image.shape == loaded_images[0].shape for image in loaded_images)
