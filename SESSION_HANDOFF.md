@@ -18,7 +18,54 @@
 > embedded Python 기준 전체 테스트 `71 passed`, `py_compile deno_multi_image_board.py` 통과,
 > `node --check web/js/deno_extra_nodes.js` 통과.
 >
-> **상태:** 로컬 소스 패치 및 `0.7.26` 버전 bump 준비 완료. GitHub 배포 / Registry publish는 진행 중.
+> **상태:** `0.7.26` 로컬 소스/포터블/데스크탑 반영 완료. GitHub Release 및 Registry publish 완료.
+> Registry 스캔 상태는 확인 시점 기준 `NodeVersionStatusPending`.
+>
+> ---
+
+> ## ▶ 배포 기록 (2026-06-01, Codex) — 0.7.26 LTX refresh + Multi Image validation
+>
+> **배포 목적:** 구독자 제보 기준 `Deno LTX Model Loader`가 ComfyUI F5/R refresh 후 모델 선택값이
+> `__none__`으로 초기화되는 문제와, `Deno Multi Image Loader`가 선택 이미지 로드 실패 시 검은
+> placeholder처럼 조용히 진행될 수 있는 문제를 수정.
+>
+> **수정 요약:** LTX 모델 계열 위젯은 저장된 실제 모델명이 현재 combo 목록에 잠시 없더라도
+> `__none__`으로 덮어쓰지 않음. Multi Image Loader는 선택 이미지가 missing/unreadable이면
+> 실행 전 `VALIDATE_INPUTS`와 실행 중 `RuntimeError`로 명확히 멈춤. `IS_CHANGED`는 선택 이미지 파일
+> 내용을 SHA256에 포함해 같은 경로의 파일 내용 변경도 캐시 무효화에 반영.
+>
+> **리뷰/검증:** Feynman 리뷰어 2차 검토 결과 blocking 없음. 이전 리뷰어 지적사항이었던
+> `VALIDATE_INPUTS(**kwargs)` 문제는 `image_paths` 단일 시그니처와 회귀 테스트로 고정.
+> embedded Python 기준 전체 테스트 `71 passed`, `py_compile deno_multi_image_board.py
+> deno_ltx23_preset_loader.py` 통과, `node --check web/js/deno_extra_nodes.js` 통과,
+> `git diff --check` 통과.
+>
+> **로컬 반영/검증:** 포터블 실행본
+> `D:\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`와 데스크탑 실행본
+> `C:\Users\aions\Documents\ComfyUI\custom_nodes\comfyui-deno-custom-nodes`에 동일 파일 반영 후 해시 일치 확인.
+> queue idle 상태에서 기존 SageAttention BAT/python PID 종료 후
+> `Start ComfyUI SageAttention.bat`로 재시작. `/system_stats`, `/object_info/DenoMultiImageLoader`,
+> `/object_info/DenoLTX23PresetLoader` 응답 및 런타임 마커 확인.
+>
+> **배포 커밋/태그/릴리즈:**
+> - `8d69853` — `Release 0.7.26 loader refresh and image validation fixes` (`origin/main` push 완료).
+> - `pyproject.toml` `0.7.25 → 0.7.26`, `CHANGELOG.md` `0.7.26 - 2026-06-01` 추가.
+> - 태그 `v0.7.26` push 완료. GitHub Release `v0.7.26` 생성:
+>   `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.26`
+>
+> **GitHub Actions (push 트리거, 모두 success):**
+> - Publish to Comfy registry: run `26737197386`.
+> - CI: run `26737197353`. Pages: run `26737196768`.
+>
+> **Registry 1회 확인 결과:**
+> - API: `https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true`
+> - `0.7.26` 생성됨: `NodeVersionStatusPending`, `status_reason=""`,
+>   `comfy_node_extract_status="pending"`.
+> - CDN zip HEAD `200`: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.26/node.zip`.
+>
+> **다음 확인 규칙:** 추가 폴링 없음. 사용자가 다시 확인 요청 시 Registry API 1회만 확인.
+> `0.7.26`이 Active·latest가 되면 완료 보고. Flagged/Rejected면 `status_reason`을 먼저 보고
+> 해당 파일만 최소 수정 후 새 버전으로 처리.
 >
 > ---
 
