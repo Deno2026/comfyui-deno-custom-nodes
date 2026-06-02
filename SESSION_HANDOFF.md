@@ -1,5 +1,44 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 배포 기록 (2026-06-03, Codex) — 0.7.27 Bernini Prompt Guide + Preview Backend BAT
+>
+> **배포 목적:** Bernini/KJ 워크플로우 초보자가 system prompt prefix, reference naming,
+> negative prompt preset을 쉽게 쓰도록 `(Deno) Bernini Prompt Guide`를 공개 배포.
+> ComfyUI Bernini 백엔드가 아직 draft PR 상태라, 구독자 테스트용으로 복사한 포터블 ComfyUI에
+> `kijai/ComfyUI bernini` 브랜치를 적용하는 공유용 BAT도 추가.
+>
+> **포함 파일:** `deno_bernini_prompt_guide.py`, `web/js/deno_bernini_prompt_guide.js`,
+> `tools/DENO_Bernini_Preview_Backend_Update.bat`, `README.md`, `docs/README.ko.md`,
+> `CHANGELOG.md`, `pyproject.toml`, 테스트/운영 지침 업데이트.
+>
+> **BAT 검증:** repo 위치에서 실행 시 ComfyUI 미탐지로 안전 중단. 테스트 포터블 루트
+> `D:\ComfyUI-Easy-Install - test\ComfyUI-Easy-Install\DENO_Bernini_Preview_Backend_Update.bat`
+> 에 복사 후 `NO` 입력 smoke test 진행. ComfyUI 경로와 현재 브랜치/커밋
+> (`pr-14216-bernini-test`, `1085cf2f`)을 정상 표시하고 실제 업데이트 전 취소됨.
+> untracked `extra_model_paths_Backup.yaml` 때문에 너무 엄격하게 멈추던 문제는
+> `--untracked-files=no`로 수정해, 추적 중인 ComfyUI 파일 변경만 차단하도록 조정.
+>
+> **검증:** `python -m py_compile deno_bernini_prompt_guide.py`, `node --check web/js/deno_bernini_prompt_guide.js`,
+> `python -m pytest -q` → `75 passed`, `git diff --check` 통과.
+>
+> **배포 커밋/태그/릴리즈:**
+> - `a5fc68b` — `Release 0.7.27 Bernini prompt guide` (`origin/main` push 완료).
+> - `pyproject.toml` `0.7.26 → 0.7.27`, 태그 `v0.7.27` push 완료.
+> - GitHub Release: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.27`
+> - Release asset: `DENO_Bernini_Preview_Backend_Update.bat`
+>
+> **GitHub Actions:** CI `26845338451`, Publish to Comfy registry `26845337948`,
+> Pages `26845335277` 모두 success.
+>
+> **Registry 확인:** `https://api.comfy.org/nodes/deno-custom-nodes/versions?include_status_reason=true`
+> 기준 `0.7.27` 생성됨. 상태는 확인 시점 기준 `NodeVersionStatusPending`, `status_reason=""`,
+> `comfy_node_extract_status="pending"`. CDN zip HEAD `200`:
+> `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.27/node.zip`.
+>
+> **다음 확인 규칙:** 추가 폴링 없음. 사용자가 다시 확인 요청 시 Registry API 1회만 확인.
+> `0.7.27`이 Active·latest가 되면 완료 보고. Flagged/Rejected면 `status_reason`을 먼저 보고
+> 해당 파일만 최소 수정 후 새 버전으로 처리.
+
 > ## ▶ 다음 작업 리마인더 (2026-06-03, Codex) — Deno Preview 여백 자동 맞춤
 >
 > **대상:** `(Deno) Image Preview` / `(Deno) Video Preview` 계열 preview 노드.
