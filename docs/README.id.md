@@ -147,13 +147,28 @@ Helper prompt yang menggabungkan prompt encoding LTX, negative prompt opsional, 
 
 Fitur utama: positive prompt encoding, negative prompt yang bisa dilipat, LTX conditioning dengan `frame_rate`, estimasi durasi dari dialog di dalam tanda kutip, dukungan Auto/Korean/English/Japanese/Chinese.
 
+### `(Deno) Bernini Prompt Guide`
+
+Helper prompt untuk prefix KJ-style Bernini. Node ini menggabungkan positive dan negative prompt encoding dalam satu node yang lebih mudah untuk pemula, lalu menampilkan system prompt aktif sesuai mode `System Prompt` yang dipilih.
+
+![Deno Bernini Prompt Guide](images/bernini-prompt-guide.jpg)
+
+Fitur utama: pilihan `System Prompt` yang mudah dibaca seperti `Text to Video`, `Image to Video`, dan `Reference Video Edit`, hint nama `image0` / `image1` otomatis untuk mode reference, negative prompt yang bisa dilipat, autofill preset negative Official Wan2.2, dan output `positive` / `negative`.
+
+Negative preset bukan mode output. Preset itu hanya mengisi kotak negative prompt; setelah itu kamu bisa mengedit kotak tersebut langsung, dan teks terakhir akan dipakai sebagai negative conditioning.
+
+Tulis prompt seperti memberi instruksi ke chatbot, bukan hanya daftar tag. Contoh: `Replace the jacket with the shirt from image0. Keep the camera motion, background, lighting, and shadows unchanged.`
+
+Catatan: node ini hanya menyiapkan text conditioning. Bernini visual conditioning masih membutuhkan backend ComfyUI/KJ yang mendukung Bernini context latents.
+Selama dukungan itu masih berupa draft PR ComfyUI, gunakan `tools/DENO_Bernini_Preview_Backend_Update.bat` hanya di folder portable ComfyUI salinan untuk testing.
+
 ## Why This Exists
 
 Node ini dibuat untuk mengurangi gesekan setup yang berulang dalam pekerjaan ComfyUI nyata. Tujuannya bukan mengejar daftar fitur besar, tetapi membuat workflow harian lebih cepat, rapi, dan mudah diajarkan.
 
 ## Search Tips
 
-Kata kunci yang berguna: `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `visual fold`.
+Kata kunci yang berguna: `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`.
 
 ## Install
 

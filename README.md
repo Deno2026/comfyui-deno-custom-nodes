@@ -344,6 +344,8 @@ Main features:
 
 KJ-style Bernini prompt helper that combines positive and negative prompt encoding into one beginner-friendly node.
 
+![Deno Bernini Prompt Guide](docs/images/bernini-prompt-guide.jpg)
+
 Main features:
 
 - `System Prompt` selector with readable modes such as `Text to Video`, `Image to Video`, and `Reference Video Edit`
@@ -391,6 +393,10 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `ltx model loader`
 - `ltx multi lora`
 - `prompt guide`
+- `bernini`
+- `bernini prompt guide`
+- `reference video edit`
+- `wan2.2`
 - `multi image loader`
 - `advanced image source`
 - `external folder`

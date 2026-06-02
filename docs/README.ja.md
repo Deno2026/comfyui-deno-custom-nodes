@@ -147,13 +147,28 @@ LTX prompt encoding、任意の negative prompt、LTX conditioning、台詞長�
 
 主な機能: positive prompt encoding、折りたたみ negative prompt、`frame_rate` 付き LTX conditioning、引用符内の台詞長推定、Auto/Korean/English/Japanese/Chinese の台詞推定。
 
+### `(Deno) Bernini Prompt Guide`
+
+KJ-style Bernini の prompt prefix を使いやすくするためのプロンプトヘルパーです。positive/negative prompt encoding を1つのノードにまとめ、選択した `System Prompt` モードに合わせた system prompt をノード上部に表示します。
+
+![Deno Bernini Prompt Guide](images/bernini-prompt-guide.jpg)
+
+主な機能: `Text to Video`, `Image to Video`, `Reference Video Edit` などの読みやすい System Prompt 選択、reference mode の `image0` / `image1` naming hint、折りたたみ negative prompt、Official Wan2.2 negative preset の自動入力、`positive` / `negative` 出力。
+
+Negative preset は出力モードではなく、下の negative prompt 欄を自動で埋めるためのものです。プリセット入力後にその欄を直接編集すると、編集後の内容が最終 negative conditioning に使われます。
+
+プロンプトはタグを並べるより、チャットボットに指示するように書きます。例: `Replace the jacket with the shirt from image0. Keep the camera motion, background, lighting, and shadows unchanged.`
+
+注意: このノードは text conditioning のみを準備します。Bernini visual conditioning には、Bernini context latent をサポートする ComfyUI/KJ backend が必要です。
+その backend support がまだ ComfyUI draft PR の段階にある間は、`tools/DENO_Bernini_Preview_Backend_Update.bat` をコピーしたテスト用 portable ComfyUI フォルダーでのみ使ってください。
+
 ## Why This Exists
 
 このノード群は、実際の ComfyUI 制作で繰り返される準備の手間を減らすために作られました。巨大な機能リストよりも、毎日使うワークフローを速く、きれいに、教えやすくすることを目指しています。
 
 ## Search Tips
 
-GitHub、ComfyUI Manager、Registry では `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `visual fold` などで探せます。
+GitHub、ComfyUI Manager、Registry では `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold` などで探せます。
 
 ## Install
 

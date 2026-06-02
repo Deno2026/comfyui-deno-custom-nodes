@@ -147,13 +147,28 @@ NVIDIA 官方链接：[NVIDIA Maxine Windows Getting Started](https://docs.nvidi
 
 主要功能：positive prompt 编码，可折叠 negative prompt，带 `frame_rate` 的 LTX conditioning，根据引号内对白估算最小视频长度，支持 Auto、Korean、English、Japanese、Chinese 估算。
 
+### `(Deno) Bernini Prompt Guide`
+
+面向 KJ-style Bernini prompt prefix 的提示词辅助节点。它把 positive/negative prompt encoding 放在一个更适合新手的节点中，并在节点顶部显示当前 `System Prompt` 模式对应的 system prompt。
+
+![Deno Bernini Prompt Guide](images/bernini-prompt-guide.jpg)
+
+主要功能：可读的 `Text to Video`、`Image to Video`、`Reference Video Edit` 等 System Prompt 选择，reference 模式中的 `image0` / `image1` naming hint，可折叠 negative prompt，Official Wan2.2 negative preset 自动填充，`positive` / `negative` 输出。
+
+Negative preset 不是输出模式，而是自动填充下方 negative prompt 输入框。用 preset 填充后，用户可以直接编辑该输入框，最终编辑后的内容会被编码为 negative conditioning。
+
+提示词建议像给聊天机器人下指令一样书写，而不是只堆标签。例如：`Replace the jacket with the shirt from image0. Keep the camera motion, background, lighting, and shadows unchanged.`
+
+注意：此节点只准备 text conditioning。Bernini visual conditioning 仍需要支持 Bernini context latent 的 ComfyUI/KJ 后端。
+在该后端支持仍处于 ComfyUI draft PR 阶段时，请只在复制出来的测试用 portable ComfyUI 文件夹中使用 `tools/DENO_Bernini_Preview_Backend_Update.bat`。
+
 ## Why This Exists
 
 这些节点的目标是减少实际 ComfyUI 制作中反复出现的设置摩擦。重点不是堆功能，而是让每天重复的工作流更快、更清晰、更容易教学。
 
 ## Search Tips
 
-可在 GitHub、ComfyUI Manager 和 Registry 中搜索：`deno custom nodes`、`rtx video super resolution`、`nvidia vfx`、`image compare`、`video compare`、`video preview`、`video to gif`、`gif webp`、`ltx 2.3`、`ltx model loader`、`ltx multi lora`、`visual fold`。
+可在 GitHub、ComfyUI Manager 和 Registry 中搜索：`deno custom nodes`、`rtx video super resolution`、`nvidia vfx`、`image compare`、`video compare`、`video preview`、`video to gif`、`gif webp`、`ltx 2.3`、`ltx model loader`、`ltx multi lora`、`bernini`、`bernini prompt guide`、`reference video edit`、`wan2.2`、`visual fold`。
 
 ## Install
 

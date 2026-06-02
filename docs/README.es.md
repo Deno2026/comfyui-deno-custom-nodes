@@ -147,13 +147,28 @@ Ayudante que combina prompt encoding para LTX, negative prompt opcional, conditi
 
 Funciones principales: positive prompt encoding, negative prompt plegable, LTX conditioning con `frame_rate`, estimación de duración a partir de diálogos entre comillas y soporte Auto/Korean/English/Japanese/Chinese.
 
+### `(Deno) Bernini Prompt Guide`
+
+Ayudante de prompts para prefijos KJ-style Bernini. Reúne positive y negative prompt encoding en un nodo más fácil de usar y muestra arriba el system prompt correspondiente al modo `System Prompt` elegido.
+
+![Deno Bernini Prompt Guide](images/bernini-prompt-guide.jpg)
+
+Funciones principales: selector `System Prompt` con modos legibles como `Text to Video`, `Image to Video` y `Reference Video Edit`, hint automático de nombres `image0` / `image1` en modos de referencia, negative prompt plegable, autocompletado del preset negativo Official Wan2.2 y salidas `positive` / `negative`.
+
+El negative preset no es un modo de salida. Solo rellena la caja de negative prompt; después puedes editar esa caja directamente y el texto final se codifica como negative conditioning.
+
+Escribe el prompt como una instrucción para un chatbot, no como una lista de etiquetas. Ejemplo: `Replace the jacket with the shirt from image0. Keep the camera motion, background, lighting, and shadows unchanged.`
+
+Nota: este nodo solo prepara text conditioning. Bernini visual conditioning todavía necesita un backend ComfyUI/KJ compatible con Bernini context latents.
+Mientras ese soporte siga como draft PR de ComfyUI, usa `tools/DENO_Bernini_Preview_Backend_Update.bat` solo en una carpeta portable ComfyUI copiada para pruebas.
+
 ## Why This Exists
 
 Estos nodos reducen la fricción repetida en trabajos reales con ComfyUI. El objetivo no es tener una lista enorme de funciones, sino hacer que los workflows diarios sean más rápidos, limpios y fáciles de enseñar.
 
 ## Search Tips
 
-Puedes buscar `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `visual fold`.
+Puedes buscar `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`.
 
 ## Install
 
