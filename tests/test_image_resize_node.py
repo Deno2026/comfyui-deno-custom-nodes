@@ -188,6 +188,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoMultiLoraLoader",
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
+        "DenoBerniniPromptGuide",
         "DenoRTXVFXEasyUpscale",
         "DenoRTXVFXVideoFinisher",
         "DenoImageCompare",
@@ -216,6 +217,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiLoraLoader"] == "(Deno) Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoBerniniPromptGuide"] == "(Deno) Bernini Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno) RTX Video Super Resolution"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXVideoFinisher"] == "(Deno) RTX Video Super Resolution (2 Pass)"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoImageCompare"] == "(Deno) Image Compare"
@@ -1802,6 +1804,188 @@ def test_ltx_prompt_guide_keeps_negative_prompt_when_collapsed():
     assert positive == {"encoded": "hello"}
     assert negative == {"encoded": "low quality"}
     assert frame_rate == 25
+
+
+def test_bernini_prompt_guide_declares_kj_style_contract_and_frontend_summary():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoBerniniPromptGuide"]
+    input_types = node_cls.INPUT_TYPES()
+
+    assert input_types["required"]["clip"][0] == "CLIP"
+    assert input_types["required"]["task_type"][0] == [
+        "Default",
+        "Text to Image",
+        "Text to Video",
+        "Image Edit",
+        "Subject to Image",
+        "Image to Video",
+        "Video Edit",
+        "Subject to Video",
+        "Video Propagation",
+        "Reference Video Edit",
+        "Ads Insertion",
+        "Video Reference Control",
+        "Motion / Style Edit",
+    ]
+    assert "custom_system_prompt" not in input_types["required"]
+    assert input_types["required"]["task_type"][1]["default"] == "Reference Video Edit"
+    assert input_types["required"]["reference_prompt_helper"][1]["default"] is True
+    assert input_types["required"]["negative_preset"][0] == [
+        "Official Wan2.2",
+        "Empty",
+    ]
+    assert input_types["required"]["show_negative_prompt"][1]["default"] is True
+    assert "色调艳丽" in input_types["required"]["negative_prompt"][1]["default"]
+    assert node_cls.RETURN_TYPES == ("CONDITIONING", "CONDITIONING")
+    assert node_cls.RETURN_NAMES == ("positive", "negative")
+    assert node_cls.CATEGORY == "Deno/Bernini"
+
+    script = (REPO_ROOT / "web" / "js" / "deno_bernini_prompt_guide.js").read_text(encoding="utf-8")
+    assert 'const NODE_NAME = "DenoBerniniPromptGuide";' in script
+    assert 'const SUMMARY_HEIGHT = 40;' in script
+    assert 'const POSITIVE_PROMPT_DEFAULT_HEIGHT = 112;' in script
+    assert 'const POSITIVE_PROMPT_MIN_HEIGHT = 86;' in script
+    assert 'const DEFAULT_NODE_WIDTH = 660;' in script
+    assert '"System Prompt"' in script
+    assert "Image to Video" in script
+    assert "moveWidgetAfter(node, summary, taskAnchor, promptAnchor)" in script
+    assert 'custom: "Custom System Prompt"' not in script
+    assert "System Prompt ·" not in script
+    assert "image0 reference naming" not in script
+    assert "drawSingleLineText(ctx, systemPrompt" in script
+    assert "TASK_HELP" in script
+    assert "showTaskInfoPanel(node, event)" in script
+    assert "drawInfoIcon(ctx, iconX, iconY, this.infoPressed)" in script
+    assert 'opened ? "Hide" : "Show"' in script
+    assert 'opened ? "open" : "closed"' not in script
+    assert "Use for" in script
+    assert "Prompt example" in script
+    assert "Subject to Video" in script
+    assert "fitPositivePromptToNodeHeight(node, requestedHeight, hadExplicitRequestedHeight)" in script
+    assert "__denoBerniniRequestedHeight" in script
+    assert "delete node.__denoBerniniRequestedHeight;" in script
+    assert "queueMicrotask(() => {" in script
+    assert "const minPromptHeight = explicitResize ? POSITIVE_PROMPT_MIN_HEIGHT : POSITIVE_PROMPT_DEFAULT_HEIGHT;" in script
+    assert "const fixedHeight = Number(computed[1]) - currentPromptHeight;" in script
+    assert "widget.__denoBerniniMinHeight" in script
+    assert "return widget.__denoBerniniMinHeight;" in script
+    assert "return Number.MAX_SAFE_INTEGER;" in script
+    assert "installResizeHandler(node)" in script
+    assert "const height = Math.max(requestedHeight || 0, computed[1], 180);" in script
+    assert "ellipsis" not in script
+    assert "LiteGraph.WIDGET_BGCOLOR" in script
+    assert "NegativeToggleWidget" in script
+    assert 'drawSectionHeader(ctx, 15, y, width - 30, height, "Negative Prompt"' in script
+    assert 'setWidgetHidden(getWidget(node, "reference_prompt_helper"), true);' in script
+    assert 'widget.hidden = hidden;' in script
+    assert "applyNegativePresetToPrompt(node, { force: true })" in script
+    assert "OFFICIAL_WAN22_NEGATIVE_PROMPT" in script
+    assert "stale oversized node bodies" in script
+    assert "const height = Math.max(computed[1], 180);" not in script
+    assert "Math.max(node.size?.[1] || computed[1], computed[1], 180)" not in script
+    assert 'widget.type = "converted-widget";' in script
+    assert "serializeValue()" in script
+
+
+def test_bernini_prompt_guide_builds_chatlike_prompt_with_reference_hint_and_official_negative():
+    package = load_package()
+
+    class RecordingClip:
+        def __init__(self):
+            self.texts = []
+
+        def tokenize(self, text):
+            self.texts.append(text)
+            return text
+
+        def encode_from_tokens_scheduled(self, tokens):
+            return {"encoded": tokens}
+
+    clip = RecordingClip()
+    node = package.DenoBerniniPromptGuide()
+    positive, negative = node.build(
+        clip=clip,
+        task_type="Reference Video Edit",
+        positive_prompt="Replace the jacket with the shirt from image0. Keep the camera motion unchanged.",
+        reference_prompt_helper=True,
+        negative_preset="Official Wan2.2",
+        show_negative_prompt=True,
+        negative_prompt="",
+        custom_system_prompt="",
+    )
+
+    assert clip.texts[0].startswith("You are a helpful assistant specialized in video editing with reference.")
+    assert "Use reference images in order as image0, image1, image2" in clip.texts[0]
+    assert "Replace the jacket with the shirt from image0." in clip.texts[0]
+    assert "色调艳丽" in clip.texts[1]
+    assert positive == {"encoded": clip.texts[0]}
+    assert negative == {"encoded": clip.texts[1]}
+
+
+def test_bernini_prompt_guide_legacy_custom_system_falls_back_to_default_and_keeps_negative_presets():
+    package = load_package()
+
+    class RecordingClip:
+        def __init__(self):
+            self.texts = []
+
+        def tokenize(self, text):
+            self.texts.append(text)
+            return text
+
+        def encode_from_tokens_scheduled(self, tokens):
+            return {"encoded": tokens}
+
+    clip = RecordingClip()
+    node = package.DenoBerniniPromptGuide()
+    node.build(
+        clip=clip,
+        task_type="custom",
+        positive_prompt="Add a soft rim light. Keep the subject identity.",
+        reference_prompt_helper=True,
+        negative_preset="Official Wan2.2 + Custom",
+        show_negative_prompt=True,
+        negative_prompt="watermark, logo",
+        custom_system_prompt="You are a careful Bernini editing assistant.",
+    )
+
+    assert clip.texts[0] == (
+        "You are a helpful assistant. "
+        "Add a soft rim light. Keep the subject identity."
+    )
+    assert "Use reference images in order" not in clip.texts[0]
+    assert "色调艳丽" in clip.texts[1]
+    assert clip.texts[1].endswith("watermark, logo")
+
+
+def test_bernini_prompt_guide_outputs_visible_negative_prompt_edits():
+    package = load_package()
+
+    class RecordingClip:
+        def __init__(self):
+            self.texts = []
+
+        def tokenize(self, text):
+            self.texts.append(text)
+            return text
+
+        def encode_from_tokens_scheduled(self, tokens):
+            return {"encoded": tokens}
+
+    clip = RecordingClip()
+    node = package.DenoBerniniPromptGuide()
+    node.build(
+        clip=clip,
+        task_type="Text to Video",
+        positive_prompt="A calm camera push toward a glass sculpture.",
+        reference_prompt_helper=False,
+        negative_preset="Official Wan2.2",
+        show_negative_prompt=True,
+        negative_prompt="watermark, logo, bad hands",
+        custom_system_prompt="",
+    )
+
+    assert clip.texts[1] == "watermark, logo, bad hands"
 
 
 def test_resize_box_declares_comfyui_contract():

@@ -1,5 +1,74 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 다음 작업 리마인더 (2026-06-03, Codex) — Deno Preview 여백 자동 맞춤
+>
+> **대상:** `(Deno) Image Preview` / `(Deno) Video Preview` 계열 preview 노드.
+>
+> **증상:** 세로 영상/이미지처럼 preview 컨텐츠 비율이 노드 내부 영역과 다를 때, 검은 여백 또는 과한 내부 여백이 남아
+> 노드가 실제 미디어보다 크게 보임. 사용자는 “출력물만 딱 맞게 보이는 preview”를 기대함.
+>
+> **다음 수정 방향:** 미디어 decode/로드 후 실제 프레임 비율과 현재 노드 너비를 기준으로 preview 높이를 능동 계산.
+> 단, Video Preview에서 이미 겪은 회귀를 반복하지 말 것: 수동 resize 보존, 키웠다가 줄이기 가능, 숨은/빈 body가
+> canvas wheel/scroll/middle-click을 막지 않음, hover가 재생/오디오 복구의 유일한 경로가 되지 않음.
+>
+> **검증 기준:** 세로/가로/정사각형 미디어 각각에서 검은 여백 최소화, 노드 grow/shrink 양방향 작동,
+> reload 후 수동 크기 유지, 빈 영역 wheel/scroll이 ComfyUI canvas에 정상 전달되는지 실제 8189 런타임에서 확인.
+
+> ## ▶ 진행 기록 (2026-06-03, Codex) — Bernini Prompt Guide 로컬 구현
+>
+> **목적:** Bernini/KJ 워크플로우 초보자가 system prompt prefix를 직접 외우지 않고 쓰도록
+> `(Deno) Bernini Prompt Guide` 추가.
+>
+> **범위:** 공식 Bernini 전체 CLI/conditioning 통합이 아니라, KJ가 보여준 task_type별 system prompt prefix
+> 흐름만 편의 노드로 감쌈. 실제 Bernini visual conditioning은 ComfyUI/KJ 백엔드의
+> `BerniniConditioning`/Wan context latent 지원이 필요하며, 이 노드는 텍스트 conditioning만 출력.
+>
+> **구현:** `deno_bernini_prompt_guide.py` 추가, `__init__.py` 등록, `web/js/deno_bernini_prompt_guide.js`
+> 추가. 노드 상단에 현재 System Prompt 모드와 자동 system prompt를 표시. UI 선택지는
+> `i2v`/`rv2v` 같은 코드형 토큰 대신 `Image to Video`, `Reference Video Edit` 같은
+> readable label을 사용하며, 백엔드는 기존 토큰 저장값도 계속 normalize해서 받음.
+> reference helper 토글은 초보자용 UI에서 제거하고, `r2v`/`rv2v` 계열에서
+> `image0`, `image1`, `image2` reference naming hint를 내부적으로 prepend.
+> negative preset은 출력 모드가 아니라 visible negative prompt textarea 자동입력용으로 정리.
+> 현재 신규 UI 선택지는 `Official Wan2.2`, `Empty`이며, 프리셋 선택 시 아래 negative prompt 칸이
+> 채워지고 사용자가 그 칸에서 직접 추가/수정한 텍스트가 최종 negative conditioning으로 인코딩됨.
+> LTX Prompt Guide처럼 negative prompt 접기 section header를 추가했고, 접힌 상태에서도
+> 저장된 negative prompt 값은 유지. 원본 `show_negative_prompt` boolean과 `reference_prompt_helper`
+> 토글은 frontend에서 숨김. 예전 draft의 `Custom`/`Official Wan2.2 + Custom` 값은
+> 백엔드와 frontend migration에서 legacy로만 처리.
+> 초기 박스형 summary UI는 화면이 투박하고 본문을 밀어내서 폐기. 최종 배치는
+> `System Prompt` 선택줄을 맨 위에 두고, 그 아래 초록 박스에는 실제 `You are...` system prompt
+> 문장만 한 줄로 표시. positive prompt 기본 높이는 키웠고, 사용자가 노드 세로 크기를 늘리면
+> 남는 높이가 positive prompt textarea에 배분되어 아래 빈 공간이 생기지 않도록 함.
+> 줄이는 방향에서는 ComfyUI/LiteGraph가 현재 textarea 높이를 최소/최대 높이처럼 잡아 수동 resize가
+> 막힐 수 있어서, prompt widget의 visible height 잠금과 resize bound 계산을 분리함. `getMinHeight`는
+> 작은 최소값만 반환하고 `getMaxHeight`는 잠긴 높이를 반환하지 않도록 처리해 키웠다가 다시 줄이는 흐름을 허용.
+> 후속 UI 정리에서 `Custom System Prompt` 선택지는 초보자에게 의미가 적고 하단에 찌꺼기 textarea를
+> 남기는 원인이 되어 제거. legacy workflow의 `custom`/`Custom System Prompt` 저장값은 `Default`로
+> 정규화해 깨지지 않게 처리. Negative Prompt 접힘 상태 문구는 `open/closed` 대신 액션이 분명한
+> `Hide/Show`로 변경. 초록 system prompt 박스 오른쪽에는 작은 `i` 버튼을 추가해 현재 모드의 용도,
+> 권장 입력(reference image/video 수), 예시 프롬프트를 DENO 스타일 도움말 패널로 표시.
+> 이후 기존 워크플로우에 저장된 큰 node height가 남아 아래 빈 영역이 캔버스 휠을 막는 문제 발견.
+> `refreshNode()`가 기존 height를 보존하지 않고 실제 visible widget 높이로 fit하도록 수정.
+> `AGENTS.md`와 `docs/DENO_NODE_RETROSPECTIVE.md`에 dead-space hard rule 추가:
+> 숨김/접힘/레이아웃 축소 후 남는 빈 노드 몸통도 캔버스 wheel/scroll/zoom을 막는 UX 버그로 취급.
+>
+> **도움말:** 기존 DENO `i` 버튼 DESCRIPTION에 챗봇에게 지시하듯 쓰는 프롬프트 예시와
+> Bernini 백엔드 필요 주의문을 포함.
+>
+> **검증:** `python -m pytest -q` → 75 passed, `py_compile`, `node --check`,
+> `git diff --check` 통과. 변경 파일을 source, 메인 포터블, 데스크탑, Bernini 테스트 포터블에
+> 해시 일치 복사. 현재 실행 중이던 8189 테스트 ComfyUI는 queue idle 확인 후 기존 PID 종료,
+> `D:\ComfyUI-Easy-Install - test\ComfyUI-Easy-Install\Start ComfyUI Bernini PR 8189.bat`
+> visible BAT로 재시작. `http://127.0.0.1:8189/object_info/DenoBerniniPromptGuide`에서
+> display/category/inputs 확인, `/extensions/deno-custom-nodes/deno_bernini_prompt_guide.js`
+> served marker 확인. Headless Chrome에서 실제 ComfyUI 앱에 `DenoBerniniPromptGuide` 임시 노드를
+> 생성해 task choices에 `Custom System Prompt`가 없는 것, `custom_system_prompt` 위젯이 생성되지 않는 것,
+> summary/negative custom widget이 존재하는 것 확인. summary `i` 버튼 mouse handler를 호출해
+> `Reference Video Edit` 도움말 패널이 실제 DOM에 뜨고 `Use for`/`Inputs`/`Prompt example`을 표시하는 것 확인.
+>
+> **미완료:** 공개 배포 전 README 스크린샷 추가와 저장-재열기 확인 필요.
+
 > ## ▶ 로컬 버그픽스 기록 (2026-06-01, Codex) — LTX refresh + Multi Image missing-file guard
 >
 > **제보:** 구독자 제보 기준 `Deno LTX Model Loader`가 ComfyUI F5/R refresh 후 모델 선택값이

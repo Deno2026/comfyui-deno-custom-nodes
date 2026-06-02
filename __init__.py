@@ -373,6 +373,7 @@ _OPTIONAL_NODES = (
     ("deno_multi_lora_loader", "DenoMultiLoraLoader", "(Deno) Multi LoRA Loader"),
     ("deno_ltx_multi_lora_loader", "DenoLTXMultiLoraLoader", "(Deno) LTX Multi LoRA Loader"),
     ("deno_ltx_prompt_guide", "DenoLTXPromptGuide", "(Deno) LTX Prompt Guide"),
+    ("deno_bernini_prompt_guide", "DenoBerniniPromptGuide", "(Deno) Bernini Prompt Guide"),
     ("deno_rtx_vfx_easy_upscale", "DenoRTXVFXEasyUpscale", "(Deno) RTX Video Super Resolution"),
     ("deno_rtx_vfx_video_finisher", "DenoRTXVFXVideoFinisher", "(Deno) RTX Video Super Resolution (2 Pass)"),
     ("deno_image_compare", "DenoImageCompare", "(Deno) Image Compare"),

@@ -340,6 +340,23 @@ Main features:
 - supports Auto, Korean, English, Japanese, and Chinese dialogue estimates
 - outputs: `positive`, `negative`, `frame_rate`
 
+### `(Deno) Bernini Prompt Guide`
+
+KJ-style Bernini prompt helper that combines positive and negative prompt encoding into one beginner-friendly node.
+
+Main features:
+
+- `System Prompt` selector with readable modes such as `Text to Video`, `Image to Video`, and `Reference Video Edit`
+- shows the active system prompt prefix directly on the top of the node
+- writes prompts in instruction style, for example `Replace the jacket with the shirt from image0. Keep the camera motion, background, lighting, and shadows unchanged.`
+- reference modes automatically add a short `image0`, `image1`, `image2` naming hint internally
+- collapsible negative prompt section
+- negative presets fill the visible negative prompt box; edit that box directly to change the final encoded negative prompt
+- outputs: `positive`, `negative`
+
+Note: this node prepares text conditioning only. Bernini visual conditioning still requires a ComfyUI/KJ backend that supports Bernini context latents.
+While that backend support is still a draft ComfyUI PR, use `tools/DENO_Bernini_Preview_Backend_Update.bat` only on a copied/test portable ComfyUI folder.
+
 ## Why This Exists
 
 These nodes are built to reduce repeated setup friction in actual ComfyUI production work.

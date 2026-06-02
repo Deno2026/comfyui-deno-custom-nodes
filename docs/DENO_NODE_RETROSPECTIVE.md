@@ -42,6 +42,7 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
 - Arrow-click numeric widgets can fail when custom drawing/event handling blocks default LiteGraph behavior.
 - Right-click and drag events often need explicit canvas-coordinate handling.
 - Custom DOM widgets and node-top overlays can swallow ComfyUI canvas navigation. Wheel over a DENO node should still reach the ComfyUI canvas for zoom/scroll unless the user is inside an intentional local scroll area. Middle-click / wheel-click drag over non-text controls should pan the canvas or be explicitly forwarded.
+- Oversized blank node bodies are also interaction bugs, not harmless empty space. After hiding/collapsing widgets or replacing a larger layout with a compact summary, shrink the node to the actual visible controls or make sure the blank area cannot block ComfyUI wheel/scroll/zoom. Always test wheel over the lower empty part of the node.
 - Dynamic rows need both row-level behavior and node-level fallback context menus.
 - Node size can reset if `computeSize`, `setSize`, or custom draw logic fights the user's manual resize.
 - Media preview nodes must not call `setSize` on every image/video load after the user has resized the node. Auto-fit only for a first useful default or an explicit fit command; otherwise contain/letterbox the media inside the user's chosen node box.

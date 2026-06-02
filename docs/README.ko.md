@@ -147,6 +147,19 @@ LTX 프롬프트 인코딩, 선택적 negative prompt, LTX conditioning, 대사 
 
 주요 기능: positive prompt 인코딩, 접을 수 있는 negative prompt, `frame_rate`가 포함된 LTX conditioning, 따옴표 안 대사 길이 추정, Auto/Korean/English/Japanese/Chinese 대사 추정.
 
+### `(Deno) Bernini Prompt Guide`
+
+KJ Bernini 방식의 프롬프트 prefix를 쉽게 쓰도록 만든 프롬프트 도우미입니다. positive/negative prompt를 한 노드에서 인코딩하고, 선택한 `System Prompt` 모드에 맞는 system prompt를 노드 맨 위에 보여줍니다.
+
+주요 기능: `Text to Video`, `Image to Video`, `Reference Video Edit` 같은 읽기 쉬운 System Prompt 선택, reference 모드의 `image0`/`image1` naming hint 자동 적용, 접을 수 있는 negative prompt, 공식 Wan2.2 negative preset 자동입력, `positive`/`negative` 출력.
+
+Negative preset은 출력 모드가 아니라 아래 negative prompt 칸을 자동으로 채우는 용도입니다. 프리셋으로 채운 뒤 사용자가 그 칸에서 직접 추가하거나 수정한 문구가 최종 negative conditioning으로 인코딩됩니다.
+
+프롬프트는 평소 태그를 나열하는 방식보다 챗봇에게 시키듯이 씁니다. 예: `Replace the jacket with the shirt from image0. Keep the camera motion, background, lighting, and shadows unchanged.`
+
+주의: 이 노드는 텍스트 conditioning만 준비합니다. Bernini visual conditioning은 Bernini context latent를 지원하는 ComfyUI/KJ 백엔드가 필요합니다.
+해당 백엔드가 아직 ComfyUI draft PR 상태인 동안에는 `tools/DENO_Bernini_Preview_Backend_Update.bat`를 복사한 테스트용 포터블 ComfyUI 폴더에서만 사용하세요.
+
 ## Why This Exists
 
 이 노드들은 실제 ComfyUI 제작 과정에서 반복되는 세팅 피로를 줄이기 위해 만들어졌습니다. 목표는 거대한 기능 목록이 아니라, 매일 반복하는 워크플로우를 더 빠르고 깨끗하고 가르치기 쉽게 만드는 것입니다.

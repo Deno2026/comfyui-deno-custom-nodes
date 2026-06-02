@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## 0.7.27 - 2026-06-03
+
+- Added Bernini Prompt Guide for KJ-style Bernini prompt prefixes, readable System Prompt mode labels, automatic reference-image prompt hints, a collapsible negative prompt section, and Wan2.2 negative preset autofill.
+- Added a Bernini preview backend update BAT for test portable ComfyUI folders while the upstream Bernini backend is still a draft PR.
+
 ## 0.7.26 - 2026-06-01
 
 - LTX Model Loader keeps saved model selections during ComfyUI refresh instead of falling back to `__none__`.
