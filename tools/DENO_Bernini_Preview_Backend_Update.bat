@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
 title DENO Bernini Preview Backend Update
 
@@ -13,9 +13,10 @@ echo preview branch from kijai/ComfyUI.
 echo.
 echo Recommended:
 echo   1. Close ComfyUI first.
-echo   2. Copy your portable ComfyUI folder.
-echo   3. Put this BAT in the copied portable root or ComfyUI folder.
-echo   4. Run it there.
+echo   2. Copy the whole portable root folder for testing.
+echo   3. Keep the inner folder name as ComfyUI.
+echo   4. Put this BAT in the copied portable root or ComfyUI folder.
+echo   5. Run it there.
 echo.
 echo Do NOT run this on your only working ComfyUI install unless you
 echo already know how to restore it.
@@ -154,13 +155,7 @@ goto :end
 set "COMFY_DIR="
 if exist "%SCRIPT_DIR%main.py" set "COMFY_DIR=%SCRIPT_DIR:~0,-1%"
 if not defined COMFY_DIR if exist "%SCRIPT_DIR%ComfyUI\main.py" set "COMFY_DIR=%SCRIPT_DIR%ComfyUI"
-if not defined COMFY_DIR if exist "%SCRIPT_DIR%..\ComfyUI\main.py" (
-    pushd "%SCRIPT_DIR%..\ComfyUI" >nul 2>nul
-    if not errorlevel 1 (
-        set "COMFY_DIR=!CD!"
-        popd >nul 2>nul
-    )
-)
+if not defined COMFY_DIR if exist "%SCRIPT_DIR%..\ComfyUI\main.py" for %%I in ("%SCRIPT_DIR%..\ComfyUI") do set "COMFY_DIR=%%~fI"
 exit /b 0
 
 :find_python

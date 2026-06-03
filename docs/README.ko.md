@@ -168,7 +168,7 @@ Negative preset은 출력 모드가 아니라 아래 negative prompt 칸을 자�
 
 ## Search Tips
 
-GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold` 같은 키워드로 찾을 수 있습니다.
+GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `prompt guide`, `system prompt`, `bernini`, `bernini prompt guide`, `bernini conditioning`, `comfyui bernini`, `kj bernini`, `reference video edit`, `wan-2.2`, `wan2.2`, `visual fold` 같은 키워드로 찾을 수 있습니다.
 
 ## Install
 

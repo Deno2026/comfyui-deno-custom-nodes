@@ -1,5 +1,45 @@
 # SESSION_HANDOFF — comfyui-deno-custom-nodes
 
+> ## ▶ 지침/배포 준비 (2026-06-03, Codex) — 검색 메타데이터 누락 방지
+>
+> **사건:** `(Deno) Bernini Prompt Guide`는 README와 한국어 README에는 Bernini 키워드가 있었지만,
+> `pyproject.toml` description/keywords와 GitHub repo topics에는 Bernini/Wan2.2/Prompt Guide 키워드가
+> 충분히 반영되지 않았음. Comfy Registry 검색 API에서 `bernini` 검색 시 다른 Bernini 노드만 나오고
+> `deno-custom-nodes`는 잡히지 않는 것을 확인.
+>
+> **수정 방향:** `pyproject.toml` description에 Bernini Prompt Guide, Bernini conditioning helpers,
+> Wan 2.2 reference video edit workflow를 포함하고, `keywords` 배열에 `bernini`,
+> `bernini-prompt-guide`, `bernini-conditioning`, `comfyui-bernini`, `wan-2.2`, `wan2.2`,
+> `reference-video-edit`, `system-prompt`, `prompt-guide`, `kj-bernini` 등을 추가.
+> `tests/test_registry_metadata.py`도 새 검색 키워드를 검사하도록 보강.
+>
+> **새 하드 규칙:** 공개 노드/워크플로/모델군을 배포할 때는 기능 구현만 끝난 것으로 보지 말고,
+> GitHub/ComfyUI Manager/Comfy Registry 검색 메타데이터까지 배포 표면으로 취급한다.
+> `pyproject.toml` description/keywords, README 검색어, localized README 검색어, changelog/release notes,
+> GitHub topics를 함께 갱신한다. Registry/Manager 메타데이터는 일반적으로 새 버전 publish가 필요하다.
+
+> ## ▶ 지침 보강 (2026-06-03, Codex) — 공유용 BAT 검증 실패 패턴
+>
+> **사건:** `DENO_Bernini_Preview_Backend_Update.bat`를 GitHub Release asset으로 올린 뒤,
+> 사용자가 직접 `YES` 경로를 실행하자 Python dependency filtering 단계에서
+> `SyntaxError: unterminated string literal`이 발생. 원인은 BAT 상단
+> `EnableDelayedExpansion`이 inline Python regex의 `!` 문자를 소거/변형해 한 줄 Python 코드가
+> 깨진 것. 기존 `NO` 입력 smoke test는 실제 실패 경로를 전혀 검증하지 못했음.
+>
+> **수정:** BAT를 `setlocal EnableExtensions DisableDelayedExpansion`으로 변경하고,
+> `!CD!`가 필요하던 경로 계산을 `for %%I ... %%~fI` 방식으로 대체. 테스트 포터블 루트와
+> `ComfyUI\main.py` 옆에 있던 BAT 모두 동일 수정본으로 교체하고 SHA256 해시 일치 확인.
+> `cmd /v:off`에서 실제 `YES` 경로를 실행해 `DONE`까지 통과, 이후 `main.py` 옆 배치 위치는
+> `NO` 경로로도 ComfyUI 탐지/취소가 정상인지 확인.
+>
+> **새 하드 규칙:** 공유용 BAT는 cancel-only smoke test로 검증 완료라고 말하지 말 것.
+> 배포/Release asset 전에는 실제 배포될 `.bat` 파일을 복사한 포터블/test 폴더에서
+> `YES` 성공 경로로 끝까지 실행하고, cancel path도 별도로 확인한다. Windows BAT는 delayed expansion,
+> `!`, `%`, `^`, 괄호, pipe, 공백 포함 경로, inline Python/PowerShell, 중첩 따옴표에서 깨질 수 있으므로
+> 이들을 실제 실행으로 확인한다. root 배치와 `main.py` 옆 배치가 모두 지원되면 두 위치 모두 검사하고,
+> 여러 위치에 BAT가 남아 있으면 전부 해시 일치시킨다. GitHub Release asset은 로컬 수정만으로
+> 갱신되지 않으므로, 수정 후 반드시 asset 교체가 필요하다.
+
 > ## ▶ 배포 기록 (2026-06-03, Codex) — 0.7.27 Bernini Prompt Guide + Preview Backend BAT
 >
 > **배포 목적:** Bernini/KJ 워크플로우 초보자가 system prompt prefix, reference naming,

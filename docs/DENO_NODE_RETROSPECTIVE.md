@@ -99,11 +99,38 @@ Run this before saying a node is done:
 13. For complex multi-part nodes, test each major function and make sure one fix did not break another feature.
 14. Explain what was verified and what still requires browser-side user confirmation.
 
-## 11. Deployment Routine
+## 11. Shared BAT Verification
+
+- Treat BAT files shared with users as shipped executables, not helper text.
+- A `NO`/cancel smoke test is not enough. Before saying a BAT is ready, run the exact distributed `.bat` through the real `YES` success path until `DONE` in a copied portable/test folder.
+- Also test the cancel path after the success path so both flows are known-good.
+- Test paths with spaces, and do not assume inline Python/PowerShell survives Windows BAT parsing. Watch delayed expansion, `!`, `%`, `^`, parentheses, pipes, and nested quotes.
+- Prefer `DisableDelayedExpansion`; if delayed expansion is required, isolate it to the smallest possible block.
+- Test every supported placement: portable root and the `ComfyUI` folder that contains `main.py`.
+- Confirm embedded portable Python imports the intended copied `ComfyUI` folder. Easy-Install `_pth` files can point at `../ComfyUI`, so public instructions must tell users to copy the whole portable root and keep the inner folder name as `ComfyUI`.
+- If the BAT exists in more than one user-facing location, copy the fixed file to all locations and compare hashes.
+- If the BAT is attached to a GitHub Release, replacing the local file is not enough. Replace the Release asset before telling users to download it.
+
+## 12. Discovery Metadata
+
+- Treat search metadata as part of the public node, not optional cleanup.
+- For every public node, model family, workflow, or tutorial-facing feature, update:
+  - `pyproject.toml` description.
+  - `pyproject.toml` `keywords`.
+  - README search terms.
+  - localized README search terms.
+  - changelog / release notes.
+  - GitHub repo topics when useful.
+- Include both exact technical names and beginner search phrases. Example: `bernini`, `bernini prompt guide`, `bernini conditioning`, `wan-2.2`, `wan2.2`, `reference video edit`, `system prompt`, `prompt guide`, `kj bernini`.
+- Before release, run metadata tests and search the repo for the new feature keywords.
+- After publish, query Comfy Registry/Manager search for the important terms. GitHub topics can update immediately, but Registry/Manager metadata generally requires a new version publish.
+
+## 13. Deployment Routine
 
 - Local success is not the same as public release.
 - For release work, update GitHub and ComfyUI Registry together.
 - README updates and node screenshots are part of the release, not optional cleanup.
+- Discovery metadata updates are part of release quality: package description, keywords, README search terms, localized README search terms, release notes, and GitHub topics when useful.
 - Check GitHub Actions or registry publish status after pushing.
 - Confirm the live Registry latest version, install endpoint, and local Manager cache when visibility matters.
 - If registry review/cache delay is expected, state that clearly and keep follow-up monitoring separate.

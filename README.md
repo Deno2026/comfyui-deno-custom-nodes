@@ -393,9 +393,14 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `ltx model loader`
 - `ltx multi lora`
 - `prompt guide`
+- `system prompt`
 - `bernini`
 - `bernini prompt guide`
+- `bernini conditioning`
+- `comfyui bernini`
+- `kj bernini`
 - `reference video edit`
+- `wan-2.2`
 - `wan2.2`
 - `multi image loader`
 - `advanced image source`

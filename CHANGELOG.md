@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## 0.7.28 - 2026-06-03
+
+- Improved ComfyUI Manager, Comfy Registry, and GitHub discovery metadata for Bernini Prompt Guide, Bernini conditioning helpers, Wan2.2, reference video edit, and prompt guide searches.
+- Updated the Bernini preview backend update BAT to avoid Windows delayed-expansion parsing failures during the real update path.
+
 ## 0.7.27 - 2026-06-03
 
 - Added Bernini Prompt Guide for KJ-style Bernini prompt prefixes, readable System Prompt mode labels, automatic reference-image prompt hints, a collapsible negative prompt section, and Wan2.2 negative preset autofill.

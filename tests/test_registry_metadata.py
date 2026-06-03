@@ -37,9 +37,38 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "RTX upscale helpers" in description
     assert "NVIDIA VFX/nvvfx" in description
     assert "LTX 2.3" in description
+    assert "Bernini Prompt Guide" in description
+    assert "Bernini conditioning" in description
+    assert "Wan 2.2" in description
+    assert "reference video edit" in description
     assert "image and video compare" in description
     assert "Video to GIF/WebP" in description
     assert "visual workflow utilities" in description
+    keywords = pyproject["project"]["keywords"]
+    required_keywords = {
+        "comfyui",
+        "comfyui-custom-nodes",
+        "deno-custom-nodes",
+        "rtx-video-super-resolution",
+        "nvidia-vfx",
+        "ltx-2.3",
+        "bernini",
+        "bernini-prompt-guide",
+        "bernini-conditioning",
+        "comfyui-bernini",
+        "wan-2.2",
+        "wan2.2",
+        "reference-video-edit",
+        "system-prompt",
+        "prompt-guide",
+        "kj-bernini",
+        "image-compare",
+        "video-compare",
+        "video-preview",
+        "multi-image-loader",
+        "visual-fold",
+    }
+    assert required_keywords.issubset(set(keywords))
     assert pyproject["project"]["requires-python"] == ">=3.10"
     assert pyproject["project"]["license"] == {"file": "LICENSE"}
     classifiers = pyproject["project"]["classifiers"]

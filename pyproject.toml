@@ -1,10 +1,35 @@
 [project]
 name = "deno-custom-nodes"
-description = "DENO RTX node pack for ComfyUI: RTX Video Super Resolution, RTX Super Resolution, Video SR/VSR, NVIDIA VFX/nvvfx, RTX upscale helpers, LTX 2.3 video workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, advanced image sources, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
-version = "0.7.27"
+description = "DENO RTX node pack for ComfyUI: RTX Video Super Resolution, RTX Super Resolution, Video SR/VSR, NVIDIA VFX/nvvfx, RTX upscale helpers, LTX 2.3 workflows, Bernini Prompt Guide, Bernini conditioning helpers, Wan 2.2 reference video edit workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
+version = "0.7.28"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
+keywords = [
+  "comfyui",
+  "comfyui-custom-nodes",
+  "deno-custom-nodes",
+  "rtx-video-super-resolution",
+  "nvidia-vfx",
+  "nvvfx",
+  "ltx-video",
+  "ltx-2.3",
+  "bernini",
+  "bernini-prompt-guide",
+  "bernini-conditioning",
+  "comfyui-bernini",
+  "wan-2.2",
+  "wan2.2",
+  "reference-video-edit",
+  "system-prompt",
+  "prompt-guide",
+  "kj-bernini",
+  "image-compare",
+  "video-compare",
+  "video-preview",
+  "multi-image-loader",
+  "visual-fold",
+]
 classifiers = [
   "License :: Public Domain",
   "Operating System :: OS Independent",
