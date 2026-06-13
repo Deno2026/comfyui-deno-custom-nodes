@@ -2600,40 +2600,54 @@ def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
     assert unload_calls == [("http://127.0.0.1:1234", "google/gemma-4-12b")]
 
 
-def test_local_llm_refiner_sends_progress_error_before_raising(monkeypatch):
+def test_local_llm_refiner_sends_progress_error_before_raising():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
     events = []
 
-    monkeypatch.setattr(module, "_send_progress", lambda payload: events.append(dict(payload)))
-    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
-    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
-    monkeypatch.setattr(module, "_mark_local_llm_active", lambda *_args, **_kwargs: "active")
-    monkeypatch.setattr(module, "_clear_local_llm_active", lambda _key: None)
-
     def fail_run(**_kwargs):
         raise RuntimeError("context length exceeded: n_keep 9012 >= n_ctx 4096")
 
-    monkeypatch.setattr(node, "_run_single", fail_run)
+    original_progress = module._send_progress
+    original_unload_other = module._unload_other_warm_local_llms
+    original_prepare_vram = module._prepare_comfy_vram_before_llm
+    original_mark_active = module._mark_local_llm_active
+    original_clear_active = module._clear_local_llm_active
+    original_run_single = node._run_single
 
-    with pytest.raises(RuntimeError, match="context length exceeded"):
-        node.refine(
-            provider="LM Studio",
-            ollama_model="huihui_ai/gemma-4-abliterated:12b",
-            lm_studio_model="google/gemma-4-12b",
-            custom_server_url="http://127.0.0.1:8000/v1",
-            custom_model="",
-            system_prompt="",
-            thinking=False,
-            seed=1,
-            seed_mode="fixed",
-            model_memory="Unload after run",
-            keep_minutes=5,
-            comfy_vram_policy="Never unload before LLM call",
-            prompt="hello",
-            unique_id="9",
-        )
+    try:
+        module._send_progress = lambda payload: events.append(dict(payload))
+        module._unload_other_warm_local_llms = lambda **_kwargs: {}
+        module._prepare_comfy_vram_before_llm = lambda **_kwargs: {}
+        module._mark_local_llm_active = lambda *_args, **_kwargs: "active"
+        module._clear_local_llm_active = lambda _key: None
+        node._run_single = fail_run
+
+        with pytest.raises(RuntimeError, match="context length exceeded"):
+            node.refine(
+                provider="LM Studio",
+                ollama_model="huihui_ai/gemma-4-abliterated:12b",
+                lm_studio_model="google/gemma-4-12b",
+                custom_server_url="http://127.0.0.1:8000/v1",
+                custom_model="",
+                system_prompt="",
+                thinking=False,
+                seed=1,
+                seed_mode="fixed",
+                model_memory="Unload after run",
+                keep_minutes=5,
+                comfy_vram_policy="Never unload before LLM call",
+                prompt="hello",
+                unique_id="9",
+            )
+    finally:
+        module._send_progress = original_progress
+        module._unload_other_warm_local_llms = original_unload_other
+        module._prepare_comfy_vram_before_llm = original_prepare_vram
+        module._mark_local_llm_active = original_mark_active
+        module._clear_local_llm_active = original_clear_active
+        node._run_single = original_run_single
 
     assert events[0]["status"] == "running"
     assert events[-1]["status"] == "error"

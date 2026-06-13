@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.30 - 2026-06-13
+
+- Fixed release test compatibility for the Local LLM Loader and Reviewer package validation.
+
 ## 0.7.29 - 2026-06-13
 
 - Added Local LLM Loader for local Ollama and LM Studio prompt workflows, with separate Stop LLM and Unload LLM controls.
