@@ -26,6 +26,8 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 - Do not reintroduce Custom Local Server, vLLM, generic OpenAI-compatible, or remote-provider UI paths unless the user explicitly reverses direction.
 - Hidden legacy fields may remain only to prevent saved workflow widget-order breakage.
 - `DenoLocalLLMRefiner` output socket is `result` only.
+- Loader's canonical prompt input is `prompt`. The in-node Prompt textarea is the actual backend `prompt` widget moved into the lower editor area; any connected prompt link must feed that same backend input name.
+- Do not reintroduce a separate active `user_prompt` or `prompt_text` path. Old saved `user_prompt` links may exist only as a narrow frontend migration into `prompt`.
 - Thinking is shown in node preview/popup UI, not as a workflow output socket.
 - Optional media input is IMAGE only.
 - Loader has separate `Stop LLM` and `Unload LLM`.
@@ -60,10 +62,17 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 - Keep loaded state must be checked against the real provider, not only internal node memory.
 - Ollama Keep loaded streaming calls refresh keep-alive after the run with `POST /api/chat`, `messages: []`, `stream: false`, and the selected `keep_alive`. Do not use `/api/generate` for this keep-alive refresh after image/thinking chat calls; it can switch Ollama runners and cause an avoidable VRAM unload/reload cycle.
 - On this PC, `C:\Users\aions\Documents\Comfy-Ollama-Guard` can unload Ollama while ComfyUI is busy. If `unload_ollama_on_busy` is true, a long Local LLM Loader run can be unloaded by the external guard even when the node is set to `Keep loaded`; the node then reloads Ollama afterward to honor Keep. Check `logs\guard.log` before treating this as a Loader Keep bug.
-- Fixed seed must not let ComfyUI cache-skip the Loader. The seed stabilizes the local LLM request; the node must still execute so provider swap, keep-alive, stop/unload state, and fresh external calls happen.
-- `IS_CHANGED()` includes a monotonic counter so two immediate checks cannot return the same value on coarse timer resolution.
+- LM Studio native streaming can return HTTP 200 with only `chat.start` and no final text when the prompt exceeds the loaded model context. Do not treat that as success. The Loader must run a non-stream diagnostic request and raise a clear context-length error instead of returning an empty result.
+- Fixed / increment / decrement seed modes use a stable ComfyUI cache key. If provider, model, prompts, seed, image, memory policy, and VRAM policy are unchanged, the Loader should not call the local LLM again.
+- `randomize` seed mode uses a fresh cache key for each run. Prompt/model/seed/image/memory/VRAM changes must still invalidate the cache and rerun the Loader.
 - Thinking-only responses with no final result are rejected with a clear error instead of passing an empty prompt downstream.
 - Local preview scrollbars support wheel and thumb drag, with modal wheel scrolling preserved.
+- Loader Prompt is now an in-node textarea under the System Prompt button. Manual node resize grows/shrinks the Prompt textarea, not the Result preview.
+- Loader Result preview stays compact and opens its full text through its own `More` button.
+- Reviewer button tooltips are DOM overlays mounted on `document.body`, not canvas-drawn text, so they can extend outside the node frame without clipping. Canvas pointermove also performs Reviewer button hit-testing so tooltip display does not depend only on LiteGraph custom-widget hover callbacks.
+- System Prompt popup has a softer modal theme and browser-local presets. The built-in `Reviewer JSON` preset asks the LLM to return `verdict`, `reason`, `matched`, and `issues`; the backend gate already reads JSON `verdict`/`reason`. User presets are stored in browser `localStorage`; the workflow still saves only the real `system_prompt` widget value.
+- Reviewer remains compatible with old one-word review text: `OK`, `PASS`, `APPROVE`, `APPROVED` pass; `FAIL`, `REJECT`, `BAD` block. JSON is optional and mainly adds a readable reason.
+- Reviewer has a `How to use` button that opens a DOM modal explaining wiring, recommended Loader system prompt, button meanings, auto retry, seed target, and audio gating.
 
 ## Verification Matrix
 
@@ -71,6 +80,9 @@ Before calling this node done after a behavior change, cover the affected cells:
 
 - Ollama normal text run.
 - LM Studio normal text run.
+- LM Studio over-context prompt:
+  - Short prompt still returns real text.
+  - Too-long prompt fails with a clear context-length message instead of an empty successful output.
 - IMAGE input path if image support was touched.
 - Thinking off and on for supported models.
 - Stop while generation is active.
@@ -87,6 +99,10 @@ Before calling this node done after a behavior change, cover the affected cells:
   - Auto skips unload when the selected provider model is already loaded.
   - Always unloads before each LLM call.
   - Never does not unload ComfyUI models.
+- Loader cache behavior:
+  - Fixed seed with unchanged inputs should reuse the cached output instead of calling the local LLM again.
+  - Changing prompt/model/seed/image/memory policy/VRAM policy should rerun.
+  - Randomize seed mode should rerun even if visible text is unchanged.
 - Old saved-node/widget-shift simulation when widget order or hidden fields change.
 - Reviewer auto-rerun:
   - Off by default.
@@ -98,7 +114,15 @@ Before calling this node done after a behavior change, cover the affected cells:
   - Passing reviews ignore auto-rerun and reset the retry state.
   - Stops after 3 failed attempts.
   - Regenerate submit mode wins over stale Pass widget values.
+  - `How to use` opens outside the canvas frame, scrolls locally, and does not change serialized workflow values.
 - Real canvas control test for buttons, preview scrollbars, More popup, resize grow/shrink, and wheel/middle-click behavior.
+- Loader prompt UI:
+  - System Prompt button appears below the compact preview area.
+  - System Prompt popup can load the built-in `Reviewer JSON` preset, save/delete browser-local user presets, and save the edited text back into the single `system_prompt` backend widget.
+  - Prompt textarea appears under System Prompt.
+  - Dragging the node taller grows the Prompt textarea.
+  - Result uses `More` for full text instead of taking all extra node height.
+  - Old `user_prompt` links migrate to `prompt` without becoming a second active input contract.
 
 ## Latest Review Evidence
 
@@ -175,7 +199,6 @@ Before calling this node done after a behavior change, cover the affected cells:
 - Active ComfyUI queue was idle.
 - Served JS from `http://127.0.0.1:8188/extensions/deno-custom-nodes/deno_local_llm_refiner.js` contained the Loader, Reviewer, VRAM label, Stop LLM, and Unload LLM markers.
 - `/object_info/DenoLocalLLMRefiner`, `/object_info/DenoAIReviewGate`, and `/object_info/DenoPromptText` returned real node entries.
-- `/object_info/DenoRandomPromptBox` returned `{}` and source/runtime registration files do not register it.
 - Real ComfyUI queue run passed:
   - workflow: `DenoPromptText -> DenoLocalLLMRefiner -> DenoAIReviewGate`
   - provider: LM Studio

@@ -13,6 +13,10 @@ const GATE_GENERATED_PREFIX = "deno_local_llm_gate_";
 const DEFAULT_WIDTH = 560;
 const GATE_DEFAULT_WIDTH = 420;
 const PREVIEW_HEIGHT = 150;
+const PROMPT_WIDGET_MIN_HEIGHT = 118;
+const PROMPT_WIDGET_DEFAULT_HEIGHT = 156;
+const PROMPT_WIDGET_MAX_HEIGHT = 460;
+const PROMPT_WIDGET_SIDE_INSET = 10;
 const PREVIEW_TEXT_FONT = "10px monospace";
 const PREVIEW_LINE_HEIGHT = 13;
 const PREVIEW_SCROLLBAR_TRACK_WIDTH = 8;
@@ -51,6 +55,7 @@ const SHIFTED_MODEL_WIDGET_VALUES = new Set([
     "Stop LLM",
     "Unload LLM",
     "System Prompt",
+    "Prompt",
     "Thinking",
     "Seed",
     "Seed Mode",
@@ -75,6 +80,11 @@ let previewPointerUpHandler = null;
 let previewPointerLeaveHandler = null;
 let previewScrollbarCursorActive = false;
 let previewScrollbarDragState = null;
+let reviewerTooltipElement = null;
+let reviewerTooltipOwner = "";
+const progressListenerApis = new WeakSet();
+let progressListenerRetryScheduled = false;
+const localLLMStateByNodeId = new Map();
 let registeredNodeData = null;
 let reviewerGraphPromptHookInstalled = false;
 let reviewerGraphPromptRetryScheduled = false;
@@ -85,15 +95,115 @@ const REVIEWER_AUTO_RETRY_SEED_AUTO = "auto";
 const REVIEWER_PROP_AUTO_RETRY = "deno_auto_retry_on_fail";
 const REVIEWER_PROP_SEED_TARGET = "deno_auto_retry_seed_target";
 const REVIEWER_FALLBACK_MAX_SEED = 1125899906842624;
+const SYSTEM_PROMPT_PRESET_STORAGE_KEY = "deno.localLLM.systemPromptPresets.v1";
+const REVIEWER_JSON_SYSTEM_PROMPT = [
+    "You are an image review judge for a ComfyUI workflow.",
+    "",
+    "Compare the provided prompt with the generated image.",
+    "Allow fantasy, surreal, impossible, or unrealistic subjects when the prompt asks for them.",
+    "Pass the image when the main subject, action, setting, and mood are mostly correct.",
+    "Do not fail only because the style is slightly different unless the style mismatch is severe.",
+    "Fail only when an important requested subject/action/setting is missing, the image is clearly low quality, or the result contradicts the prompt.",
+    "",
+    "Return only valid JSON. Do not write markdown. Do not add any text outside the JSON object.",
+    "",
+    "Schema:",
+    "{",
+    '  "verdict": "OK" or "FAIL",',
+    '  "reason": "short reason for the decision",',
+    '  "matched": ["important matched elements"],',
+    '  "issues": ["important problems, or an empty array"]',
+    "}",
+].join("\n");
+const BUILTIN_SYSTEM_PROMPT_PRESETS = Object.freeze([
+    {
+        id: "reviewer_json",
+        label: "Reviewer JSON",
+        description: "Image review preset with OK/FAIL verdict and a visible reason.",
+        text: REVIEWER_JSON_SYSTEM_PROMPT,
+    },
+]);
+const REVIEWER_HOW_TO_USE_SECTIONS = Object.freeze([
+    {
+        title: "What this node does",
+        lines: [
+            "The Reviewer is a gate. It does not judge the image by itself; it reads review text from another node.",
+            "If the review says OK, PASS, APPROVE, or APPROVED, image/audio pass through.",
+            "If the review says FAIL, REJECT, or BAD, image/audio are blocked.",
+            "JSON also works. Use a verdict field like {\"verdict\":\"OK\",\"reason\":\"...\"} to show a readable reason.",
+        ],
+    },
+    {
+        title: "Basic setup",
+        lines: [
+            "1. Send the generated IMAGE into the Reviewer's image input.",
+            "2. Put a Local LLM Loader before the Reviewer.",
+            "3. Send the same generated IMAGE into the Loader's image input when you want visual review.",
+            "4. Send the original prompt or final prompt into the Loader's prompt field/input.",
+            "5. Connect Loader result into the Reviewer's review result input.",
+            "6. Connect Reviewer image output into Preview Image, Save Image, or the next workflow step.",
+        ],
+    },
+    {
+        title: "Recommended LLM prompt",
+        lines: [
+            "Open the Loader's System Prompt popup and load the built-in Reviewer JSON preset.",
+            "That preset tells the LLM to allow requested fantasy or surreal scenes, judge the main subject/action/setting first, and return verdict + reason.",
+            "Plain one-word review still works, so old workflows using only OK or Fail are compatible.",
+        ],
+    },
+    {
+        title: "Buttons",
+        lines: [
+            "Review: normal mode. The review text decides pass/block.",
+            "Pass: bypass review and pass through when the workflow runs.",
+            "Approve Once: pass only the current reviewed result using the saved snapshot, without rerunning the upstream generator.",
+            "Regenerate: rerun the upstream path before this Reviewer.",
+            "Retry x3: when a review fails, automatically rerun up to 3 times.",
+            "Seed: choose which upstream seed is incremented during automatic retry.",
+        ],
+    },
+    {
+        title: "Audio",
+        lines: [
+            "Audio is gated together with the review result.",
+            "The Local LLM Loader does not listen to audio directly. Use audio-capable text generation before the Reviewer if the review text should include audio judgement.",
+        ],
+    },
+]);
 
 installProgressListener();
 
 function safeAppGraph() {
     try {
-        return app?.graph || null;
+        return app?.rootGraph || app?.graph || app?.canvas?.graph || null;
     } catch {
         return null;
     }
+}
+
+function localLLMCandidateGraphs() {
+    const graphs = [];
+    const pushGraph = (graph) => {
+        if (graph && !graphs.includes(graph)) {
+            graphs.push(graph);
+        }
+    };
+    try {
+        pushGraph(app?.rootGraph);
+        pushGraph(app?.graph);
+        pushGraph(app?.canvas?.graph);
+    } catch {
+        // Ignore partially initialized ComfyUI app state.
+    }
+    return graphs;
+}
+
+function localLLMGraphNodes(graph) {
+    return [
+        ...(Array.isArray(graph?._nodes) ? graph._nodes : []),
+        ...(Array.isArray(graph?.nodes) ? graph.nodes : []),
+    ];
 }
 
 function safeNodeGraph(node) {
@@ -107,6 +217,105 @@ function safeNodeGraph(node) {
 function markGraphDirty(node) {
     node?.setDirtyCanvas?.(true, true);
     safeAppGraph()?.setDirtyCanvas?.(true, true);
+}
+
+function localLLMNodeStateKey(node) {
+    const key = String(node?.id ?? "");
+    return key || null;
+}
+
+function localLLMCachedStateForNode(node) {
+    const key = localLLMNodeStateKey(node);
+    return key ? localLLMStateByNodeId.get(key) || null : null;
+}
+
+function setLocalLLMNodeState(node, patch) {
+    if (!node) {
+        return {};
+    }
+    const key = localLLMNodeStateKey(node);
+    const previous = node.__denoLocalLLMState || (key ? localLLMStateByNodeId.get(key) : null) || {};
+    const next = {
+        ...previous,
+        ...patch,
+        updatedAt: patch?.updatedAt || Date.now(),
+    };
+    node.__denoLocalLLMState = next;
+    if (key) {
+        localLLMStateByNodeId.set(key, next);
+    }
+    return next;
+}
+
+function getLocalLLMNodeState(node) {
+    return node?.__denoLocalLLMState || localLLMCachedStateForNode(node) || {};
+}
+
+function localLLMNodeById(nodeId) {
+    const id = String(nodeId ?? "");
+    if (!id) {
+        return null;
+    }
+    const numericId = Number(id);
+    const localNodes = [];
+    for (const graph of localLLMCandidateGraphs()) {
+        const idMap = graph?._nodes_by_id;
+        const node =
+            graph?.getNodeById?.(id) ||
+            (!Number.isNaN(numericId) ? graph?.getNodeById?.(numericId) : null) ||
+            (typeof idMap?.get === "function" ? idMap.get(id) || idMap.get(numericId) : null) ||
+            idMap?.[id] ||
+            (!Number.isNaN(numericId) ? idMap?.[numericId] : null) ||
+            localLLMGraphNodes(graph).find((candidate) => String(candidate?.id ?? "") === id);
+        if (node?.type === NODE_NAME) {
+            return node;
+        }
+        for (const candidate of localLLMGraphNodes(graph)) {
+            if (candidate?.type === NODE_NAME && !localNodes.includes(candidate)) {
+                localNodes.push(candidate);
+            }
+        }
+    }
+    return localNodes.length === 1 ? localNodes[0] : null;
+}
+
+function isContextWindowError(message) {
+    const text = String(message || "").toLowerCase();
+    return (
+        text.includes("context length") ||
+        text.includes("context window") ||
+        text.includes("n_ctx") ||
+        text.includes("n_keep") ||
+        text.includes("longer than the loaded model context")
+    );
+}
+
+function localLLMExecutionErrorMessage(detail) {
+    const rawMessage = String(
+        detail?.exception_message ||
+        detail?.message ||
+        detail?.error ||
+        "Check the ComfyUI log for details.",
+    ).trim();
+    if (isContextWindowError(rawMessage)) {
+        return (
+            "Context window is too small for this prompt. " +
+            "Increase the model context length in LM Studio, or shorten the System Prompt / Prompt text."
+        );
+    }
+    return `Local LLM run failed. ${rawMessage}`;
+}
+
+function localLLMEventApis() {
+    const candidates = [];
+    if (api && typeof api.addEventListener === "function") {
+        candidates.push(api);
+    }
+    const activeApi = window?.comfyAPI?.api?.api;
+    if (activeApi && typeof activeApi.addEventListener === "function" && activeApi !== api) {
+        candidates.push(activeApi);
+    }
+    return candidates;
 }
 
 function previewImageUrl(data) {
@@ -226,6 +435,7 @@ app.registerExtension({
         setupGateNode(node);
     },
     setup() {
+        installProgressListener();
         installReviewerGraphToPromptHook();
         installGraphScan();
         installPreviewWheelHandler();
@@ -250,9 +460,24 @@ function installReviewerGraphToPromptHook() {
     reviewerGraphPromptHookInstalled = true;
     app["graphToPrompt"] = async function (...args) {
         const result = await originalGraphToPrompt.apply(this, args);
+        migrateLocalLLMPromptInputNames(result?.output);
         applyReviewerSubmitModes(result?.output);
         return result;
     };
+}
+
+function migrateLocalLLMPromptInputNames(output) {
+    for (const entry of Object.values(output || {})) {
+        if (entry?.class_type !== NODE_NAME || !entry.inputs) {
+            continue;
+        }
+        if (Object.prototype.hasOwnProperty.call(entry.inputs, "user_prompt")) {
+            if (!Object.prototype.hasOwnProperty.call(entry.inputs, "prompt")) {
+                entry.inputs.prompt = entry.inputs.user_prompt;
+            }
+            delete entry.inputs.user_prompt;
+        }
+    }
 }
 
 function isPromptLink(value) {
@@ -761,11 +986,14 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         applyReviewerPassMode,
         applyReviewerRegenerateMode,
         applyReviewerSubmitModes,
+        localLLMExecutionErrorMessage,
+        migrateLocalLLMPromptInputNames,
         collectReviewerSeedCandidates,
         collectReviewerSelectableSeedCandidates,
         incrementReviewerRetrySeed,
         maybeAutoRetryReviewer,
         previewTextWidth,
+        repairPromptWidgetValue,
         resetReviewerAutoRetry,
         reviewerControlTooltip,
         reviewerHoverKeyFromGraphMouse,
@@ -781,32 +1009,55 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
 
 function installProgressListener() {
     try {
-        if (!api || typeof api.addEventListener !== "function") {
+        const apis = localLLMEventApis();
+        if (!apis.length) {
+            if (!progressListenerRetryScheduled) {
+                progressListenerRetryScheduled = true;
+                window.setTimeout(() => {
+                    progressListenerRetryScheduled = false;
+                    installProgressListener();
+                }, 250);
+            }
             return;
         }
-        api.addEventListener("deno-local-llm-progress", ({ detail }) => {
-            const nodeId = String(detail?.node_id ?? "");
-            if (!nodeId) {
-                return;
+        for (const eventApi of apis) {
+            if (progressListenerApis.has(eventApi)) {
+                continue;
             }
-            const graph = safeAppGraph();
-            const node = graph?.getNodeById?.(Number(nodeId)) || graph?._nodes_by_id?.[nodeId];
-            if (!node || node.type !== NODE_NAME) {
-                return;
-            }
-            node.__denoLocalLLMState = {
-                ...(node.__denoLocalLLMState || {}),
-                status: String(detail.status || "ready"),
-                provider: String(detail.provider || ""),
-                model: String(detail.model || ""),
-                index: Number(detail.index || 0),
-                total: Number(detail.total || 0),
-                answer: String(detail.answer || ""),
-                thinking: String(detail.thinking || ""),
-                updatedAt: Date.now(),
-            };
-            markGraphDirty(node);
-        });
+            progressListenerApis.add(eventApi);
+            eventApi.addEventListener("deno-local-llm-progress", ({ detail }) => {
+                const nodeId = String(detail?.node_id ?? "");
+                const node = localLLMNodeById(nodeId);
+                if (!node) {
+                    return;
+                }
+                const progressError = String(detail.error || "");
+                setLocalLLMNodeState(node, {
+                    status: String(detail.status || "ready"),
+                    provider: String(detail.provider || ""),
+                    model: String(detail.model || ""),
+                    index: Number(detail.index || 0),
+                    total: Number(detail.total || 0),
+                    answer: progressError ? "" : String(detail.answer || ""),
+                    thinking: String(detail.thinking || ""),
+                    error: progressError ? localLLMExecutionErrorMessage({ ...detail, exception_message: progressError }) : "",
+                });
+                markGraphDirty(node);
+            });
+            eventApi.addEventListener("execution_error", ({ detail }) => {
+                const node = localLLMNodeById(detail?.node_id);
+                if (!node) {
+                    return;
+                }
+                setLocalLLMNodeState(node, {
+                    status: "error",
+                    answer: "",
+                    thinking: "",
+                    error: localLLMExecutionErrorMessage(detail),
+                });
+                markGraphDirty(node);
+            });
+        }
     } catch (error) {
         console.warn("[Deno.LocalLLM] Progress listener disabled:", error);
     }
@@ -928,8 +1179,10 @@ function handleCanvasPreviewWheel(event) {
 function handleCanvasPreviewPointerMove(event) {
     if (isDenoLocalLLMModalEvent(event)) {
         clearPreviewScrollbarCursor();
+        hideReviewerTooltip();
         return;
     }
+    handleReviewerTooltipPointerMove(event);
     if (previewScrollbarDragState) {
         const pos = previewLocalPosFromEvent(event, previewScrollbarDragState.node);
         if (pos) {
@@ -993,9 +1246,56 @@ function handleCanvasPreviewPointerUp(event) {
 }
 
 function handleCanvasPreviewPointerLeave() {
+    hideReviewerTooltip();
     if (!previewScrollbarDragState) {
         clearPreviewScrollbarCursor();
     }
+}
+
+function handleReviewerTooltipPointerMove(event) {
+    const hit = reviewerTooltipHitFromEvent(event);
+    if (!hit) {
+        hideReviewerTooltip();
+        return;
+    }
+    hit.widget.hoverKey = hit.key;
+    showReviewerTooltip(hit.node, reviewerControlTooltip(hit.key), hit.bounds);
+}
+
+function reviewerTooltipHitFromEvent(event) {
+    if (isDenoLocalLLMModalEvent(event) || isDenoLocalLLMModalOpen()) {
+        return null;
+    }
+    const canvas = currentGraphCanvasElement();
+    const graph = safeAppGraph();
+    if (!canvas || !graph) {
+        return null;
+    }
+    const canvasPoint = canvasPointFromWheelEvent(event, canvas);
+    if (!canvasPoint) {
+        return null;
+    }
+    const graphPoint = graphPointFromCanvasPoint(canvasPoint, app.canvas?.ds);
+    const nodes = Array.isArray(graph?._nodes) ? [...graph._nodes].reverse() : [];
+    for (const node of nodes) {
+        if (node?.type !== GATE_NODE_NAME || !isPointInsideNode(graphPoint, node)) {
+            continue;
+        }
+        const widget = (node.widgets || []).find((candidate) => String(candidate?.name || "") === `${GATE_GENERATED_PREFIX}controls`);
+        if (!widget?.hitAreas) {
+            continue;
+        }
+        const local = [
+            graphPoint[0] - Number(node.pos?.[0] || 0),
+            graphPoint[1] - Number(node.pos?.[1] || 0),
+        ];
+        const entry = Object.entries(widget.hitAreas).find(([, bounds]) => isInsideBounds(local, bounds));
+        if (entry) {
+            const [key, bounds] = entry;
+            return { node, widget, key, bounds };
+        }
+    }
+    return null;
 }
 
 function setPreviewScrollbarCursor(active) {
@@ -1090,7 +1390,11 @@ function previewLocalPosFromEvent(event, node) {
 
 function isDenoLocalLLMModalEvent(event) {
     const target = event?.target;
-    return Boolean(target?.closest?.(".deno-local-llm-preview-modal, .deno-local-llm-system-prompt-modal, .deno-local-llm-seed-modal"));
+    return Boolean(target?.closest?.(".deno-local-llm-preview-modal, .deno-local-llm-system-prompt-modal, .deno-local-llm-seed-modal, .deno-local-llm-reviewer-help-modal"));
+}
+
+function isDenoLocalLLMModalOpen() {
+    return Boolean(document.querySelector?.(".deno-local-llm-preview-modal, .deno-local-llm-system-prompt-modal, .deno-local-llm-seed-modal, .deno-local-llm-reviewer-help-modal"));
 }
 
 function graphPointCandidatesFromWheelEvent(event, canvas, ds) {
@@ -1128,6 +1432,17 @@ function graphPointFromCanvasPoint(canvasPoint, ds) {
     return [
         canvasPoint[0] / scale - Number(ds?.offset?.[0] || 0),
         canvasPoint[1] / scale - Number(ds?.offset?.[1] || 0),
+    ];
+}
+
+function graphPointToCanvasPoint(graphPoint, ds) {
+    if (ds && typeof ds.convertOffsetToCanvas === "function") {
+        return ds.convertOffsetToCanvas(graphPoint);
+    }
+    const scale = Number(ds?.scale || 1) || 1;
+    return [
+        (graphPoint[0] + Number(ds?.offset?.[0] || 0)) * scale,
+        (graphPoint[1] + Number(ds?.offset?.[1] || 0)) * scale,
     ];
 }
 
@@ -1231,11 +1546,15 @@ function setupNode(node) {
         ) {
             return;
         }
+        node.resizable = true;
         normalizeNodeTitle(node);
         syncLoaderOutputSlots(node);
+        removeLegacyPromptBoxDomElements();
         removeGeneratedWidgets(node);
         removePromptWidgets(node);
+        migrateLegacyPromptInput(node);
         ensureSystemPromptWidget(node);
+        ensurePromptWidget(node);
         ensureSeedModeWidget(node);
         migrateLegacyModelWidgets(node);
         removeLegacyWidgets(node);
@@ -1244,15 +1563,17 @@ function setupNode(node) {
         repairSavedWidgetValues(node);
         const provider = currentProvider(node);
         if (!node.__denoLocalLLMState) {
+            const cachedState = localLLMCachedStateForNode(node);
             node.__denoLocalLLMState = {
-                status: "ready",
+                status: cachedState?.status || "ready",
                 provider,
                 model: String(activeModelWidget(node)?.value || ""),
-                answer: "",
-                thinking: "",
-                index: 0,
-                total: 0,
-                updatedAt: Date.now(),
+                answer: String(cachedState?.answer || ""),
+                thinking: String(cachedState?.thinking || ""),
+                error: String(cachedState?.error || ""),
+                index: Number(cachedState?.index || 0),
+                total: Number(cachedState?.total || 0),
+                updatedAt: cachedState?.updatedAt || Date.now(),
             };
         }
         polishWidgetLabels(node);
@@ -1264,8 +1585,9 @@ function setupNode(node) {
         addRefreshButton(node);
         addStopButton(node);
         addUnloadButton(node);
-        addSystemPromptButton(node);
         node.addCustomWidget(new LocalLLMPreviewWidget());
+        addSystemPromptButton(node);
+        positionPromptWidget(node);
         schedulePostSetupCleanup(node);
         refreshNode(node);
     } finally {
@@ -1575,7 +1897,7 @@ function reviewerRefreshSize(node, computed) {
     const currentWidth = Number(node?.size?.[0] || 0);
     const computedWidth = Number(computed?.[0] || 0);
     const width = Math.max(currentWidth || computedWidth || GATE_DEFAULT_WIDTH, GATE_DEFAULT_WIDTH);
-    const height = Math.max(Number(computed?.[1] || 0), 218);
+    const height = Math.max(Number(computed?.[1] || 0), 252);
     return [width, height];
 }
 
@@ -1595,7 +1917,7 @@ class ReviewerControlsWidget {
     }
 
     computeSize(width) {
-        return [reviewerWidgetLayoutWidth(this.node, width), 114];
+        return [reviewerWidgetLayoutWidth(this.node, width), 148];
     }
 
     draw(ctx, node, width, y, height) {
@@ -1614,6 +1936,7 @@ class ReviewerControlsWidget {
         const regenBounds = [x + halfW + gap, panelY + rowH + 7, halfW, rowH];
         const retryBounds = [x, panelY + (rowH + 7) * 2, halfW, rowH];
         const seedBounds = [x + halfW + gap, panelY + (rowH + 7) * 2, halfW, rowH];
+        const helpBounds = [x, panelY + (rowH + 7) * 3, panelW, rowH];
         const autoRetry = reviewerAutoRetryEnabled(node);
         this.hitAreas = {
             review: reviewBounds,
@@ -1622,14 +1945,17 @@ class ReviewerControlsWidget {
             regenerate: regenBounds,
             retry: retryBounds,
             seed: seedBounds,
+            help: helpBounds,
         };
-        if (!this.pressed) {
+        if (isDenoLocalLLMModalOpen()) {
+            this.hoverKey = "";
+        } else if (!this.pressed) {
             this.hoverKey = reviewerHoverKeyFromGraphMouse(node, this.hitAreas);
         }
 
         ctx.save();
         ctx.beginPath();
-        ctx.rect(0, y, drawWidth, Math.max(Number(height) || 0, 114));
+        ctx.rect(0, y, drawWidth, Math.max(Number(height) || 0, 148));
         ctx.clip();
         drawReviewerControlButton(ctx, reviewBounds, "Review", mode !== "Pass", this.pressed === "review", "#9dffba");
         drawReviewerControlButton(ctx, passBounds, "Pass", mode === "Pass", this.pressed === "pass", "#ffb28b");
@@ -1637,24 +1963,32 @@ class ReviewerControlsWidget {
         drawReviewerControlButton(ctx, regenBounds, "Regenerate", false, this.pressed === "regenerate", "#dfffea");
         drawReviewerControlButton(ctx, retryBounds, autoRetry ? "Retry x3 On" : "Retry x3 Off", autoRetry, this.pressed === "retry", "#9dffba");
         drawReviewerControlButton(ctx, seedBounds, reviewerSeedTargetButtonLabel(node), reviewerSeedTarget(node) !== REVIEWER_AUTO_RETRY_SEED_AUTO, this.pressed === "seed", "#dfffea");
+        drawReviewerControlButton(ctx, helpBounds, "How to use", false, this.pressed === "help", "#c8f1d2");
         const tooltip = reviewerControlTooltip(this.hoverKey);
-        if (tooltip && this.hitAreas[this.hoverKey]) {
-            drawReviewerTooltip(ctx, tooltip, this.hitAreas[this.hoverKey], {
-                x,
-                y,
-                width: drawWidth,
-                height: Math.max(Number(height) || 0, 114),
-            });
-        }
         ctx.restore();
+        if (tooltip && this.hitAreas[this.hoverKey]) {
+            showReviewerTooltip(node, tooltip, this.hitAreas[this.hoverKey]);
+        } else {
+            hideReviewerTooltip(node);
+        }
     }
 
     mouse(event, pos, node) {
         const eventType = String(event?.type || "");
         const key = Object.entries(this.hitAreas || {}).find(([, bounds]) => isInsideBounds(pos, bounds))?.[0] || "";
+        if (eventType === "pointerleave" || eventType === "mouseleave" || eventType === "mouseout") {
+            this.pressed = "";
+            this.hoverKey = "";
+            hideReviewerTooltip(node);
+            markGraphDirty(node);
+            return false;
+        }
         if (eventType === "pointermove" || eventType === "mousemove") {
             if (this.hoverKey !== key) {
                 this.hoverKey = key;
+                if (!key) {
+                    hideReviewerTooltip(node);
+                }
                 markGraphDirty(node);
             }
             return Boolean(this.pressed);
@@ -1699,6 +2033,10 @@ class ReviewerControlsWidget {
                 );
             } else if (pressed === "seed") {
                 openReviewerSeedTargetDialog(node);
+            } else if (pressed === "help") {
+                this.hoverKey = "";
+                hideReviewerTooltip(node);
+                openReviewerHowToUseDialog();
             }
             refreshGateNode(node);
             return true;
@@ -1718,12 +2056,12 @@ class LocalLLMPreviewWidget {
         this.type = "custom";
         this.options = { serialize: false };
         this.value = "";
-        this.expandBounds = [0, 0, 0, 0];
+        this.expandBounds = {};
         this.blockBounds = {};
         this.blockLineInfo = {};
         this.scrollbarBounds = {};
         this.dragScrollKey = "";
-        this.pressed = false;
+        this.pressed = "";
         this.__expanded = false;
     }
 
@@ -1737,14 +2075,15 @@ class LocalLLMPreviewWidget {
 
     draw(ctx, node, width, y, height) {
         this.__node = node;
-        const state = node.__denoLocalLLMState || {};
+        const state = getLocalLLMNodeState(node);
+        const hasError = Boolean(state.error);
+        const resultText = hasError ? String(state.error || "") : String(state.answer || "");
         const x = 15;
         const panelY = y + 6;
         const panelW = width - 30;
         this.__expanded = false;
         const expectedHeight = PREVIEW_HEIGHT;
-        const availableNodeHeight = Math.max(0, Number(node.size?.[1]) - y - 12);
-        const actualHeight = Math.max(expectedHeight, Number(height) || 0, availableNodeHeight);
+        const actualHeight = Math.max(expectedHeight, Number(height) || 0);
         const panelH = Math.max(80, actualHeight - 12);
         const buttonLabel = "More";
         const buttonW = 44;
@@ -1757,10 +2096,10 @@ class LocalLLMPreviewWidget {
         const thinkingMaxLines = maxPreviewLinesForHeight(thinkingH);
         ctx.save();
         ctx.font = PREVIEW_TEXT_FONT;
-        let answerLines = splitPreviewLinesForWidth(ctx, state.answer, previewTextWidth(panelW, false));
+        let answerLines = splitPreviewLinesForWidth(ctx, resultText, previewTextWidth(panelW, false));
         let thinkingLines = splitPreviewLinesForWidth(ctx, state.thinking, previewTextWidth(panelW, false));
         if (answerLines.length > answerMaxLines) {
-            answerLines = splitPreviewLinesForWidth(ctx, state.answer, previewTextWidth(panelW, true));
+            answerLines = splitPreviewLinesForWidth(ctx, resultText, previewTextWidth(panelW, true));
         }
         if (thinkingLines.length > thinkingMaxLines) {
             thinkingLines = splitPreviewLinesForWidth(ctx, state.thinking, previewTextWidth(panelW, true));
@@ -1768,10 +2107,13 @@ class LocalLLMPreviewWidget {
         ctx.restore();
         const answerView = previewWindow(node, "result", answerLines, answerMaxLines);
         const thinkingView = previewWindow(node, "thinking", thinkingLines, thinkingMaxLines);
-        this.expandBounds = [x + panelW - buttonW - 10, panelY + 7, buttonW, buttonH];
         this.blockBounds = {
             thinking: [x, panelY, panelW, thinkingH],
             result: [x, resultY, panelW, resultH],
+        };
+        this.expandBounds = {
+            thinking: [x + panelW - buttonW - 10, panelY + 7, buttonW, buttonH],
+            result: [x + panelW - buttonW - 10, resultY + 7, buttonW, buttonH],
         };
         this.blockLineInfo = {
             thinking: { total: thinkingLines.length, max: thinkingMaxLines },
@@ -1784,14 +2126,20 @@ class LocalLLMPreviewWidget {
 
         ctx.save();
         drawPreviewBlock(ctx, x, panelY, panelW, thinkingH, "Thinking", thinkingView.lines, "#91dca4", {
-            buttonBounds: this.expandBounds,
+            buttonBounds: this.expandBounds.thinking,
             buttonLabel,
-            buttonPressed: this.pressed,
+            buttonPressed: this.pressed === "thinking",
             scrollFromBottom: thinkingView.scrollFromBottom,
             totalLines: thinkingLines.length,
             maxLines: thinkingMaxLines,
         });
-        drawPreviewBlock(ctx, x, resultY, panelW, resultH, "Result", answerView.lines, "#dfffea", {
+        drawPreviewBlock(ctx, x, resultY, panelW, resultH, hasError ? "Error" : "Result", answerView.lines, hasError ? "#ffb4b4" : "#dfffea", {
+            buttonBounds: this.expandBounds.result,
+            buttonLabel,
+            buttonPressed: this.pressed === "result",
+            fill: hasError ? "rgba(30, 0, 0, 0.62)" : undefined,
+            stroke: hasError ? "rgba(255, 104, 104, 0.72)" : undefined,
+            labelColor: hasError ? "#ff8f8f" : undefined,
             scrollFromBottom: answerView.scrollFromBottom,
             totalLines: answerLines.length,
             maxLines: answerMaxLines,
@@ -1830,22 +2178,38 @@ class LocalLLMPreviewWidget {
             setPreviewScrollbarCursor(Boolean(previewScrollbarKeyFromPos(pos, this.scrollbarBounds)));
             return handled;
         }
-        if (isDown && isInsideBounds(pos, this.expandBounds)) {
-            this.pressed = true;
+        const pressedExpandKey = isInsideBounds(pos, this.expandBounds.thinking)
+            ? "thinking"
+            : isInsideBounds(pos, this.expandBounds.result)
+                ? "result"
+                : "";
+        if (isDown && pressedExpandKey) {
+            this.pressed = pressedExpandKey;
             return true;
         }
         if (isMove) {
             return this.pressed;
         }
         if (isUp && this.pressed) {
-            this.pressed = false;
-            if (isInsideBounds(pos, this.expandBounds)) {
-                const text = String(node.__denoLocalLLMState?.thinking || "Waiting for run output.");
+            const pressedKey = this.pressed;
+            this.pressed = "";
+            if (pressedKey === "thinking" && isInsideBounds(pos, this.expandBounds.thinking)) {
+                const state = getLocalLLMNodeState(node);
+                const text = String(state.thinking || "Waiting for run output.");
                 openPreviewTextDialog("Thinking", text);
+            } else if (pressedKey === "result" && isInsideBounds(pos, this.expandBounds.result)) {
+                const state = getLocalLLMNodeState(node);
+                const isError = Boolean(state.error);
+                const text = String(
+                    isError
+                        ? state.error
+                        : state.answer || "Waiting for run output.",
+                );
+                openPreviewTextDialog(isError ? "Error" : "Result", text);
             }
             return true;
         }
-        this.pressed = false;
+        this.pressed = "";
         this.dragScrollKey = "";
         clearPreviewScrollbarCursor();
         return false;
@@ -1981,7 +2345,7 @@ function drawReviewerControlButton(ctx, bounds, label, active, pressed, accent) 
     drawRoundedRectangle(ctx, x, y + (pressed ? 1 : 0), width, height, 6, fill, stroke);
     ctx.save();
     ctx.fillStyle = active ? "#f0fff5" : "#cfe8d6";
-    ctx.font = "800 12px sans-serif";
+    ctx.font = "600 12px 'Segoe UI', sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(fitString(ctx, label, width - 14), x + width / 2, y + height / 2 + (pressed ? 1 : 0));
@@ -1996,40 +2360,90 @@ function reviewerControlTooltip(key) {
         regenerate: "Rerun the upstream path before this reviewer, then review again.",
         retry: `When review fails, rerun up to ${REVIEWER_AUTO_RETRY_MAX} times and change the selected seed.`,
         seed: "Choose which seed changes during automatic retry.",
+        help: "Open a quick wiring guide for the Local LLM Reviewer workflow.",
     };
     return tooltips[String(key || "")] || "";
 }
 
-function drawReviewerTooltip(ctx, text, anchorBounds, container) {
-    if (!text || !anchorBounds || !container) {
+function reviewerTooltipOwnerKey(node) {
+    return String(node?.id ?? node?.type ?? "");
+}
+
+function ensureReviewerTooltipElement() {
+    if (reviewerTooltipElement?.isConnected) {
+        return reviewerTooltipElement;
+    }
+    const element = document.createElement("div");
+    element.className = "deno-local-llm-reviewer-tooltip";
+    Object.assign(element.style, {
+        position: "fixed",
+        display: "none",
+        zIndex: "100000",
+        maxWidth: "320px",
+        padding: "9px 11px",
+        boxSizing: "border-box",
+        borderRadius: "7px",
+        border: "1px solid rgba(157, 255, 186, 0.78)",
+        background: "rgba(2, 7, 5, 0.97)",
+        color: "#dcffe6",
+        boxShadow: "0 10px 28px rgba(0, 0, 0, 0.42)",
+        font: "500 11px/1.35 'Segoe UI', sans-serif",
+        whiteSpace: "normal",
+        overflowWrap: "break-word",
+        pointerEvents: "none",
+    });
+    document.body.appendChild(element);
+    reviewerTooltipElement = element;
+    return element;
+}
+
+function hideReviewerTooltip(node = null) {
+    const owner = reviewerTooltipOwnerKey(node);
+    if (node && reviewerTooltipOwner && reviewerTooltipOwner !== owner) {
         return;
     }
-    const [, anchorY, anchorW, anchorH] = anchorBounds;
-    const anchorX = anchorBounds[0] + anchorW / 2;
-    const maxTextW = Math.min(260, Math.max(150, Number(container.width || 0) - 38));
-    ctx.save();
-    ctx.font = "10px 'Segoe UI', sans-serif";
-    const lines = splitPreviewLinesForWidth(ctx, text, maxTextW);
-    const longest = lines.reduce((width, line) => Math.max(width, ctx.measureText(line).width), 0);
-    const boxW = Math.min(Number(container.width || 0) - 12, Math.max(166, longest + 18));
-    const boxH = 18 + lines.length * 13;
-    const minX = Number(container.x || 0) + 6;
-    const maxX = Number(container.x || 0) + Number(container.width || 0) - boxW - 6;
-    const boxX = Math.max(minX, Math.min(maxX, anchorX - boxW / 2));
-    const belowY = anchorY + anchorH + 6;
-    const aboveY = anchorY - boxH - 6;
-    const bottomLimit = Number(container.y || 0) + Number(container.height || 0) - 4;
-    const topLimit = Number(container.y || 0) + 4;
-    const boxY = belowY + boxH <= bottomLimit ? belowY : Math.max(topLimit, aboveY);
-
-    drawRoundedRectangle(ctx, boxX, boxY, boxW, boxH, 6, "rgba(2, 7, 5, 0.96)", "rgba(157, 255, 186, 0.72)");
-    ctx.fillStyle = "#dcffe6";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    for (let index = 0; index < lines.length; index += 1) {
-        ctx.fillText(lines[index], boxX + 9, boxY + 9 + index * 13);
+    reviewerTooltipOwner = "";
+    if (reviewerTooltipElement) {
+        reviewerTooltipElement.style.display = "none";
     }
-    ctx.restore();
+}
+
+function showReviewerTooltip(node, text, anchorBounds) {
+    if (!node || !text || !anchorBounds || typeof document === "undefined") {
+        hideReviewerTooltip(node);
+        return;
+    }
+    const canvas = currentGraphCanvasElement();
+    const rect = canvas?.getBoundingClientRect?.();
+    if (!rect) {
+        hideReviewerTooltip(node);
+        return;
+    }
+    const element = ensureReviewerTooltipElement();
+    element.textContent = text;
+    element.style.display = "block";
+    reviewerTooltipOwner = reviewerTooltipOwnerKey(node);
+
+    const [anchorX, anchorY, anchorW, anchorH] = anchorBounds;
+    const graphAnchor = [
+        Number(node.pos?.[0] || 0) + anchorX + anchorW / 2,
+        Number(node.pos?.[1] || 0) + anchorY + anchorH,
+    ];
+    const canvasPoint = graphPointToCanvasPoint(graphAnchor, app.canvas?.ds);
+    const elementWidth = element.offsetWidth || 220;
+    const elementHeight = element.offsetHeight || 42;
+    const screenAnchorX = rect.left + canvasPoint[0];
+    const screenAnchorY = rect.top + canvasPoint[1];
+    const margin = 8;
+    let left = screenAnchorX - elementWidth / 2;
+    let top = screenAnchorY + 8;
+    if (top + elementHeight > window.innerHeight - margin) {
+        top = screenAnchorY - elementHeight - anchorH - 8;
+    }
+    left = Math.min(window.innerWidth - elementWidth - margin, Math.max(margin, left));
+    top = Math.min(window.innerHeight - elementHeight - margin, Math.max(margin, top));
+    element.style.left = `${left}px`;
+    element.style.top = `${top}px`;
 }
 
 function reviewerHoverKeyFromGraphMouse(node, hitAreas) {
@@ -2266,6 +2680,7 @@ function removeGeneratedWidgets(node) {
         const name = String(widget?.name || "");
         const value = String(widget?.value || "");
         if (name.startsWith(GENERATED_PREFIX)) {
+            removeWidgetElement(widget);
             return false;
         }
         if (
@@ -2276,10 +2691,44 @@ function removeGeneratedWidgets(node) {
             name === "Unload LLM" ||
             value === "Unload LLM"
         ) {
+            removeWidgetElement(widget);
             return false;
         }
         return true;
     });
+}
+
+function removeWidgetElement(widget) {
+    const elements = [
+        widget?.__denoElement,
+        widget?.element,
+        widget?.inputEl,
+        widget?.domElement,
+    ].filter(Boolean);
+    if (!elements.length) {
+        return;
+    }
+    for (const element of elements) {
+        removeDomWidgetElement(element);
+    }
+}
+
+function removeDomWidgetElement(element) {
+    if (!element || element.__denoRemoved) {
+        return;
+    }
+    element.__denoRemoved = true;
+    const wrapper = element.closest?.(".dom-widget");
+    const target = wrapper || element;
+    try {
+        target?.remove?.();
+    } catch {
+        try {
+            target?.parentNode?.removeChild?.(target);
+        } catch {
+            // Best-effort cleanup for stale DOM widgets.
+        }
+    }
 }
 
 function schedulePostSetupCleanup(node) {
@@ -2289,7 +2738,9 @@ function schedulePostSetupCleanup(node) {
     node.__denoLocalLLMCleanupScheduled = true;
     const cleanup = () => {
         removePromptWidgets(node);
+        migrateLegacyPromptInput(node);
         ensureSystemPromptWidget(node);
+        ensurePromptWidget(node);
         ensureProviderWidgets(node);
         migrateLegacyModelWidgets(node);
         removeLegacyWidgets(node);
@@ -2302,11 +2753,14 @@ function schedulePostSetupCleanup(node) {
         ensureSingleStopButton(node);
         ensureSingleUnloadButton(node);
         ensureSingleSystemPromptButton(node);
+        removeLegacyPromptBoxDomElements();
+        positionPromptWidget(node);
         setActiveProviderModelVisibility(node);
         addRefreshButton(node);
         addStopButton(node);
         addUnloadButton(node);
         addSystemPromptButton(node);
+        positionPromptWidget(node);
         node.__denoLocalLLMCleanupScheduled = false;
         refreshNode(node);
     };
@@ -2372,7 +2826,7 @@ function inferWidgetType(widget) {
     ) {
         return "combo";
     }
-    if (name === "custom_server_url") {
+    if (name === "custom_server_url" || name === "prompt") {
         return "text";
     }
     if (name === "thinking") {
@@ -2423,6 +2877,29 @@ function removePromptWidgets(node) {
     });
 }
 
+function migrateLegacyPromptInput(node) {
+    const inputs = node.inputs || [];
+    let promptInput = inputs.find((input) => input?.name === "prompt");
+    for (const input of [...inputs]) {
+        if (input?.name !== "user_prompt") {
+            continue;
+        }
+        if (!promptInput) {
+            input.name = "prompt";
+            input.label = "prompt";
+            promptInput = input;
+            continue;
+        }
+        if (promptInput.link == null && input.link != null) {
+            promptInput.link = input.link;
+        }
+        const index = node.inputs.indexOf(input);
+        if (index >= 0) {
+            node.inputs.splice(index, 1);
+        }
+    }
+}
+
 function ensureSystemPromptWidget(node) {
     let widget = getWidget(node, "system_prompt");
     if (!widget) {
@@ -2438,6 +2915,55 @@ function ensureSystemPromptWidget(node) {
     }
     setWidgetHidden(widget, true);
     return widget;
+}
+
+function ensurePromptWidget(node) {
+    let widget = getWidget(node, "prompt");
+    if (!widget) {
+        widget = createInputWidgetFromNodeData(node, "prompt", "Prompt");
+    }
+    if (!widget) {
+        return null;
+    }
+    widget.name = "prompt";
+    widget.label = "Prompt";
+    if (typeof widget.value !== "string") {
+        widget.value = String(widget.value || "");
+    }
+    setWidgetHidden(widget, false);
+    configurePromptWidget(node, widget);
+    return widget;
+}
+
+function configurePromptWidget(node, widget) {
+    if (!widget) {
+        return;
+    }
+    widget.options = widget.options || {};
+    widget.options.multiline = true;
+    widget.computeSize = (width) => {
+        const promptHeight = loaderPromptWidgetHeight(node);
+        stylePromptWidgetElement(widget, promptHeight);
+        return [Math.max(width || DEFAULT_WIDTH, DEFAULT_WIDTH), promptHeight];
+    };
+    stylePromptWidgetElement(widget, loaderPromptWidgetHeight(node));
+}
+
+function stylePromptWidgetElement(widget, height) {
+    const element = widget?.element || widget?.inputEl || null;
+    if (!element?.style) {
+        return;
+    }
+    element.style.boxSizing = "border-box";
+    element.style.display = "block";
+    element.style.marginLeft = `${PROMPT_WIDGET_SIDE_INSET}px`;
+    element.style.marginRight = `${PROMPT_WIDGET_SIDE_INSET}px`;
+    element.style.width = `calc(100% - ${PROMPT_WIDGET_SIDE_INSET * 2}px)`;
+    element.style.maxWidth = `calc(100% - ${PROMPT_WIDGET_SIDE_INSET * 2}px)`;
+    element.style.minHeight = `${Math.max(80, height - 8)}px`;
+    element.style.height = `${Math.max(80, height - 8)}px`;
+    element.style.resize = "none";
+    element.style.overflow = "auto";
 }
 
 function ensureSeedModeWidget(node) {
@@ -2500,15 +3026,15 @@ function addSystemPromptButton(node) {
         serializeValue: () => undefined,
     };
     node.addCustomWidget(button);
-    moveWidgetAfter(
-        node,
-        button,
-        getWidget(node, `${GENERATED_PREFIX}unload_llm`)
-            || getWidget(node, `${GENERATED_PREFIX}stop_llm`)
-            || getWidget(node, `${GENERATED_PREFIX}refresh_models`)
-            || systemWidget
-    );
+    moveWidgetAfter(node, button, systemPromptButtonAnchor(node) || systemWidget);
     ensureSingleSystemPromptButton(node);
+}
+
+function systemPromptButtonAnchor(node) {
+    return getWidget(node, `${GENERATED_PREFIX}preview`)
+        || getWidget(node, `${GENERATED_PREFIX}unload_llm`)
+        || getWidget(node, `${GENERATED_PREFIX}stop_llm`)
+        || getWidget(node, `${GENERATED_PREFIX}refresh_models`);
 }
 
 function ensureSingleSystemPromptButton(node) {
@@ -2518,12 +3044,32 @@ function ensureSingleSystemPromptButton(node) {
     }
     const keep = buttons[0];
     node.widgets = (node.widgets || []).filter((widget) => String(widget?.name || "") !== `${GENERATED_PREFIX}system_prompt_button` || widget === keep);
-    const anchor =
-        getWidget(node, `${GENERATED_PREFIX}unload_llm`)
-        || getWidget(node, `${GENERATED_PREFIX}stop_llm`)
-        || getWidget(node, `${GENERATED_PREFIX}refresh_models`);
+    const anchor = systemPromptButtonAnchor(node);
     if (anchor) {
         moveWidgetAfter(node, keep, anchor);
+    }
+}
+
+function positionPromptWidget(node) {
+    const widget = ensurePromptWidget(node);
+    if (!widget) {
+        return;
+    }
+    const anchor = getWidget(node, `${GENERATED_PREFIX}system_prompt_button`)
+        || getWidget(node, `${GENERATED_PREFIX}preview`)
+        || getWidget(node, "comfy_vram_policy");
+    if (anchor && anchor !== widget) {
+        moveWidgetAfter(node, widget, anchor);
+    }
+    configurePromptWidget(node, widget);
+}
+
+function removeLegacyPromptBoxDomElements() {
+    if (typeof document === "undefined") {
+        return;
+    }
+    for (const element of document.querySelectorAll(".deno-local-llm-prompt-box")) {
+        removeDomWidgetElement(element);
     }
 }
 
@@ -2682,6 +3228,8 @@ function repairSavedWidgetValues(node) {
         comfyVramWidget.value = normalizeComfyVramValue(comfyVramWidget.value);
     }
 
+    repairPromptWidgetValue(getWidget(node, "prompt"));
+
     const thinkingWidget = getWidget(node, "thinking");
     if (thinkingWidget && typeof thinkingWidget.value !== "boolean") {
         thinkingWidget.value = String(thinkingWidget.value).toLowerCase() === "true";
@@ -2797,6 +3345,34 @@ function repairModelWidgetValue(widget) {
     return true;
 }
 
+function repairPromptWidgetValue(widget) {
+    if (!widget) {
+        return false;
+    }
+    if (!isShiftedPromptWidgetValue(widget.value)) {
+        return false;
+    }
+    widget.value = "";
+    return true;
+}
+
+function isShiftedPromptWidgetValue(value) {
+    const text = String(value ?? "").trim();
+    if (!text) {
+        return false;
+    }
+    if (SHIFTED_MODEL_WIDGET_VALUES.has(text)) {
+        return true;
+    }
+    if (Object.prototype.hasOwnProperty.call(MODEL_MEMORY_ALIASES, text)) {
+        return true;
+    }
+    if (isLikelyUrl(text)) {
+        return true;
+    }
+    return false;
+}
+
 function removeLegacyWidgets(node) {
     const legacyNames = new Set(["control_after_generate", "control after generate", "server_url", "model"]);
     node.widgets = (node.widgets || []).filter((widget) => {
@@ -2817,6 +3393,7 @@ function dedupeKnownWidgets(node) {
         "custom_server_url",
         "custom_model",
         "system_prompt",
+        "prompt",
         "thinking",
         "seed",
         "model_memory",
@@ -2864,6 +3441,7 @@ function polishWidgetLabels(node) {
         custom_server_url: "Legacy Server",
         custom_model: "Legacy Model",
         system_prompt: "System Prompt",
+        prompt: "Prompt",
         thinking: "Thinking",
         seed: "Seed",
         seed_mode: "Seed Mode",
@@ -2882,6 +3460,7 @@ function polishWidgetLabels(node) {
 function polishInputLabels(node) {
     const labels = {
         user_prompt: "prompt",
+        prompt: "prompt",
         image: "image",
     };
     for (const input of node.inputs || []) {
@@ -2922,6 +3501,7 @@ function setActiveProviderModelVisibility(node) {
     setWidgetHidden(getWidget(node, "custom_server_url"), true);
     setWidgetHidden(getWidget(node, "custom_model"), true);
     setWidgetHidden(getWidget(node, "system_prompt"), true);
+    setWidgetHidden(getWidget(node, "prompt"), true);
     setWidgetHidden(getWidget(node, "model_memory"), false);
     setWidgetHidden(getWidget(node, "keep_minutes"), modelMemory !== "Keep for minutes");
     repairModelWidgetValue(getWidget(node, "ollama_model"));
@@ -3190,7 +3770,7 @@ function isStopButtonWidget(widget) {
 }
 
 function isLocalLLMBusyState(node) {
-    const status = String(node.__denoLocalLLMState?.status || "").toLowerCase();
+    const status = String(getLocalLLMNodeState(node).status || "").toLowerCase();
     return (
         status === "running" ||
         status === "freeing comfyui vram" ||
@@ -3424,13 +4004,56 @@ function moveWidgetAfter(node, widget, anchor) {
     node.widgets.splice(anchorIndex >= 0 ? anchorIndex + 1 : node.widgets.length, 0, widget);
 }
 
+function loaderPromptWidgetHeight(node) {
+    const nodeHeight = Number(node?.size?.[1]) || 0;
+    if (!nodeHeight) {
+        return PROMPT_WIDGET_DEFAULT_HEIGHT;
+    }
+    const reserved = loaderNonPromptWidgetHeight(node);
+    return clampNumber(nodeHeight - reserved, PROMPT_WIDGET_MIN_HEIGHT, PROMPT_WIDGET_MAX_HEIGHT);
+}
+
+function loaderNonPromptWidgetHeight(node) {
+    const width = Number(node?.size?.[0]) || DEFAULT_WIDTH;
+    let total = 86;
+    for (const widget of node?.widgets || []) {
+        const name = String(widget?.name || "");
+        if (name === "prompt" || widget?.hidden) {
+            continue;
+        }
+        let height = LiteGraph.NODE_WIDGET_HEIGHT || 20;
+        if (typeof widget?.computeSize === "function") {
+            try {
+                const size = widget.computeSize(width);
+                if (Array.isArray(size)) {
+                    height = Number(size[1]) || height;
+                }
+            } catch {
+                // Keep the default row height for brittle third-party widget methods.
+            }
+        }
+        total += Math.max(0, height);
+    }
+    return total + 20;
+}
+
+function clampNumber(value, minimum, maximum) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return minimum;
+    }
+    return Math.min(maximum, Math.max(minimum, number));
+}
+
 function refreshNode(node) {
     if (node.__denoLocalLLMRefreshing) {
         return;
     }
     node.__denoLocalLLMRefreshing = true;
     try {
+        migrateLegacyPromptInput(node);
         ensureProviderWidgets(node);
+        ensurePromptWidget(node);
         ensureSeedModeWidget(node);
         setActiveProviderModelVisibility(node);
         if (!(node.widgets || []).some((widget) => isRefreshButtonWidget(widget)) && activeModelWidget(node)) {
@@ -3445,6 +4068,8 @@ function refreshNode(node) {
         if (!getWidget(node, `${GENERATED_PREFIX}system_prompt_button`)) {
             addSystemPromptButton(node);
         }
+        removeLegacyPromptBoxDomElements();
+        positionPromptWidget(node);
         const previewWidget = ensureSinglePreviewWidget(node);
         if (previewWidget) {
             previewWidget.__node = node;
@@ -3454,6 +4079,7 @@ function refreshNode(node) {
         ensureSingleStopButton(node);
         ensureSingleUnloadButton(node);
         ensureSingleSystemPromptButton(node);
+        positionPromptWidget(node);
         const computed = node.computeSize?.();
         if (computed) {
             const width = Math.max(node.size?.[0] || 0, computed[0], DEFAULT_WIDTH);
@@ -3727,8 +4353,17 @@ function breakLongPreviewToken(ctx, token, maxWidth) {
 }
 
 function drawPreviewBlock(ctx, x, y, width, height, label, lines, textColor, options = {}) {
-    drawRoundedRectangle(ctx, x, y, width, height, 6, "rgba(0, 0, 0, 0.58)", "rgba(126, 255, 166, 0.26)");
-    ctx.fillStyle = "#9dffba";
+    drawRoundedRectangle(
+        ctx,
+        x,
+        y,
+        width,
+        height,
+        6,
+        options.fill || "rgba(0, 0, 0, 0.58)",
+        options.stroke || "rgba(126, 255, 166, 0.26)",
+    );
+    ctx.fillStyle = options.labelColor || "#9dffba";
     ctx.font = "700 10px sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
@@ -3807,6 +4442,98 @@ function drawWideButtonWithStatus(ctx, x, y, width, height, label, status, press
     ctx.restore();
 }
 
+function readSystemPromptUserPresets() {
+    try {
+        const raw = localStorage?.getItem?.(SYSTEM_PROMPT_PRESET_STORAGE_KEY);
+        const parsed = JSON.parse(raw || "[]");
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed
+            .map((preset) => ({
+                id: String(preset?.id || "").trim(),
+                label: String(preset?.label || "").trim(),
+                text: String(preset?.text || ""),
+            }))
+            .filter((preset) => preset.id && preset.label);
+    } catch {
+        return [];
+    }
+}
+
+function writeSystemPromptUserPresets(presets) {
+    try {
+        localStorage?.setItem?.(
+            SYSTEM_PROMPT_PRESET_STORAGE_KEY,
+            JSON.stringify(Array.isArray(presets) ? presets : [])
+        );
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function makeSystemPromptPresetId(label) {
+    const slug = String(label || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 48);
+    return `user_${slug || "preset"}_${Date.now().toString(36)}`;
+}
+
+function systemPromptPresetEntries(userPresets) {
+    return [
+        ...BUILTIN_SYSTEM_PROMPT_PRESETS.map((preset) => ({ ...preset, kind: "builtin", value: `builtin:${preset.id}` })),
+        ...(Array.isArray(userPresets) ? userPresets : []).map((preset) => ({
+            ...preset,
+            kind: "user",
+            value: `user:${preset.id}`,
+            description: "Saved in this browser.",
+        })),
+    ];
+}
+
+function populateSystemPromptPresetSelect(select, userPresets, selectedValue) {
+    if (!select) {
+        return null;
+    }
+    const entries = systemPromptPresetEntries(userPresets);
+    select.replaceChildren();
+    for (const entry of entries) {
+        const option = document.createElement("option");
+        option.value = entry.value;
+        option.textContent = entry.kind === "builtin" ? `${entry.label} (built-in)` : entry.label;
+        option.dataset.kind = entry.kind;
+        select.append(option);
+    }
+    if (selectedValue && entries.some((entry) => entry.value === selectedValue)) {
+        select.value = selectedValue;
+    } else if (entries[0]) {
+        select.value = entries[0].value;
+    }
+    return entries.find((entry) => entry.value === select.value) || null;
+}
+
+function selectedSystemPromptPreset(select, userPresets) {
+    return systemPromptPresetEntries(userPresets).find((entry) => entry.value === select?.value) || null;
+}
+
+function systemPromptFieldStyle() {
+    return [
+        "height:34px",
+        "box-sizing:border-box",
+        "border:1px solid rgba(116,156,130,0.45)",
+        "border-radius:6px",
+        "background:#121614",
+        "color:#eef6f0",
+        "font-family:'Segoe UI',Arial,sans-serif",
+        "font-size:12px",
+        "outline:none",
+    ].join(";");
+}
+
 function openSystemPromptDialog(node) {
     const systemWidget = ensureSystemPromptWidget(node);
     if (!systemWidget) {
@@ -3827,31 +4554,80 @@ function openSystemPromptDialog(node) {
     ].join(";");
 
     const panel = document.createElement("div");
+    panel.className = "deno-local-llm-system-prompt-panel";
     panel.style.cssText = [
         "width:min(860px,calc(100vw - 72px))",
-        "height:min(620px,calc(100vh - 72px))",
+        "height:min(680px,calc(100vh - 72px))",
         "box-sizing:border-box",
         "display:flex",
         "flex-direction:column",
         "gap:12px",
         "padding:18px",
-        "border:1px solid rgba(126,255,166,0.75)",
+        "border:1px solid rgba(104,150,116,0.78)",
         "border-radius:8px",
-        "background:#0b1210",
-        "box-shadow:0 18px 48px rgba(0,0,0,0.55)",
-        "color:#dfffea",
-        "font-family:Arial,sans-serif",
+        "background:#101412",
+        "box-shadow:0 22px 60px rgba(0,0,0,0.62)",
+        "color:#e7efe9",
+        "font-family:'Segoe UI',Arial,sans-serif",
     ].join(";");
 
     const header = document.createElement("div");
     header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:16px;";
     const title = document.createElement("div");
     title.textContent = "System Prompt";
-    title.style.cssText = "font-size:18px;font-weight:800;color:#9dffba;";
+    title.style.cssText = "font-size:18px;font-weight:750;color:#c8f1d2;";
     const closeButton = document.createElement("button");
     closeButton.textContent = "Close";
     closeButton.style.cssText = buttonStyle(false);
     header.append(title, closeButton);
+
+    let userPresets = readSystemPromptUserPresets();
+    const presetPanel = document.createElement("div");
+    presetPanel.style.cssText = [
+        "display:flex",
+        "flex-direction:column",
+        "gap:8px",
+        "padding:10px",
+        "border:1px solid rgba(104,150,116,0.42)",
+        "border-radius:7px",
+        "background:#0d1110",
+    ].join(";");
+    const presetRow = document.createElement("div");
+    presetRow.style.cssText = "display:grid;grid-template-columns:minmax(190px,1fr) minmax(160px,0.8fr) auto auto auto;gap:8px;align-items:center;";
+    const presetSelect = document.createElement("select");
+    presetSelect.style.cssText = `${systemPromptFieldStyle()};padding:0 10px;`;
+    const presetName = document.createElement("input");
+    presetName.type = "text";
+    presetName.placeholder = "Preset name";
+    presetName.style.cssText = `${systemPromptFieldStyle()};padding:0 10px;`;
+    const loadPresetButton = document.createElement("button");
+    loadPresetButton.textContent = "Load";
+    loadPresetButton.style.cssText = buttonStyle(false);
+    const savePresetButton = document.createElement("button");
+    savePresetButton.textContent = "Save Preset";
+    savePresetButton.style.cssText = buttonStyle(false);
+    const deletePresetButton = document.createElement("button");
+    deletePresetButton.textContent = "Delete";
+    deletePresetButton.style.cssText = buttonStyle(false);
+    const presetHint = document.createElement("div");
+    presetHint.textContent = "Load a preset into the editor, then save it to the node.";
+    presetHint.style.cssText = "font-size:11px;line-height:1.35;color:#aebdb3;";
+    presetRow.append(presetSelect, presetName, loadPresetButton, savePresetButton, deletePresetButton);
+    presetPanel.append(presetRow, presetHint);
+
+    const updatePresetControls = () => {
+        const selected = selectedSystemPromptPreset(presetSelect, userPresets);
+        deletePresetButton.disabled = selected?.kind !== "user";
+        deletePresetButton.style.opacity = selected?.kind === "user" ? "1" : "0.45";
+        if (selected?.kind === "user") {
+            presetName.value = selected.label;
+        } else if (selected?.kind === "builtin") {
+            presetName.value = "";
+        }
+        presetHint.textContent = selected?.description || "Load a preset into the editor, then save it to the node.";
+    };
+    populateSystemPromptPresetSelect(presetSelect, userPresets);
+    updatePresetControls();
 
     const textarea = document.createElement("textarea");
     textarea.value = String(systemWidget.value || "");
@@ -3864,11 +4640,11 @@ function openSystemPromptDialog(node) {
         "resize:none",
         "overflow:auto",
         "padding:12px",
-        "border:1px solid rgba(126,255,166,0.45)",
+        "border:1px solid rgba(104,150,116,0.58)",
         "border-radius:6px",
         "outline:none",
-        "background:#111",
-        "color:#f0fff5",
+        "background:#151716",
+        "color:#f3faf5",
         "font:13px/1.45 Consolas,monospace",
         "white-space:pre-wrap",
         "overscroll-behavior:contain",
@@ -3880,7 +4656,7 @@ function openSystemPromptDialog(node) {
     clearButton.textContent = "Clear";
     clearButton.style.cssText = buttonStyle(false);
     const saveButton = document.createElement("button");
-    saveButton.textContent = "Save";
+    saveButton.textContent = "Save to Node";
     saveButton.style.cssText = buttonStyle(true);
     footer.append(clearButton, saveButton);
 
@@ -3894,6 +4670,54 @@ function openSystemPromptDialog(node) {
     };
 
     closeButton.addEventListener("click", close);
+    presetSelect.addEventListener("change", updatePresetControls);
+    loadPresetButton.addEventListener("click", () => {
+        const selected = selectedSystemPromptPreset(presetSelect, userPresets);
+        if (!selected) {
+            presetHint.textContent = "No preset is selected.";
+            return;
+        }
+        textarea.value = String(selected.text || "");
+        presetHint.textContent = `${selected.label} loaded. Press Save to Node to apply it.`;
+        if (selected.kind === "user") {
+            presetName.value = selected.label;
+        }
+        textarea.focus();
+    });
+    savePresetButton.addEventListener("click", () => {
+        const name = String(presetName.value || "").trim() || "My System Prompt";
+        const existing = userPresets.find((preset) => preset.label.toLowerCase() === name.toLowerCase());
+        const nextPreset = {
+            id: existing?.id || makeSystemPromptPresetId(name),
+            label: name,
+            text: textarea.value,
+        };
+        userPresets = existing
+            ? userPresets.map((preset) => (preset.id === existing.id ? nextPreset : preset))
+            : [...userPresets, nextPreset];
+        if (writeSystemPromptUserPresets(userPresets)) {
+            populateSystemPromptPresetSelect(presetSelect, userPresets, `user:${nextPreset.id}`);
+            updatePresetControls();
+            presetHint.textContent = `${name} saved in this browser.`;
+        } else {
+            presetHint.textContent = "Preset save failed. Browser storage is unavailable.";
+        }
+    });
+    deletePresetButton.addEventListener("click", () => {
+        const selected = selectedSystemPromptPreset(presetSelect, userPresets);
+        if (selected?.kind !== "user") {
+            presetHint.textContent = "Built-in presets cannot be deleted.";
+            return;
+        }
+        userPresets = userPresets.filter((preset) => preset.id !== selected.id);
+        if (writeSystemPromptUserPresets(userPresets)) {
+            populateSystemPromptPresetSelect(presetSelect, userPresets, "builtin:reviewer_json");
+            updatePresetControls();
+            presetHint.textContent = `${selected.label} deleted.`;
+        } else {
+            presetHint.textContent = "Preset delete failed. Browser storage is unavailable.";
+        }
+    });
     clearButton.addEventListener("click", () => {
         textarea.value = "";
         textarea.focus();
@@ -3918,7 +4742,7 @@ function openSystemPromptDialog(node) {
         }
     });
 
-    panel.append(header, textarea, footer);
+    panel.append(header, presetPanel, textarea, footer);
     overlay.append(panel);
     document.body.append(overlay);
     textarea.focus();
@@ -3940,6 +4764,7 @@ function openPreviewTextDialog(titleText, textValue) {
     ].join(";");
 
     const panel = document.createElement("div");
+    panel.className = "deno-local-llm-reviewer-help-panel";
     panel.style.cssText = [
         "width:min(900px,calc(100vw - 72px))",
         "height:min(620px,calc(100vh - 72px))",
@@ -3953,7 +4778,7 @@ function openPreviewTextDialog(titleText, textValue) {
         "background:#0b1210",
         "box-shadow:0 18px 48px rgba(0,0,0,0.55)",
         "color:#dfffea",
-        "font-family:Arial,sans-serif",
+        "font-family:'Segoe UI',Arial,sans-serif",
     ].join(";");
 
     const header = document.createElement("div");
@@ -4010,6 +4835,116 @@ function openPreviewTextDialog(titleText, textValue) {
     textBox.focus();
 }
 
+function openReviewerHowToUseDialog() {
+    document.querySelector?.(".deno-local-llm-reviewer-help-modal")?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.className = "deno-local-llm-reviewer-help-modal deno-local-llm-system-prompt-modal";
+    overlay.style.cssText = [
+        "position:fixed",
+        "inset:0",
+        "z-index:10000",
+        "display:flex",
+        "align-items:center",
+        "justify-content:center",
+        "background:rgba(0,0,0,0.50)",
+    ].join(";");
+
+    const panel = document.createElement("div");
+    panel.style.cssText = [
+        "width:min(860px,calc(100vw - 72px))",
+        "max-height:min(680px,calc(100vh - 72px))",
+        "box-sizing:border-box",
+        "display:flex",
+        "flex-direction:column",
+        "gap:14px",
+        "padding:18px",
+        "border:1px solid rgba(104,150,116,0.78)",
+        "border-radius:8px",
+        "background:#101412",
+        "box-shadow:0 22px 60px rgba(0,0,0,0.62)",
+        "color:#e7efe9",
+        "font-family:'Segoe UI',Arial,sans-serif",
+    ].join(";");
+
+    const header = document.createElement("div");
+    header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:16px;";
+    const title = document.createElement("div");
+    title.textContent = "How to use";
+    title.style.cssText = "font-size:18px;font-weight:750;color:#c8f1d2;";
+    const closeButton = document.createElement("button");
+    closeButton.textContent = "Close";
+    closeButton.style.cssText = buttonStyle(false);
+    header.append(title, closeButton);
+
+    const intro = document.createElement("div");
+    intro.textContent = "Use this node when you want an LLM to decide whether a generated image/audio result should continue through the workflow.";
+    intro.style.cssText = "font-size:12px;line-height:1.5;color:#cddbd1;";
+
+    const body = document.createElement("div");
+    body.style.cssText = [
+        "overflow:auto",
+        "padding:2px 4px 2px 0",
+        "display:flex",
+        "flex-direction:column",
+        "gap:12px",
+        "overscroll-behavior:contain",
+    ].join(";");
+
+    for (const section of REVIEWER_HOW_TO_USE_SECTIONS) {
+        const block = document.createElement("section");
+        block.style.cssText = [
+            "padding:12px",
+            "border:1px solid rgba(104,150,116,0.36)",
+            "border-radius:7px",
+            "background:#0d1110",
+        ].join(";");
+        const heading = document.createElement("div");
+        heading.textContent = section.title;
+        heading.style.cssText = "font-size:13px;font-weight:750;color:#d7f5df;margin-bottom:8px;";
+        const list = document.createElement("ul");
+        list.style.cssText = "margin:0;padding-left:18px;color:#dce8df;font-size:12px;line-height:1.55;";
+        for (const line of section.lines || []) {
+            const item = document.createElement("li");
+            item.textContent = line;
+            item.style.cssText = "margin:0 0 5px 0;";
+            list.append(item);
+        }
+        block.append(heading, list);
+        body.append(block);
+    }
+
+    const footer = document.createElement("div");
+    footer.style.cssText = "display:flex;justify-content:flex-end;gap:10px;";
+    const closeFooterButton = document.createElement("button");
+    closeFooterButton.textContent = "Close";
+    closeFooterButton.style.cssText = buttonStyle(true);
+    footer.append(closeFooterButton);
+
+    const close = () => overlay.remove();
+    closeButton.addEventListener("click", close);
+    closeFooterButton.addEventListener("click", close);
+    overlay.addEventListener("pointerdown", (event) => {
+        if (event.target === overlay) {
+            close();
+        }
+    });
+    panel.addEventListener("pointerdown", (event) => event.stopPropagation());
+    panel.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+    body.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+    panel.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            close();
+        }
+    });
+
+    panel.append(header, intro, body, footer);
+    overlay.append(panel);
+    document.body.append(overlay);
+    closeFooterButton.focus();
+}
+
 function openReviewerSeedTargetDialog(node) {
     document.querySelector?.(".deno-local-llm-seed-modal")?.remove();
     ensureReviewerRetryProperties(node);
@@ -4042,14 +4977,14 @@ function openReviewerSeedTargetDialog(node) {
         "background:#0b1210",
         "box-shadow:0 18px 48px rgba(0,0,0,0.55)",
         "color:#dfffea",
-        "font-family:Arial,sans-serif",
+        "font-family:'Segoe UI',Arial,sans-serif",
     ].join(";");
 
     const header = document.createElement("div");
     header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:16px;";
     const title = document.createElement("div");
     title.textContent = "Retry Seed Target";
-    title.style.cssText = "font-size:18px;font-weight:800;color:#9dffba;";
+    title.style.cssText = "font-size:17px;font-weight:700;color:#9dffba;letter-spacing:0;";
     const closeButton = document.createElement("button");
     closeButton.textContent = "Close";
     closeButton.style.cssText = buttonStyle(false);
@@ -4141,10 +5076,11 @@ function makeSeedTargetRow({ label, value, active, onClick }) {
         "color:#eaffef",
         "cursor:pointer",
         "text-align:left",
+        "font-family:'Segoe UI',Arial,sans-serif",
     ].join(";");
     const title = document.createElement("div");
     title.textContent = String(label || "Seed target");
-    title.style.cssText = "font-size:13px;font-weight:800;color:#f0fff5;";
+    title.style.cssText = "font-size:13px;font-weight:600;color:#f0fff5;letter-spacing:0;";
     const sub = document.createElement("div");
     sub.textContent = String(value || "");
     sub.style.cssText = "font-size:11px;line-height:1.35;color:#b8d8c1;";
@@ -4159,10 +5095,11 @@ function buttonStyle(primary) {
         "min-width:76px",
         "padding:0 14px",
         "border-radius:6px",
-        `border:1px solid ${primary ? "rgba(126,255,166,0.95)" : "rgba(126,255,166,0.45)"}`,
-        `background:${primary ? "#136b36" : "rgba(0,0,0,0.35)"}`,
-        "color:#eaffef",
-        "font-weight:800",
+        `border:1px solid ${primary ? "rgba(147,199,162,0.9)" : "rgba(116,156,130,0.52)"}`,
+        `background:${primary ? "#245b3a" : "rgba(13,18,16,0.92)"}`,
+        "color:#eef6f0",
+        "font-family:'Segoe UI',Arial,sans-serif",
+        "font-weight:600",
         "cursor:pointer",
     ].join(";");
 }

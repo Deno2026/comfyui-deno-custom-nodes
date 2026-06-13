@@ -96,6 +96,13 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const api = context.capturedApi;
             assert(api, "reviewer graph test API was not exposed");
             assert(
+                api.localLLMExecutionErrorMessage({{
+                    node_id: 2,
+                    exception_message: "The number of tokens to keep from the initial prompt is greater than the context length (n_keep: 6667>= n_ctx: 4096).",
+                }}).includes("Context window is too small"),
+                "Loader execution errors must turn LM Studio context failures into a readable node message"
+            );
+            assert(
                 api.reviewerControlTooltip("review").includes("pass or block"),
                 "Review button tooltip must explain the gate decision"
             );
@@ -146,6 +153,20 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 wrappedPreview[0].length > 45,
                 "Wide Loader preview panels must use most of the available text width"
             );
+            const legacyPromptOutput = {{
+                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["1", 0] }} }},
+            }};
+            api.migrateLocalLLMPromptInputNames(legacyPromptOutput);
+            assert(
+                legacyPromptOutput["2"].inputs.prompt[0] === "1" && !("user_prompt" in legacyPromptOutput["2"].inputs),
+                "Legacy user_prompt links must migrate to the canonical prompt input"
+            );
+            const shiftedPromptWidget = {{ value: "Auto: unload only before first LLM call" }};
+            const repairedShiftedPrompt = api.repairPromptWidgetValue(shiftedPromptWidget);
+            assert(repairedShiftedPrompt === true && shiftedPromptWidget.value === "", "Shifted UI option values must be cleared from Prompt");
+            const realPromptWidget = {{ value: "A calm forest with soft morning light" }};
+            const repairedRealPrompt = api.repairPromptWidgetValue(realPromptWidget);
+            assert(repairedRealPrompt === false && realPromptWidget.value.includes("forest"), "Real prompt text must be preserved");
 
             const seedGenerator = {{
                 id: 1,
@@ -161,7 +182,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 type: "DenoLocalLLMRefiner",
                 title: "(Deno) Local LLM Loader",
                 widgets: [{{ name: "seed", value: 50 }}],
-                inputs: [{{ name: "user_prompt", link: 41 }}],
+                inputs: [{{ name: "prompt", link: 41 }}],
                 outputs: [],
                 setDirtyCanvas() {{}},
             }};
@@ -318,7 +339,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
 
             const regenerateOutput = {{
                 "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
-                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["1", 0] }} }},
+                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ prompt: ["1", 0] }} }},
                 "3": {{ class_type: "DenoAIReviewGate", inputs: {{ review: ["2", 0], image: ["1", 0] }} }},
                 "4": {{ class_type: "SaveImage", inputs: {{ images: ["3", 0] }} }},
                 "5": {{ class_type: "ParallelOutput", inputs: {{ images: ["1", 0] }} }},
@@ -338,7 +359,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             graph._nodes = [submitReviewer];
             const mixedSubmitOutput = {{
                 "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
-                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["1", 0] }} }},
+                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ prompt: ["1", 0] }} }},
                 "3": {{ class_type: "DenoAIReviewGate", inputs: {{ review: ["2", 0], image: ["1", 0], review_mode: "Pass" }} }},
                 "4": {{ class_type: "SaveImage", inputs: {{ images: ["3", 0] }} }},
             }};
@@ -347,7 +368,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
 
             const passOutput = {{
                 "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
-                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["7", 0] }} }},
+                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ prompt: ["7", 0] }} }},
                 "3": {{ class_type: "DenoAIReviewGate", inputs: {{ review: ["2", 0], image: ["1", 0], review_mode: "Pass" }} }},
                 "4": {{ class_type: "SaveImage", inputs: {{ images: ["3", 0] }} }},
                 "5": {{ class_type: "PreviewAny", inputs: {{ source: ["7", 0] }} }},
@@ -382,7 +403,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             ];
             const approveOutput = {{
                 "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
-                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["1", 0] }} }},
+                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ prompt: ["1", 0] }} }},
                 "3": {{ class_type: "DenoAIReviewGate", inputs: {{ review: ["2", 0], image: ["1", 0] }} }},
                 "4": {{ class_type: "SaveImage", inputs: {{ images: ["1", 0], filename_prefix: ["6", 0] }} }},
                 "5": {{ class_type: "ParallelOutput", inputs: {{ images: ["1", 0] }} }},

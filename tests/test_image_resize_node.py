@@ -2024,7 +2024,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert node_cls.RETURN_TYPES == ("STRING",)
     assert node_cls.RETURN_NAMES == ("result",)
     assert node_cls.CATEGORY == "Deno/LLM"
-    assert node_cls.IS_CHANGED() != node_cls.IS_CHANGED()
+    assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"]) == node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"])
     assert "help rewrite or review prompt text" in node_cls.DESCRIPTION
     assert "Ollama or LM Studio" in node_cls.DESCRIPTION
     assert "An optional IMAGE input" in node_cls.DESCRIPTION
@@ -2040,7 +2040,11 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert required["system_prompt"][1]["default"] == ""
     assert required["system_prompt"][1]["multiline"] is True
     assert "forceInput" not in required["system_prompt"][1]
-    assert required["user_prompt"][1]["forceInput"] is True
+    assert required["prompt"][0] == "STRING"
+    assert required["prompt"][1]["default"] == ""
+    assert required["prompt"][1]["multiline"] is True
+    assert "forceInput" not in required["prompt"][1]
+    assert "user_prompt" not in required
     assert required["seed_mode"][0] == ["fixed", "increment", "decrement", "randomize"]
     assert "control_after_generate" not in required
     assert required["model_memory"][0] == ["Unload after run", "Keep for minutes", "Keep loaded"]
@@ -2051,6 +2055,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     ]
     assert required["comfy_vram_policy"][1]["default"] == "Auto: unload only before first LLM call"
     assert optional["image"][0] == "IMAGE"
+    assert "user_prompt" not in optional
     assert "audio" not in optional
     assert list(hidden) == ["unique_id"]
     assert "reviewer_state" not in hidden
@@ -2061,7 +2066,19 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert 'const GATE_DISPLAY_NAME = "(Deno) Local LLM Reviewer";' in script
     assert 'const LEGACY_DISPLAY_NAMES = new Set([OLD_DISPLAY_NAME, "(Deno) Local LLM Prompt Helper"]);' in script
     assert "normalizeNodeTitle" in script
-    assert 'api.addEventListener("deno-local-llm-progress"' in script
+    assert "node.resizable = true" in script
+    assert 'eventApi.addEventListener("deno-local-llm-progress"' in script
+    assert "window?.comfyAPI?.api?.api" in script
+    assert "progressListenerApis" in script
+    assert "localLLMStateByNodeId = new Map()" in script
+    assert "function setLocalLLMNodeState(node, patch)" in script
+    assert "function getLocalLLMNodeState(node)" in script
+    assert "app?.rootGraph || app?.graph || app?.canvas?.graph" in script
+    assert "function localLLMCandidateGraphs()" in script
+    assert "function localLLMGraphNodes(graph)" in script
+    assert "Array.isArray(graph?._nodes)" in script
+    assert "idMap.get(id) || idMap.get(numericId)" in script
+    assert "localNodes.length === 1 ? localNodes[0] : null" in script
     assert "Refresh Models" in script
     assert "Stop LLM" in script
     assert "stopLocalModel" in script
@@ -2088,12 +2105,22 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "normalizeModelChoices" in script
     assert "updateModelChoices" in script
     assert "installProgressListener" in script
+    assert "progressError = String(detail.error || \"\")" in script
+    assert "exception_message: progressError" in script
+    assert 'eventApi.addEventListener("execution_error"' in script
+    assert "localLLMExecutionErrorMessage" in script
+    assert "Context window is too small for this prompt." in script
+    assert 'status: "error"' in script
+    assert 'hasError ? "Error" : "Result"' in script
+    assert 'openPreviewTextDialog(isError ? "Error" : "Result", text)' in script
     assert "installGraphScan" in script
     assert "syncLoaderOutputSlots" in script
     assert "removeLegacyWidgets" in script
     assert "setActiveProviderModelVisibility" in script
     assert "migrateLegacyModelWidgets" in script
     assert "repairSavedWidgetValues" in script
+    assert "repairPromptWidgetValue" in script
+    assert "isShiftedPromptWidgetValue" in script
     assert "SHIFTED_MODEL_WIDGET_VALUES" in script
     assert "isShiftedModelWidgetValue" in script
     assert "repairModelWidgetValue" in script
@@ -2123,13 +2150,29 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "Regenerating the path into this reviewer." in script
     assert "app.graph" not in script
     assert "removePromptWidgets" in script
+    assert "removeWidgetElement" in script
+    assert "migrateLocalLLMPromptInputNames" in script
     assert "ensureSystemPromptWidget" in script
+    assert "ensurePromptWidget" in script
+    assert "addPromptTextBox" not in script
+    assert "positionPromptWidget" in script
+    assert "loaderPromptWidgetHeight" in script
+    assert "PROMPT_WIDGET_SIDE_INSET" in script
+    assert "element.style.marginLeft" in script
+    assert "removeLegacyPromptBoxDomElements" in script
+    assert "deno-local-llm-prompt-box" in script
     assert "ensureSeedModeWidget" in script
     assert "SEED_MODE_VALUES" in script
     assert "addSystemPromptButton" in script
     assert "openSystemPromptDialog" in script
     assert "Optional system prompt. Empty is OK." in script
-    assert 'saveButton.textContent = "Save";' in script
+    assert "SYSTEM_PROMPT_PRESET_STORAGE_KEY" in script
+    assert "Reviewer JSON" in script
+    assert "Return only valid JSON. Do not write markdown." in script
+    assert "writeSystemPromptUserPresets" in script
+    assert 'loadPresetButton.textContent = "Load";' in script
+    assert 'savePresetButton.textContent = "Save Preset";' in script
+    assert 'saveButton.textContent = "Save to Node";' in script
     assert "Use This" not in script
     assert "dedupeKnownWidgets" in script
     assert "removeRefreshButtonWidgets" in script
@@ -2142,10 +2185,11 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "schedulePostSetupCleanup" in script
     assert "Model list is ready. Choose from the ${provider} model row." in script
     assert "LocalLLMPreviewWidget" in script
-    assert "availableNodeHeight" in script
-    assert "const actualHeight = Math.max(expectedHeight, Number(height) || 0, availableNodeHeight);" in script
+    assert "const actualHeight = Math.max(expectedHeight, Number(height) || 0);" in script
     assert "maxPreviewLinesForHeight(resultH)" in script
     assert 'openPreviewTextDialog("Thinking", text)' in script
+    assert 'openPreviewTextDialog(isError ? "Error" : "Result", text)' in script
+    assert "buttonBounds: this.expandBounds.result" in script
     assert "function openPreviewTextDialog" in script
     assert "denoLocalLLMExpanded" not in script
     assert "const manualHeight = Number(node.size?.[1]) || 0;" in script
@@ -2190,7 +2234,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "handlePreviewScrollbarPointer" in script
     assert "previewScrollbarBounds" in script
     assert 'previewWindow(node, "result"' in script
-    assert "splitPreviewLinesForWidth(ctx, state.answer" in script
+    assert "splitPreviewLinesForWidth(ctx, resultText" in script
     assert "previewTextWidth(panelW, false)" in script
     assert "previewTextWidth(panelW, true)" in script
     assert "Thinking" in script
@@ -2231,7 +2275,22 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "Retry x3 On" in script
     assert "Retry x3 Off" in script
     assert "Seed: Auto" in script
-    assert "drawReviewerTooltip" in script
+    assert "How to use" in script
+    assert "openReviewerHowToUseDialog" in script
+    assert "REVIEWER_HOW_TO_USE_SECTIONS" in script
+    assert "Plain one-word review still works" in script
+    assert ".deno-local-llm-reviewer-help-modal" in script
+    assert "deno-local-llm-reviewer-help-panel" in script
+    assert "hideReviewerTooltip(node);" in script
+    assert "isDenoLocalLLMModalOpen" in script
+    assert "showReviewerTooltip" in script
+    assert "hideReviewerTooltip" in script
+    assert "handleReviewerTooltipPointerMove" in script
+    assert "reviewerTooltipHitFromEvent" in script
+    assert "deno-local-llm-reviewer-tooltip" in script
+    assert 'position: "fixed"' in script
+    assert 'pointerEvents: "none"' in script
+    assert "graphPointToCanvasPoint" in script
     assert "reviewerControlTooltip" in script
     assert "Bypass review and pass image/audio through" in script
     assert "Rerun the upstream path before this reviewer" in script
@@ -2253,6 +2312,42 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "passedCount" in script
     assert "blockedCount" in script
     assert "return false;" in script
+
+
+def test_local_llm_refiner_fixed_seed_cache_key_is_stable_and_input_sensitive():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLocalLLMRefiner"]
+
+    base = {
+        "provider": ["Ollama"],
+        "ollama_model": ["qwen3"],
+        "lm_studio_model": ["google/gemma"],
+        "custom_server_url": ["http://127.0.0.1:8000/v1"],
+        "custom_model": [""],
+        "system_prompt": ["rewrite"],
+        "thinking": [False],
+        "seed": [7],
+        "seed_mode": ["fixed"],
+        "model_memory": ["Unload after run"],
+        "keep_minutes": [5],
+        "comfy_vram_policy": ["Auto: unload only before first LLM call"],
+        "prompt": ["a red cup"],
+    }
+
+    assert node_cls.IS_CHANGED(**base) == node_cls.IS_CHANGED(**base)
+    assert node_cls.IS_CHANGED(**base) != node_cls.IS_CHANGED(**{**base, "prompt": ["a blue cup"]})
+    assert node_cls.IS_CHANGED(**base) != node_cls.IS_CHANGED(**{**base, "seed": [8]})
+    assert node_cls.IS_CHANGED(**base) != node_cls.IS_CHANGED(**{**base, "comfy_vram_policy": ["Always unload before each LLM call"]})
+
+    image_a = np.zeros((1, 2, 2, 3), dtype=np.float32)
+    image_b = image_a.copy()
+    image_b[0, 0, 0, 0] = 1.0
+    image_base = {**base, "image": [image_a]}
+    assert node_cls.IS_CHANGED(**image_base) == node_cls.IS_CHANGED(**image_base)
+    assert node_cls.IS_CHANGED(**image_base) != node_cls.IS_CHANGED(**{**base, "image": [image_b]})
+
+    random_base = {**base, "seed_mode": ["randomize"]}
+    assert node_cls.IS_CHANGED(**random_base) != node_cls.IS_CHANGED(**random_base)
 
 
 def test_prompt_text_node_outputs_multiline_string_for_prompt_helper_inputs():
@@ -2288,7 +2383,7 @@ def test_local_llm_refiner_processes_prompt_batch_in_one_node_call():
         custom_server_url=["http://127.0.0.1:8000/v1"],
         custom_model=["custom-model"],
         system_prompt=["make a prompt"],
-        user_prompt=["first prompt", "second prompt", "third prompt"],
+        prompt=["first prompt", "second prompt", "third prompt"],
         thinking=[True],
         seed=[10],
         seed_mode=["fixed"],
@@ -2329,7 +2424,7 @@ def test_local_llm_refiner_passes_image_attachment_to_reviewer_call():
             custom_server_url=["http://127.0.0.1:8000/v1"],
             custom_model=["custom-model"],
             system_prompt=["judge the image"],
-            user_prompt=["Return OK or FAIL."],
+            prompt=["Return OK or FAIL."],
             thinking=[False],
             seed=[11],
             seed_mode=["fixed"],
@@ -2364,7 +2459,7 @@ def test_local_llm_refiner_uses_provider_specific_model_field():
         custom_server_url=["http://127.0.0.1:8000/v1"],
         custom_model=["custom-model"],
         system_prompt=["make a prompt"],
-        user_prompt=["one prompt"],
+        prompt=["one prompt"],
         thinking=[False],
         seed=[4],
         seed_mode=["fixed"],
@@ -2409,7 +2504,7 @@ def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
             server_url="http://127.0.0.1:1234/v1",
             model="google/gemma-4-12b",
             system_prompt="",
-            user_prompt="hello",
+            prompt="hello",
             thinking=False,
             seed=7,
             model_memory="Keep for minutes",
@@ -2438,6 +2533,115 @@ def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
     assert unload_calls == []
 
 
+def test_local_llm_refiner_lm_studio_native_extracts_top_level_output():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    answer, thought = module._extract_lm_native_final(
+        {
+            "model_instance_id": "google/gemma-4-12b",
+            "output": [
+                {"type": "reasoning", "content": "internal"},
+                {"type": "message", "content": "OK"},
+            ],
+        },
+        include_reasoning=True,
+    )
+
+    assert answer == "OK"
+    assert thought == "internal"
+
+
+def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    unload_calls = []
+
+    original_stream = module._http_stream_sse
+    original_http_json = module._http_json
+    original_unload = node._lm_unload_best_effort
+
+    def fake_stream(_url, _payload, **_kwargs):
+        yield "chat.start", {"type": "chat.start", "model_instance_id": "google/gemma-4-12b"}
+
+    def fake_http_json(_url, _payload=None, method="GET", timeout=20.0):
+        raise RuntimeError(
+            "Local LLM server returned HTTP 500: "
+            "The number of tokens to keep from the initial prompt is greater than the context length "
+            "(n_keep: 6667>= n_ctx: 4096)."
+        )
+
+    module._http_stream_sse = fake_stream
+    module._http_json = fake_http_json
+    node._lm_unload_best_effort = lambda native_base, model: unload_calls.append((native_base, model))
+    try:
+        with pytest.raises(RuntimeError, match="longer than the loaded model context"):
+            node._run_lm_studio(
+                server_url="http://127.0.0.1:1234/v1",
+                model="google/gemma-4-12b",
+                system_prompt="",
+                prompt="long prompt",
+                thinking=False,
+                seed=7,
+                model_memory="Unload after run",
+                keep_minutes=3,
+                image_attachment=None,
+                is_last=True,
+                node_id="99",
+                index=1,
+                total=1,
+            )
+    finally:
+        module._http_stream_sse = original_stream
+        module._http_json = original_http_json
+        node._lm_unload_best_effort = original_unload
+
+    assert unload_calls == [("http://127.0.0.1:1234", "google/gemma-4-12b")]
+
+
+def test_local_llm_refiner_sends_progress_error_before_raising(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    events = []
+
+    monkeypatch.setattr(module, "_send_progress", lambda payload: events.append(dict(payload)))
+    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_mark_local_llm_active", lambda *_args, **_kwargs: "active")
+    monkeypatch.setattr(module, "_clear_local_llm_active", lambda _key: None)
+
+    def fail_run(**_kwargs):
+        raise RuntimeError("context length exceeded: n_keep 9012 >= n_ctx 4096")
+
+    monkeypatch.setattr(node, "_run_single", fail_run)
+
+    with pytest.raises(RuntimeError, match="context length exceeded"):
+        node.refine(
+            provider="LM Studio",
+            ollama_model="huihui_ai/gemma-4-abliterated:12b",
+            lm_studio_model="google/gemma-4-12b",
+            custom_server_url="http://127.0.0.1:8000/v1",
+            custom_model="",
+            system_prompt="",
+            thinking=False,
+            seed=1,
+            seed_mode="fixed",
+            model_memory="Unload after run",
+            keep_minutes=5,
+            comfy_vram_policy="Never unload before LLM call",
+            prompt="hello",
+            unique_id="9",
+        )
+
+    assert events[0]["status"] == "running"
+    assert events[-1]["status"] == "error"
+    assert events[-1]["node_id"] == "9"
+    assert "n_ctx 4096" in events[-1]["error"]
+    assert events[-1]["answer"] == ""
+
+
 def test_local_llm_refiner_lm_studio_native_image_input_uses_text_and_image_parts():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
@@ -2457,7 +2661,7 @@ def test_local_llm_refiner_lm_studio_native_image_input_uses_text_and_image_part
             server_url="http://127.0.0.1:1234/v1",
             model="google/gemma-4-12b",
             system_prompt="",
-            user_prompt="what is this image?",
+            prompt="what is this image?",
             thinking=False,
             seed=7,
             model_memory="Keep for minutes",
@@ -2529,7 +2733,7 @@ def test_local_llm_refiner_ollama_keep_loaded_reloads_after_provider_eviction():
             server_url="http://127.0.0.1:11434",
             model="qwen3",
             system_prompt="",
-            user_prompt="hello",
+            prompt="hello",
             thinking=True,
             seed=1,
             model_memory="Keep loaded",
@@ -2584,7 +2788,7 @@ def test_local_llm_refiner_ollama_keep_loaded_refreshes_even_when_provider_repor
             server_url="http://127.0.0.1:11434",
             model="qwen3",
             system_prompt="",
-            user_prompt="hello",
+            prompt="hello",
             thinking=True,
             seed=1,
             model_memory="Keep loaded",
@@ -2694,7 +2898,7 @@ def test_local_llm_refiner_rejects_thinking_only_result_instead_of_empty_output(
                 custom_server_url=["http://127.0.0.1:8000/v1"],
                 custom_model=[""],
                 system_prompt=[""],
-                user_prompt=["describe this"],
+                prompt=["describe this"],
                 thinking=[True],
                 seed=[1],
                 seed_mode=["fixed"],
@@ -2758,7 +2962,7 @@ def test_local_llm_refiner_auto_vram_free_runs_once_for_keep_loaded():
                 custom_server_url=["http://127.0.0.1:8000/v1"],
                 custom_model=["custom-model"],
                 system_prompt=["make a prompt"],
-                user_prompt=["one prompt"],
+                prompt=["one prompt"],
                 thinking=[False],
                 seed=[4],
                 seed_mode=["fixed"],
@@ -2824,7 +3028,7 @@ def test_local_llm_refiner_auto_vram_free_repeats_for_unload_after_run():
                 custom_server_url=["http://127.0.0.1:8000/v1"],
                 custom_model=["custom-model"],
                 system_prompt=["make a prompt"],
-                user_prompt=["one prompt"],
+                prompt=["one prompt"],
                 thinking=[False],
                 seed=[4],
                 seed_mode=["fixed"],
@@ -2884,7 +3088,7 @@ def test_local_llm_refiner_keep_loaded_provider_switch_unloads_previous_local_ll
             custom_server_url=["http://127.0.0.1:8000/v1"],
             custom_model=["custom-model"],
             system_prompt=["make a prompt"],
-            user_prompt=["one prompt"],
+            prompt=["one prompt"],
             thinking=[False],
             seed=[4],
             seed_mode=["fixed"],
@@ -2901,7 +3105,7 @@ def test_local_llm_refiner_keep_loaded_provider_switch_unloads_previous_local_ll
             custom_server_url=["http://127.0.0.1:8000/v1"],
             custom_model=["custom-model"],
             system_prompt=["make a prompt"],
-            user_prompt=["one prompt"],
+            prompt=["one prompt"],
             thinking=[False],
             seed=[5],
             seed_mode=["fixed"],
@@ -3126,7 +3330,7 @@ def test_local_llm_refiner_legacy_custom_provider_falls_back_to_ollama():
         custom_server_url=["http://127.0.0.1:8000/v1"],
         custom_model=["legacy-qwen"],
         system_prompt=["make a prompt"],
-        user_prompt=["one prompt"],
+        prompt=["one prompt"],
         thinking=[False],
         seed=[8],
         seed_mode=["fixed"],
@@ -3219,7 +3423,7 @@ def test_local_llm_refiner_legacy_custom_saved_values_do_not_execute_custom_serv
         custom_server_url=[False],
         custom_model=[5],
         system_prompt=["make a prompt"],
-        user_prompt=["one prompt"],
+        prompt=["one prompt"],
         thinking=["Unload after run"],
         seed=["bad"],
         seed_mode=["fixed"],
@@ -3251,7 +3455,7 @@ def test_local_llm_refiner_repairs_shifted_saved_widget_values():
         custom_server_url=["http://127.0.0.1:8000/v1"],
         custom_model=["custom-model"],
         system_prompt=["make a prompt"],
-        user_prompt=["one prompt"],
+        prompt=["one prompt"],
         thinking=["false"],
         seed=["NaN"],
         seed_mode=["fixed"],
@@ -3302,6 +3506,17 @@ def test_ai_review_gate_passes_or_blocks_media_outputs_from_reviewer_text():
     assert passed["ui"]["deno_llm_gate"][0]["reason"] == "good result"
     assert passed["result"][0] is image
     assert passed["result"][1] is audio
+
+    plain_ok = gate.gate(
+        review="OK",
+        image=image,
+        audio=audio,
+    )
+    assert plain_ok["ui"]["deno_llm_gate"][0]["passed"] is True
+    assert plain_ok["ui"]["deno_llm_gate"][0]["verdict"] == "OK"
+    assert plain_ok["ui"]["deno_llm_gate"][0]["reason"] == "Reviewer marked this result as OK."
+    assert plain_ok["result"][0] is image
+    assert plain_ok["result"][1] is audio
 
     failed = gate.gate(
         review='{"verdict":"FAIL","reason":"bad hands"}',

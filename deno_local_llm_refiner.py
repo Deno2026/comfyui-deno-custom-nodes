@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import http.client
 import itertools
 from io import BytesIO
@@ -410,6 +411,54 @@ def _safe_bool(value: Any, default: bool = False) -> bool:
     if text in {"false", "0", "no", "off", ""}:
         return False
     return bool(default)
+
+
+def _cache_array_signature(value: Any) -> Dict[str, Any]:
+    array = np.ascontiguousarray(value)
+    return {
+        "__array__": True,
+        "dtype": str(array.dtype),
+        "shape": list(array.shape),
+        "sha256": hashlib.sha256(array.tobytes()).hexdigest(),
+    }
+
+
+def _cache_stable_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, np.ndarray):
+        return _cache_array_signature(value)
+    if hasattr(value, "detach") and hasattr(value, "cpu"):
+        try:
+            return _cache_array_signature(value.detach().cpu().numpy())
+        except Exception:
+            pass
+    if isinstance(value, dict):
+        return {
+            str(key): _cache_stable_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_cache_stable_value(item) for item in value]
+    try:
+        json.dumps(value, sort_keys=True)
+        return value
+    except TypeError:
+        return {"__repr__": repr(value), "__type__": type(value).__name__}
+
+
+def _local_llm_cache_key(kwargs: Dict[str, Any]) -> str:
+    seed_mode = _normalize_seed_mode(kwargs.get("seed_mode", SEED_MODE_FIXED))
+    if seed_mode == SEED_MODE_RANDOMIZE:
+        return f"randomize:{time.monotonic_ns()}:{next(_IS_CHANGED_COUNTER)}"
+    payload = {
+        key: _cache_stable_value(value)
+        for key, value in sorted(kwargs.items())
+        if key != "unique_id"
+    }
+    payload["seed_mode"] = seed_mode
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return f"stable:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
 
 
 def _normalize_model_memory(value: Any) -> str:
@@ -1094,10 +1143,10 @@ def _save_reviewer_preview_image(
         return None
 
 
-def _openai_user_content(user_prompt: str, image: Optional[Dict[str, Any]]) -> Any:
+def _openai_user_content(prompt: str, image: Optional[Dict[str, Any]]) -> Any:
     if image is None:
-        return user_prompt
-    parts: List[Dict[str, Any]] = [{"type": "text", "text": user_prompt}]
+        return prompt
+    parts: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
     if image is not None:
         parts.append({"type": "image_url", "image_url": {"url": image["data_url"]}})
     return parts
@@ -1142,11 +1191,11 @@ def _extract_lm_non_stream(payload: Dict[str, Any]) -> Tuple[str, str]:
     return "", ""
 
 
-def _lm_native_input(user_prompt: str, image: Optional[Dict[str, Any]]) -> Any:
+def _lm_native_input(prompt: str, image: Optional[Dict[str, Any]]) -> Any:
     if image is None:
-        return user_prompt
+        return prompt
     return [
-        {"type": "text", "content": user_prompt},
+        {"type": "text", "content": prompt},
         {"type": "image", "data_url": image["data_url"]},
     ]
 
@@ -1154,6 +1203,8 @@ def _lm_native_input(user_prompt: str, image: Optional[Dict[str, Any]]) -> Any:
 def _extract_lm_native_final(payload: Dict[str, Any], include_reasoning: bool) -> Tuple[str, str]:
     result = payload.get("result") if isinstance(payload, dict) else None
     output = result.get("output") if isinstance(result, dict) else None
+    if output is None and isinstance(payload, dict):
+        output = payload.get("output")
     if not isinstance(output, list):
         return "", ""
     answer_parts: List[str] = []
@@ -1168,6 +1219,45 @@ def _extract_lm_native_final(payload: Dict[str, Any], include_reasoning: bool) -
         elif item_type == "reasoning" and content and include_reasoning:
             thinking_parts.append(content)
     return "".join(answer_parts).strip(), "".join(thinking_parts).strip()
+
+
+def _lm_studio_empty_stream_error(message: str) -> str:
+    detail = str(message or "").strip()
+    lowered = detail.lower()
+    if "context length" in lowered or "n_ctx" in lowered or "n_keep" in lowered:
+        return (
+            "LM Studio rejected the prompt because it is longer than the loaded model context. "
+            "Increase the model context length in LM Studio, or shorten the system/prompt text. "
+            f"Details: {detail}"
+        )
+    return (
+        "LM Studio ended the response stream without final text. "
+        "Check the loaded model, context length, and LM Studio server log. "
+        f"Details: {detail}"
+    )
+
+
+def _recover_lm_native_empty_stream(
+    native_base: str,
+    payload: Dict[str, Any],
+    include_reasoning: bool,
+) -> Tuple[str, str, Dict[str, Any]]:
+    diagnostic_payload = dict(payload)
+    diagnostic_payload["stream"] = False
+    try:
+        diagnostic = _http_json(
+            f"{native_base}/api/v1/chat",
+            diagnostic_payload,
+            method="POST",
+            timeout=120.0,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(_lm_studio_empty_stream_error(str(exc))) from exc
+
+    answer, thought = _extract_lm_native_final(diagnostic, include_reasoning)
+    if answer or thought:
+        return answer, thought, diagnostic
+    raise RuntimeError(_lm_studio_empty_stream_error(json.dumps(diagnostic, ensure_ascii=False)[:800]))
 
 
 def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]]:
@@ -1386,7 +1476,7 @@ class DenoLocalLLMRefiner:
         "Call a local Ollama or LM Studio model from ComfyUI and help rewrite or review prompt text.\n\n"
         "An optional IMAGE input can be attached to the local model call. "
         "Use a vision-capable local model for image review.\n\n"
-        "Designed for prompt-batcher workflows: connect a STRING list into User Prompt, "
+        "Designed for prompt-batcher workflows: use the Prompt field or connect a STRING list into Prompt, "
         "and this node processes the whole batch in one execution so the local LLM can stay "
         "loaded until the batch is complete.\n\n"
         "Only localhost / 127.0.0.1 servers are allowed."
@@ -1415,13 +1505,19 @@ class DenoLocalLLMRefiner:
                         "multiline": True,
                     },
                 ),
-                "user_prompt": ("STRING", {"forceInput": True}),
                 "thinking": ("BOOLEAN", {"default": False}),
                 "seed": ("INT", {"default": 1, "min": 0, "max": 0xFFFFFFFF, "step": 1}),
                 "seed_mode": (SEED_MODE_OPTIONS, {"default": SEED_MODE_FIXED}),
                 "model_memory": (MODEL_MEMORY_OPTIONS, {"default": MEMORY_UNLOAD_AFTER_RUN}),
                 "keep_minutes": ("INT", {"default": 5, "min": 1, "max": 240, "step": 1}),
                 "comfy_vram_policy": (COMFY_VRAM_POLICY_OPTIONS, {"default": COMFY_VRAM_AUTO}),
+                "prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                    },
+                ),
             },
             "optional": {
                 "image": ("IMAGE",),
@@ -1440,9 +1536,7 @@ class DenoLocalLLMRefiner:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
-        # This node calls external local servers and manages provider residency.
-        # A fixed seed should stabilize the LLM request, not let ComfyUI skip it.
-        return f"{time.monotonic_ns()}:{next(_IS_CHANGED_COUNTER)}"
+        return _local_llm_cache_key(kwargs)
 
     @classmethod
     def VALIDATE_INPUTS(cls, provider=None, ollama_model=None, lm_studio_model=None, custom_model=None):
@@ -1467,13 +1561,13 @@ class DenoLocalLLMRefiner:
         custom_server_url,
         custom_model,
         system_prompt,
-        user_prompt,
         thinking,
         seed,
         seed_mode,
         model_memory,
         keep_minutes,
         comfy_vram_policy=COMFY_VRAM_AUTO,
+        prompt="",
         image=None,
         unique_id=None,
     ):
@@ -1504,7 +1598,7 @@ class DenoLocalLLMRefiner:
         keep_minutes_value = _safe_int(keep_minutes, 5, 1, 240)
         comfy_vram_policy_value = _normalize_comfy_vram_policy(comfy_vram_policy)
         node_id = str(_extract_scalar(unique_id, "") or "")
-        prompts = _flatten_prompts(user_prompt)
+        prompts = _flatten_prompts(prompt)
         image_attachment = _prepare_image_attachment(image)
 
         if not model_value:
@@ -1524,52 +1618,66 @@ class DenoLocalLLMRefiner:
             "thinking": "",
         })
 
-        local_llm_swap_info = _unload_other_warm_local_llms(
-            provider=provider_value,
-            server_url=server_value,
-            model=model_value,
-            node_id=node_id,
-        )
+        try:
+            local_llm_swap_info = _unload_other_warm_local_llms(
+                provider=provider_value,
+                server_url=server_value,
+                model=model_value,
+                node_id=node_id,
+            )
 
-        comfy_vram_info = _prepare_comfy_vram_before_llm(
-            provider=provider_value,
-            server_url=server_value,
-            model=model_value,
-            model_memory=memory_value,
-            keep_minutes=keep_minutes_value,
-            comfy_vram_policy=comfy_vram_policy_value,
-            node_id=node_id,
-        )
+            comfy_vram_info = _prepare_comfy_vram_before_llm(
+                provider=provider_value,
+                server_url=server_value,
+                model=model_value,
+                model_memory=memory_value,
+                keep_minutes=keep_minutes_value,
+                comfy_vram_policy=comfy_vram_policy_value,
+                node_id=node_id,
+            )
 
-        for index, prompt in enumerate(prompts):
-            current_seed = _seed_for_index(seed_value, seed_mode_value, index)
-            is_last = index == total - 1
-            active_key = _mark_local_llm_active(provider_value, server_value, model_value)
-            try:
-                answer, thought, _raw = self._run_single(
-                    provider=provider_value,
-                    server_url=server_value,
-                    model=model_value,
-                    system_prompt=system_value,
-                    user_prompt=prompt,
-                    thinking=thinking_value,
-                    seed=current_seed,
-                    model_memory=memory_value,
-                    keep_minutes=keep_minutes_value,
-                    image_attachment=image_attachment,
-                    is_last=is_last,
-                    node_id=node_id,
-                    index=index + 1,
-                    total=total,
-                )
-            finally:
-                _clear_local_llm_active(active_key)
-            _mark_local_llm_warm(provider_value, server_value, model_value, memory_value, keep_minutes_value)
-            answer, thought = _split_thinking_tags(answer, thought)
-            if thinking_value:
-                _raise_if_thinking_only_result(answer, thought)
-            results.append(answer)
-            thinking_results.append(thought)
+            for index, prompt in enumerate(prompts):
+                current_seed = _seed_for_index(seed_value, seed_mode_value, index)
+                is_last = index == total - 1
+                active_key = _mark_local_llm_active(provider_value, server_value, model_value)
+                try:
+                    answer, thought, _raw = self._run_single(
+                        provider=provider_value,
+                        server_url=server_value,
+                        model=model_value,
+                        system_prompt=system_value,
+                        prompt=prompt,
+                        thinking=thinking_value,
+                        seed=current_seed,
+                        model_memory=memory_value,
+                        keep_minutes=keep_minutes_value,
+                        image_attachment=image_attachment,
+                        is_last=is_last,
+                        node_id=node_id,
+                        index=index + 1,
+                        total=total,
+                    )
+                finally:
+                    _clear_local_llm_active(active_key)
+                _mark_local_llm_warm(provider_value, server_value, model_value, memory_value, keep_minutes_value)
+                answer, thought = _split_thinking_tags(answer, thought)
+                if thinking_value:
+                    _raise_if_thinking_only_result(answer, thought)
+                results.append(answer)
+                thinking_results.append(thought)
+        except Exception as exc:
+            _send_progress({
+                "node_id": node_id,
+                "status": "error",
+                "provider": provider_value,
+                "model": model_value,
+                "index": len(results),
+                "total": total,
+                "answer": "",
+                "thinking": "",
+                "error": str(exc),
+            })
+            raise
 
         if memory_value == MEMORY_UNLOAD_AFTER_RUN:
             _clear_local_llm_warm(provider_value, server_value, model_value)
@@ -1601,7 +1709,7 @@ class DenoLocalLLMRefiner:
         server_url: str,
         model: str,
         system_prompt: str,
-        user_prompt: str,
+        prompt: str,
         thinking: bool,
         seed: int,
         model_memory: str,
@@ -1617,7 +1725,7 @@ class DenoLocalLLMRefiner:
                 server_url,
                 model,
                 system_prompt,
-                user_prompt,
+                prompt,
                 thinking,
                 seed,
                 model_memory,
@@ -1632,7 +1740,7 @@ class DenoLocalLLMRefiner:
             server_url,
             model,
             system_prompt,
-            user_prompt,
+            prompt,
             thinking,
             seed,
             model_memory,
@@ -1649,7 +1757,7 @@ class DenoLocalLLMRefiner:
         server_url: str,
         model: str,
         system_prompt: str,
-        user_prompt: str,
+        prompt: str,
         thinking: bool,
         seed: int,
         model_memory: str,
@@ -1666,7 +1774,7 @@ class DenoLocalLLMRefiner:
         messages = []
         if system_prompt.strip():
             messages.append({"role": "system", "content": system_prompt})
-        user_message: Dict[str, Any] = {"role": "user", "content": user_prompt}
+        user_message: Dict[str, Any] = {"role": "user", "content": prompt}
         if image_attachment is not None:
             user_message["images"] = [image_attachment["base64"]]
         messages.append(user_message)
@@ -1755,7 +1863,7 @@ class DenoLocalLLMRefiner:
         server_url: str,
         model: str,
         system_prompt: str,
-        user_prompt: str,
+        prompt: str,
         thinking: bool,
         seed: int,
         model_memory: str,
@@ -1774,7 +1882,7 @@ class DenoLocalLLMRefiner:
             "model": model,
             "stream": True,
             "reasoning": "on" if thinking else "off",
-            "input": _lm_native_input(user_prompt, image_attachment),
+            "input": _lm_native_input(prompt, image_attachment),
             "store": False,
         }
         if system_prompt.strip():
@@ -1817,13 +1925,22 @@ class DenoLocalLLMRefiner:
                     "thinking": "".join(thinking_parts),
                 })
 
-        if _should_unload_after_run(memory_value, is_last):
-            self._lm_unload_best_effort(native_base, model)
+        diagnostic_meta: Optional[Dict[str, Any]] = None
+        try:
+            answer = "".join(answer_parts).strip()
+            thought = "".join(thinking_parts).strip()
+            if not answer and not thought and final_meta:
+                answer, thought = _extract_lm_native_final(final_meta, thinking)
+            if not answer and not thought:
+                answer, thought, diagnostic_meta = _recover_lm_native_empty_stream(
+                    native_base,
+                    payload,
+                    thinking,
+                )
+        finally:
+            if _should_unload_after_run(memory_value, is_last):
+                self._lm_unload_best_effort(native_base, model)
 
-        answer = "".join(answer_parts).strip()
-        thought = "".join(thinking_parts).strip()
-        if not answer and not thought and final_meta:
-            answer, thought = _extract_lm_native_final(final_meta, thinking)
         raw = {
             "provider": PROVIDER_LM_STUDIO,
             "model": model,
@@ -1834,6 +1951,8 @@ class DenoLocalLLMRefiner:
             "api": "LM Studio /api/v1/chat",
             "meta": final_meta,
         }
+        if diagnostic_meta is not None:
+            raw["diagnostic"] = diagnostic_meta
         if image_attachment is not None:
             raw["image"] = {
                 "width": image_attachment["width"],
