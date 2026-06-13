@@ -42,7 +42,8 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 - Reviewer auto-rerun is capped at 3 attempts.
 - Before each auto-rerun, Reviewer increments one upstream seed widget by `+1`.
 - `Seed: Auto` should prefer generation/sampler seed widgets over the Local LLM Loader's own seed.
-- When multiple upstream seed widgets exist, the Reviewer seed target button cycles through available candidates.
+- The Reviewer seed target button opens a picker. Auto only uses upstream seed widgets; explicit manual selection can use an upstream seed or graph fallback seed.
+- If a manually selected seed target disappears, auto-rerun stops with a clear selected-seed missing message instead of falling back to a different seed.
 - If no upstream seed is found, auto-rerun stops with a clear missing-seed message.
 
 ## Current Important Fixes
@@ -93,11 +94,38 @@ Before calling this node done after a behavior change, cover the affected cells:
   - Auto target chooses generation seed before Local LLM seed.
   - `Seed: Auto` opens a picker. Auto only uses upstream seed widgets; manual selection can choose an upstream seed or a graph fallback seed.
   - Manual seed target changes only the selected seed.
+  - Missing manual seed target stops instead of falling back to another seed.
   - Passing reviews ignore auto-rerun and reset the retry state.
   - Stops after 3 failed attempts.
+  - Regenerate submit mode wins over stale Pass widget values.
 - Real canvas control test for buttons, preview scrollbars, More popup, resize grow/shrink, and wheel/middle-click behavior.
 
 ## Latest Review Evidence
+
+2026-06-13 reviewer state matrix hardening:
+
+- Added harness coverage for cross-state Reviewer combinations:
+  - Retry Off + failed review -> no seed change.
+  - Retry On + passed review -> no rerun, retry count reset.
+  - Retry On + failed review -> selected seed increments once.
+  - Busy auto-rerun -> no duplicate seed increment.
+  - 3 failed attempts -> blocked message, no fourth seed increment.
+  - Manual graph fallback seed -> only selected seed changes.
+  - Missing manual seed target -> stops with selected-seed message and does not fall back.
+  - Auto with no upstream seed -> stops with upstream-seed message.
+  - Regenerate submit mode wins over stale Pass widget values.
+- Verification passed:
+  - `node --check web/js/deno_local_llm_refiner.js`
+  - `py -m pytest tests/test_local_llm_reviewer_graph_transform.py -q`
+  - `py -m pytest tests/test_image_resize_node.py -q -k "local_llm or ai_review_gate or prompt_text or node_registration"`
+  - `py -m pytest tests -q` -> `127 passed`
+- Runtime JS synced to the active ComfyUI install and SHA256 matched.
+- ComfyUI restarted through `C:\Users\aions\Desktop\ComfyUI - Sage Attention.lnk`; queue idle, one 8188 listener.
+- Served JS contained `Auto retry could not find the selected seed target.`, `applyReviewerSubmitModes`, and `maybeAutoRetryReviewer`.
+- Real canvas representative check passed:
+  - `Seed` opened `Retry Seed Target`.
+  - Auto restored the visible button to `Seed: Auto`.
+  - DENO-related browser console errors: 0.
 
 2026-06-13 seed picker refinement:
 

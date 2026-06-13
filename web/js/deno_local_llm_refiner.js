@@ -447,13 +447,18 @@ function reviewerSeedTargetCandidate(node) {
     const target = reviewerSeedTarget(node);
     if (target && target !== REVIEWER_AUTO_RETRY_SEED_AUTO) {
         const candidates = collectReviewerSelectableSeedCandidates(node);
-        const selected = candidates.find((candidate) => candidate.key === target);
-        if (selected) {
-            return selected;
-        }
+        return candidates.find((candidate) => candidate.key === target) || null;
     }
     const upstreamCandidates = collectReviewerSeedCandidates(node);
     return upstreamCandidates.find((candidate) => candidate.preferred) || upstreamCandidates[0] || null;
+}
+
+function reviewerMissingSeedReason(node) {
+    const target = reviewerSeedTarget(node);
+    if (target && target !== REVIEWER_AUTO_RETRY_SEED_AUTO) {
+        return "Auto retry could not find the selected seed target. Pick a seed target or rerun manually.";
+    }
+    return "Auto retry could not find an upstream seed. Pick a seed target or rerun manually.";
 }
 
 function reviewerSeedTargetButtonLabel(node) {
@@ -744,12 +749,18 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         applyReviewerApproveOnceMode,
         applyReviewerPassMode,
         applyReviewerRegenerateMode,
+        applyReviewerSubmitModes,
         collectReviewerSeedCandidates,
         collectReviewerSelectableSeedCandidates,
         incrementReviewerRetrySeed,
+        maybeAutoRetryReviewer,
+        resetReviewerAutoRetry,
+        reviewerAutoRetryEnabled,
         reviewerRefreshSize,
         reviewerWidgetDrawWidth,
         reviewerWidgetLayoutWidth,
+        setReviewerAutoRetryEnabled,
+        setReviewerSeedTarget,
     });
 }
 
@@ -2059,7 +2070,7 @@ function maybeAutoRetryReviewer(node, gateInfo) {
             ...(node.__denoLocalLLMGateState || {}),
             passed: false,
             verdict: "FAIL",
-            reason: "Auto retry could not find an upstream seed. Pick a seed target or rerun manually.",
+            reason: reviewerMissingSeedReason(node),
             source: "Auto retry",
             updatedAt: Date.now(),
         };

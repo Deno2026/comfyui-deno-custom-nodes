@@ -180,6 +180,86 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const fallbackSeedChange = api.incrementReviewerRetrySeed(retryReviewer);
             assert(fallbackSeedChange.nodeId === "8", "Manual graph fallback seed target must increment the selected seed");
             assert(fallbackSampler.widgets[0].value === 701, "Manual graph fallback target must increment only that seed");
+            retryReviewer.properties.deno_auto_retry_seed_target = "999:seed";
+            const missingManualSeedChange = api.incrementReviewerRetrySeed(retryReviewer);
+            assert(missingManualSeedChange === null, "Missing manual seed target must stop instead of falling back to another seed");
+            assert(seedGenerator.widgets[0].value === 101, "Missing manual seed target must not change the generation seed");
+            assert(llmNode.widgets[0].value === 51, "Missing manual seed target must not change the Local LLM seed");
+            assert(fallbackSampler.widgets[0].value === 701, "Missing manual seed target must not change graph fallback seeds");
+
+            seedGenerator.widgets[0].value = 200;
+            llmNode.widgets[0].value = 60;
+            fallbackSampler.widgets[0].value = 800;
+            api.setReviewerAutoRetryEnabled(retryReviewer, false);
+            api.setReviewerSeedTarget(retryReviewer, "auto");
+            const retryOffResult = api.maybeAutoRetryReviewer(retryReviewer, {{ passed: false }});
+            assert(retryOffResult === false, "Retry Off must ignore failed reviews");
+            assert(seedGenerator.widgets[0].value === 200, "Retry Off must not change seed on failure");
+
+            api.setReviewerAutoRetryEnabled(retryReviewer, true);
+            const passResult = api.maybeAutoRetryReviewer(retryReviewer, {{ passed: true }});
+            assert(passResult === false, "Passing reviews must not auto-rerun");
+            assert(seedGenerator.widgets[0].value === 200, "Passing reviews must not change seed");
+            assert(retryReviewer._denoReviewerAutoRetryAttempt === 0, "Passing reviews must reset retry count");
+
+            api.setReviewerAutoRetryEnabled(retryReviewer, true);
+            const firstFailResult = api.maybeAutoRetryReviewer(retryReviewer, {{ passed: false }});
+            assert(firstFailResult === true, "Failed review with Retry On must request an auto-rerun");
+            assert(seedGenerator.widgets[0].value === 201, "Failed auto-rerun must increment the chosen seed");
+            assert(llmNode.widgets[0].value === 60, "Auto-rerun must not change Local LLM seed when generation seed exists");
+            assert(fallbackSampler.widgets[0].value === 800, "Auto-rerun must not change graph fallback seed in Auto mode");
+            assert(retryReviewer._denoReviewerAutoRetryAttempt === 1, "First failed auto-rerun must record attempt 1");
+
+            retryReviewer._denoReviewerAutoRetryBusy = true;
+            const busyRetryResult = api.maybeAutoRetryReviewer(retryReviewer, {{ passed: false }});
+            assert(busyRetryResult === false, "Busy auto-rerun must not start another retry");
+            assert(seedGenerator.widgets[0].value === 201, "Busy auto-rerun must not increment seed twice");
+            retryReviewer._denoReviewerAutoRetryBusy = false;
+
+            retryReviewer._denoReviewerAutoRetryActive = true;
+            retryReviewer._denoReviewerAutoRetryAttempt = 3;
+            const limitResult = api.maybeAutoRetryReviewer(retryReviewer, {{ passed: false }});
+            assert(limitResult === false, "Auto-rerun must stop after 3 failed attempts");
+            assert(seedGenerator.widgets[0].value === 201, "Retry limit must not increment seed again");
+            assert(
+                String(retryReviewer.__denoLocalLLMGateState.reason || "").includes("Blocked after 3 auto retries"),
+                "Retry limit must show a clear blocked message"
+            );
+
+            api.setReviewerAutoRetryEnabled(retryReviewer, true);
+            api.setReviewerSeedTarget(retryReviewer, "999:seed");
+            const missingManualRetryResult = api.maybeAutoRetryReviewer(retryReviewer, {{ passed: false }});
+            assert(missingManualRetryResult === false, "Auto-rerun must stop when the selected manual seed target is missing");
+            assert(seedGenerator.widgets[0].value === 201, "Missing manual seed target must not fall back to generation seed");
+            assert(
+                String(retryReviewer.__denoLocalLLMGateState.reason || "").includes("selected seed target"),
+                "Missing manual seed target must explain that the selected seed was not found"
+            );
+
+            const noSeedReviewer = {{
+                id: 10,
+                type: "DenoAIReviewGate",
+                title: "(Deno) Local LLM Reviewer",
+                properties: {{}},
+                widgets: [],
+                inputs: [{{ name: "review", link: 50 }}],
+                outputs: [],
+                setDirtyCanvas() {{}},
+            }};
+            graph.links = {{
+                "50": {{ origin_id: 11, target_id: 10 }},
+            }};
+            graph._nodes = [
+                noSeedReviewer,
+                {{ id: 11, type: "DenoPromptText", widgets: [], inputs: [], outputs: [] }},
+            ];
+            api.setReviewerAutoRetryEnabled(noSeedReviewer, true);
+            const noSeedRetryResult = api.maybeAutoRetryReviewer(noSeedReviewer, {{ passed: false }});
+            assert(noSeedRetryResult === false, "Auto-rerun must stop when no upstream seed exists");
+            assert(
+                String(noSeedReviewer.__denoLocalLLMGateState.reason || "").includes("upstream seed"),
+                "Missing Auto seed must ask the user to pick a seed target"
+            );
 
             const regenerateOutput = {{
                 "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
@@ -190,6 +270,25 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             }};
             api.applyReviewerRegenerateMode(regenerateOutput, "3", regenerateOutput["3"]);
             assert(keys(regenerateOutput) === "1,2,3", "Regenerate must keep only the reviewer and its upstream path");
+
+            const submitReviewer = {{
+                id: 3,
+                type: "DenoAIReviewGate",
+                widgets: [{{ name: "review_mode", value: "Pass" }}],
+                inputs: [],
+                outputs: [],
+                setDirtyCanvas() {{}},
+                _denoReviewerSubmitMode: "regenerate",
+            }};
+            graph._nodes = [submitReviewer];
+            const mixedSubmitOutput = {{
+                "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
+                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["1", 0] }} }},
+                "3": {{ class_type: "DenoAIReviewGate", inputs: {{ review: ["2", 0], image: ["1", 0], review_mode: "Pass" }} }},
+                "4": {{ class_type: "SaveImage", inputs: {{ images: ["3", 0] }} }},
+            }};
+            api.applyReviewerSubmitModes(mixedSubmitOutput);
+            assert(keys(mixedSubmitOutput) === "1,2,3", "Regenerate submit mode must win over a stale Pass widget value");
 
             const passOutput = {{
                 "1": {{ class_type: "ImageGenerator", inputs: {{}} }},

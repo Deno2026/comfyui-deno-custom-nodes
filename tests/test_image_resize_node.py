@@ -2238,6 +2238,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "Auto: nearest upstream seed" in script
     assert "Graph fallback" in script
     assert "Auto retry could not find an upstream seed." in script
+    assert "Auto retry could not find the selected seed target." in script
+    assert "applyReviewerSubmitModes" in script
     assert "video frames" not in script
     assert "makeReviewerPreview" in script
     assert "Image Preview" in script
