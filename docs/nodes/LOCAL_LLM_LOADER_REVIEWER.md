@@ -38,6 +38,12 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
   - `Always unload before each LLM call`
   - `Never unload before LLM call`
 - Old saved values `Auto`, `Always free`, and `Never free` must normalize to the current labels.
+- Reviewer auto-rerun on failure is optional and off by default.
+- Reviewer auto-rerun is capped at 3 attempts.
+- Before each auto-rerun, Reviewer increments one upstream seed widget by `+1`.
+- `Seed: Auto` should prefer generation/sampler seed widgets over the Local LLM Loader's own seed.
+- When multiple upstream seed widgets exist, the Reviewer seed target button cycles through available candidates.
+- If no upstream seed is found, auto-rerun stops with a clear missing-seed message.
 
 ## Current Important Fixes
 
@@ -81,9 +87,55 @@ Before calling this node done after a behavior change, cover the affected cells:
   - Always unloads before each LLM call.
   - Never does not unload ComfyUI models.
 - Old saved-node/widget-shift simulation when widget order or hidden fields change.
+- Reviewer auto-rerun:
+  - Off by default.
+  - Failure increments the selected upstream seed by `+1`.
+  - Auto target chooses generation seed before Local LLM seed.
+  - `Seed: Auto` opens a picker. Auto only uses upstream seed widgets; manual selection can choose an upstream seed or a graph fallback seed.
+  - Manual seed target changes only the selected seed.
+  - Passing reviews ignore auto-rerun and reset the retry state.
+  - Stops after 3 failed attempts.
 - Real canvas control test for buttons, preview scrollbars, More popup, resize grow/shrink, and wheel/middle-click behavior.
 
 ## Latest Review Evidence
+
+2026-06-13 seed picker refinement:
+
+- `Seed: Auto` now opens a visible `Retry Seed Target` picker instead of cycling hidden candidates.
+- Auto target remains limited to upstream seed widgets. Graph fallback seed widgets are listed for explicit manual selection only.
+- Passing reviews ignore auto-rerun and reset retry state; failed reviews can retry up to 3 times.
+- Verification passed:
+  - `node --check web/js/deno_local_llm_refiner.js`
+  - `py -m pytest tests/test_local_llm_reviewer_graph_transform.py -q`
+  - `py -m pytest tests/test_image_resize_node.py -q -k "local_llm or ai_review_gate or prompt_text or node_registration"`
+  - `py -m pytest tests -q` -> `127 passed`
+  - `git diff --check` -> no whitespace errors, line-ending warnings only.
+- Runtime JS synced to active ComfyUI install and SHA256 matched.
+- ComfyUI restarted through `C:\Users\aions\Desktop\ComfyUI - Sage Attention.lnk`; queue idle, one 8188 listener.
+- Served JS contained `Retry Seed Target`, `Auto: nearest upstream seed`, `Graph fallback`, and `collectReviewerSelectableSeedCandidates`.
+- Real canvas check passed:
+  - `Seed: Auto` opened the picker.
+  - Graph fallback selection changed the button label to `Seed: #1 seed`.
+  - Auto selection restored the button to `Seed: Auto`.
+  - DENO-related browser console errors: 0.
+
+2026-06-13 auto-rerun feature review:
+
+- Backup created before editing:
+  `E:\DENO-Share\agent-backups\comfyui-deno-custom-nodes\local-llm-reviewer-auto-rerun-20260613-144651`.
+- Full local test suite passed: `127 passed`.
+- Frontend syntax check passed for `web/js/deno_local_llm_refiner.js`.
+- `git diff --check` found no whitespace errors.
+- Active runtime JS was synced and SHA256 matched.
+- ComfyUI was restarted through `C:\Users\aions\Desktop\ComfyUI - Sage Attention.lnk`.
+- `/object_info/DenoAIReviewGate`, `/object_info/DenoLocalLLMRefiner`, and `/object_info/DenoPromptText` returned real node entries.
+- Served JS contained `Retry x3 On`, `Seed: Auto`, `maybeAutoRetryReviewer`, and `incrementReviewerRetrySeed`.
+- Real canvas check passed:
+  - Reviewer showed `Retry x3 Off` and `Seed: Auto`.
+  - Clicking Retry toggled to `Retry x3 On`.
+  - Clicking Seed showed `Seed target: Auto` when no upstream seed candidate was connected.
+  - Retry was restored to Off after the check.
+  - No DENO Local LLM browser console errors were reported.
 
 2026-06-13 push-candidate review:
 

@@ -2225,6 +2225,19 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "Approve Armed" not in script
     assert "Regenerate" in script
     assert "triggerReviewerRegenerate" in script
+    assert "REVIEWER_AUTO_RETRY_MAX = 3" in script
+    assert "Retry x3 On" in script
+    assert "Retry x3 Off" in script
+    assert "Seed: Auto" in script
+    assert "collectReviewerSeedCandidates" in script
+    assert "collectReviewerSelectableSeedCandidates" in script
+    assert "incrementReviewerRetrySeed" in script
+    assert "maybeAutoRetryReviewer" in script
+    assert "openReviewerSeedTargetDialog" in script
+    assert "Retry Seed Target" in script
+    assert "Auto: nearest upstream seed" in script
+    assert "Graph fallback" in script
+    assert "Auto retry could not find an upstream seed." in script
     assert "video frames" not in script
     assert "makeReviewerPreview" in script
     assert "Image Preview" in script

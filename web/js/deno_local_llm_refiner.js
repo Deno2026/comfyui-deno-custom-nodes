@@ -78,6 +78,11 @@ let reviewerGraphPromptHookInstalled = false;
 let reviewerGraphPromptRetryScheduled = false;
 const REVIEWER_SUBMIT_REGENERATE = "regenerate";
 const REVIEWER_SUBMIT_APPROVE_ONCE = "approve_once";
+const REVIEWER_AUTO_RETRY_MAX = 3;
+const REVIEWER_AUTO_RETRY_SEED_AUTO = "auto";
+const REVIEWER_PROP_AUTO_RETRY = "deno_auto_retry_on_fail";
+const REVIEWER_PROP_SEED_TARGET = "deno_auto_retry_seed_target";
+const REVIEWER_MAX_SEED = 4294967295;
 
 installProgressListener();
 
@@ -188,6 +193,7 @@ app.registerExtension({
                     }
                     refreshGateNode(this);
                     markGraphDirty(this);
+                    maybeAutoRetryReviewer(this, gateInfo);
                 }
                 return result;
             };
@@ -271,6 +277,230 @@ function collectReviewerAncestors(output, reviewerId) {
         }
     }
     return keep;
+}
+
+function graphNodeById(graph, id) {
+    const key = String(id);
+    return graph?.getNodeById?.(Number(key))
+        || graph?._nodes_by_id?.[key]
+        || (graph?._nodes || graph?.nodes || []).find((node) => String(node?.id) === key)
+        || null;
+}
+
+function reviewerInputOriginNodes(node) {
+    const graph = safeNodeGraph(node) || safeAppGraph();
+    const links = graph?.links || {};
+    const origins = [];
+    for (const input of node?.inputs || []) {
+        for (const linkId of asInputLinkList(input)) {
+            const link = links?.[linkId];
+            if (link?.origin_id == null) {
+                continue;
+            }
+            const originNode = graphNodeById(graph, link.origin_id);
+            if (originNode) {
+                origins.push(originNode);
+            }
+        }
+    }
+    return origins;
+}
+
+function isSeedWidgetCandidate(widget) {
+    const name = String(widget?.name || widget?.label || "").toLowerCase();
+    if (!name || !name.includes("seed") || name.includes("seed_mode") || name.includes("control")) {
+        return false;
+    }
+    const value = Number(widget?.value);
+    return Number.isFinite(value);
+}
+
+function isPreferredRetrySeedNode(node) {
+    const type = String(node?.type || node?.comfyClass || node?.constructor?.name || "");
+    return type !== NODE_NAME && type !== GATE_NODE_NAME;
+}
+
+function collectReviewerSeedCandidates(node) {
+    const graph = safeNodeGraph(node) || safeAppGraph();
+    const queue = reviewerInputOriginNodes(node).map((origin, index) => ({
+        node: origin,
+        distance: 1,
+        order: index,
+    }));
+    const visited = new Set();
+    const candidates = [];
+    let order = 0;
+
+    while (queue.length) {
+        const current = queue.shift();
+        const currentNode = current.node;
+        const currentId = String(currentNode?.id ?? "");
+        if (!currentId || visited.has(currentId)) {
+            continue;
+        }
+        visited.add(currentId);
+
+        for (const widget of currentNode.widgets || []) {
+            if (!isSeedWidgetCandidate(widget)) {
+                continue;
+            }
+            const widgetName = String(widget.name || widget.label || "seed");
+            candidates.push({
+                node: currentNode,
+                widget,
+                nodeId: currentId,
+                widgetName,
+                key: `${currentId}:${widgetName}`,
+                value: Number(widget.value),
+                preferred: isPreferredRetrySeedNode(currentNode),
+                distance: current.distance,
+                order: order++,
+            });
+        }
+
+        for (const input of currentNode.inputs || []) {
+            for (const linkId of asInputLinkList(input)) {
+                const link = graph?.links?.[linkId];
+                if (link?.origin_id == null) {
+                    continue;
+                }
+                const originNode = graphNodeById(graph, link.origin_id);
+                if (originNode) {
+                    queue.push({
+                        node: originNode,
+                        distance: current.distance + 1,
+                        order: order++,
+                    });
+                }
+            }
+        }
+    }
+
+    return candidates.sort((a, b) => {
+        if (a.preferred !== b.preferred) {
+            return a.preferred ? -1 : 1;
+        }
+        if (a.distance !== b.distance) {
+            return a.distance - b.distance;
+        }
+        return a.order - b.order;
+    });
+}
+
+function collectGraphSeedCandidates(node) {
+    const graph = safeNodeGraph(node) || safeAppGraph();
+    const nodes = graph?._nodes || graph?.nodes || [];
+    const candidates = [];
+    let order = 0;
+    for (const item of nodes) {
+        const nodeId = String(item?.id ?? "");
+        if (!nodeId || item === node || item?.type === GATE_NODE_NAME) {
+            continue;
+        }
+        for (const widget of item.widgets || []) {
+            if (!isSeedWidgetCandidate(widget)) {
+                continue;
+            }
+            const widgetName = String(widget.name || widget.label || "seed");
+            candidates.push({
+                node: item,
+                widget,
+                nodeId,
+                widgetName,
+                key: `${nodeId}:${widgetName}`,
+                value: Number(widget.value),
+                preferred: isPreferredRetrySeedNode(item),
+                distance: 999,
+                order: order++,
+                scope: "graph",
+            });
+        }
+    }
+    return candidates;
+}
+
+function collectReviewerSelectableSeedCandidates(node) {
+    const upstream = collectReviewerSeedCandidates(node).map((candidate) => ({
+        ...candidate,
+        scope: "upstream",
+    }));
+    const seen = new Set(upstream.map((candidate) => candidate.key));
+    const graphCandidates = collectGraphSeedCandidates(node).filter((candidate) => !seen.has(candidate.key));
+    return [...upstream, ...graphCandidates];
+}
+
+function seedCandidateLabel(candidate) {
+    if (!candidate) {
+        return "Auto";
+    }
+    const title = String(candidate.node?.title || candidate.node?.type || "Node").trim();
+    const scope = candidate.scope === "graph" ? "graph" : "upstream";
+    return `${title} #${candidate.nodeId} / ${candidate.widgetName} (${scope})`;
+}
+
+function reviewerSeedTarget(node) {
+    ensureReviewerRetryProperties(node);
+    return String(node?.properties?.[REVIEWER_PROP_SEED_TARGET] || REVIEWER_AUTO_RETRY_SEED_AUTO);
+}
+
+function reviewerSeedTargetCandidate(node) {
+    const target = reviewerSeedTarget(node);
+    if (target && target !== REVIEWER_AUTO_RETRY_SEED_AUTO) {
+        const candidates = collectReviewerSelectableSeedCandidates(node);
+        const selected = candidates.find((candidate) => candidate.key === target);
+        if (selected) {
+            return selected;
+        }
+    }
+    const upstreamCandidates = collectReviewerSeedCandidates(node);
+    return upstreamCandidates.find((candidate) => candidate.preferred) || upstreamCandidates[0] || null;
+}
+
+function reviewerSeedTargetButtonLabel(node) {
+    const target = reviewerSeedTarget(node);
+    if (target === REVIEWER_AUTO_RETRY_SEED_AUTO) {
+        return "Seed: Auto";
+    }
+    const candidate = collectReviewerSelectableSeedCandidates(node).find((item) => item.key === target);
+    if (!candidate) {
+        return "Seed: Missing";
+    }
+    return `Seed: #${candidate.nodeId} ${candidate.widgetName}`;
+}
+
+function setReviewerSeedTarget(node, target) {
+    ensureReviewerRetryProperties(node);
+    node.properties[REVIEWER_PROP_SEED_TARGET] = String(target || REVIEWER_AUTO_RETRY_SEED_AUTO);
+    resetReviewerAutoRetry(node);
+    markGraphDirty(node);
+}
+
+function incrementReviewerRetrySeed(node) {
+    const candidate = reviewerSeedTargetCandidate(node);
+    if (!candidate?.widget) {
+        return null;
+    }
+    const oldSeed = Math.max(0, Math.floor(Number(candidate.widget.value) || 0));
+    const newSeed = oldSeed >= REVIEWER_MAX_SEED ? 0 : oldSeed + 1;
+    candidate.widget.value = newSeed;
+    if (typeof candidate.widget.callback === "function") {
+        try {
+            candidate.widget.callback(newSeed, app.canvas, candidate.node);
+        } catch {
+            try {
+                candidate.widget.callback(newSeed);
+            } catch {
+                // Best-effort; the seed value has already been updated.
+            }
+        }
+    }
+    markGraphDirty(candidate.node);
+    return {
+        ...candidate,
+        oldSeed,
+        newSeed,
+        label: seedCandidateLabel(candidate),
+    };
 }
 
 function collectPromptLinkAncestors(output, link) {
@@ -514,6 +744,9 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         applyReviewerApproveOnceMode,
         applyReviewerPassMode,
         applyReviewerRegenerateMode,
+        collectReviewerSeedCandidates,
+        collectReviewerSelectableSeedCandidates,
+        incrementReviewerRetrySeed,
         reviewerRefreshSize,
         reviewerWidgetDrawWidth,
         reviewerWidgetLayoutWidth,
@@ -831,7 +1064,7 @@ function previewLocalPosFromEvent(event, node) {
 
 function isDenoLocalLLMModalEvent(event) {
     const target = event?.target;
-    return Boolean(target?.closest?.(".deno-local-llm-preview-modal, .deno-local-llm-system-prompt-modal"));
+    return Boolean(target?.closest?.(".deno-local-llm-preview-modal, .deno-local-llm-system-prompt-modal, .deno-local-llm-seed-modal"));
 }
 
 function graphPointCandidatesFromWheelEvent(event, canvas, ds) {
@@ -1027,6 +1260,7 @@ function setupGateNode(node) {
     }
     node.__denoLocalLLMGateSettingUp = true;
     try {
+        ensureReviewerRetryProperties(node);
         if (!node.title || node.title === GATE_NODE_NAME || GATE_LEGACY_DISPLAY_NAMES.has(node.title)) {
             node.title = GATE_DISPLAY_NAME;
         }
@@ -1055,6 +1289,37 @@ function setupGateNode(node) {
     } finally {
         node.__denoLocalLLMGateSettingUp = false;
     }
+}
+
+function ensureReviewerRetryProperties(node) {
+    if (!node) {
+        return;
+    }
+    node.properties = node.properties || {};
+    node.properties[REVIEWER_PROP_AUTO_RETRY] = Boolean(node.properties[REVIEWER_PROP_AUTO_RETRY]);
+    const target = String(node.properties[REVIEWER_PROP_SEED_TARGET] || REVIEWER_AUTO_RETRY_SEED_AUTO);
+    node.properties[REVIEWER_PROP_SEED_TARGET] = target || REVIEWER_AUTO_RETRY_SEED_AUTO;
+}
+
+function reviewerAutoRetryEnabled(node) {
+    ensureReviewerRetryProperties(node);
+    return Boolean(node?.properties?.[REVIEWER_PROP_AUTO_RETRY]);
+}
+
+function setReviewerAutoRetryEnabled(node, enabled) {
+    ensureReviewerRetryProperties(node);
+    node.properties[REVIEWER_PROP_AUTO_RETRY] = Boolean(enabled);
+    resetReviewerAutoRetry(node);
+    markGraphDirty(node);
+}
+
+function resetReviewerAutoRetry(node) {
+    if (!node) {
+        return;
+    }
+    node._denoReviewerAutoRetryActive = false;
+    node._denoReviewerAutoRetryAttempt = 0;
+    node._denoReviewerAutoRetryBusy = false;
 }
 
 function ensureReviewerControlWidgets(node) {
@@ -1284,7 +1549,7 @@ function reviewerRefreshSize(node, computed) {
     const currentWidth = Number(node?.size?.[0] || 0);
     const computedWidth = Number(computed?.[0] || 0);
     const width = Math.max(currentWidth || computedWidth || GATE_DEFAULT_WIDTH, GATE_DEFAULT_WIDTH);
-    const height = Math.max(Number(computed?.[1] || 0), 156);
+    const height = Math.max(Number(computed?.[1] || 0), 218);
     return [width, height];
 }
 
@@ -1303,7 +1568,7 @@ class ReviewerControlsWidget {
     }
 
     computeSize(width) {
-        return [reviewerWidgetLayoutWidth(this.node, width), 78];
+        return [reviewerWidgetLayoutWidth(this.node, width), 114];
     }
 
     draw(ctx, node, width, y, height) {
@@ -1314,27 +1579,34 @@ class ReviewerControlsWidget {
         const panelW = Math.max(1, drawWidth - 30);
         const mode = String(getWidgetValue(node, "review_mode", "Review") || "Review");
         const gap = 8;
-        const rowH = 28;
+        const rowH = 26;
         const halfW = (panelW - gap) / 2;
         const reviewBounds = [x, panelY, halfW, rowH];
         const passBounds = [x + halfW + gap, panelY, halfW, rowH];
-        const approveBounds = [x, panelY + rowH + 8, halfW, rowH];
-        const regenBounds = [x + halfW + gap, panelY + rowH + 8, halfW, rowH];
+        const approveBounds = [x, panelY + rowH + 7, halfW, rowH];
+        const regenBounds = [x + halfW + gap, panelY + rowH + 7, halfW, rowH];
+        const retryBounds = [x, panelY + (rowH + 7) * 2, halfW, rowH];
+        const seedBounds = [x + halfW + gap, panelY + (rowH + 7) * 2, halfW, rowH];
+        const autoRetry = reviewerAutoRetryEnabled(node);
         this.hitAreas = {
             review: reviewBounds,
             pass: passBounds,
             approve: approveBounds,
             regenerate: regenBounds,
+            retry: retryBounds,
+            seed: seedBounds,
         };
 
         ctx.save();
         ctx.beginPath();
-        ctx.rect(0, y, drawWidth, Math.max(Number(height) || 0, 78));
+        ctx.rect(0, y, drawWidth, Math.max(Number(height) || 0, 114));
         ctx.clip();
         drawReviewerControlButton(ctx, reviewBounds, "Review", mode !== "Pass", this.pressed === "review", "#9dffba");
         drawReviewerControlButton(ctx, passBounds, "Pass", mode === "Pass", this.pressed === "pass", "#ffb28b");
         drawReviewerControlButton(ctx, approveBounds, "Approve Once", false, this.pressed === "approve", "#9dffba");
         drawReviewerControlButton(ctx, regenBounds, "Regenerate", false, this.pressed === "regenerate", "#dfffea");
+        drawReviewerControlButton(ctx, retryBounds, autoRetry ? "Retry x3 On" : "Retry x3 Off", autoRetry, this.pressed === "retry", "#9dffba");
+        drawReviewerControlButton(ctx, seedBounds, reviewerSeedTargetButtonLabel(node), reviewerSeedTarget(node) !== REVIEWER_AUTO_RETRY_SEED_AUTO, this.pressed === "seed", "#dfffea");
         ctx.restore();
     }
 
@@ -1355,10 +1627,12 @@ class ReviewerControlsWidget {
                 return true;
             }
             if (pressed === "review") {
+                resetReviewerAutoRetry(node);
                 setWidgetValue(node, "review_mode", "Review");
                 setWidgetValue(node, "approve_once", false, false);
                 setReviewerWaitingReason(node, "Review mode. Press Run to review.");
             } else if (pressed === "pass") {
+                resetReviewerAutoRetry(node);
                 setWidgetValue(node, "review_mode", "Pass");
                 setWidgetValue(node, "approve_once", false, false);
                 setReviewerWaitingReason(node, "Pass mode. Press Run to pass through.");
@@ -1368,6 +1642,17 @@ class ReviewerControlsWidget {
             } else if (pressed === "regenerate") {
                 setReviewerWaitingReason(node, "Regenerating the path into this reviewer.");
                 void triggerReviewerRegenerate(node);
+            } else if (pressed === "retry") {
+                const enabled = !reviewerAutoRetryEnabled(node);
+                setReviewerAutoRetryEnabled(node, enabled);
+                setReviewerWaitingReason(
+                    node,
+                    enabled
+                        ? `Auto retry on. Failed reviews rerun up to ${REVIEWER_AUTO_RETRY_MAX} times.`
+                        : "Auto retry off."
+                );
+            } else if (pressed === "seed") {
+                openReviewerSeedTargetDialog(node);
             }
             refreshGateNode(node);
             return true;
@@ -1730,7 +2015,90 @@ async function queueReviewerWithMode(node, mode) {
     return false;
 }
 
+function markReviewerAutoRetryLimit(node) {
+    node.__denoLocalLLMGateState = {
+        ...(node.__denoLocalLLMGateState || {}),
+        passed: false,
+        verdict: "FAIL",
+        reason: `Blocked after ${REVIEWER_AUTO_RETRY_MAX} auto retries. Change the seed target or run manually.`,
+        source: "Auto retry",
+        updatedAt: Date.now(),
+    };
+    resetReviewerAutoRetry(node);
+    refreshGateNode(node);
+}
+
+function maybeAutoRetryReviewer(node, gateInfo) {
+    if (!node || !gateInfo) {
+        return false;
+    }
+    if (!reviewerAutoRetryEnabled(node)) {
+        resetReviewerAutoRetry(node);
+        return false;
+    }
+    if (Boolean(gateInfo.passed)) {
+        resetReviewerAutoRetry(node);
+        return false;
+    }
+    if (node._denoReviewerAutoRetryBusy) {
+        return false;
+    }
+    if (!node._denoReviewerAutoRetryActive) {
+        node._denoReviewerAutoRetryActive = true;
+        node._denoReviewerAutoRetryAttempt = 0;
+    }
+    const attempt = Number(node._denoReviewerAutoRetryAttempt || 0);
+    if (attempt >= REVIEWER_AUTO_RETRY_MAX) {
+        markReviewerAutoRetryLimit(node);
+        return false;
+    }
+
+    const seedChange = incrementReviewerRetrySeed(node);
+    if (!seedChange) {
+        node.__denoLocalLLMGateState = {
+            ...(node.__denoLocalLLMGateState || {}),
+            passed: false,
+            verdict: "FAIL",
+            reason: "Auto retry could not find an upstream seed. Pick a seed target or rerun manually.",
+            source: "Auto retry",
+            updatedAt: Date.now(),
+        };
+        resetReviewerAutoRetry(node);
+        refreshGateNode(node);
+        return false;
+    }
+
+    const nextAttempt = attempt + 1;
+    node._denoReviewerAutoRetryAttempt = nextAttempt;
+    node._denoReviewerAutoRetryBusy = true;
+    setReviewerWaitingReason(
+        node,
+        `Auto retry ${nextAttempt}/${REVIEWER_AUTO_RETRY_MAX}: ${seedChange.label} ${seedChange.oldSeed} -> ${seedChange.newSeed}.`
+    );
+    window.setTimeout(async () => {
+        try {
+            const queued = await queueReviewerWithMode(node, REVIEWER_SUBMIT_REGENERATE);
+            if (!queued) {
+                node.__denoLocalLLMGateState = {
+                    ...(node.__denoLocalLLMGateState || {}),
+                    passed: false,
+                    verdict: "FAIL",
+                    reason: "Auto retry could not start. Press Regenerate or Run to retry.",
+                    source: "Auto retry",
+                    updatedAt: Date.now(),
+                };
+                resetReviewerAutoRetry(node);
+                refreshGateNode(node);
+            }
+        } finally {
+            node._denoReviewerAutoRetryBusy = false;
+        }
+    }, 150);
+    return true;
+}
+
 async function triggerReviewerRegenerate(node) {
+    resetReviewerAutoRetry(node);
     const queued = await queueReviewerWithMode(node, REVIEWER_SUBMIT_REGENERATE);
     if (!queued) {
         setReviewerWaitingReason(node, "Regenerate could not start. Press Run to retry.");
@@ -1740,6 +2108,7 @@ async function triggerReviewerRegenerate(node) {
 }
 
 async function triggerReviewerApproveOnce(node) {
+    resetReviewerAutoRetry(node);
     setWidgetValue(node, "review_mode", "Review", false);
     setWidgetValue(node, "approve_once", false, false);
     const queued = await queueReviewerWithMode(node, REVIEWER_SUBMIT_APPROVE_ONCE);
@@ -3447,6 +3816,149 @@ function openPreviewTextDialog(titleText, textValue) {
     overlay.append(panel);
     document.body.append(overlay);
     textBox.focus();
+}
+
+function openReviewerSeedTargetDialog(node) {
+    document.querySelector?.(".deno-local-llm-seed-modal")?.remove();
+    ensureReviewerRetryProperties(node);
+    const candidates = collectReviewerSelectableSeedCandidates(node);
+    const currentTarget = reviewerSeedTarget(node);
+
+    const overlay = document.createElement("div");
+    overlay.className = "deno-local-llm-seed-modal deno-local-llm-system-prompt-modal";
+    overlay.style.cssText = [
+        "position:fixed",
+        "inset:0",
+        "z-index:10000",
+        "display:flex",
+        "align-items:center",
+        "justify-content:center",
+        "background:rgba(0,0,0,0.46)",
+    ].join(";");
+
+    const panel = document.createElement("div");
+    panel.style.cssText = [
+        "width:min(760px,calc(100vw - 72px))",
+        "max-height:min(640px,calc(100vh - 72px))",
+        "box-sizing:border-box",
+        "display:flex",
+        "flex-direction:column",
+        "gap:12px",
+        "padding:18px",
+        "border:1px solid rgba(126,255,166,0.75)",
+        "border-radius:8px",
+        "background:#0b1210",
+        "box-shadow:0 18px 48px rgba(0,0,0,0.55)",
+        "color:#dfffea",
+        "font-family:Arial,sans-serif",
+    ].join(";");
+
+    const header = document.createElement("div");
+    header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:16px;";
+    const title = document.createElement("div");
+    title.textContent = "Retry Seed Target";
+    title.style.cssText = "font-size:18px;font-weight:800;color:#9dffba;";
+    const closeButton = document.createElement("button");
+    closeButton.textContent = "Close";
+    closeButton.style.cssText = buttonStyle(false);
+    header.append(title, closeButton);
+
+    const hint = document.createElement("div");
+    hint.textContent = "Choose which seed changes when Reviewer auto-reruns after a failed review.";
+    hint.style.cssText = "font-size:12px;line-height:1.45;color:#b8d8c1;";
+
+    const list = document.createElement("div");
+    list.style.cssText = [
+        "display:flex",
+        "flex-direction:column",
+        "gap:8px",
+        "min-height:0",
+        "overflow:auto",
+        "overscroll-behavior:contain",
+        "padding-right:4px",
+    ].join(";");
+
+    const close = () => overlay.remove();
+    const select = (target, label) => {
+        setReviewerSeedTarget(node, target);
+        setReviewerWaitingReason(node, `Seed target: ${label}.`);
+        refreshGateNode(node);
+        close();
+    };
+
+    list.append(makeSeedTargetRow({
+        label: "Auto: nearest upstream seed",
+        value: "Prefers generation/sampler seed. Local LLM seed is used only when no generation seed is found.",
+        active: currentTarget === REVIEWER_AUTO_RETRY_SEED_AUTO,
+        onClick: () => select(REVIEWER_AUTO_RETRY_SEED_AUTO, "Auto"),
+    }));
+
+    if (!candidates.length) {
+        const empty = document.createElement("div");
+        empty.textContent = "No seed widgets found. Connect a sampler/generation node, or keep Seed: Auto and rerun manually.";
+        empty.style.cssText = "padding:12px;border:1px solid rgba(255,177,177,0.35);border-radius:6px;color:#ffd1d1;background:rgba(70,20,20,0.28);font-size:12px;";
+        list.append(empty);
+    } else {
+        for (const candidate of candidates) {
+            const scope = candidate.scope === "graph" ? "Graph fallback" : "Upstream";
+            list.append(makeSeedTargetRow({
+                label: seedCandidateLabel(candidate),
+                value: `${scope} · current seed ${Math.floor(Number(candidate.widget?.value) || 0)}`,
+                active: currentTarget === candidate.key,
+                onClick: () => select(candidate.key, seedCandidateLabel(candidate)),
+            }));
+        }
+    }
+
+    closeButton.addEventListener("click", close);
+    overlay.addEventListener("pointerdown", (event) => {
+        if (event.target === overlay) {
+            close();
+        }
+    });
+    panel.addEventListener("pointerdown", (event) => event.stopPropagation());
+    panel.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+    list.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+    overlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            close();
+        }
+    });
+
+    panel.append(header, hint, list);
+    overlay.append(panel);
+    document.body.append(overlay);
+    closeButton.focus();
+}
+
+function makeSeedTargetRow({ label, value, active, onClick }) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.style.cssText = [
+        "width:100%",
+        "box-sizing:border-box",
+        "display:flex",
+        "flex-direction:column",
+        "align-items:flex-start",
+        "gap:4px",
+        "padding:11px 12px",
+        "border-radius:7px",
+        `border:1px solid ${active ? "rgba(126,255,166,0.95)" : "rgba(126,255,166,0.32)"}`,
+        `background:${active ? "rgba(24,96,48,0.82)" : "rgba(0,0,0,0.34)"}`,
+        "color:#eaffef",
+        "cursor:pointer",
+        "text-align:left",
+    ].join(";");
+    const title = document.createElement("div");
+    title.textContent = String(label || "Seed target");
+    title.style.cssText = "font-size:13px;font-weight:800;color:#f0fff5;";
+    const sub = document.createElement("div");
+    sub.textContent = String(value || "");
+    sub.style.cssText = "font-size:11px;line-height:1.35;color:#b8d8c1;";
+    row.append(title, sub);
+    row.addEventListener("click", onClick);
+    return row;
 }
 
 function buttonStyle(primary) {

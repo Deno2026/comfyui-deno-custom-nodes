@@ -108,6 +108,79 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 "Reviewer refresh must not expand node width from stale computed widget width"
             );
 
+            const seedGenerator = {{
+                id: 1,
+                type: "KSampler",
+                title: "KSampler",
+                widgets: [{{ name: "seed", value: 100 }}],
+                inputs: [],
+                outputs: [],
+                setDirtyCanvas() {{}},
+            }};
+            const llmNode = {{
+                id: 2,
+                type: "DenoLocalLLMRefiner",
+                title: "(Deno) Local LLM Loader",
+                widgets: [{{ name: "seed", value: 50 }}],
+                inputs: [{{ name: "user_prompt", link: 41 }}],
+                outputs: [],
+                setDirtyCanvas() {{}},
+            }};
+            const retryReviewer = {{
+                id: 3,
+                type: "DenoAIReviewGate",
+                title: "(Deno) Local LLM Reviewer",
+                properties: {{}},
+                widgets: [],
+                inputs: [
+                    {{ name: "review", link: 42 }},
+                    {{ name: "image", link: 43 }},
+                ],
+                outputs: [],
+                setDirtyCanvas() {{}},
+            }};
+            const fallbackSampler = {{
+                id: 8,
+                type: "KSampler",
+                title: "Fallback KSampler",
+                widgets: [{{ name: "noise_seed", value: 700 }}],
+                inputs: [],
+                outputs: [],
+                setDirtyCanvas() {{}},
+            }};
+            graph.links = {{
+                "41": {{ origin_id: 9, target_id: 2 }},
+                "42": {{ origin_id: 2, target_id: 3 }},
+                "43": {{ origin_id: 1, target_id: 3 }},
+            }};
+            graph._nodes = [
+                seedGenerator,
+                llmNode,
+                retryReviewer,
+                fallbackSampler,
+                {{ id: 9, type: "DenoPromptText", widgets: [], inputs: [], outputs: [] }},
+            ];
+            const seedCandidates = api.collectReviewerSeedCandidates(retryReviewer);
+            assert(seedCandidates.length === 2, "Reviewer retry must find both upstream seed widgets");
+            const selectableSeedCandidates = api.collectReviewerSelectableSeedCandidates(retryReviewer);
+            assert(
+                selectableSeedCandidates.some((candidate) => candidate.key === "8:noise_seed" && candidate.scope === "graph"),
+                "Reviewer seed picker must expose graph fallback seed widgets for manual selection"
+            );
+            const autoSeedChange = api.incrementReviewerRetrySeed(retryReviewer);
+            assert(autoSeedChange.nodeId === "1", "Auto retry must prefer the generation seed over the Local LLM seed");
+            assert(seedGenerator.widgets[0].value === 101, "Auto retry must increment the selected generation seed by one");
+            assert(llmNode.widgets[0].value === 50, "Auto retry must not change the Local LLM seed when a generation seed exists");
+            assert(fallbackSampler.widgets[0].value === 700, "Auto retry must not change graph fallback seeds");
+            retryReviewer.properties.deno_auto_retry_seed_target = "2:seed";
+            const manualSeedChange = api.incrementReviewerRetrySeed(retryReviewer);
+            assert(manualSeedChange.nodeId === "2", "Manual seed target must increment the selected upstream seed");
+            assert(llmNode.widgets[0].value === 51, "Manual seed target must increment only the selected seed");
+            retryReviewer.properties.deno_auto_retry_seed_target = "8:noise_seed";
+            const fallbackSeedChange = api.incrementReviewerRetrySeed(retryReviewer);
+            assert(fallbackSeedChange.nodeId === "8", "Manual graph fallback seed target must increment the selected seed");
+            assert(fallbackSampler.widgets[0].value === 701, "Manual graph fallback target must increment only that seed");
+
             const regenerateOutput = {{
                 "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
                 "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["1", 0] }} }},
