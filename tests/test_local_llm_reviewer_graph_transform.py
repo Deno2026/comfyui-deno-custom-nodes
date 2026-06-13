@@ -187,6 +187,16 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(llmNode.widgets[0].value === 51, "Missing manual seed target must not change the Local LLM seed");
             assert(fallbackSampler.widgets[0].value === 701, "Missing manual seed target must not change graph fallback seeds");
 
+            retryReviewer.properties.deno_auto_retry_seed_target = "auto";
+            seedGenerator.widgets[0].value = 1086783801454194;
+            const highSeedChange = api.incrementReviewerRetrySeed(retryReviewer);
+            assert(highSeedChange.oldSeed === 1086783801454194, "High ComfyUI sampler seed must be read without 32-bit clamping");
+            assert(seedGenerator.widgets[0].value === 1086783801454195, "High ComfyUI sampler seed must increment by one instead of wrapping to zero");
+            seedGenerator.widgets[0].options = {{ max: 1086783801454195 }};
+            const maxSeedChange = api.incrementReviewerRetrySeed(retryReviewer);
+            assert(maxSeedChange.newSeed === 0, "Seed must wrap only when the widget max is actually reached");
+            delete seedGenerator.widgets[0].options;
+
             seedGenerator.widgets[0].value = 200;
             llmNode.widgets[0].value = 60;
             fallbackSampler.widgets[0].value = 800;

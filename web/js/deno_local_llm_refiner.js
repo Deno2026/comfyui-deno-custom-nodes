@@ -82,7 +82,7 @@ const REVIEWER_AUTO_RETRY_MAX = 3;
 const REVIEWER_AUTO_RETRY_SEED_AUTO = "auto";
 const REVIEWER_PROP_AUTO_RETRY = "deno_auto_retry_on_fail";
 const REVIEWER_PROP_SEED_TARGET = "deno_auto_retry_seed_target";
-const REVIEWER_MAX_SEED = 4294967295;
+const REVIEWER_FALLBACK_MAX_SEED = 1125899906842624;
 
 installProgressListener();
 
@@ -480,13 +480,22 @@ function setReviewerSeedTarget(node, target) {
     markGraphDirty(node);
 }
 
+function reviewerSeedWidgetMax(widget) {
+    const optionMax = Number(widget?.options?.max ?? widget?.options?.max_value ?? widget?.max);
+    if (Number.isFinite(optionMax) && optionMax > 0) {
+        return Math.min(Math.floor(optionMax), Number.MAX_SAFE_INTEGER);
+    }
+    return REVIEWER_FALLBACK_MAX_SEED;
+}
+
 function incrementReviewerRetrySeed(node) {
     const candidate = reviewerSeedTargetCandidate(node);
     if (!candidate?.widget) {
         return null;
     }
     const oldSeed = Math.max(0, Math.floor(Number(candidate.widget.value) || 0));
-    const newSeed = oldSeed >= REVIEWER_MAX_SEED ? 0 : oldSeed + 1;
+    const maxSeed = reviewerSeedWidgetMax(candidate.widget);
+    const newSeed = oldSeed >= maxSeed ? 0 : oldSeed + 1;
     candidate.widget.value = newSeed;
     if (typeof candidate.widget.callback === "function") {
         try {
