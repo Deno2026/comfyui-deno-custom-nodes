@@ -767,6 +767,8 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         maybeAutoRetryReviewer,
         previewTextWidth,
         resetReviewerAutoRetry,
+        reviewerControlTooltip,
+        reviewerHoverKeyFromGraphMouse,
         reviewerAutoRetryEnabled,
         reviewerRefreshSize,
         reviewerWidgetDrawWidth,
@@ -1585,6 +1587,7 @@ class ReviewerControlsWidget {
         this.options = { serialize: false };
         this.hitAreas = {};
         this.pressed = "";
+        this.hoverKey = "";
     }
 
     serializeValue() {
@@ -1620,6 +1623,9 @@ class ReviewerControlsWidget {
             retry: retryBounds,
             seed: seedBounds,
         };
+        if (!this.pressed) {
+            this.hoverKey = reviewerHoverKeyFromGraphMouse(node, this.hitAreas);
+        }
 
         ctx.save();
         ctx.beginPath();
@@ -1631,21 +1637,37 @@ class ReviewerControlsWidget {
         drawReviewerControlButton(ctx, regenBounds, "Regenerate", false, this.pressed === "regenerate", "#dfffea");
         drawReviewerControlButton(ctx, retryBounds, autoRetry ? "Retry x3 On" : "Retry x3 Off", autoRetry, this.pressed === "retry", "#9dffba");
         drawReviewerControlButton(ctx, seedBounds, reviewerSeedTargetButtonLabel(node), reviewerSeedTarget(node) !== REVIEWER_AUTO_RETRY_SEED_AUTO, this.pressed === "seed", "#dfffea");
+        const tooltip = reviewerControlTooltip(this.hoverKey);
+        if (tooltip && this.hitAreas[this.hoverKey]) {
+            drawReviewerTooltip(ctx, tooltip, this.hitAreas[this.hoverKey], {
+                x,
+                y,
+                width: drawWidth,
+                height: Math.max(Number(height) || 0, 114),
+            });
+        }
         ctx.restore();
     }
 
     mouse(event, pos, node) {
+        const eventType = String(event?.type || "");
         const key = Object.entries(this.hitAreas || {}).find(([, bounds]) => isInsideBounds(pos, bounds))?.[0] || "";
-        if (event.type === "pointerdown" && key) {
-            this.pressed = key;
-            return true;
-        }
-        if (event.type === "pointermove") {
+        if (eventType === "pointermove" || eventType === "mousemove") {
+            if (this.hoverKey !== key) {
+                this.hoverKey = key;
+                markGraphDirty(node);
+            }
             return Boolean(this.pressed);
         }
-        if (event.type === "pointerup" && this.pressed) {
+        if ((eventType === "pointerdown" || eventType === "mousedown") && key) {
+            this.pressed = key;
+            this.hoverKey = key;
+            return true;
+        }
+        if ((eventType === "pointerup" || eventType === "mouseup") && this.pressed) {
             const pressed = this.pressed;
             this.pressed = "";
+            this.hoverKey = key;
             if (!key || key !== pressed) {
                 node.setDirtyCanvas?.(true, true);
                 return true;
@@ -1681,8 +1703,10 @@ class ReviewerControlsWidget {
             refreshGateNode(node);
             return true;
         }
-        if (event.type === "pointerup") {
+        if (eventType === "pointerup" || eventType === "mouseup") {
             this.pressed = "";
+            this.hoverKey = key;
+            markGraphDirty(node);
         }
         return false;
     }
@@ -1962,6 +1986,62 @@ function drawReviewerControlButton(ctx, bounds, label, active, pressed, accent) 
     ctx.textBaseline = "middle";
     ctx.fillText(fitString(ctx, label, width - 14), x + width / 2, y + height / 2 + (pressed ? 1 : 0));
     ctx.restore();
+}
+
+function reviewerControlTooltip(key) {
+    const tooltips = {
+        review: "Review mode. The review text decides whether image/audio pass or block.",
+        pass: "Bypass review and pass image/audio through when you run the workflow.",
+        approve: "Approve only the current reviewed result using the saved snapshot.",
+        regenerate: "Rerun the upstream path before this reviewer, then review again.",
+        retry: `When review fails, rerun up to ${REVIEWER_AUTO_RETRY_MAX} times and change the selected seed.`,
+        seed: "Choose which seed changes during automatic retry.",
+    };
+    return tooltips[String(key || "")] || "";
+}
+
+function drawReviewerTooltip(ctx, text, anchorBounds, container) {
+    if (!text || !anchorBounds || !container) {
+        return;
+    }
+    const [, anchorY, anchorW, anchorH] = anchorBounds;
+    const anchorX = anchorBounds[0] + anchorW / 2;
+    const maxTextW = Math.min(260, Math.max(150, Number(container.width || 0) - 38));
+    ctx.save();
+    ctx.font = "10px 'Segoe UI', sans-serif";
+    const lines = splitPreviewLinesForWidth(ctx, text, maxTextW);
+    const longest = lines.reduce((width, line) => Math.max(width, ctx.measureText(line).width), 0);
+    const boxW = Math.min(Number(container.width || 0) - 12, Math.max(166, longest + 18));
+    const boxH = 18 + lines.length * 13;
+    const minX = Number(container.x || 0) + 6;
+    const maxX = Number(container.x || 0) + Number(container.width || 0) - boxW - 6;
+    const boxX = Math.max(minX, Math.min(maxX, anchorX - boxW / 2));
+    const belowY = anchorY + anchorH + 6;
+    const aboveY = anchorY - boxH - 6;
+    const bottomLimit = Number(container.y || 0) + Number(container.height || 0) - 4;
+    const topLimit = Number(container.y || 0) + 4;
+    const boxY = belowY + boxH <= bottomLimit ? belowY : Math.max(topLimit, aboveY);
+
+    drawRoundedRectangle(ctx, boxX, boxY, boxW, boxH, 6, "rgba(2, 7, 5, 0.96)", "rgba(157, 255, 186, 0.72)");
+    ctx.fillStyle = "#dcffe6";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    for (let index = 0; index < lines.length; index += 1) {
+        ctx.fillText(lines[index], boxX + 9, boxY + 9 + index * 13);
+    }
+    ctx.restore();
+}
+
+function reviewerHoverKeyFromGraphMouse(node, hitAreas) {
+    const mouse = pointPair(app?.canvas?.graph_mouse || app?.canvas?.graphMouse);
+    if (!mouse || !node) {
+        return "";
+    }
+    const local = [
+        mouse[0] - Number(node.pos?.[0] || 0),
+        mouse[1] - Number(node.pos?.[1] || 0),
+    ];
+    return Object.entries(hitAreas || {}).find(([, bounds]) => isInsideBounds(local, bounds))?.[0] || "";
 }
 
 function drawContainedImage(ctx, img, x, y, width, height) {

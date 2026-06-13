@@ -96,6 +96,30 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const api = context.capturedApi;
             assert(api, "reviewer graph test API was not exposed");
             assert(
+                api.reviewerControlTooltip("review").includes("pass or block"),
+                "Review button tooltip must explain the gate decision"
+            );
+            assert(
+                api.reviewerControlTooltip("pass").includes("Bypass review"),
+                "Pass button tooltip must explain that it bypasses the review"
+            );
+            assert(
+                api.reviewerControlTooltip("approve").includes("current reviewed result"),
+                "Approve Once tooltip must explain the one-result approval"
+            );
+            assert(
+                api.reviewerControlTooltip("regenerate").includes("upstream path"),
+                "Regenerate tooltip must explain that it reruns upstream"
+            );
+            assert(
+                api.reviewerControlTooltip("retry").includes("rerun up to 3 times"),
+                "Retry tooltip must explain the auto-rerun limit"
+            );
+            assert(
+                api.reviewerControlTooltip("seed").includes("seed changes"),
+                "Seed tooltip must explain the retry seed target"
+            );
+            assert(
                 api.reviewerWidgetDrawWidth({{ size: [420, 220] }}, 980) === 420,
                 "Reviewer widgets must draw inside the actual node width after approve/preview refresh"
             );
@@ -145,6 +169,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 id: 3,
                 type: "DenoAIReviewGate",
                 title: "(Deno) Local LLM Reviewer",
+                pos: [20, 30],
                 properties: {{}},
                 widgets: [],
                 inputs: [
@@ -175,6 +200,11 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 fallbackSampler,
                 {{ id: 9, type: "DenoPromptText", widgets: [], inputs: [], outputs: [] }},
             ];
+            context.app.canvas = {{ graph_mouse: [50, 50] }};
+            assert(
+                api.reviewerHoverKeyFromGraphMouse(retryReviewer, {{ review: [15, 6, 100, 26] }}) === "review",
+                "Reviewer tooltip hover must be detected from canvas graph mouse movement"
+            );
             const seedCandidates = api.collectReviewerSeedCandidates(retryReviewer);
             assert(seedCandidates.length === 2, "Reviewer retry must find both upstream seed widgets");
             const selectableSeedCandidates = api.collectReviewerSelectableSeedCandidates(retryReviewer);

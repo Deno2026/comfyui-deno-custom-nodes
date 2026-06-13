@@ -2231,6 +2231,10 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "Retry x3 On" in script
     assert "Retry x3 Off" in script
     assert "Seed: Auto" in script
+    assert "drawReviewerTooltip" in script
+    assert "reviewerControlTooltip" in script
+    assert "Bypass review and pass image/audio through" in script
+    assert "Rerun the upstream path before this reviewer" in script
     assert "collectReviewerSeedCandidates" in script
     assert "collectReviewerSelectableSeedCandidates" in script
     assert "incrementReviewerRetrySeed" in script
