@@ -13,9 +13,7 @@ import random
 import re
 import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import numpy as np
@@ -135,7 +133,7 @@ def _json_response(payload: Dict[str, Any], status: int = 200):
     return web.json_response(payload, status=status)
 
 
-def _assert_local_url(url: str) -> None:
+def _parse_local_llm_url(url: str) -> urllib.parse.ParseResult:
     parsed = urllib.parse.urlparse(str(url or "").strip())
     if parsed.scheme not in {"http", "https"}:
         raise RuntimeError("Use a local http:// or https:// server URL.")
@@ -145,6 +143,22 @@ def _assert_local_url(url: str) -> None:
             "Only local LLM servers are allowed for this DENO node. "
             "Use 127.0.0.1 or localhost."
         )
+    return parsed
+
+
+def _assert_local_url(url: str) -> None:
+    _parse_local_llm_url(url)
+
+
+def _open_local_llm_http_connection(
+    parsed: urllib.parse.ParseResult,
+    timeout: float,
+) -> http.client.HTTPConnection:
+    host = parsed.hostname
+    if not host:
+        raise RuntimeError("Local LLM server URL is missing a host.")
+    connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    return connection_cls(host, parsed.port, timeout=timeout)
 
 
 def _strip_trailing_slash(url: str) -> str:
@@ -233,22 +247,28 @@ def _http_json(
     method: str = "GET",
     timeout: float = 20.0,
 ) -> Dict[str, Any]:
-    _assert_local_url(url)
+    parsed = _parse_local_llm_url(url)
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
     body = None if payload is None else json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=body,
-        method=method,
-        headers={"Content-Type": "application/json"},
-    )
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    connection = _open_local_llm_http_connection(parsed, timeout=timeout)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            data = response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        message = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Local LLM server returned HTTP {exc.code}: {message[:800]}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Could not reach local LLM server: {exc.reason}") from exc
+        connection.request(method.upper(), path, body=body, headers=headers)
+        response = connection.getresponse()
+        data = response.read().decode("utf-8", errors="replace")
+        if response.status >= 400:
+            raise RuntimeError(f"Local LLM server returned HTTP {response.status}: {data[:800]}")
+    except (TimeoutError, OSError, http.client.HTTPException) as exc:
+        raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
     if not data.strip():
         return {}
     return json.loads(data)
@@ -307,17 +327,12 @@ def _iter_cancellable_response_lines(
     timeout: float = 600.0,
     cancel_key: Optional[str] = None,
 ) -> Iterable[bytes]:
-    _assert_local_url(url)
-    parsed = urllib.parse.urlparse(url)
-    host = parsed.hostname
-    if not host:
-        raise RuntimeError("Local LLM server URL is missing a host.")
+    parsed = _parse_local_llm_url(url)
     path = parsed.path or "/"
     if parsed.query:
         path = f"{path}?{parsed.query}"
 
-    connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-    connection = connection_cls(host, parsed.port, timeout=timeout)
+    connection = _open_local_llm_http_connection(parsed, timeout=timeout)
     response_queue: "queue.Queue[Tuple[str, Any]]" = queue.Queue()
     stop_event = threading.Event()
 

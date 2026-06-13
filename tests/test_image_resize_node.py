@@ -3608,6 +3608,7 @@ def test_ai_review_gate_approve_once_can_pass_saved_image_snapshot_without_upstr
 def test_local_llm_refiner_normalizes_prompts_seed_modes_and_local_urls():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    source = (REPO_ROOT / "deno_local_llm_refiner.py").read_text(encoding="utf-8")
 
     assert module._flatten_prompts(["a", ["b", "c"]]) == ["a", "b", "c"]
     assert module._seed_for_index(7, "fixed", 2) == 7
@@ -3617,6 +3618,8 @@ def test_local_llm_refiner_normalizes_prompts_seed_modes_and_local_urls():
     assert module._normalize_comfy_vram_policy("Auto") == "Auto: unload only before first LLM call"
     assert module._normalize_comfy_vram_policy("Always free") == "Always unload before each LLM call"
     assert module._normalize_comfy_vram_policy("Never free") == "Never unload before LLM call"
+    assert "urlopen" not in source
+    assert "urllib.request" not in source
 
     try:
         module._assert_local_url("https://example.com")
@@ -3624,6 +3627,16 @@ def test_local_llm_refiner_normalizes_prompts_seed_modes_and_local_urls():
         assert "Only local LLM servers" in str(exc)
     else:
         raise AssertionError("non-local URL should be rejected")
+
+    calls = []
+    original_open_connection = module._open_local_llm_http_connection
+    module._open_local_llm_http_connection = lambda *args, **kwargs: calls.append((args, kwargs))
+    try:
+        with pytest.raises(RuntimeError, match="Only local LLM servers"):
+            module._http_json("https://example.com/api/tags")
+    finally:
+        module._open_local_llm_http_connection = original_open_connection
+    assert calls == []
 
 
 def test_resize_box_declares_comfyui_contract():

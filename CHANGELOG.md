@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.31 - 2026-06-14
+
+- Hardened Local LLM Loader's local Ollama / LM Studio HTTP path so non-local URLs are rejected before any connection is opened.
+
 ## 0.7.30 - 2026-06-13
 
 - Fixed release test compatibility for the Local LLM Loader and Reviewer package validation.
