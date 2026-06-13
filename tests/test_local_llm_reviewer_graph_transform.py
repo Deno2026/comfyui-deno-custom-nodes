@@ -1,0 +1,177 @@
+import shutil
+import subprocess
+import textwrap
+from pathlib import Path
+
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_reviewer_graph_transform_submit_modes(tmp_path):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node executable is required for the frontend graph-transform harness")
+
+    script_path = tmp_path / "reviewer_graph_transform_harness.cjs"
+    script_path.write_text(
+        textwrap.dedent(
+            f"""
+            const fs = require("fs");
+            const vm = require("vm");
+
+            const sourcePath = {str(REPO_ROOT / "web" / "js" / "deno_local_llm_refiner.js")!r};
+            const source = fs
+                .readFileSync(sourcePath, "utf8")
+                .replace(/^import\\s+\\{{[^}}]+\\}}\\s+from\\s+["'][^"']+["'];\\r?\\n/gm, "");
+
+            const graph = {{
+                links: {{}},
+                _nodes: [],
+                getNodeById(id) {{
+                    return this._nodes.find((node) => Number(node.id) === Number(id));
+                }},
+                setDirtyCanvas() {{}},
+            }};
+            const context = {{
+                console,
+                Date,
+                Math,
+                JSON,
+                Number,
+                String,
+                Boolean,
+                Array,
+                Object,
+                Set,
+                Map,
+                URLSearchParams,
+                app: {{
+                    graph,
+                    registerExtension() {{}},
+                }},
+                api: {{
+                    addEventListener() {{}},
+                    apiURL(path) {{ return path; }},
+                }},
+                window: {{
+                    addEventListener() {{}},
+                    setTimeout() {{ return 0; }},
+                }},
+                document: {{
+                    addEventListener() {{}},
+                    querySelectorAll() {{ return []; }},
+                    querySelector() {{ return null; }},
+                }},
+                Image: class {{
+                    constructor() {{
+                        this.naturalWidth = 0;
+                        this.naturalHeight = 0;
+                    }}
+                    set src(value) {{
+                        this._src = value;
+                    }}
+                }},
+                capturedApi: null,
+            }};
+            context.globalThis = context;
+            context.__DENO_LOCAL_LLM_REVIEWER_TEST_HOOK__ = (api) => {{
+                context.capturedApi = api;
+            }};
+
+            function assert(condition, message) {{
+                if (!condition) {{
+                    throw new Error(message);
+                }}
+            }}
+
+            function keys(object) {{
+                return Object.keys(object).sort().join(",");
+            }}
+
+            vm.createContext(context);
+            vm.runInContext(source, context, {{ filename: sourcePath }});
+
+            const api = context.capturedApi;
+            assert(api, "reviewer graph test API was not exposed");
+            assert(
+                api.reviewerWidgetDrawWidth({{ size: [420, 220] }}, 980) === 420,
+                "Reviewer widgets must draw inside the actual node width after approve/preview refresh"
+            );
+            assert(
+                api.reviewerWidgetLayoutWidth({{ size: [420, 220] }}, 980) === 420,
+                "Reviewer widget layout must prefer the real node width over a stale computed width"
+            );
+            assert(
+                api.reviewerRefreshSize({{ size: [420, 220] }}, [980, 246])[0] === 420,
+                "Reviewer refresh must not expand node width from stale computed widget width"
+            );
+
+            const regenerateOutput = {{
+                "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
+                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["1", 0] }} }},
+                "3": {{ class_type: "DenoAIReviewGate", inputs: {{ review: ["2", 0], image: ["1", 0] }} }},
+                "4": {{ class_type: "SaveImage", inputs: {{ images: ["3", 0] }} }},
+                "5": {{ class_type: "ParallelOutput", inputs: {{ images: ["1", 0] }} }},
+            }};
+            api.applyReviewerRegenerateMode(regenerateOutput, "3", regenerateOutput["3"]);
+            assert(keys(regenerateOutput) === "1,2,3", "Regenerate must keep only the reviewer and its upstream path");
+
+            const passOutput = {{
+                "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
+                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["7", 0] }} }},
+                "3": {{ class_type: "DenoAIReviewGate", inputs: {{ review: ["2", 0], image: ["1", 0], review_mode: "Pass" }} }},
+                "4": {{ class_type: "SaveImage", inputs: {{ images: ["3", 0] }} }},
+                "5": {{ class_type: "PreviewAny", inputs: {{ source: ["7", 0] }} }},
+                "7": {{ class_type: "DenoPromptText", inputs: {{ text: "shared prompt" }} }},
+            }};
+            api.applyReviewerPassMode(passOutput, "3", passOutput["3"]);
+            assert(keys(passOutput) === "1,3,4,5,7", "Pass mode must remove only the review-only LLM branch");
+            assert(passOutput["3"].inputs.review === "Manual pass.", "Pass mode must replace the review link with a literal manual pass");
+            assert(passOutput["3"].inputs.review_mode === "Pass", "Pass mode must preserve pass mode for the gate");
+            assert(passOutput["4"].inputs.images[0] === "3", "Pass mode must keep downstream image consumers connected to the gate");
+            assert(passOutput["5"].inputs.source[0] === "7", "Pass mode must keep shared side-dependencies");
+
+            graph.links = {{
+                "30": {{ target_id: "4" }},
+            }};
+            const gateNode = {{
+                id: 3,
+                type: "DenoAIReviewGate",
+                outputs: [{{ links: [30] }}],
+                __denoLocalLLMGateState: {{
+                    snapshot: {{
+                        filename: "deno_llm_reviewer_3.npy",
+                        subfolder: "deno_llm_reviewer",
+                        type: "temp",
+                    }},
+                }},
+            }};
+            graph._nodes = [
+                gateNode,
+                {{ id: 4, type: "SaveImage", outputs: [] }},
+                {{ id: 6, type: "FilenamePrefix", outputs: [] }},
+            ];
+            const approveOutput = {{
+                "1": {{ class_type: "ImageGenerator", inputs: {{}} }},
+                "2": {{ class_type: "DenoLocalLLMRefiner", inputs: {{ user_prompt: ["1", 0] }} }},
+                "3": {{ class_type: "DenoAIReviewGate", inputs: {{ review: ["2", 0], image: ["1", 0] }} }},
+                "4": {{ class_type: "SaveImage", inputs: {{ images: ["1", 0], filename_prefix: ["6", 0] }} }},
+                "5": {{ class_type: "ParallelOutput", inputs: {{ images: ["1", 0] }} }},
+                "6": {{ class_type: "FilenamePrefix", inputs: {{}} }},
+            }};
+            api.applyReviewerApproveOnceMode(approveOutput, "3", approveOutput["3"], gateNode);
+            assert(keys(approveOutput) === "3,4,6", "Approve Once must keep the gate, downstream path, and downstream side-dependencies");
+            assert(!("image" in approveOutput["3"].inputs), "Approve Once with a snapshot must detach the upstream image input");
+            assert(approveOutput["3"].inputs.approve_once === true, "Approve Once must inject a one-shot approval flag");
+            const reviewerState = JSON.parse(approveOutput["3"].inputs.reviewer_state);
+            assert(reviewerState.snapshot_image.filename === "deno_llm_reviewer_3.npy", "Approve Once must pass the saved snapshot descriptor");
+            assert(approveOutput["4"].inputs.images[0] === "3" && approveOutput["4"].inputs.images[1] === 0, "Downstream image links must reroute to the reviewer output");
+            assert(approveOutput["4"].inputs.filename_prefix[0] === "6", "Downstream side-dependencies must stay connected");
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    subprocess.run([node, str(script_path)], cwd=REPO_ROOT, check=True, capture_output=True, text=True)

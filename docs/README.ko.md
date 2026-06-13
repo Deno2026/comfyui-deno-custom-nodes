@@ -162,13 +162,21 @@ Negative preset은 출력 모드가 아니라 아래 negative prompt 칸을 자�
 주의: 이 노드는 텍스트 conditioning만 준비합니다. Bernini visual conditioning은 Bernini context latent를 지원하는 ComfyUI/KJ 백엔드가 필요합니다.
 해당 백엔드가 아직 ComfyUI draft PR 상태인 동안에는 `tools/DENO_Bernini_Preview_Backend_Update.bat`를 복사한 테스트용 포터블 ComfyUI 폴더에서만 사용하세요.
 
+### `(Deno) Local LLM Loader` / `(Deno) Local LLM Reviewer`
+
+내 PC에서 실행 중인 로컬 LLM을 ComfyUI 안에서 호출하고, LLM이 만든 review text로 저장 전 결과를 통과하거나 막는 노드입니다.
+
+주요 기능: Ollama 또는 LM Studio 로컬 모델 호출, `127.0.0.1`/`localhost` 전용 안전 제한, provider별 모델 새로고침, 실행 중인 로컬 LLM 요청 중단, prompt batch를 한 번의 노드 실행으로 순차 처리, vision 모델용 IMAGE 첨부, Thinking/Result 프리뷰, Save 노드 앞 IMAGE/AUDIO gate, 현재 리뷰 결과 1회 승인, reviewer 앞 경로만 다시 실행.
+
+오디오 참고: Local LLM Loader가 AUDIO를 직접 로컬 모델로 보내는 구조는 아닙니다. ComfyUI 기본 또는 다른 audio-capable text generation 노드가 review text를 만들면, Local LLM Reviewer가 그 review text 기준으로 AUDIO도 함께 통과하거나 차단할 수 있습니다.
+
 ## Why This Exists
 
 이 노드들은 실제 ComfyUI 제작 과정에서 반복되는 세팅 피로를 줄이기 위해 만들어졌습니다. 목표는 거대한 기능 목록이 아니라, 매일 반복하는 워크플로우를 더 빠르고 깨끗하고 가르치기 쉽게 만드는 것입니다.
 
 ## Search Tips
 
-GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `prompt guide`, `system prompt`, `bernini`, `bernini prompt guide`, `bernini conditioning`, `comfyui bernini`, `kj bernini`, `reference video edit`, `wan-2.2`, `wan2.2`, `visual fold` 같은 키워드로 찾을 수 있습니다.
+GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm prompt`, `local llm reviewer`, `ai reviewer`, `media reviewer`, `audio review gate`, `ollama`, `lm studio`, `bernini`, `bernini prompt guide`, `bernini conditioning`, `comfyui bernini`, `kj bernini`, `reference video edit`, `wan-2.2`, `wan2.2`, `visual fold` 같은 키워드로 찾을 수 있습니다.
 
 ## Install
 

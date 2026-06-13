@@ -1,0 +1,20 @@
+{
+  "DenoResolutionSetup": "(Deno) Resize Box",
+  "DenoMultiImageLoader": "(Deno) Multi Image Loader",
+  "DenoAdvancedImageSourceLoader": "(Deno) Advanced Image Source Loader",
+  "DenoLTXSequencer": "(Deno) LTX Sequencer",
+  "DenoLTX23PresetLoader": "(Deno) LTX Model Loader",
+  "DenoLTXModelDownloader": "(Deno) Easy Model Download Helper",
+  "DenoMultiLoraLoader": "(Deno) Multi LoRA Loader",
+  "DenoLTXMultiLoraLoader": "(Deno) LTX Multi LoRA Loader",
+  "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
+  "DenoBerniniPromptGuide": "(Deno) Bernini Prompt Guide",
+  "DenoLocalLLMRefiner": "(Deno) Local LLM Loader",
+  "DenoAIReviewGate": "(Deno) Local LLM Reviewer",
+  "DenoPromptText": "(Deno) Prompt Text",
+  "DenoRTXVFXEasyUpscale": "(Deno) RTX Video Super Resolution",
+  "DenoRTXVFXVideoFinisher": "(Deno) RTX Video Super Resolution (2 Pass)",
+  "DenoImageCompare": "(Deno) Image Compare",
+  "DenoVideoCompare": "(Deno) Video Compare",
+  "DenoVideoPreview": "(Deno) Video Preview"
+}

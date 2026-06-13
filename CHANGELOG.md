@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
 
+## Unreleased
+
+- Added Local LLM Loader for local Ollama and LM Studio prompt workflows, with separate Stop LLM and Unload LLM controls.
+- Added Local LLM Reviewer for gating IMAGE and AUDIO save paths from review text, including one-shot approval and reviewer-side rerun controls.
+
 ## 0.7.28 - 2026-06-03
 
 - Improved ComfyUI Manager, Comfy Registry, and GitHub discovery metadata for Bernini Prompt Guide, Bernini conditioning helpers, Wan2.2, reference video edit, and prompt guide searches.

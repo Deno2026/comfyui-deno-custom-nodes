@@ -1,0 +1,2020 @@
+from __future__ import annotations
+
+import base64
+import http.client
+import itertools
+from io import BytesIO
+import json
+import logging
+import os
+import queue
+import random
+import re
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+
+import numpy as np
+from PIL import Image
+
+try:
+    from comfy_execution.graph_utils import ExecutionBlocker
+except Exception:  # pragma: no cover - ComfyUI provides this at runtime.
+    class ExecutionBlocker:  # type: ignore[no-redef]
+        def __init__(self, message):
+            self.message = message
+
+try:
+    from aiohttp import web
+    from server import PromptServer
+except Exception:  # pragma: no cover - ComfyUI provides these at runtime.
+    web = None
+    PromptServer = None
+
+try:
+    import comfy.model_management as comfy_model_management
+except Exception:  # pragma: no cover - ComfyUI provides this at runtime.
+    comfy_model_management = None
+
+
+PROVIDER_OLLAMA = "Ollama"
+PROVIDER_LM_STUDIO = "LM Studio"
+LEGACY_PROVIDER_CUSTOM = "Custom Local Server"
+PROVIDERS = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO]
+OLLAMA_DEFAULT_SERVER = "http://127.0.0.1:11434"
+LM_STUDIO_DEFAULT_SERVER = "http://127.0.0.1:1234/v1"
+LEGACY_CUSTOM_SERVER_DEFAULT = "http://127.0.0.1:8000/v1"
+
+MEMORY_UNLOAD_AFTER_RUN = "Unload after run"
+LEGACY_MEMORY_FREE_AFTER_BATCH = "Free VRAM after batch"
+MEMORY_KEEP_MINUTES = "Keep for minutes"
+MEMORY_KEEP_LOADED = "Keep loaded"
+MODEL_MEMORY_OPTIONS = [
+    MEMORY_UNLOAD_AFTER_RUN,
+    MEMORY_KEEP_MINUTES,
+    MEMORY_KEEP_LOADED,
+]
+MODEL_MEMORY_ALIASES = {
+    LEGACY_MEMORY_FREE_AFTER_BATCH: MEMORY_UNLOAD_AFTER_RUN,
+}
+COMFY_VRAM_AUTO = "Auto: unload only before first LLM call"
+COMFY_VRAM_ALWAYS = "Always unload before each LLM call"
+COMFY_VRAM_NEVER = "Never unload before LLM call"
+COMFY_VRAM_POLICY_OPTIONS = [
+    COMFY_VRAM_AUTO,
+    COMFY_VRAM_ALWAYS,
+    COMFY_VRAM_NEVER,
+]
+COMFY_VRAM_POLICY_ALIASES = {
+    "Auto": COMFY_VRAM_AUTO,
+    "Always free": COMFY_VRAM_ALWAYS,
+    "Never free": COMFY_VRAM_NEVER,
+}
+_IS_CHANGED_COUNTER = itertools.count()
+COMFY_VRAM_FREE_SETTLE_SECONDS = 0.6
+SEED_MODE_FIXED = "fixed"
+SEED_MODE_INCREMENT = "increment"
+SEED_MODE_DECREMENT = "decrement"
+SEED_MODE_RANDOMIZE = "randomize"
+SEED_MODE_OPTIONS = [
+    SEED_MODE_FIXED,
+    SEED_MODE_INCREMENT,
+    SEED_MODE_DECREMENT,
+    SEED_MODE_RANDOMIZE,
+]
+SHIFTED_MODEL_WIDGET_VALUES = {
+    PROVIDER_OLLAMA,
+    PROVIDER_LM_STUDIO,
+    LEGACY_PROVIDER_CUSTOM,
+    MEMORY_UNLOAD_AFTER_RUN,
+    LEGACY_MEMORY_FREE_AFTER_BATCH,
+    MEMORY_KEEP_MINUTES,
+    MEMORY_KEEP_LOADED,
+    COMFY_VRAM_AUTO,
+    COMFY_VRAM_ALWAYS,
+    COMFY_VRAM_NEVER,
+    SEED_MODE_FIXED,
+    SEED_MODE_INCREMENT,
+    SEED_MODE_DECREMENT,
+    SEED_MODE_RANDOMIZE,
+    "Refresh Models",
+    "Stop LLM",
+    "Unload LLM",
+    "System Prompt",
+    "Thinking",
+    "Seed",
+    "Seed Mode",
+    "Model After Run",
+    "Unload ComfyUI Models Setting",
+    "ComfyUI VRAM",
+    "Ollama Model",
+    "LM Studio Model",
+    "Legacy Model",
+    "Custom Model",
+    "Custom Server URL",
+    *COMFY_VRAM_POLICY_ALIASES,
+}
+
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+PROGRESS_EVENT = "deno-local-llm-progress"
+THINK_TAG_RE = re.compile(r"<(?:think|thinking)>(.*?)</(?:think|thinking)>", re.IGNORECASE | re.DOTALL)
+REVIEWER_PREVIEW_SUBFOLDER = "deno_llm_reviewer"
+_WARM_LOCAL_LLM_KEYS: Dict[str, Optional[float]] = {}
+_ACTIVE_LOCAL_LLM_KEYS: Dict[str, int] = {}
+_CANCEL_LOCAL_LLM_KEYS: Set[str] = set()
+_ACTIVE_LOCAL_LLM_LOCK = threading.Lock()
+
+
+def _json_response(payload: Dict[str, Any], status: int = 200):
+    if web is None:
+        return {"payload": payload, "status": status}
+    return web.json_response(payload, status=status)
+
+
+def _assert_local_url(url: str) -> None:
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    if parsed.scheme not in {"http", "https"}:
+        raise RuntimeError("Use a local http:// or https:// server URL.")
+    host = parsed.hostname or ""
+    if host.lower() not in LOCAL_HOSTS:
+        raise RuntimeError(
+            "Only local LLM servers are allowed for this DENO node. "
+            "Use 127.0.0.1 or localhost."
+        )
+
+
+def _strip_trailing_slash(url: str) -> str:
+    return str(url or "").strip().rstrip("/")
+
+
+def _looks_like_url(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return text.startswith(("http://", "https://"))
+
+
+def _looks_like_shifted_model_value(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if _looks_like_url(text) or text in SHIFTED_MODEL_WIDGET_VALUES:
+        return True
+    if text.lower() in {"true", "false"}:
+        return True
+    return bool(re.fullmatch(r"-?\d+(?:\.\d+)?", text))
+
+
+def _shifted_model_error(action: str, model: str) -> str:
+    return (
+        f"Refresh models and select a real local LLM model before {action}. "
+        f"The current value looks like a shifted UI label, not a model name: {model}"
+    )
+
+
+def _normalize_provider(provider: str) -> str:
+    value = str(provider or "").strip()
+    if value == LEGACY_PROVIDER_CUSTOM:
+        return PROVIDER_OLLAMA
+    return value if value in PROVIDERS else PROVIDER_OLLAMA
+
+
+def _normalize_ollama_url(server_url: str) -> str:
+    url = _strip_trailing_slash(server_url or "http://127.0.0.1:11434")
+    _assert_local_url(url)
+    return url
+
+
+def _normalize_lm_openai_url(server_url: str) -> str:
+    url = _strip_trailing_slash(server_url or "http://127.0.0.1:1234/v1")
+    _assert_local_url(url)
+    if url.endswith("/v1"):
+        return url
+    if url.endswith("/api/v1"):
+        return url[:-7] + "/v1"
+    return f"{url}/v1"
+
+
+def _normalize_lm_native_url(server_url: str) -> str:
+    url = _strip_trailing_slash(server_url or "http://127.0.0.1:1234")
+    _assert_local_url(url)
+    if url.endswith("/v1"):
+        return url[:-3]
+    if url.endswith("/api/v1"):
+        return url[:-7]
+    return url
+
+
+def _canonical_local_llm_state_url(provider: str, server_url: str) -> str:
+    provider = _normalize_provider(provider)
+    if provider == PROVIDER_OLLAMA:
+        url = _normalize_ollama_url(server_url)
+    elif provider == PROVIDER_LM_STUDIO:
+        url = _normalize_lm_native_url(server_url)
+    else:
+        url = _strip_trailing_slash(server_url)
+
+    parsed = urllib.parse.urlparse(url)
+    host = str(parsed.hostname or "").lower()
+    if host in {"localhost", "::1", "[::1]"}:
+        host = "127.0.0.1"
+    if not host:
+        return _strip_trailing_slash(url).lower()
+    netloc = f"{host}:{parsed.port}" if parsed.port else host
+    path = parsed.path.rstrip("/")
+    return urllib.parse.urlunparse((parsed.scheme.lower() or "http", netloc, path, "", "", ""))
+
+
+def _http_json(
+    url: str,
+    payload: Optional[Dict[str, Any]] = None,
+    method: str = "GET",
+    timeout: float = 20.0,
+) -> Dict[str, Any]:
+    _assert_local_url(url)
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        message = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Local LLM server returned HTTP {exc.code}: {message[:800]}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Could not reach local LLM server: {exc.reason}") from exc
+    if not data.strip():
+        return {}
+    return json.loads(data)
+
+
+def _http_stream_json_lines(
+    url: str,
+    payload: Dict[str, Any],
+    timeout: float = 600.0,
+    cancel_key: Optional[str] = None,
+) -> Iterable[Dict[str, Any]]:
+    try:
+        for raw_line in _iter_cancellable_response_lines(url, payload, timeout=timeout, cancel_key=cancel_key):
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            yield json.loads(line)
+    except (TimeoutError, OSError, http.client.HTTPException) as exc:
+        raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
+
+
+def _http_stream_sse(
+    url: str,
+    payload: Dict[str, Any],
+    timeout: float = 600.0,
+    cancel_key: Optional[str] = None,
+) -> Iterable[Tuple[str, Dict[str, Any]]]:
+    event_name = "message"
+    data_lines: List[str] = []
+    try:
+        for raw_line in _iter_cancellable_response_lines(url, payload, timeout=timeout, cancel_key=cancel_key):
+            line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+            if not line:
+                if data_lines:
+                    data = "\n".join(data_lines).strip()
+                    if data and data != "[DONE]":
+                        yield event_name, json.loads(data)
+                event_name = "message"
+                data_lines = []
+                continue
+            if line.startswith("event:"):
+                event_name = line.split(":", 1)[1].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line.split(":", 1)[1].strip())
+        if data_lines:
+            data = "\n".join(data_lines).strip()
+            if data and data != "[DONE]":
+                yield event_name, json.loads(data)
+    except (TimeoutError, OSError, http.client.HTTPException) as exc:
+        raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
+
+
+def _iter_cancellable_response_lines(
+    url: str,
+    payload: Dict[str, Any],
+    timeout: float = 600.0,
+    cancel_key: Optional[str] = None,
+) -> Iterable[bytes]:
+    _assert_local_url(url)
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise RuntimeError("Local LLM server URL is missing a host.")
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+
+    connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    connection = connection_cls(host, parsed.port, timeout=timeout)
+    response_queue: "queue.Queue[Tuple[str, Any]]" = queue.Queue()
+    stop_event = threading.Event()
+
+    def reader() -> None:
+        try:
+            body = json.dumps(payload).encode("utf-8")
+            connection.request("POST", path, body=body, headers={"Content-Type": "application/json"})
+            response = connection.getresponse()
+            if response.status >= 400:
+                message = response.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"Local LLM server returned HTTP {response.status}: {message[:800]}")
+            while not stop_event.is_set():
+                raw_line = response.readline()
+                if raw_line == b"":
+                    break
+                response_queue.put(("line", raw_line))
+            response_queue.put(("done", None))
+        except BaseException as exc:
+            if stop_event.is_set():
+                response_queue.put(("done", None))
+            else:
+                response_queue.put(("error", exc))
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    try:
+        while True:
+            _raise_if_local_llm_stopped(cancel_key)
+            try:
+                kind, value = response_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            _raise_if_local_llm_stopped(cancel_key)
+            if kind == "line":
+                yield value
+                continue
+            if kind == "done":
+                break
+            if kind == "error":
+                raise value
+    finally:
+        stop_event.set()
+        try:
+            connection.close()
+        except Exception:
+            pass
+        thread.join(timeout=0.1)
+
+
+def _extract_scalar(value: Any, default: Any = None) -> Any:
+    if isinstance(value, list):
+        if not value:
+            return default
+        return _extract_scalar(value[0], default)
+    return default if value is None else value
+
+
+def _extract_media(value: Any) -> Any:
+    if isinstance(value, list):
+        for item in value:
+            found = _extract_media(item)
+            if found is not None:
+                return found
+        return None
+    return value
+
+
+def _safe_int(value: Any, default: int, minimum: int = 0, maximum: Optional[int] = None) -> int:
+    try:
+        parsed = int(float(_extract_scalar(value, default)))
+    except (TypeError, ValueError, OverflowError):
+        parsed = int(default)
+    parsed = max(int(minimum), parsed)
+    if maximum is not None:
+        parsed = min(int(maximum), parsed)
+    return parsed
+
+
+def _safe_bool(value: Any, default: bool = False) -> bool:
+    scalar = _extract_scalar(value, default)
+    if isinstance(scalar, bool):
+        return scalar
+    text = str(scalar).strip().lower()
+    if text in {"true", "1", "yes", "on"}:
+        return True
+    if text in {"false", "0", "no", "off", ""}:
+        return False
+    return bool(default)
+
+
+def _normalize_model_memory(value: Any) -> str:
+    text = str(_extract_scalar(value, MEMORY_UNLOAD_AFTER_RUN) or MEMORY_UNLOAD_AFTER_RUN).strip()
+    text = MODEL_MEMORY_ALIASES.get(text, text)
+    return text if text in MODEL_MEMORY_OPTIONS else MEMORY_UNLOAD_AFTER_RUN
+
+
+def _normalize_comfy_vram_policy(value: Any) -> str:
+    text = str(_extract_scalar(value, COMFY_VRAM_AUTO) or COMFY_VRAM_AUTO).strip()
+    text = COMFY_VRAM_POLICY_ALIASES.get(text, text)
+    return text if text in COMFY_VRAM_POLICY_OPTIONS else COMFY_VRAM_AUTO
+
+
+def _normalize_seed_mode(value: Any) -> str:
+    text = str(_extract_scalar(value, SEED_MODE_FIXED) or SEED_MODE_FIXED).strip()
+    return text if text in SEED_MODE_OPTIONS else SEED_MODE_FIXED
+
+
+def _flatten_prompts(value: Any) -> List[str]:
+    if value is None:
+        return [""]
+    if isinstance(value, list):
+        prompts: List[str] = []
+        for item in value:
+            prompts.extend(_flatten_prompts(item))
+        return prompts or [""]
+    return [str(value)]
+
+
+def _seed_for_index(seed: int, mode: str = "fixed", index: int = 0) -> int:
+    seed = int(seed)
+    mode = _normalize_seed_mode(mode)
+    if mode == SEED_MODE_INCREMENT:
+        return max(0, seed + index)
+    if mode == SEED_MODE_DECREMENT:
+        return max(0, seed - index)
+    if mode == SEED_MODE_RANDOMIZE:
+        return random.randint(0, 0xFFFFFFFF)
+    return max(0, seed)
+
+
+def _ollama_keep_alive(model_memory: str, keep_minutes: int, is_last: bool) -> Any:
+    keep_minutes = max(1, int(keep_minutes))
+    model_memory = _normalize_model_memory(model_memory)
+    if model_memory == MEMORY_KEEP_LOADED:
+        return "-1m"
+    if model_memory == MEMORY_KEEP_MINUTES:
+        return f"{keep_minutes}m"
+    return "0m" if is_last else f"{keep_minutes}m"
+
+
+def _lm_ttl(model_memory: str, keep_minutes: int, is_last: bool) -> int:
+    keep_minutes = max(1, int(keep_minutes))
+    model_memory = _normalize_model_memory(model_memory)
+    if model_memory == MEMORY_KEEP_LOADED:
+        return 24 * 60 * 60
+    if model_memory == MEMORY_KEEP_MINUTES:
+        return keep_minutes * 60
+    return 1 if is_last else max(60, keep_minutes * 60)
+
+
+def _should_unload_after_run(model_memory: str, is_last: bool) -> bool:
+    return bool(is_last and _normalize_model_memory(model_memory) == MEMORY_UNLOAD_AFTER_RUN)
+
+
+def _llm_state_key(provider: str, server_url: str, model: str) -> str:
+    return "|".join([
+        _normalize_provider(provider),
+        _canonical_local_llm_state_url(provider, server_url),
+        str(model or "").strip(),
+    ])
+
+
+def _is_local_llm_marked_warm(key: str) -> bool:
+    expires_at = _WARM_LOCAL_LLM_KEYS.get(key)
+    if key not in _WARM_LOCAL_LLM_KEYS:
+        return False
+    if expires_at is None:
+        return True
+    if time.monotonic() < expires_at:
+        return True
+    _WARM_LOCAL_LLM_KEYS.pop(key, None)
+    return False
+
+
+def _mark_local_llm_warm(provider: str, server_url: str, model: str, model_memory: str, keep_minutes: int) -> None:
+    key = _llm_state_key(provider, server_url, model)
+    memory_value = _normalize_model_memory(model_memory)
+    if memory_value == MEMORY_KEEP_LOADED:
+        _WARM_LOCAL_LLM_KEYS[key] = None
+    elif memory_value == MEMORY_KEEP_MINUTES:
+        _WARM_LOCAL_LLM_KEYS[key] = time.monotonic() + max(1, int(keep_minutes)) * 60
+    else:
+        _WARM_LOCAL_LLM_KEYS.pop(key, None)
+
+
+def _clear_local_llm_warm(provider: str, server_url: str, model: str) -> None:
+    _WARM_LOCAL_LLM_KEYS.pop(_llm_state_key(provider, server_url, model), None)
+
+
+def _parse_llm_state_key(key: str) -> Optional[Tuple[str, str, str]]:
+    parts = str(key or "").split("|", 2)
+    if len(parts) != 3 or not parts[0] or not parts[1] or not parts[2]:
+        return None
+    return parts[0], parts[1], parts[2]
+
+
+def _unload_other_warm_local_llms(provider: str, server_url: str, model: str, node_id: str) -> Dict[str, Any]:
+    current_key = _llm_state_key(provider, server_url, model)
+    unloaded: List[Dict[str, Any]] = []
+    errors: List[str] = []
+
+    for key in list(_WARM_LOCAL_LLM_KEYS):
+        if key == current_key:
+            continue
+        if not _is_local_llm_marked_warm(key):
+            continue
+        parsed = _parse_llm_state_key(key)
+        if parsed is None:
+            _WARM_LOCAL_LLM_KEYS.pop(key, None)
+            continue
+        old_provider, old_server_url, old_model = parsed
+        if _llm_state_key(old_provider, old_server_url, old_model) == current_key:
+            _WARM_LOCAL_LLM_KEYS.pop(key, None)
+            continue
+        _send_progress({
+            "node_id": node_id,
+            "status": "swapping local LLM",
+            "provider": provider,
+            "model": model,
+            "index": 0,
+            "total": 0,
+            "answer": "",
+            "thinking": f"Unloading previous kept {old_provider} model before loading {provider}.",
+        })
+        try:
+            result = unload_local_llm_model(old_provider, old_server_url, old_model)
+            if not result.get("ok"):
+                errors.append(str(result.get("message") or result.get("error") or result))
+                continue
+            unloaded.append({
+                "provider": old_provider,
+                "server_url": old_server_url,
+                "model": old_model,
+                "message": result.get("message", ""),
+            })
+        except RuntimeError as exc:
+            message = str(exc)
+            if "Could not reach local LLM server" in message:
+                _WARM_LOCAL_LLM_KEYS.pop(key, None)
+                unloaded.append({
+                    "provider": old_provider,
+                    "server_url": old_server_url,
+                    "model": old_model,
+                    "message": "Cleared stale warm marker because the previous local LLM server was not reachable.",
+                })
+                continue
+            errors.append(message)
+
+    if errors:
+        raise RuntimeError("Could not unload the previous kept local LLM before switching: " + "; ".join(errors))
+    return {
+        "action": "unloaded_previous" if unloaded else "none",
+        "current": {
+            "provider": provider,
+            "server_url": _strip_trailing_slash(server_url),
+            "model": model,
+        },
+        "unloaded": unloaded,
+    }
+
+
+def _mark_local_llm_active(provider: str, server_url: str, model: str) -> str:
+    key = _llm_state_key(provider, server_url, model)
+    with _ACTIVE_LOCAL_LLM_LOCK:
+        _ACTIVE_LOCAL_LLM_KEYS[key] = _ACTIVE_LOCAL_LLM_KEYS.get(key, 0) + 1
+    return key
+
+
+def _clear_local_llm_active(key: str) -> None:
+    with _ACTIVE_LOCAL_LLM_LOCK:
+        count = _ACTIVE_LOCAL_LLM_KEYS.get(key, 0)
+        if count <= 1:
+            _ACTIVE_LOCAL_LLM_KEYS.pop(key, None)
+            _CANCEL_LOCAL_LLM_KEYS.discard(key)
+        else:
+            _ACTIVE_LOCAL_LLM_KEYS[key] = count - 1
+
+
+def _is_local_llm_active(provider: str, server_url: str, model: str) -> bool:
+    key = _llm_state_key(provider, server_url, model)
+    with _ACTIVE_LOCAL_LLM_LOCK:
+        return _ACTIVE_LOCAL_LLM_KEYS.get(key, 0) > 0
+
+
+def _busy_unload_response(provider: str, model: str) -> Dict[str, Any]:
+    return {
+        "ok": False,
+        "busy": True,
+        "message": (
+            f"{provider} model is still generating: {model}. "
+            "Press Stop LLM first, wait for the current request to stop, then unload."
+        ),
+    }
+
+
+def _local_llm_stop_exception(message: str):
+    exc_cls = getattr(comfy_model_management, "InterruptProcessingException", None) if comfy_model_management else None
+    if exc_cls is not None:
+        return exc_cls(message)
+    return RuntimeError(message)
+
+
+def _raise_if_local_llm_stopped(cancel_key: Optional[str] = None) -> None:
+    if cancel_key:
+        with _ACTIVE_LOCAL_LLM_LOCK:
+            cancelled = cancel_key in _CANCEL_LOCAL_LLM_KEYS
+            if cancelled:
+                _CANCEL_LOCAL_LLM_KEYS.discard(cancel_key)
+        if cancelled:
+            raise _local_llm_stop_exception("Local LLM generation stopped.")
+    if comfy_model_management is not None:
+        throw_if_interrupted = getattr(comfy_model_management, "throw_exception_if_processing_interrupted", None)
+        if callable(throw_if_interrupted):
+            throw_if_interrupted()
+
+
+def _candidate_stop_keys(provider: str, server_url: str, model: str) -> List[str]:
+    provider = _normalize_provider(provider)
+    if provider == PROVIDER_LM_STUDIO:
+        native_base = _normalize_lm_native_url(server_url)
+        openai_base = _normalize_lm_openai_url(server_url)
+        return [
+            _llm_state_key(provider, openai_base, model),
+            _llm_state_key(provider, native_base, model),
+        ]
+    base = _normalize_ollama_url(server_url)
+    return [_llm_state_key(PROVIDER_OLLAMA, base, model)]
+
+
+def stop_local_llm_generation(provider: str, server_url: str, model: str) -> Dict[str, Any]:
+    provider = _normalize_provider(provider)
+    model = str(model or "").strip()
+    if not model:
+        raise RuntimeError("Select a local LLM model before stopping.")
+    if _looks_like_shifted_model_value(model):
+        raise RuntimeError(_shifted_model_error("stopping", model))
+    keys = _candidate_stop_keys(provider, server_url, model)
+    with _ACTIVE_LOCAL_LLM_LOCK:
+        active_keys = [key for key in keys if _ACTIVE_LOCAL_LLM_KEYS.get(key, 0) > 0]
+        for key in active_keys:
+            _CANCEL_LOCAL_LLM_KEYS.add(key)
+    if not active_keys:
+        return {
+            "ok": False,
+            "stopping": False,
+            "message": f"No active {provider} request matched {model}.",
+        }
+    return {
+        "ok": True,
+        "stopping": True,
+        "message": f"Stop requested for {provider} model: {model}.",
+    }
+
+
+def _safe_free_memory_bytes() -> Optional[int]:
+    if comfy_model_management is None:
+        return None
+    try:
+        device = comfy_model_management.get_torch_device()
+        return int(comfy_model_management.get_free_memory(device))
+    except Exception:
+        return None
+
+
+def _loaded_comfy_model_count() -> Optional[int]:
+    if comfy_model_management is None:
+        return None
+    try:
+        return len(comfy_model_management.loaded_models())
+    except Exception:
+        return None
+
+
+def _free_comfy_vram_for_local_llm() -> Dict[str, Any]:
+    info: Dict[str, Any] = {
+        "available": comfy_model_management is not None,
+        "before_free_bytes": _safe_free_memory_bytes(),
+        "before_loaded_models": _loaded_comfy_model_count(),
+        "after_free_bytes": None,
+        "after_loaded_models": None,
+        "settle_seconds": COMFY_VRAM_FREE_SETTLE_SECONDS,
+    }
+    if comfy_model_management is None:
+        info["reason"] = "ComfyUI model management is not available in this runtime."
+        return info
+    try:
+        comfy_model_management.unload_all_models()
+        comfy_model_management.soft_empty_cache(force=True)
+        time.sleep(COMFY_VRAM_FREE_SETTLE_SECONDS)
+        comfy_model_management.soft_empty_cache(force=True)
+        info["after_free_bytes"] = _safe_free_memory_bytes()
+        info["after_loaded_models"] = _loaded_comfy_model_count()
+    except Exception as exc:
+        info["error"] = str(exc)
+        logging.warning("DENO Local LLM could not free ComfyUI VRAM before LLM call: %s", exc)
+    return info
+
+
+def _prepare_comfy_vram_before_llm(
+    provider: str,
+    server_url: str,
+    model: str,
+    model_memory: str,
+    keep_minutes: int,
+    comfy_vram_policy: str,
+    node_id: str,
+) -> Dict[str, Any]:
+    policy = _normalize_comfy_vram_policy(comfy_vram_policy)
+    key = _llm_state_key(provider, server_url, model)
+    if policy == COMFY_VRAM_NEVER:
+        return {"policy": policy, "action": "skipped", "reason": "disabled"}
+    if policy == COMFY_VRAM_AUTO and _is_local_llm_marked_warm(key):
+        return {"policy": policy, "action": "skipped", "reason": "local LLM is already marked loaded"}
+    if policy == COMFY_VRAM_AUTO and _is_provider_model_loaded(provider, server_url, model):
+        _mark_local_llm_warm(provider, server_url, model, model_memory, keep_minutes)
+        return {"policy": policy, "action": "skipped", "reason": "local LLM is already loaded by provider"}
+
+    _send_progress({
+        "node_id": node_id,
+        "status": "freeing ComfyUI VRAM",
+        "provider": provider,
+        "model": model,
+        "index": 0,
+        "total": 0,
+        "answer": "",
+        "thinking": "ComfyUI diffusion models are being unloaded before the local LLM request.",
+    })
+    info = _free_comfy_vram_for_local_llm()
+    info["policy"] = policy
+    info["action"] = "freed" if info.get("available") and not info.get("error") else "attempted"
+    return info
+
+
+def _split_thinking_tags(answer: str, thinking: str) -> Tuple[str, str]:
+    extracted = [match.group(1).strip() for match in THINK_TAG_RE.finditer(answer or "")]
+    if extracted:
+        answer = THINK_TAG_RE.sub("", answer or "").strip()
+        thinking = "\n".join(part for part in [thinking, *extracted] if str(part or "").strip()).strip()
+    return answer or "", thinking or ""
+
+
+def _raise_if_thinking_only_result(answer: str, thinking: str) -> None:
+    if str(answer or "").strip() or not str(thinking or "").strip():
+        return
+    raise RuntimeError(
+        "The local model returned thinking text but no final result. "
+        "Turn Thinking off, or ask the model to write a final answer after thinking."
+    )
+
+
+def _ensure_ollama_model_stays_loaded(
+    base: str,
+    model: str,
+    keep_alive: Any,
+    node_id: str,
+    index: int,
+    total: int,
+) -> Dict[str, Any]:
+    keep_alive_value = str(keep_alive)
+    if keep_alive_value in ("0", "0m", "0s"):
+        return {"checked": False, "reason": "unload_requested"}
+    was_loaded = _ollama_is_model_loaded(base, model)
+    if not was_loaded:
+        _send_progress({
+            "node_id": node_id,
+            "status": "keeping local LLM loaded",
+            "provider": PROVIDER_OLLAMA,
+            "model": model,
+            "index": index,
+            "total": total,
+            "answer": "",
+            "thinking": "Ollama unloaded the model after the request. Reloading it to honor the selected memory setting.",
+        })
+    try:
+        payload = _ollama_keepalive_best_effort(base, model, keep_alive)
+    except Exception as exc:
+        return {"checked": True, "action": "failed", "error": str(exc)}
+    is_loaded = _ollama_is_model_loaded(base, model)
+    return {
+        "checked": True,
+        "action": "refreshed" if was_loaded and is_loaded else "reloaded" if is_loaded else "reload_requested",
+        "done_reason": str(payload.get("done_reason") or ""),
+    }
+
+
+def _split_words(value: Any) -> List[str]:
+    text = str(_extract_scalar(value, "") or "")
+    parts = re.split(r"[,;\n]+", text)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _extract_first_json_object(text: str) -> Optional[Dict[str, Any]]:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return None
+    candidates = [stripped]
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if 0 <= start < end:
+        candidates.append(stripped[start:end + 1])
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _extract_review_reason(parsed: Optional[Dict[str, Any]], review_text: str) -> str:
+    if isinstance(parsed, dict):
+        for key in ("reason", "message", "comment", "explanation", "notes"):
+            value = parsed.get(key)
+            if value:
+                return str(value).strip()
+    return " ".join(str(review_text or "").strip().split())[:500]
+
+
+def _friendly_review_reason(raw_reason: str, token: str, passed: bool) -> str:
+    reason = str(raw_reason or "").strip()
+    token_text = str(token or "").strip()
+    if reason and token_text and reason.lower() != token_text.lower():
+        return reason
+    if passed:
+        return "Reviewer marked this result as OK."
+    return "Reviewer marked this result as FAIL."
+
+
+def _word_found(text: str, words: List[str]) -> Optional[str]:
+    lowered = text.lower()
+    for word in words:
+        needle = word.strip()
+        if not needle:
+            continue
+        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(needle.lower())}(?![A-Za-z0-9_])", lowered):
+            return needle
+    return None
+
+
+def _judge_review_text(
+    review: Any,
+    pass_words: Any,
+    reject_words: Any,
+    unclear_result: str,
+) -> Tuple[bool, str, str]:
+    review_text = str(_extract_scalar(review, "") or "")
+    parsed = _extract_first_json_object(review_text)
+    pass_tokens = _split_words(pass_words) or ["OK", "PASS", "APPROVED"]
+    reject_tokens = _split_words(reject_words) or ["FAIL", "REJECT", "BAD"]
+    reason = _extract_review_reason(parsed, review_text)
+
+    if isinstance(parsed, dict):
+        for key in ("verdict", "status", "result", "decision"):
+            if key in parsed:
+                value = str(parsed.get(key) or "").strip()
+                pass_hit = _word_found(value, pass_tokens)
+                reject_hit = _word_found(value, reject_tokens)
+                if reject_hit:
+                    return False, "FAIL", reason or f"Reviewer returned {value}."
+                if pass_hit:
+                    return True, "OK", reason or f"Reviewer returned {value}."
+        for key in ("ok", "pass", "passed", "accepted", "save"):
+            if isinstance(parsed.get(key), bool):
+                return bool(parsed[key]), "OK" if parsed[key] else "FAIL", reason or f"Reviewer field {key}={parsed[key]}."
+
+    reject_hit = _word_found(review_text, reject_tokens)
+    pass_hit = _word_found(review_text, pass_tokens)
+    if reject_hit:
+        return False, "FAIL", _friendly_review_reason(reason, reject_hit, False)
+    if pass_hit:
+        return True, "OK", _friendly_review_reason(reason, pass_hit, True)
+
+    should_pass = str(unclear_result or "").strip() == "Pass"
+    verdict = "OK" if should_pass else "FAIL"
+    return should_pass, verdict, "Reviewer answer was unclear."
+
+
+def _prepare_image_attachment(image: Any, max_side: int = 1280) -> Optional[Dict[str, Any]]:
+    image = _extract_media(image)
+    if image is None:
+        return None
+
+    if hasattr(image, "detach"):
+        arr = image.detach().cpu().numpy()
+    else:
+        arr = np.asarray(image)
+
+    if arr.ndim == 4:
+        arr = arr[0]
+    if arr.ndim != 3:
+        raise RuntimeError("Image input must be an IMAGE tensor shaped like HxWxC or BxHxWxC.")
+    if arr.shape[-1] > 3:
+        arr = arr[..., :3]
+    if arr.shape[-1] == 1:
+        arr = np.repeat(arr, 3, axis=-1)
+
+    if arr.dtype != np.uint8:
+        if float(np.nanmax(arr)) <= 1.5:
+            arr = arr * 255.0
+        arr = np.nan_to_num(arr, nan=0.0, posinf=255.0, neginf=0.0)
+        arr = np.clip(arr, 0, 255).astype(np.uint8)
+
+    pil = Image.fromarray(arr, "RGB")
+    original_width, original_height = pil.size
+    pil.thumbnail((int(max_side), int(max_side)), Image.Resampling.LANCZOS)
+    buffer = BytesIO()
+    pil.save(buffer, format="JPEG", quality=92)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return {
+        "base64": encoded,
+        "data_url": f"data:image/jpeg;base64,{encoded}",
+        "mime": "image/jpeg",
+        "width": original_width,
+        "height": original_height,
+        "sent_width": pil.size[0],
+        "sent_height": pil.size[1],
+    }
+
+
+def _stable_reviewer_preview_path(unique_id: Any = None) -> Tuple[str, str, str]:
+    import folder_paths
+
+    temp_dir = folder_paths.get_temp_directory()
+    abs_dir = os.path.join(temp_dir, REVIEWER_PREVIEW_SUBFOLDER)
+    os.makedirs(abs_dir, exist_ok=True)
+    node_token = "".join(c for c in str(_extract_scalar(unique_id, "node")) if c.isalnum()) or "node"
+    filename = f"deno_llm_reviewer_{node_token}.jpg"
+    return os.path.join(abs_dir, filename), filename, REVIEWER_PREVIEW_SUBFOLDER
+
+
+def _stable_reviewer_snapshot_path(unique_id: Any = None) -> Tuple[str, str, str]:
+    import folder_paths
+
+    temp_dir = folder_paths.get_temp_directory()
+    abs_dir = os.path.join(temp_dir, REVIEWER_PREVIEW_SUBFOLDER)
+    os.makedirs(abs_dir, exist_ok=True)
+    node_token = "".join(c for c in str(_extract_scalar(unique_id, "node")) if c.isalnum()) or "node"
+    filename = f"deno_llm_reviewer_{node_token}.npy"
+    return os.path.join(abs_dir, filename), filename, REVIEWER_PREVIEW_SUBFOLDER
+
+
+def _normalize_image_array_for_snapshot(image: Any) -> Optional[np.ndarray]:
+    image = _extract_media(image)
+    if image is None:
+        return None
+    if hasattr(image, "detach"):
+        arr = image.detach().cpu().numpy()
+    else:
+        arr = np.asarray(image)
+    if arr.ndim == 3:
+        arr = arr[None, ...]
+    if arr.ndim != 4 or arr.size == 0:
+        return None
+    if arr.shape[-1] > 3:
+        arr = arr[..., :3]
+    if arr.shape[-1] == 1:
+        arr = np.repeat(arr, 3, axis=-1)
+    arr = np.nan_to_num(arr.astype(np.float32, copy=False), nan=0.0, posinf=1.0, neginf=0.0)
+    if float(np.nanmax(arr)) > 1.5:
+        arr = arr / 255.0
+    return np.clip(arr, 0.0, 1.0).astype(np.float32, copy=False)
+
+
+def _save_reviewer_snapshot_image(image: Any, unique_id: Any = None) -> Optional[Dict[str, Any]]:
+    try:
+        arr = _normalize_image_array_for_snapshot(image)
+        if arr is None:
+            return None
+        out_path, filename, subfolder = _stable_reviewer_snapshot_path(unique_id)
+        np.save(out_path, arr, allow_pickle=False)
+        return {
+            "filename": filename,
+            "subfolder": subfolder,
+            "type": "temp",
+            "shape": list(arr.shape),
+        }
+    except Exception:
+        return None
+
+
+def _load_reviewer_snapshot_image(reviewer_state: Any, unique_id: Any = None):
+    state_text = str(_extract_scalar(reviewer_state, "") or "").strip()
+    if not state_text:
+        return None
+    try:
+        state = json.loads(state_text)
+    except Exception:
+        return None
+    snapshot = state.get("snapshot_image") if isinstance(state, dict) else None
+    if not isinstance(snapshot, dict):
+        return None
+    filename = os.path.basename(str(snapshot.get("filename") or ""))
+    if not filename.endswith(".npy"):
+        return None
+    subfolder = str(snapshot.get("subfolder") or REVIEWER_PREVIEW_SUBFOLDER)
+    if subfolder != REVIEWER_PREVIEW_SUBFOLDER:
+        return None
+    try:
+        import folder_paths
+        import torch
+
+        temp_dir = folder_paths.get_temp_directory()
+        abs_path = os.path.join(temp_dir, REVIEWER_PREVIEW_SUBFOLDER, filename)
+        if not os.path.isfile(abs_path):
+            return None
+        arr = np.load(abs_path, allow_pickle=False)
+        if arr.ndim == 3:
+            arr = arr[None, ...]
+        if arr.ndim != 4 or arr.shape[-1] not in (1, 3, 4):
+            return None
+        if arr.shape[-1] == 1:
+            arr = np.repeat(arr, 3, axis=-1)
+        if arr.shape[-1] > 3:
+            arr = arr[..., :3]
+        arr = np.nan_to_num(arr.astype(np.float32, copy=False), nan=0.0, posinf=1.0, neginf=0.0)
+        arr = np.clip(arr, 0.0, 1.0).copy()
+        from_numpy = getattr(torch, "from_numpy", None)
+        return from_numpy(arr) if callable(from_numpy) else arr
+    except Exception:
+        return None
+
+
+def _save_reviewer_preview_image(
+    image: Any,
+    unique_id: Any = None,
+    max_side: int = 640,
+) -> Optional[Dict[str, Any]]:
+    image = _extract_media(image)
+    if image is None:
+        return None
+    try:
+        if hasattr(image, "detach"):
+            arr = image.detach().cpu().numpy()
+        else:
+            arr = np.asarray(image)
+
+        if arr.ndim == 4:
+            if arr.shape[0] < 1:
+                return None
+            arr = arr[0]
+        if arr.ndim != 3 or arr.size == 0:
+            return None
+        if arr.shape[-1] > 3:
+            arr = arr[..., :3]
+        if arr.shape[-1] == 1:
+            arr = np.repeat(arr, 3, axis=-1)
+
+        if arr.dtype != np.uint8:
+            if float(np.nanmax(arr)) <= 1.5:
+                arr = arr * 255.0
+            arr = np.nan_to_num(arr, nan=0.0, posinf=255.0, neginf=0.0)
+            arr = np.clip(arr, 0, 255).astype(np.uint8)
+
+        pil = Image.fromarray(arr, "RGB")
+        original_width, original_height = pil.size
+        pil.thumbnail((int(max_side), int(max_side)), Image.Resampling.LANCZOS)
+        out_path, filename, subfolder = _stable_reviewer_preview_path(unique_id)
+        pil.save(out_path, format="JPEG", quality=90)
+        return {
+            "filename": filename,
+            "subfolder": subfolder,
+            "type": "temp",
+            "width": original_width,
+            "height": original_height,
+            "preview_width": pil.size[0],
+            "preview_height": pil.size[1],
+        }
+    except Exception:
+        return None
+
+
+def _openai_user_content(user_prompt: str, image: Optional[Dict[str, Any]]) -> Any:
+    if image is None:
+        return user_prompt
+    parts: List[Dict[str, Any]] = [{"type": "text", "text": user_prompt}]
+    if image is not None:
+        parts.append({"type": "image_url", "image_url": {"url": image["data_url"]}})
+    return parts
+
+
+def _send_progress(payload: Dict[str, Any]) -> None:
+    try:
+        instance = getattr(PromptServer, "instance", None)
+        sender = getattr(instance, "send_sync", None)
+        if sender:
+            sender(PROGRESS_EVENT, payload)
+    except Exception:
+        pass
+
+
+def _extract_lm_delta(payload: Dict[str, Any]) -> Tuple[str, str]:
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return "", ""
+    delta = choices[0].get("delta") or {}
+    if not isinstance(delta, dict):
+        return "", ""
+    answer = str(delta.get("content") or "")
+    thinking = str(
+        delta.get("reasoning")
+        or delta.get("reasoning_content")
+        or delta.get("thinking")
+        or ""
+    )
+    return answer, thinking
+
+
+def _extract_lm_non_stream(payload: Dict[str, Any]) -> Tuple[str, str]:
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices:
+        message = choices[0].get("message") or {}
+        if isinstance(message, dict):
+            return (
+                str(message.get("content") or ""),
+                str(message.get("reasoning") or message.get("reasoning_content") or ""),
+            )
+    return "", ""
+
+
+def _lm_native_input(user_prompt: str, image: Optional[Dict[str, Any]]) -> Any:
+    if image is None:
+        return user_prompt
+    return [
+        {"type": "text", "content": user_prompt},
+        {"type": "image", "data_url": image["data_url"]},
+    ]
+
+
+def _extract_lm_native_final(payload: Dict[str, Any], include_reasoning: bool) -> Tuple[str, str]:
+    result = payload.get("result") if isinstance(payload, dict) else None
+    output = result.get("output") if isinstance(result, dict) else None
+    if not isinstance(output, list):
+        return "", ""
+    answer_parts: List[str] = []
+    thinking_parts: List[str] = []
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        item_type = str(item.get("type") or "")
+        content = str(item.get("content") or "")
+        if item_type == "message" and content:
+            answer_parts.append(content)
+        elif item_type == "reasoning" and content and include_reasoning:
+            thinking_parts.append(content)
+    return "".join(answer_parts).strip(), "".join(thinking_parts).strip()
+
+
+def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]]:
+    provider = _normalize_provider(provider)
+    if provider == PROVIDER_OLLAMA:
+        base = _normalize_ollama_url(server_url)
+        payload = _http_json(f"{base}/api/tags", timeout=10.0)
+        models = payload.get("models") or []
+        return [
+            {
+                "id": str(item.get("model") or item.get("name") or ""),
+                "label": str(item.get("model") or item.get("name") or ""),
+                "loaded": False,
+            }
+            for item in models
+            if item.get("model") or item.get("name")
+        ]
+
+    base = _normalize_lm_native_url(server_url)
+    payload = _http_json(f"{base}/api/v1/models", timeout=10.0)
+    models = payload.get("models") or []
+    result = []
+    for item in models:
+        if item.get("type") and item.get("type") != "llm":
+            continue
+        model_id = str(item.get("key") or item.get("id") or "")
+        if not model_id:
+            continue
+        label = str(item.get("display_name") or model_id)
+        loaded_instances = item.get("loaded_instances") or []
+        result.append(
+            {
+                "id": model_id,
+                "label": label,
+                "loaded": bool(loaded_instances),
+                "instance_id": str(loaded_instances[0].get("id")) if loaded_instances else "",
+            }
+        )
+    return result
+
+
+def list_detected_model_ids(provider: str, server_url: str) -> List[str]:
+    """Best-effort provider-specific model choices for ComfyUI's plain combo widget."""
+    seen = set()
+    choices: List[str] = []
+    try:
+        models = list_local_llm_models(provider, server_url)
+    except Exception:
+        models = []
+    for item in models:
+        model_id = str(item.get("id") or "").strip()
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            choices.append(model_id)
+    return choices or [""]
+
+
+def _ollama_unload_best_effort(base: str, model: str) -> None:
+    _http_json(
+        f"{base}/api/generate",
+        {"model": model, "prompt": "", "stream": False, "keep_alive": 0},
+        method="POST",
+        timeout=30.0,
+    )
+
+
+def _ollama_loaded_model_names(base: str) -> List[str]:
+    payload = _http_json(f"{base}/api/ps", timeout=10.0)
+    models = payload.get("models") or []
+    names: List[str] = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        for key in ("model", "name"):
+            value = str(item.get(key) or "").strip()
+            if value and value not in names:
+                names.append(value)
+    return names
+
+
+def _ollama_is_model_loaded(base: str, model: str) -> bool:
+    model = str(model or "").strip()
+    if not model:
+        return False
+    try:
+        return model in _ollama_loaded_model_names(base)
+    except Exception:
+        return False
+
+
+def _is_provider_model_loaded(provider: str, server_url: str, model: str) -> bool:
+    provider = _normalize_provider(provider)
+    model = str(model or "").strip()
+    if not model:
+        return False
+    try:
+        if provider == PROVIDER_OLLAMA:
+            return _ollama_is_model_loaded(_normalize_ollama_url(server_url), model)
+        models = list_local_llm_models(PROVIDER_LM_STUDIO, _normalize_lm_native_url(server_url))
+        return any(item.get("id") == model and item.get("loaded") for item in models)
+    except Exception:
+        return False
+
+
+def _ollama_keepalive_best_effort(base: str, model: str, keep_alive: Any) -> Dict[str, Any]:
+    payload = _http_json(
+        f"{base}/api/chat",
+        {"model": model, "messages": [], "stream": False, "keep_alive": keep_alive},
+        method="POST",
+        timeout=120.0,
+    )
+    return payload
+
+
+def _lm_unload_best_effort(native_base: str, model: str) -> None:
+    instance_id = model
+    try:
+        models = list_local_llm_models(PROVIDER_LM_STUDIO, native_base)
+        for item in models:
+            if item.get("id") == model and item.get("instance_id"):
+                instance_id = str(item["instance_id"])
+                break
+            if item.get("id") == model and not item.get("loaded"):
+                return
+    except Exception:
+        pass
+    try:
+        _http_json(
+            f"{native_base}/api/v1/models/unload",
+            {"instance_id": instance_id},
+            method="POST",
+            timeout=15.0,
+        )
+    except RuntimeError as exc:
+        message = str(exc).lower()
+        if "model_not_found" in message or "not loaded" in message:
+            return
+        raise
+
+
+def unload_local_llm_model(provider: str, server_url: str, model: str) -> Dict[str, Any]:
+    provider = _normalize_provider(provider)
+    model = str(model or "").strip()
+    if not model:
+        raise RuntimeError("Select a local LLM model before unloading.")
+    if _looks_like_shifted_model_value(model):
+        raise RuntimeError(_shifted_model_error("unloading", model))
+    if provider == PROVIDER_OLLAMA:
+        base = _normalize_ollama_url(server_url)
+        if _is_local_llm_active(provider, base, model):
+            return _busy_unload_response(provider, model)
+        _ollama_unload_best_effort(base, model)
+        _clear_local_llm_warm(provider, base, model)
+        return {"ok": True, "message": f"Unloaded Ollama model: {model}"}
+    if provider == PROVIDER_LM_STUDIO:
+        native_base = _normalize_lm_native_url(server_url)
+        openai_base = _normalize_lm_openai_url(server_url)
+        if (
+            _is_local_llm_active(provider, native_base, model)
+            or _is_local_llm_active(provider, openai_base, model)
+        ):
+            return _busy_unload_response(provider, model)
+        _lm_unload_best_effort(native_base, model)
+        _clear_local_llm_warm(provider, native_base, model)
+        _clear_local_llm_warm(provider, openai_base, model)
+        return {"ok": True, "message": f"Unloaded LM Studio model: {model}"}
+
+    raise RuntimeError("Provider must be Ollama or LM Studio.")
+
+
+async def _handle_list_models(request):
+    try:
+        payload = await request.json()
+        provider = payload.get("provider", PROVIDER_OLLAMA)
+        server_url = payload.get("server_url", "")
+        models = list_local_llm_models(provider, server_url)
+        return _json_response({"models": models})
+    except Exception as exc:
+        return _json_response({"models": [], "error": str(exc)}, status=400)
+
+
+async def _handle_unload_model(request):
+    try:
+        payload = await request.json()
+        provider = payload.get("provider", PROVIDER_OLLAMA)
+        server_url = payload.get("server_url", "")
+        model = payload.get("model", "")
+        result = unload_local_llm_model(provider, server_url, model)
+        status = 200 if result.get("ok") else 409
+        return _json_response(result, status=status)
+    except Exception as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+
+
+async def _handle_stop_model(request):
+    try:
+        payload = await request.json()
+        provider = payload.get("provider", PROVIDER_OLLAMA)
+        server_url = payload.get("server_url", "")
+        model = payload.get("model", "")
+        result = stop_local_llm_generation(provider, server_url, model)
+        status = 200 if result.get("ok") else 409
+        return _json_response(result, status=status)
+    except Exception as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
+
+
+if PromptServer is not None:
+    PromptServer.instance.routes.post("/deno/local_llm/models")(_handle_list_models)
+    PromptServer.instance.routes.post("/deno/local_llm/stop")(_handle_stop_model)
+    PromptServer.instance.routes.post("/deno/local_llm/unload")(_handle_unload_model)
+
+
+class DenoLocalLLMRefiner:
+    DESCRIPTION = (
+        "Call a local Ollama or LM Studio model from ComfyUI and help rewrite or review prompt text.\n\n"
+        "An optional IMAGE input can be attached to the local model call. "
+        "Use a vision-capable local model for image review.\n\n"
+        "Designed for prompt-batcher workflows: connect a STRING list into User Prompt, "
+        "and this node processes the whole batch in one execution so the local LLM can stay "
+        "loaded until the batch is complete.\n\n"
+        "Only localhost / 127.0.0.1 servers are allowed."
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        ollama_model_choices = list_detected_model_ids(PROVIDER_OLLAMA, OLLAMA_DEFAULT_SERVER)
+        lm_studio_model_choices = list_detected_model_ids(PROVIDER_LM_STUDIO, LM_STUDIO_DEFAULT_SERVER)
+        return {
+            "required": {
+                "provider": (PROVIDERS, {"default": PROVIDER_OLLAMA}),
+                "ollama_model": (ollama_model_choices, {"default": ollama_model_choices[0]}),
+                "lm_studio_model": (lm_studio_model_choices, {"default": lm_studio_model_choices[0]}),
+                "custom_server_url": (
+                    "STRING",
+                    {
+                        "default": LEGACY_CUSTOM_SERVER_DEFAULT,
+                    },
+                ),
+                "custom_model": ([""], {"default": ""}),
+                "system_prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                    },
+                ),
+                "user_prompt": ("STRING", {"forceInput": True}),
+                "thinking": ("BOOLEAN", {"default": False}),
+                "seed": ("INT", {"default": 1, "min": 0, "max": 0xFFFFFFFF, "step": 1}),
+                "seed_mode": (SEED_MODE_OPTIONS, {"default": SEED_MODE_FIXED}),
+                "model_memory": (MODEL_MEMORY_OPTIONS, {"default": MEMORY_UNLOAD_AFTER_RUN}),
+                "keep_minutes": ("INT", {"default": 5, "min": 1, "max": 240, "step": 1}),
+                "comfy_vram_policy": (COMFY_VRAM_POLICY_OPTIONS, {"default": COMFY_VRAM_AUTO}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
+        }
+
+    INPUT_IS_LIST = True
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("result",)
+    OUTPUT_IS_LIST = (True,)
+    FUNCTION = "refine"
+    CATEGORY = "Deno/LLM"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # This node calls external local servers and manages provider residency.
+        # A fixed seed should stabilize the LLM request, not let ComfyUI skip it.
+        return f"{time.monotonic_ns()}:{next(_IS_CHANGED_COUNTER)}"
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, provider=None, ollama_model=None, lm_studio_model=None, custom_model=None):
+        raw_provider_value = str(_extract_scalar(provider, PROVIDER_OLLAMA) or "").strip()
+        if raw_provider_value not in PROVIDERS and raw_provider_value != LEGACY_PROVIDER_CUSTOM:
+            return "Provider must be Ollama or LM Studio."
+        provider_value = _normalize_provider(raw_provider_value)
+        ollama_value = str(_extract_scalar(ollama_model, "") or "").strip()
+        lm_studio_value = str(_extract_scalar(lm_studio_model, "") or "").strip()
+
+        if provider_value == PROVIDER_OLLAMA and (not ollama_value or _looks_like_shifted_model_value(ollama_value)):
+            return "Ollama Model must be a real model name. Refresh models if the value looks shifted."
+        if provider_value == PROVIDER_LM_STUDIO and (not lm_studio_value or _looks_like_shifted_model_value(lm_studio_value)):
+            return "LM Studio Model must be a real model name. Refresh models if the value looks shifted."
+        return True
+
+    def refine(
+        self,
+        provider,
+        ollama_model,
+        lm_studio_model,
+        custom_server_url,
+        custom_model,
+        system_prompt,
+        user_prompt,
+        thinking,
+        seed,
+        seed_mode,
+        model_memory,
+        keep_minutes,
+        comfy_vram_policy=COMFY_VRAM_AUTO,
+        image=None,
+        unique_id=None,
+    ):
+        provider_value = _normalize_provider(str(_extract_scalar(provider, PROVIDER_OLLAMA)))
+        ollama_model_value = str(_extract_scalar(ollama_model, "")).strip()
+        lm_studio_model_value = str(_extract_scalar(lm_studio_model, "")).strip()
+
+        # Migration guard for old saved nodes where the removed server_url/model widgets
+        # could be restored by widget order before the node is recreated.
+        if provider_value == PROVIDER_OLLAMA and _looks_like_url(ollama_model_value) and lm_studio_model_value:
+            ollama_model_value = lm_studio_model_value
+        if provider_value == PROVIDER_LM_STUDIO and (
+            not lm_studio_model_value or _looks_like_url(lm_studio_model_value)
+        ) and ollama_model_value and not _looks_like_url(ollama_model_value):
+            lm_studio_model_value = ollama_model_value
+
+        if provider_value == PROVIDER_LM_STUDIO:
+            server_value = LM_STUDIO_DEFAULT_SERVER
+            model_value = lm_studio_model_value
+        else:
+            server_value = OLLAMA_DEFAULT_SERVER
+            model_value = ollama_model_value
+        system_value = str(_extract_scalar(system_prompt, "") or "")
+        thinking_value = _safe_bool(thinking, False)
+        seed_value = _safe_int(seed, 1, 0, 0xFFFFFFFF)
+        seed_mode_value = _normalize_seed_mode(seed_mode)
+        memory_value = _normalize_model_memory(model_memory)
+        keep_minutes_value = _safe_int(keep_minutes, 5, 1, 240)
+        comfy_vram_policy_value = _normalize_comfy_vram_policy(comfy_vram_policy)
+        node_id = str(_extract_scalar(unique_id, "") or "")
+        prompts = _flatten_prompts(user_prompt)
+        image_attachment = _prepare_image_attachment(image)
+
+        if not model_value:
+            raise RuntimeError("Select or type a local LLM model name before running this node.")
+        results: List[str] = []
+        thinking_results: List[str] = []
+        total = len(prompts)
+
+        _send_progress({
+            "node_id": node_id,
+            "status": "running",
+            "provider": provider_value,
+            "model": model_value,
+            "index": 0,
+            "total": total,
+            "answer": "",
+            "thinking": "",
+        })
+
+        local_llm_swap_info = _unload_other_warm_local_llms(
+            provider=provider_value,
+            server_url=server_value,
+            model=model_value,
+            node_id=node_id,
+        )
+
+        comfy_vram_info = _prepare_comfy_vram_before_llm(
+            provider=provider_value,
+            server_url=server_value,
+            model=model_value,
+            model_memory=memory_value,
+            keep_minutes=keep_minutes_value,
+            comfy_vram_policy=comfy_vram_policy_value,
+            node_id=node_id,
+        )
+
+        for index, prompt in enumerate(prompts):
+            current_seed = _seed_for_index(seed_value, seed_mode_value, index)
+            is_last = index == total - 1
+            active_key = _mark_local_llm_active(provider_value, server_value, model_value)
+            try:
+                answer, thought, _raw = self._run_single(
+                    provider=provider_value,
+                    server_url=server_value,
+                    model=model_value,
+                    system_prompt=system_value,
+                    user_prompt=prompt,
+                    thinking=thinking_value,
+                    seed=current_seed,
+                    model_memory=memory_value,
+                    keep_minutes=keep_minutes_value,
+                    image_attachment=image_attachment,
+                    is_last=is_last,
+                    node_id=node_id,
+                    index=index + 1,
+                    total=total,
+                )
+            finally:
+                _clear_local_llm_active(active_key)
+            _mark_local_llm_warm(provider_value, server_value, model_value, memory_value, keep_minutes_value)
+            answer, thought = _split_thinking_tags(answer, thought)
+            if thinking_value:
+                _raise_if_thinking_only_result(answer, thought)
+            results.append(answer)
+            thinking_results.append(thought)
+
+        if memory_value == MEMORY_UNLOAD_AFTER_RUN:
+            _clear_local_llm_warm(provider_value, server_value, model_value)
+
+        _send_progress({
+            "node_id": node_id,
+            "status": "done",
+            "provider": provider_value,
+            "model": model_value,
+            "index": total,
+            "total": total,
+            "answer": results[-1] if results else "",
+            "thinking": thinking_results[-1] if thinking_results else "",
+            "comfy_vram": comfy_vram_info,
+            "local_llm_swap": local_llm_swap_info,
+        })
+
+        return {
+            "ui": {
+                "text": results,
+                "thinking": thinking_results,
+            },
+            "result": (results,),
+        }
+
+    def _run_single(
+        self,
+        provider: str,
+        server_url: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        thinking: bool,
+        seed: int,
+        model_memory: str,
+        keep_minutes: int,
+        image_attachment: Optional[Dict[str, Any]],
+        is_last: bool,
+        node_id: str,
+        index: int,
+        total: int,
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        if provider == PROVIDER_LM_STUDIO:
+            return self._run_lm_studio(
+                server_url,
+                model,
+                system_prompt,
+                user_prompt,
+                thinking,
+                seed,
+                model_memory,
+                keep_minutes,
+                image_attachment,
+                is_last,
+                node_id,
+                index,
+                total,
+            )
+        return self._run_ollama(
+            server_url,
+            model,
+            system_prompt,
+            user_prompt,
+            thinking,
+            seed,
+            model_memory,
+            keep_minutes,
+            image_attachment,
+            is_last,
+            node_id,
+            index,
+            total,
+        )
+
+    def _run_ollama(
+        self,
+        server_url: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        thinking: bool,
+        seed: int,
+        model_memory: str,
+        keep_minutes: int,
+        image_attachment: Optional[Dict[str, Any]],
+        is_last: bool,
+        node_id: str,
+        index: int,
+        total: int,
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        base = _normalize_ollama_url(server_url)
+        memory_value = _normalize_model_memory(model_memory)
+        keep_minutes_value = max(1, int(keep_minutes))
+        messages = []
+        if system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt})
+        user_message: Dict[str, Any] = {"role": "user", "content": user_prompt}
+        if image_attachment is not None:
+            user_message["images"] = [image_attachment["base64"]]
+        messages.append(user_message)
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "think": thinking,
+            "options": {"seed": int(seed)},
+            "keep_alive": _ollama_keep_alive(memory_value, keep_minutes_value, is_last),
+        }
+        answer_parts: List[str] = []
+        thinking_parts: List[str] = []
+        final_meta: Dict[str, Any] = {}
+        last_emit = 0.0
+        cancel_key = _llm_state_key(PROVIDER_OLLAMA, base, model)
+
+        for chunk in _http_stream_json_lines(f"{base}/api/chat", payload, cancel_key=cancel_key):
+            if chunk.get("error"):
+                raise RuntimeError(str(chunk.get("error")))
+            message = chunk.get("message") or {}
+            content = str(message.get("content") or "")
+            thought = str(message.get("thinking") or "")
+            if content:
+                answer_parts.append(content)
+            if thought:
+                thinking_parts.append(thought)
+            if chunk.get("done"):
+                final_meta = {
+                    key: chunk.get(key)
+                    for key in (
+                        "model",
+                        "done_reason",
+                        "total_duration",
+                        "load_duration",
+                        "prompt_eval_count",
+                        "eval_count",
+                    )
+                    if key in chunk
+                }
+            now = time.monotonic()
+            if now - last_emit > 0.12 or content or thought:
+                last_emit = now
+                _send_progress({
+                    "node_id": node_id,
+                    "status": "running",
+                    "provider": PROVIDER_OLLAMA,
+                    "model": model,
+                    "index": index,
+                    "total": total,
+                    "answer": "".join(answer_parts),
+                    "thinking": "".join(thinking_parts),
+                })
+
+        answer = "".join(answer_parts).strip()
+        thought = "".join(thinking_parts).strip()
+        raw = {
+            "provider": PROVIDER_OLLAMA,
+            "model": model,
+            "seed": seed,
+            "model_memory": memory_value,
+            "keep_minutes": keep_minutes_value,
+            "keep_alive": payload["keep_alive"],
+            "meta": final_meta,
+        }
+        raw["post_keepalive"] = _ensure_ollama_model_stays_loaded(
+            base=base,
+            model=model,
+            keep_alive=payload["keep_alive"],
+            node_id=node_id,
+            index=index,
+            total=total,
+        )
+        if image_attachment is not None:
+            raw["image"] = {
+                "width": image_attachment["width"],
+                "height": image_attachment["height"],
+                "sent_width": image_attachment["sent_width"],
+                "sent_height": image_attachment["sent_height"],
+            }
+        return answer, thought, raw
+
+    def _run_lm_studio(
+        self,
+        server_url: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        thinking: bool,
+        seed: int,
+        model_memory: str,
+        keep_minutes: int,
+        image_attachment: Optional[Dict[str, Any]],
+        is_last: bool,
+        node_id: str,
+        index: int,
+        total: int,
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        native_base = _normalize_lm_native_url(server_url)
+        openai_base = _normalize_lm_openai_url(server_url)
+        memory_value = _normalize_model_memory(model_memory)
+        keep_minutes_value = max(1, int(keep_minutes))
+        payload: Dict[str, Any] = {
+            "model": model,
+            "stream": True,
+            "reasoning": "on" if thinking else "off",
+            "input": _lm_native_input(user_prompt, image_attachment),
+            "store": False,
+        }
+        if system_prompt.strip():
+            payload["system_prompt"] = system_prompt
+
+        answer_parts: List[str] = []
+        thinking_parts: List[str] = []
+        final_meta: Dict[str, Any] = {}
+        last_emit = 0.0
+        # The active key still uses the OpenAI-style base saved in workflows,
+        # while the real request uses LM Studio's native chat endpoint.
+        cancel_key = _llm_state_key(PROVIDER_LM_STUDIO, openai_base, model)
+
+        for event_name, chunk in _http_stream_sse(f"{native_base}/api/v1/chat", payload, cancel_key=cancel_key):
+            if chunk.get("error"):
+                error = chunk.get("error")
+                if isinstance(error, dict):
+                    raise RuntimeError(str(error.get("message") or error))
+                raise RuntimeError(str(error))
+            event_type = str(chunk.get("type") or event_name or "")
+            content = str(chunk.get("content") or "") if event_type == "message.delta" else ""
+            thought = str(chunk.get("content") or "") if event_type == "reasoning.delta" else ""
+            if content:
+                answer_parts.append(content)
+            if thought and thinking:
+                thinking_parts.append(thought)
+            if event_type == "chat.end":
+                final_meta = chunk
+            now = time.monotonic()
+            if now - last_emit > 0.12 or content or thought:
+                last_emit = now
+                _send_progress({
+                    "node_id": node_id,
+                    "status": "running",
+                    "provider": PROVIDER_LM_STUDIO,
+                    "model": model,
+                    "index": index,
+                    "total": total,
+                    "answer": "".join(answer_parts),
+                    "thinking": "".join(thinking_parts),
+                })
+
+        if _should_unload_after_run(memory_value, is_last):
+            self._lm_unload_best_effort(native_base, model)
+
+        answer = "".join(answer_parts).strip()
+        thought = "".join(thinking_parts).strip()
+        if not answer and not thought and final_meta:
+            answer, thought = _extract_lm_native_final(final_meta, thinking)
+        raw = {
+            "provider": PROVIDER_LM_STUDIO,
+            "model": model,
+            "seed": seed,
+            "model_memory": memory_value,
+            "keep_minutes": keep_minutes_value,
+            "reasoning": payload["reasoning"],
+            "api": "LM Studio /api/v1/chat",
+            "meta": final_meta,
+        }
+        if image_attachment is not None:
+            raw["image"] = {
+                "width": image_attachment["width"],
+                "height": image_attachment["height"],
+                "sent_width": image_attachment["sent_width"],
+                "sent_height": image_attachment["sent_height"],
+            }
+        return answer, thought, raw
+
+    def _lm_unload_best_effort(self, native_base: str, model: str) -> None:
+        try:
+            _lm_unload_best_effort(native_base, model)
+        except Exception:
+            pass
+
+
+class DenoAIReviewGate:
+    DESCRIPTION = (
+        "Review generated media before Save nodes and pass only approved results.\n\n"
+        "Connect a Local LLM or ComfyUI TextGenerate review result into Review, "
+        "then connect IMAGE or AUDIO through this reviewer before Save nodes. "
+        "OK/PASS/APPROVE passes through; FAIL/REJECT/BAD quietly blocks downstream "
+        "execution. Unclear reviews are blocked."
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "review": ("STRING", {"forceInput": True}),
+                "review_mode": (["Review", "Pass"], {"default": "Review"}),
+                "approve_once": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
+                "audio": ("AUDIO",),
+                "reviewer_state": ("STRING", {"default": ""}),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "AUDIO")
+    RETURN_NAMES = ("image", "audio")
+    SEARCH_ALIASES = [
+        "local llm reviewer",
+        "reviewer",
+        "save reviewer",
+        "quality reviewer",
+        "ai reviewer",
+        "llm reviewer",
+        "gemma4 reviewer",
+        "media reviewer",
+    ]
+    FUNCTION = "gate"
+    OUTPUT_NODE = True
+    CATEGORY = "Deno/LLM"
+
+    def gate(
+        self,
+        review,
+        review_mode="Review",
+        approve_once=False,
+        image=None,
+        audio=None,
+        pass_words="OK, PASS, APPROVE, APPROVED",
+        reject_words="FAIL, REJECT, BAD",
+        unclear_result="Reject",
+        unique_id=None,
+        reviewer_state="",
+    ):
+        normalized_mode = str(review_mode or "Review").strip()
+        if normalized_mode == "Pass" or bool(approve_once):
+            if bool(approve_once) and image is None:
+                image = _load_reviewer_snapshot_image(reviewer_state, unique_id)
+            return self._gate_result(
+                passed=True,
+                verdict="OK",
+                reason="Manual pass." if normalized_mode == "Pass" else "Approved once.",
+                image=image,
+                audio=audio,
+                source="Manual pass" if normalized_mode == "Pass" else "Approve once",
+                preview_image=image,
+                unique_id=unique_id,
+                approve_once_consumed=bool(approve_once),
+            )
+
+        passed, verdict, reason = _judge_review_text(
+            review=review,
+            pass_words=pass_words,
+            reject_words=reject_words,
+            unclear_result=unclear_result,
+        )
+        return self._gate_result(
+            passed=passed,
+            verdict=verdict,
+            reason=reason,
+            image=image,
+            audio=audio,
+            source="Text review",
+            preview_image=image,
+            unique_id=unique_id,
+        )
+
+    def _gate_result(
+        self,
+        *,
+        passed: bool,
+        verdict: str,
+        reason: str,
+        image=None,
+        audio=None,
+        source: str = "Review",
+        review_text: str = "",
+        passed_count: Optional[int] = None,
+        blocked_count: Optional[int] = None,
+        preview_image=None,
+        unique_id=None,
+        approve_once_consumed: bool = False,
+    ):
+        blocker = ExecutionBlocker(None)
+        ui_info: Dict[str, Any] = {
+            "passed": bool(passed),
+            "verdict": str(verdict or ("OK" if passed else "FAIL")),
+            "reason": str(reason or ""),
+            "source": str(source or "Review"),
+        }
+        if review_text:
+            ui_info["review"] = str(review_text)
+        if passed_count is not None:
+            ui_info["passed_count"] = int(passed_count)
+        if blocked_count is not None:
+            ui_info["blocked_count"] = int(blocked_count)
+        if approve_once_consumed:
+            ui_info["approve_once_consumed"] = True
+        preview_meta = _save_reviewer_preview_image(preview_image if preview_image is not None else image, unique_id)
+        if preview_meta:
+            ui_info["preview_image"] = preview_meta
+        snapshot_meta = _save_reviewer_snapshot_image(preview_image if preview_image is not None else image, unique_id)
+        if snapshot_meta:
+            ui_info["snapshot_image"] = snapshot_meta
+
+        if passed:
+            image_out = image if image is not None else blocker
+            audio_out = audio if audio is not None else blocker
+            return {
+                "ui": {"deno_llm_gate": [ui_info]},
+                "result": (image_out, audio_out),
+            }
+
+        return {
+            "ui": {"deno_llm_gate": [ui_info]},
+            "result": (blocker, blocker),
+        }
+
+
+class DenoPromptText:
+    DESCRIPTION = (
+        "A small multiline STRING output node for connecting system prompts, user prompts, "
+        "or prompt templates into DENO prompt-helper nodes."
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "text": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                    },
+                ),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "build"
+    CATEGORY = "Deno/Prompt"
+
+    def build(self, text: str):
+        return (str(text or ""),)

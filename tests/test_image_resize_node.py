@@ -9,6 +9,8 @@ import types
 import urllib.error
 from pathlib import Path
 
+import numpy as np
+import pytest
 from PIL import Image
 
 
@@ -76,6 +78,8 @@ def install_comfyui_dependency_stubs():
         folder_paths.get_full_path_or_raise = folder_paths.get_full_path
         folder_paths.get_folder_paths = lambda folder_name: [str(REPO_ROOT / "models" / folder_name)]
         folder_paths.get_input_directory = lambda: str(REPO_ROOT / "input")
+        folder_paths.get_user_directory = lambda: str(REPO_ROOT / "user")
+        folder_paths.get_temp_directory = lambda: str(REPO_ROOT / "tmp" / "test-temp")
         sys.modules["folder_paths"] = folder_paths
 
     if "nodes" not in sys.modules:
@@ -189,6 +193,9 @@ def test_node_registration_exports_expected_nodes():
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
         "DenoBerniniPromptGuide",
+        "DenoLocalLLMRefiner",
+        "DenoAIReviewGate",
+        "DenoPromptText",
         "DenoRTXVFXEasyUpscale",
         "DenoRTXVFXVideoFinisher",
         "DenoImageCompare",
@@ -218,6 +225,9 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoBerniniPromptGuide"] == "(Deno) Bernini Prompt Guide"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLocalLLMRefiner"] == "(Deno) Local LLM Loader"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoAIReviewGate"] == "(Deno) Local LLM Reviewer"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoPromptText"] == "(Deno) Prompt Text"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno) RTX Video Super Resolution"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXVideoFinisher"] == "(Deno) RTX Video Super Resolution (2 Pass)"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoImageCompare"] == "(Deno) Image Compare"
@@ -1986,6 +1996,1384 @@ def test_bernini_prompt_guide_outputs_visible_negative_prompt_edits():
     )
 
     assert clip.texts[1] == "watermark, logo, bad hands"
+
+
+def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLocalLLMRefiner"]
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    original_list_models = module.list_local_llm_models
+
+    def fake_list_models(provider, server_url):
+        if provider == "LM Studio":
+            return [{"id": "lm-studio-model-b", "label": "LM Studio Model B", "loaded": False}]
+        return [{"id": "ollama-model-a", "label": "Ollama Model A", "loaded": False}]
+
+    module.list_local_llm_models = fake_list_models
+    try:
+        input_types = node_cls.INPUT_TYPES()
+    finally:
+        module.list_local_llm_models = original_list_models
+
+    required = input_types["required"]
+    optional = input_types["optional"]
+    hidden = input_types["hidden"]
+    assert node_cls.INPUT_IS_LIST is True
+    assert node_cls.OUTPUT_IS_LIST == (True,)
+    assert node_cls.RETURN_TYPES == ("STRING",)
+    assert node_cls.RETURN_NAMES == ("result",)
+    assert node_cls.CATEGORY == "Deno/LLM"
+    assert node_cls.IS_CHANGED() != node_cls.IS_CHANGED()
+    assert "help rewrite or review prompt text" in node_cls.DESCRIPTION
+    assert "Ollama or LM Studio" in node_cls.DESCRIPTION
+    assert "An optional IMAGE input" in node_cls.DESCRIPTION
+    assert "AUDIO" not in node_cls.DESCRIPTION
+    assert required["provider"][0] == ["Ollama", "LM Studio"]
+    assert "server_url" not in required
+    assert "model" not in required
+    assert required["ollama_model"][0] == ["ollama-model-a"]
+    assert required["lm_studio_model"][0] == ["lm-studio-model-b"]
+    assert required["custom_server_url"][0] == "STRING"
+    assert required["custom_server_url"][1]["default"] == "http://127.0.0.1:8000/v1"
+    assert required["custom_model"][0] == [""]
+    assert required["system_prompt"][1]["default"] == ""
+    assert required["system_prompt"][1]["multiline"] is True
+    assert "forceInput" not in required["system_prompt"][1]
+    assert required["user_prompt"][1]["forceInput"] is True
+    assert required["seed_mode"][0] == ["fixed", "increment", "decrement", "randomize"]
+    assert "control_after_generate" not in required
+    assert required["model_memory"][0] == ["Unload after run", "Keep for minutes", "Keep loaded"]
+    assert required["comfy_vram_policy"][0] == [
+        "Auto: unload only before first LLM call",
+        "Always unload before each LLM call",
+        "Never unload before LLM call",
+    ]
+    assert required["comfy_vram_policy"][1]["default"] == "Auto: unload only before first LLM call"
+    assert optional["image"][0] == "IMAGE"
+    assert "audio" not in optional
+    assert list(hidden) == ["unique_id"]
+    assert "reviewer_state" not in hidden
+
+    script = (REPO_ROOT / "web" / "js" / "deno_local_llm_refiner.js").read_text(encoding="utf-8")
+    assert 'const NODE_NAME = "DenoLocalLLMRefiner";' in script
+    assert 'const DISPLAY_NAME = "(Deno) Local LLM Loader";' in script
+    assert 'const GATE_DISPLAY_NAME = "(Deno) Local LLM Reviewer";' in script
+    assert 'const LEGACY_DISPLAY_NAMES = new Set([OLD_DISPLAY_NAME, "(Deno) Local LLM Prompt Helper"]);' in script
+    assert "normalizeNodeTitle" in script
+    assert 'api.addEventListener("deno-local-llm-progress"' in script
+    assert "Refresh Models" in script
+    assert "Stop LLM" in script
+    assert "stopLocalModel" in script
+    assert "isStopButtonWidget" in script
+    assert "removeStopButtonWidgets" in script
+    assert "ensureSingleStopButton" in script
+    assert "Unload LLM" in script
+    assert "unloadLocalModel" in script
+    assert "isLocalLLMBusyState" in script
+    assert "unload blocked" in script
+    assert "payload.busy" in script
+    assert "/deno/local_llm/stop" in script
+    assert "/deno/local_llm/unload" in script
+    assert "COMFY_VRAM_VALUES" in script
+    assert "Unload ComfyUI Models Setting" in script
+    assert "Auto: unload only before first LLM call" in script
+    assert "Always unload before each LLM call" in script
+    assert "Never unload before LLM call" in script
+    assert "normalizeComfyVramValue" in script
+    assert "syncComfyVramWidgetOptions" in script
+    assert "comfy_vram_policy" in script
+    assert "ModelPickerWidget" not in script
+    assert "showModelMenu" not in script
+    assert "normalizeModelChoices" in script
+    assert "updateModelChoices" in script
+    assert "installProgressListener" in script
+    assert "installGraphScan" in script
+    assert "syncLoaderOutputSlots" in script
+    assert "removeLegacyWidgets" in script
+    assert "setActiveProviderModelVisibility" in script
+    assert "migrateLegacyModelWidgets" in script
+    assert "repairSavedWidgetValues" in script
+    assert "SHIFTED_MODEL_WIDGET_VALUES" in script
+    assert "isShiftedModelWidgetValue" in script
+    assert "repairModelWidgetValue" in script
+    assert "Refresh models and select a real local LLM model before unloading." in script
+    assert "inferWidgetType" in script
+    assert "denoLocalLLMModelChoicesByProvider" in script
+    assert "Ollama Model" in script
+    assert "LM Studio Model" in script
+    assert "LEGACY_PROVIDER_CUSTOM" in script
+    assert "Legacy Model" in script
+    assert "custom_server_url" in script
+    assert "LEGACY_CUSTOM_DEFAULT_URL" in script
+    assert "wrapCustomServerCallback" not in script
+    assert "repairLegacyProviderValues" in script
+    assert "isShiftedCustomModelValue" in script
+    assert "function safeAppGraph" in script
+    assert "installReviewerGraphToPromptHook" in script
+    assert "collectReviewerAncestors" in script
+    assert "collectPromptLinkAncestors" in script
+    assert "pruneUnreferencedPromptAncestors" in script
+    assert "applyReviewerPassMode" in script
+    assert 'review: "Manual pass."' in script
+    assert "applyReviewerRegenerateMode" in script
+    assert "__DENO_LOCAL_LLM_REVIEWER_TEST_HOOK__" in script
+    assert "queueReviewerWithMode" in script
+    assert "_denoReviewerSubmitMode" in script
+    assert "Regenerating the path into this reviewer." in script
+    assert "app.graph" not in script
+    assert "removePromptWidgets" in script
+    assert "ensureSystemPromptWidget" in script
+    assert "ensureSeedModeWidget" in script
+    assert "SEED_MODE_VALUES" in script
+    assert "addSystemPromptButton" in script
+    assert "openSystemPromptDialog" in script
+    assert "Optional system prompt. Empty is OK." in script
+    assert 'saveButton.textContent = "Save";' in script
+    assert "Use This" not in script
+    assert "dedupeKnownWidgets" in script
+    assert "removeRefreshButtonWidgets" in script
+    assert "removeStopButtonWidgets" in script
+    assert "removeUnloadButtonWidgets" in script
+    assert 'node.addWidget?.("button", "Refresh Models", "Refresh Models", () => refreshModels(node))' in script
+    assert 'node.addWidget?.("button", "Stop LLM", "Stop LLM", () => stopLocalModel(node))' in script
+    assert 'node.addWidget?.("button", "Unload LLM", "Unload LLM", () => unloadLocalModel(node))' in script
+    assert 'drawWideButton(ctx, 15, y, width - 30, height, "Refresh Models"' not in script
+    assert "schedulePostSetupCleanup" in script
+    assert "Model list is ready. Choose from the ${provider} model row." in script
+    assert "LocalLLMPreviewWidget" in script
+    assert "availableNodeHeight" in script
+    assert "const actualHeight = Math.max(expectedHeight, Number(height) || 0, availableNodeHeight);" in script
+    assert "maxPreviewLinesForHeight(resultH)" in script
+    assert 'openPreviewTextDialog("Thinking", text)' in script
+    assert "function openPreviewTextDialog" in script
+    assert "denoLocalLLMExpanded" not in script
+    assert "const manualHeight = Number(node.size?.[1]) || 0;" in script
+    assert "Math.max(manualHeight, computed[1], 180)" in script
+    assert "wrapModelMemoryCallback(node)" in script
+    assert 'modelMemory !== "Keep for minutes"' in script
+    assert "installPreviewWheelHandler" in script
+    assert "attachGlobalPreviewWheelHandler" in script
+    assert 'window.addEventListener?.("wheel", previewWheelHandler, { capture: true, passive: false })' in script
+    assert "PREVIEW_SCROLLBAR_TRACK_WIDTH = 8" in script
+    assert "PREVIEW_SCROLLBAR_HIT_WIDTH = 18" in script
+    assert "attachPreviewPointerHandler" in script
+    assert "handleCanvasPreviewPointerMove" in script
+    assert "handleCanvasPreviewPointerDown" in script
+    assert "handleCanvasPreviewPointerUp" in script
+    assert 'canvas.addEventListener("pointerdown", previewPointerDownHandler, { capture: true, passive: false })' in script
+    assert 'canvas.addEventListener("pointermove", previewPointerMoveHandler, { capture: true, passive: false })' in script
+    assert 'canvas.addEventListener("pointerup", previewPointerUpHandler, { capture: true, passive: false })' in script
+    assert 'canvas.style.cursor = "ns-resize"' in script
+    assert 'document.body.style.cursor = "ns-resize"' in script
+    assert "previewScrollbarKeyFromPos" in script
+    assert "previewScrollbarHitFromEvent" in script
+    assert "isDenoLocalLLMModalEvent" in script
+    assert ".deno-local-llm-preview-modal, .deno-local-llm-system-prompt-modal" in script
+    assert 'textBox.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true })' in script
+    assert "wrapPreviewWheelProcessor" in script
+    assert "canvasObj.processMouseWheel = function (event)" in script
+    assert "currentGraphCanvasElement" in script
+    assert 'document.querySelector?.("#graph-canvas")' in script
+    assert 'canvas.addEventListener("wheel", previewWheelHandler, { capture: true, passive: false })' in script
+    assert "previewWheelHitFromEvent" in script
+    assert "graphPointCandidatesFromWheelEvent" in script
+    assert "canvasObj.graph_mouse" in script
+    assert "canvasObj.canvas_mouse" in script
+    assert "previewNodeCandidates" in script
+    assert "canvasObj.node_over" in script
+    assert "canvasPointFromWheelEvent" in script
+    assert 'typeof event.offsetX === "number"' in script
+    assert "event.stopImmediatePropagation?.()" in script
+    assert "handlePreviewWheel(event, pos, node, this.blockBounds, this.blockLineInfo)" in script
+    assert "drawPreviewScrollbar" in script
+    assert "handlePreviewScrollbarPointer" in script
+    assert "previewScrollbarBounds" in script
+    assert 'previewWindow(node, "result"' in script
+    assert "maxPreviewCharsForWidth(panelW)" in script
+    assert "Thinking" in script
+    assert "Result" in script
+    assert "GateStatusWidget" in script
+    assert "ReviewerControlsWidget" in script
+    assert "function reviewerWidgetDrawWidth" in script
+    assert "function reviewerWidgetLayoutWidth" in script
+    assert "function reviewerRefreshSize" in script
+    assert "Math.min(rawWidth, nodeWidth)" in script
+    assert "const drawWidth = reviewerWidgetDrawWidth(node, width);" in script
+    assert "const [width, height] = reviewerRefreshSize(node, computed);" in script
+    assert "reasonClipX" in script
+    assert 'ctx.textAlign = "left";\n        const reasonClipX' in script
+    assert "ctx.rect(reasonClipX, reasonClipY, reasonClipW, reasonClipH)" in script
+    assert "fitString(ctx, String(reasonLines[index] || \"\"), reasonClipW)" in script
+    assert "syncReviewerInputSlots" in script
+    assert "syncReviewerOutputSlots" in script
+    assert 'getWidget(node, "reviewer_state")' in script
+    assert 'name: "image"' in script
+    assert 'name: "audio"' in script
+    assert "updateInputLinkSlots" in script
+    assert "updateOutputLinkSlots" in script
+    assert "setupGateNode" in script
+    assert "ComfyUI CLIP" not in script
+    assert "review result" in script
+    assert "Review mode. Press Run to review." in script
+    assert "Pass mode. Press Run to pass through." in script
+    assert "Approve Once" in script
+    assert "REVIEWER_SUBMIT_APPROVE_ONCE" in script
+    assert "applyReviewerApproveOnceMode" in script
+    assert "triggerReviewerApproveOnce" in script
+    assert "Approving the current reviewed result once." in script
+    assert "Approve Armed" not in script
+    assert "Regenerate" in script
+    assert "triggerReviewerRegenerate" in script
+    assert "video frames" not in script
+    assert "makeReviewerPreview" in script
+    assert "Image Preview" in script
+    assert "drawContainedImage" in script
+    assert "passedCount" in script
+    assert "blockedCount" in script
+    assert "return false;" in script
+
+
+def test_prompt_text_node_outputs_multiline_string_for_prompt_helper_inputs():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoPromptText"]
+    input_types = node_cls.INPUT_TYPES()
+
+    assert node_cls.RETURN_TYPES == ("STRING",)
+    assert node_cls.RETURN_NAMES == ("text",)
+    assert node_cls.CATEGORY == "Deno/Prompt"
+    assert input_types["required"]["text"][0] == "STRING"
+    assert input_types["required"]["text"][1]["multiline"] is True
+
+    node = node_cls()
+    assert node.build("system\nprompt") == ("system\nprompt",)
+
+
+def test_local_llm_refiner_processes_prompt_batch_in_one_node_call():
+    package = load_package()
+    node = package.DenoLocalLLMRefiner()
+    calls = []
+
+    def fake_run_single(**kwargs):
+        calls.append(kwargs)
+        return f"answer {kwargs['index']}", f"thinking {kwargs['index']}", {"seed": kwargs["seed"]}
+
+    node._run_single = fake_run_single
+
+    output = node.refine(
+        provider=["Ollama"],
+        ollama_model=["qwen3"],
+        lm_studio_model=["google/gemma"],
+        custom_server_url=["http://127.0.0.1:8000/v1"],
+        custom_model=["custom-model"],
+        system_prompt=["make a prompt"],
+        user_prompt=["first prompt", "second prompt", "third prompt"],
+        thinking=[True],
+        seed=[10],
+        seed_mode=["fixed"],
+        model_memory=["Unload after run"],
+        keep_minutes=[5],
+        unique_id=[123],
+    )
+
+    assert output["result"][0] == ["answer 1", "answer 2", "answer 3"]
+    assert output["ui"]["thinking"] == ["thinking 1", "thinking 2", "thinking 3"]
+    assert [call["seed"] for call in calls] == [10, 10, 10]
+    assert [call["is_last"] for call in calls] == [False, False, True]
+    assert all(call["model_memory"] == "Unload after run" for call in calls)
+    assert all(call["provider"] == "Ollama" for call in calls)
+    assert all(call["server_url"] == "http://127.0.0.1:11434" for call in calls)
+    assert all(call["model"] == "qwen3" for call in calls)
+
+
+def test_local_llm_refiner_passes_image_attachment_to_reviewer_call():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    calls = []
+
+    original_prepare_image = module._prepare_image_attachment
+    module._prepare_image_attachment = lambda image: {"base64": "img64", "data_url": "data:image/jpeg;base64,img64", "width": 10, "height": 20, "sent_width": 10, "sent_height": 20}
+
+    def fake_run_single(**kwargs):
+        calls.append(kwargs)
+        return "OK", "", {"model": kwargs["model"]}
+
+    node._run_single = fake_run_single
+    try:
+        output = node.refine(
+            provider=["LM Studio"],
+            ollama_model=["qwen3.6:35b-a3b"],
+            lm_studio_model=["google/gemma-4-12b"],
+            custom_server_url=["http://127.0.0.1:8000/v1"],
+            custom_model=["custom-model"],
+            system_prompt=["judge the image"],
+            user_prompt=["Return OK or FAIL."],
+            thinking=[False],
+            seed=[11],
+            seed_mode=["fixed"],
+            model_memory=["Unload after run"],
+            keep_minutes=[5],
+            image=["fake image"],
+            unique_id=[123],
+        )
+    finally:
+        module._prepare_image_attachment = original_prepare_image
+
+    assert output["result"][0] == ["OK"]
+    assert calls[0]["image_attachment"]["base64"] == "img64"
+    assert "audio_attachment" not in calls[0]
+
+
+def test_local_llm_refiner_uses_provider_specific_model_field():
+    package = load_package()
+    node = package.DenoLocalLLMRefiner()
+    calls = []
+
+    def fake_run_single(**kwargs):
+        calls.append(kwargs)
+        return "answer", "thinking", {"model": kwargs["model"]}
+
+    node._run_single = fake_run_single
+
+    output = node.refine(
+        provider=["LM Studio"],
+        ollama_model=["qwen3.6:35b-a3b"],
+        lm_studio_model=["google/gemma-4-12b"],
+        custom_server_url=["http://127.0.0.1:8000/v1"],
+        custom_model=["custom-model"],
+        system_prompt=["make a prompt"],
+        user_prompt=["one prompt"],
+        thinking=[False],
+        seed=[4],
+        seed_mode=["fixed"],
+        model_memory=["Keep for minutes"],
+        keep_minutes=[3],
+        unique_id=[123],
+    )
+
+    assert output["result"][0] == ["answer"]
+    assert calls[0]["provider"] == "LM Studio"
+    assert calls[0]["server_url"] == "http://127.0.0.1:1234/v1"
+    assert calls[0]["model"] == "google/gemma-4-12b"
+
+
+def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+    unload_calls = []
+
+    original_stream = module._http_stream_sse
+    original_unload = node._lm_unload_best_effort
+
+    def fake_stream(url, payload, **_kwargs):
+        stream_payloads.append({"url": url, "payload": dict(payload)})
+        yield "reasoning.delta", {"type": "reasoning.delta", "content": "hidden thought"}
+        yield "message.delta", {"type": "message.delta", "content": "kept"}
+        yield "chat.end", {
+            "type": "chat.end",
+            "result": {
+                "model_instance_id": payload["model"],
+                "output": [{"type": "message", "content": "kept"}],
+                "stats": {"reasoning_output_tokens": 0},
+            },
+        }
+
+    node._lm_unload_best_effort = lambda native_base, model: unload_calls.append((native_base, model))
+    module._http_stream_sse = fake_stream
+    try:
+        answer, thought, raw = node._run_lm_studio(
+            server_url="http://127.0.0.1:1234/v1",
+            model="google/gemma-4-12b",
+            system_prompt="",
+            user_prompt="hello",
+            thinking=False,
+            seed=7,
+            model_memory="Keep for minutes",
+            keep_minutes=3,
+            image_attachment=None,
+            is_last=True,
+            node_id="99",
+            index=1,
+            total=1,
+        )
+    finally:
+        module._http_stream_sse = original_stream
+        node._lm_unload_best_effort = original_unload
+
+    assert answer == "kept"
+    assert thought == ""
+    assert stream_payloads[0]["url"] == "http://127.0.0.1:1234/api/v1/chat"
+    assert stream_payloads[0]["payload"]["reasoning"] == "off"
+    assert stream_payloads[0]["payload"]["input"] == "hello"
+    assert stream_payloads[0]["payload"]["store"] is False
+    assert "ttl" not in stream_payloads[0]["payload"]
+    assert "seed" not in stream_payloads[0]["payload"]
+    assert raw["model_memory"] == "Keep for minutes"
+    assert raw["keep_minutes"] == 3
+    assert raw["api"] == "LM Studio /api/v1/chat"
+    assert unload_calls == []
+
+
+def test_local_llm_refiner_lm_studio_native_image_input_uses_text_and_image_parts():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+
+    original_stream = module._http_stream_sse
+
+    def fake_stream(url, payload, **_kwargs):
+        stream_payloads.append({"url": url, "payload": dict(payload)})
+        yield "message.delta", {"type": "message.delta", "content": "image answer"}
+        yield "chat.end", {"type": "chat.end", "output": [{"type": "message", "content": "image answer"}]}
+
+    module._http_stream_sse = fake_stream
+    try:
+        answer, thought, raw = node._run_lm_studio(
+            server_url="http://127.0.0.1:1234/v1",
+            model="google/gemma-4-12b",
+            system_prompt="",
+            user_prompt="what is this image?",
+            thinking=False,
+            seed=7,
+            model_memory="Keep for minutes",
+            keep_minutes=3,
+            image_attachment={
+                "data_url": "data:image/jpeg;base64,abc",
+                "width": 16,
+                "height": 8,
+                "sent_width": 16,
+                "sent_height": 8,
+            },
+            is_last=True,
+            node_id="99",
+            index=1,
+            total=1,
+        )
+    finally:
+        module._http_stream_sse = original_stream
+
+    input_parts = stream_payloads[0]["payload"]["input"]
+    assert answer == "image answer"
+    assert thought == ""
+    assert input_parts == [
+        {"type": "text", "content": "what is this image?"},
+        {"type": "image", "data_url": "data:image/jpeg;base64,abc"},
+    ]
+    assert raw["image"]["width"] == 16
+    assert raw["image"]["sent_height"] == 8
+
+
+def test_local_llm_refiner_ollama_keep_alive_matches_ollama_node_duration_style():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    assert module._ollama_keep_alive("Keep loaded", 5, True) == "-1m"
+    assert module._ollama_keep_alive("Keep for minutes", 3, True) == "3m"
+    assert module._ollama_keep_alive("Unload after run", 5, False) == "5m"
+    assert module._ollama_keep_alive("Unload after run", 5, True) == "0m"
+
+
+def test_local_llm_refiner_ollama_keep_loaded_reloads_after_provider_eviction():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    calls = []
+    loaded = {"value": False}
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        calls.append(("stream", url, payload))
+        yield {"message": {"content": "done"}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    def fake_http_json(url, payload=None, method="GET", timeout=20.0):
+        calls.append(("json", url, payload, method, timeout))
+        if url.endswith("/api/ps"):
+            return {"models": [{"model": "qwen3"}]} if loaded["value"] else {"models": []}
+        if url.endswith("/api/chat"):
+            loaded["value"] = True
+            return {"done": True, "done_reason": "load"}
+        return {}
+
+    original_stream = module._http_stream_json_lines
+    original_http_json = module._http_json
+    module._http_stream_json_lines = fake_stream
+    module._http_json = fake_http_json
+    try:
+        answer, thought, raw = node._run_ollama(
+            server_url="http://127.0.0.1:11434",
+            model="qwen3",
+            system_prompt="",
+            user_prompt="hello",
+            thinking=True,
+            seed=1,
+            model_memory="Keep loaded",
+            keep_minutes=5,
+            image_attachment=None,
+            is_last=True,
+            node_id="node",
+            index=1,
+            total=1,
+        )
+    finally:
+        module._http_stream_json_lines = original_stream
+        module._http_json = original_http_json
+
+    assert answer == "done"
+    assert thought == ""
+    assert raw["keep_alive"] == "-1m"
+    assert raw["post_keepalive"]["action"] == "reloaded"
+    chat_calls = [call for call in calls if call[0] == "json" and call[1].endswith("/api/chat")]
+    assert chat_calls
+    assert chat_calls[-1][2]["keep_alive"] == "-1m"
+    assert chat_calls[-1][2]["messages"] == []
+    assert chat_calls[-1][2]["stream"] is False
+
+
+def test_local_llm_refiner_ollama_keep_loaded_refreshes_even_when_provider_reports_loaded():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    calls = []
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        calls.append(("stream", url, payload))
+        yield {"message": {"content": "done"}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    def fake_http_json(url, payload=None, method="GET", timeout=20.0):
+        calls.append(("json", url, payload, method, timeout))
+        if url.endswith("/api/ps"):
+            return {"models": [{"model": "qwen3"}]}
+        if url.endswith("/api/chat"):
+            return {"done": True, "done_reason": "load"}
+        return {}
+
+    original_stream = module._http_stream_json_lines
+    original_http_json = module._http_json
+    module._http_stream_json_lines = fake_stream
+    module._http_json = fake_http_json
+    try:
+        answer, thought, raw = node._run_ollama(
+            server_url="http://127.0.0.1:11434",
+            model="qwen3",
+            system_prompt="",
+            user_prompt="hello",
+            thinking=True,
+            seed=1,
+            model_memory="Keep loaded",
+            keep_minutes=5,
+            image_attachment=None,
+            is_last=True,
+            node_id="node",
+            index=1,
+            total=1,
+        )
+    finally:
+        module._http_stream_json_lines = original_stream
+        module._http_json = original_http_json
+
+    assert answer == "done"
+    assert thought == ""
+    assert raw["post_keepalive"]["action"] == "refreshed"
+    chat_calls = [call for call in calls if call[0] == "json" and call[1].endswith("/api/chat")]
+    assert len(chat_calls) == 1
+    assert chat_calls[0][2]["keep_alive"] == "-1m"
+    assert chat_calls[0][2]["messages"] == []
+    assert chat_calls[0][2]["stream"] is False
+
+
+def test_local_llm_refiner_keep_loaded_ollama_alias_does_not_unload_same_model():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    http_calls = []
+
+    original_http_json = module._http_json
+    module._WARM_LOCAL_LLM_KEYS.clear()
+
+    def fake_http_json(url, payload=None, **kwargs):
+        http_calls.append((url, payload, kwargs))
+        return {}
+
+    module._http_json = fake_http_json
+    try:
+        module._WARM_LOCAL_LLM_KEYS["Ollama|http://localhost:11434|qwen3"] = None
+        result = module._unload_other_warm_local_llms(
+            provider=module.PROVIDER_OLLAMA,
+            server_url="http://127.0.0.1:11434",
+            model="qwen3",
+            node_id="node",
+        )
+    finally:
+        module._http_json = original_http_json
+        module._WARM_LOCAL_LLM_KEYS.clear()
+
+    assert result["action"] == "none"
+    assert result["unloaded"] == []
+    assert http_calls == []
+
+
+def test_local_llm_refiner_auto_vram_skips_when_provider_already_has_model_loaded():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    calls = []
+    original_provider_loaded = module._is_provider_model_loaded
+    original_free = module._free_comfy_vram_for_local_llm
+    module._WARM_LOCAL_LLM_KEYS.clear()
+    module._is_provider_model_loaded = lambda provider, server_url, model: True
+    module._free_comfy_vram_for_local_llm = lambda: calls.append("free") or {"available": True}
+    try:
+        info = module._prepare_comfy_vram_before_llm(
+            provider="Ollama",
+            server_url="http://127.0.0.1:11434",
+            model="qwen3",
+            model_memory="Keep loaded",
+            keep_minutes=5,
+            comfy_vram_policy="Auto: unload only before first LLM call",
+            node_id="node",
+        )
+        key = module._llm_state_key("Ollama", "http://127.0.0.1:11434", "qwen3")
+        marked_warm = module._is_local_llm_marked_warm(key)
+    finally:
+        module._is_provider_model_loaded = original_provider_loaded
+        module._free_comfy_vram_for_local_llm = original_free
+        module._WARM_LOCAL_LLM_KEYS.clear()
+
+    assert calls == []
+    assert info == {
+        "policy": "Auto: unload only before first LLM call",
+        "action": "skipped",
+        "reason": "local LLM is already loaded by provider",
+    }
+    assert marked_warm
+
+
+def test_local_llm_refiner_rejects_thinking_only_result_instead_of_empty_output():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    def fake_run_single(**kwargs):
+        return "", "internal reasoning only", {}
+
+    module._WARM_LOCAL_LLM_KEYS.clear()
+    node._run_single = fake_run_single
+    try:
+        with pytest.raises(RuntimeError, match="thinking text but no final result"):
+            node.refine(
+                provider=["Ollama"],
+                ollama_model=["qwen3"],
+                lm_studio_model=["google/gemma"],
+                custom_server_url=["http://127.0.0.1:8000/v1"],
+                custom_model=[""],
+                system_prompt=[""],
+                user_prompt=["describe this"],
+                thinking=[True],
+                seed=[1],
+                seed_mode=["fixed"],
+                model_memory=["Keep loaded"],
+                keep_minutes=[5],
+                comfy_vram_policy=["Never unload before LLM call"],
+                unique_id=["node"],
+            )
+    finally:
+        module._WARM_LOCAL_LLM_KEYS.clear()
+
+
+def test_local_llm_refiner_auto_vram_free_runs_once_for_keep_loaded():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    class FakeComfyModelManagement:
+        def __init__(self):
+            self.calls = []
+            self.free_memory = 128
+            self.loaded = [object(), object()]
+
+        def get_torch_device(self):
+            return "cuda:0"
+
+        def get_free_memory(self, device):
+            self.calls.append(("get_free_memory", device))
+            return self.free_memory
+
+        def loaded_models(self):
+            return list(self.loaded)
+
+        def unload_all_models(self):
+            self.calls.append(("unload_all_models",))
+            self.loaded = []
+            self.free_memory = 4096
+
+        def soft_empty_cache(self, force=False):
+            self.calls.append(("soft_empty_cache", force))
+
+    fake_manager = FakeComfyModelManagement()
+    calls = []
+
+    def fake_run_single(**kwargs):
+        calls.append(kwargs)
+        return "answer", "", {}
+
+    original_manager = module.comfy_model_management
+    original_sleep = module.time.sleep
+    module.comfy_model_management = fake_manager
+    module.time.sleep = lambda seconds: fake_manager.calls.append(("sleep", seconds))
+    module._WARM_LOCAL_LLM_KEYS.clear()
+    node._run_single = fake_run_single
+    try:
+        for _ in range(2):
+            node.refine(
+                provider=["Ollama"],
+                ollama_model=["qwen3"],
+                lm_studio_model=["google/gemma"],
+                custom_server_url=["http://127.0.0.1:8000/v1"],
+                custom_model=["custom-model"],
+                system_prompt=["make a prompt"],
+                user_prompt=["one prompt"],
+                thinking=[False],
+                seed=[4],
+                seed_mode=["fixed"],
+                model_memory=["Keep loaded"],
+                keep_minutes=[5],
+                comfy_vram_policy=["Auto"],
+                unique_id=[123],
+            )
+    finally:
+        module.comfy_model_management = original_manager
+        module.time.sleep = original_sleep
+        module._WARM_LOCAL_LLM_KEYS.clear()
+
+    assert len(calls) == 2
+    assert sum(1 for call in fake_manager.calls if call[0] == "unload_all_models") == 1
+    assert ("sleep", module.COMFY_VRAM_FREE_SETTLE_SECONDS) in fake_manager.calls
+    assert sum(1 for call in fake_manager.calls if call == ("soft_empty_cache", True)) == 2
+
+
+def test_local_llm_refiner_auto_vram_free_repeats_for_unload_after_run():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    class FakeComfyModelManagement:
+        def __init__(self):
+            self.calls = []
+            self.free_memory = 128
+
+        def get_torch_device(self):
+            return "cuda:0"
+
+        def get_free_memory(self, device):
+            return self.free_memory
+
+        def loaded_models(self):
+            return []
+
+        def unload_all_models(self):
+            self.calls.append(("unload_all_models",))
+            self.free_memory += 1024
+
+        def soft_empty_cache(self, force=False):
+            self.calls.append(("soft_empty_cache", force))
+
+    fake_manager = FakeComfyModelManagement()
+
+    def fake_run_single(**kwargs):
+        return "answer", "", {}
+
+    original_manager = module.comfy_model_management
+    original_sleep = module.time.sleep
+    module.comfy_model_management = fake_manager
+    module.time.sleep = lambda _seconds: None
+    module._WARM_LOCAL_LLM_KEYS.clear()
+    node._run_single = fake_run_single
+    try:
+        for _ in range(2):
+            node.refine(
+                provider=["Ollama"],
+                ollama_model=["qwen3"],
+                lm_studio_model=["google/gemma"],
+                custom_server_url=["http://127.0.0.1:8000/v1"],
+                custom_model=["custom-model"],
+                system_prompt=["make a prompt"],
+                user_prompt=["one prompt"],
+                thinking=[False],
+                seed=[4],
+                seed_mode=["fixed"],
+                model_memory=["Unload after run"],
+                keep_minutes=[5],
+                comfy_vram_policy=["Auto"],
+                unique_id=[123],
+            )
+    finally:
+        module.comfy_model_management = original_manager
+        module.time.sleep = original_sleep
+        module._WARM_LOCAL_LLM_KEYS.clear()
+
+    assert sum(1 for call in fake_manager.calls if call[0] == "unload_all_models") == 2
+
+
+def test_local_llm_refiner_keep_loaded_provider_switch_unloads_previous_local_llm():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    run_calls = []
+    http_calls = []
+
+    original_http_json = module._http_json
+    original_list_models = module.list_local_llm_models
+    module._WARM_LOCAL_LLM_KEYS.clear()
+
+    def fake_run_single(**kwargs):
+        run_calls.append(kwargs)
+        return "answer", "", {}
+
+    def fake_http_json(url, payload=None, **kwargs):
+        http_calls.append((url, payload, kwargs))
+        return {}
+
+    def fake_list_models(provider, server_url):
+        if provider == module.PROVIDER_LM_STUDIO:
+            return [{"id": "google/gemma", "loaded": True, "instance_id": "loaded-gemma"}]
+        return []
+
+    node._run_single = fake_run_single
+    module._http_json = fake_http_json
+    module.list_local_llm_models = fake_list_models
+    try:
+        module._mark_local_llm_warm(
+            module.PROVIDER_OLLAMA,
+            module.OLLAMA_DEFAULT_SERVER,
+            "qwen3",
+            module.MEMORY_KEEP_LOADED,
+            5,
+        )
+
+        node.refine(
+            provider=["LM Studio"],
+            ollama_model=["qwen3"],
+            lm_studio_model=["google/gemma"],
+            custom_server_url=["http://127.0.0.1:8000/v1"],
+            custom_model=["custom-model"],
+            system_prompt=["make a prompt"],
+            user_prompt=["one prompt"],
+            thinking=[False],
+            seed=[4],
+            seed_mode=["fixed"],
+            model_memory=["Keep loaded"],
+            keep_minutes=[5],
+            comfy_vram_policy=["Never unload before LLM call"],
+            unique_id=[123],
+        )
+
+        node.refine(
+            provider=["Ollama"],
+            ollama_model=["qwen3"],
+            lm_studio_model=["google/gemma"],
+            custom_server_url=["http://127.0.0.1:8000/v1"],
+            custom_model=["custom-model"],
+            system_prompt=["make a prompt"],
+            user_prompt=["one prompt"],
+            thinking=[False],
+            seed=[5],
+            seed_mode=["fixed"],
+            model_memory=["Keep loaded"],
+            keep_minutes=[5],
+            comfy_vram_policy=["Never unload before LLM call"],
+            unique_id=[123],
+        )
+    finally:
+        module._http_json = original_http_json
+        module.list_local_llm_models = original_list_models
+        module._WARM_LOCAL_LLM_KEYS.clear()
+
+    assert [call["provider"] for call in run_calls] == ["LM Studio", "Ollama"]
+    assert len(http_calls) == 2
+    assert http_calls[0][0].endswith("/api/generate")
+    assert http_calls[0][1]["model"] == "qwen3"
+    assert http_calls[0][1]["keep_alive"] == 0
+    assert http_calls[0][2]["method"] == "POST"
+    assert http_calls[1][0].endswith("/api/v1/models/unload")
+    assert http_calls[1][1] == {"instance_id": "loaded-gemma"}
+    assert http_calls[1][2]["method"] == "POST"
+
+
+def test_local_llm_refiner_manual_unload_clears_provider_warm_state():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    http_calls = []
+
+    original_http_json = module._http_json
+    original_list_models = module.list_local_llm_models
+    module._WARM_LOCAL_LLM_KEYS.clear()
+
+    def fake_http_json(url, payload=None, **kwargs):
+        http_calls.append((url, payload, kwargs))
+        return {}
+
+    module._http_json = fake_http_json
+    module.list_local_llm_models = lambda provider, server_url: [
+        {"id": "google/gemma", "instance_id": "loaded-gemma"}
+    ]
+    try:
+        module._mark_local_llm_warm(
+            module.PROVIDER_OLLAMA,
+            module.OLLAMA_DEFAULT_SERVER,
+            "qwen3",
+            module.MEMORY_KEEP_LOADED,
+            5,
+        )
+        ollama_result = module.unload_local_llm_model(
+            module.PROVIDER_OLLAMA,
+            module.OLLAMA_DEFAULT_SERVER,
+            "qwen3",
+        )
+        assert ollama_result["ok"] is True
+        assert http_calls[-1][0].endswith("/api/generate")
+        assert http_calls[-1][1]["keep_alive"] == 0
+        assert http_calls[-1][2]["method"] == "POST"
+        assert not module._is_local_llm_marked_warm(
+            module._llm_state_key(module.PROVIDER_OLLAMA, module.OLLAMA_DEFAULT_SERVER, "qwen3")
+        )
+
+        module._mark_local_llm_warm(
+            module.PROVIDER_LM_STUDIO,
+            module.LM_STUDIO_DEFAULT_SERVER,
+            "google/gemma",
+            module.MEMORY_KEEP_LOADED,
+            5,
+        )
+        lm_result = module.unload_local_llm_model(
+            module.PROVIDER_LM_STUDIO,
+            module.LM_STUDIO_DEFAULT_SERVER,
+            "google/gemma",
+        )
+        assert lm_result["ok"] is True
+        assert http_calls[-1][0].endswith("/api/v1/models/unload")
+        assert http_calls[-1][1] == {"instance_id": "loaded-gemma"}
+        assert not module._is_local_llm_marked_warm(
+            module._llm_state_key(module.PROVIDER_LM_STUDIO, module.LM_STUDIO_DEFAULT_SERVER, "google/gemma")
+        )
+
+        http_count = len(http_calls)
+        module.list_local_llm_models = lambda provider, server_url: [
+            {"id": "google/gemma", "loaded": False, "instance_id": ""}
+        ]
+        lm_already_unloaded = module.unload_local_llm_model(
+            module.PROVIDER_LM_STUDIO,
+            module.LM_STUDIO_DEFAULT_SERVER,
+            "google/gemma",
+        )
+        assert lm_already_unloaded["ok"] is True
+        assert len(http_calls) == http_count
+    finally:
+        module._http_json = original_http_json
+        module.list_local_llm_models = original_list_models
+        module._WARM_LOCAL_LLM_KEYS.clear()
+
+
+def test_local_llm_refiner_manual_unload_is_blocked_while_model_is_generating():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    http_calls = []
+
+    original_http_json = module._http_json
+    module._WARM_LOCAL_LLM_KEYS.clear()
+    module._ACTIVE_LOCAL_LLM_KEYS.clear()
+    module._http_json = lambda *args, **kwargs: http_calls.append((args, kwargs))
+    active_key = module._mark_local_llm_active(
+        module.PROVIDER_LM_STUDIO,
+        module.LM_STUDIO_DEFAULT_SERVER,
+        "google/gemma",
+    )
+    try:
+        result = module.unload_local_llm_model(
+            module.PROVIDER_LM_STUDIO,
+            module.LM_STUDIO_DEFAULT_SERVER,
+            "google/gemma",
+        )
+    finally:
+        module._clear_local_llm_active(active_key)
+        module._http_json = original_http_json
+        module._WARM_LOCAL_LLM_KEYS.clear()
+        module._ACTIVE_LOCAL_LLM_KEYS.clear()
+
+    assert result["ok"] is False
+    assert result["busy"] is True
+    assert "still generating" in result["message"]
+    assert http_calls == []
+
+
+def test_local_llm_refiner_manual_unload_rejects_shifted_model_label():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    http_calls = []
+
+    original_http_json = module._http_json
+    module._http_json = lambda *args, **kwargs: http_calls.append((args, kwargs))
+    try:
+        try:
+            module.unload_local_llm_model(
+                module.PROVIDER_LM_STUDIO,
+                module.LM_STUDIO_DEFAULT_SERVER,
+                "System Prompt",
+            )
+        except RuntimeError as exc:
+            assert "shifted UI label" in str(exc)
+            assert "System Prompt" in str(exc)
+        else:
+            raise AssertionError("shifted UI labels must not reach LM Studio unload")
+    finally:
+        module._http_json = original_http_json
+
+    assert http_calls == []
+
+
+def test_local_llm_refiner_stop_marks_active_model_for_cancellation():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    module._ACTIVE_LOCAL_LLM_KEYS.clear()
+    module._CANCEL_LOCAL_LLM_KEYS.clear()
+    active_key = module._mark_local_llm_active(
+        module.PROVIDER_LM_STUDIO,
+        module.LM_STUDIO_DEFAULT_SERVER,
+        "google/gemma",
+    )
+    try:
+        result = module.stop_local_llm_generation(
+            module.PROVIDER_LM_STUDIO,
+            module.LM_STUDIO_DEFAULT_SERVER,
+            "google/gemma",
+        )
+        assert result["ok"] is True
+        assert result["stopping"] is True
+        assert active_key in module._CANCEL_LOCAL_LLM_KEYS
+
+        try:
+            module._raise_if_local_llm_stopped(active_key)
+        except RuntimeError as exc:
+            assert "Local LLM generation stopped" in str(exc)
+        else:
+            raise AssertionError("cancelled local LLM key should stop the stream loop")
+    finally:
+        module._clear_local_llm_active(active_key)
+        module._ACTIVE_LOCAL_LLM_KEYS.clear()
+        module._CANCEL_LOCAL_LLM_KEYS.clear()
+
+
+def test_local_llm_refiner_stop_reports_no_active_request_without_unloading():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    module._ACTIVE_LOCAL_LLM_KEYS.clear()
+    module._CANCEL_LOCAL_LLM_KEYS.clear()
+    result = module.stop_local_llm_generation(
+        module.PROVIDER_OLLAMA,
+        module.OLLAMA_DEFAULT_SERVER,
+        "qwen3",
+    )
+
+    assert result["ok"] is False
+    assert result["stopping"] is False
+    assert "No active Ollama request" in result["message"]
+    assert module._CANCEL_LOCAL_LLM_KEYS == set()
+
+
+def test_local_llm_refiner_legacy_custom_provider_falls_back_to_ollama():
+    package = load_package()
+    node = package.DenoLocalLLMRefiner()
+    calls = []
+
+    def fake_run_single(**kwargs):
+        calls.append(kwargs)
+        return "answer", "thinking", {"model": kwargs["model"]}
+
+    node._run_single = fake_run_single
+
+    output = node.refine(
+        provider=["Custom Local Server"],
+        ollama_model=["qwen3.6:35b-a3b"],
+        lm_studio_model=["google/gemma-4-12b"],
+        custom_server_url=["http://127.0.0.1:8000/v1"],
+        custom_model=["legacy-qwen"],
+        system_prompt=["make a prompt"],
+        user_prompt=["one prompt"],
+        thinking=[False],
+        seed=[8],
+        seed_mode=["fixed"],
+        model_memory=["Keep loaded"],
+        keep_minutes=[9],
+        unique_id=[123],
+    )
+
+    assert output["result"][0] == ["answer"]
+    assert calls[0]["provider"] == "Ollama"
+    assert calls[0]["server_url"] == "http://127.0.0.1:11434"
+    assert calls[0]["model"] == "qwen3.6:35b-a3b"
+    assert calls[0]["seed"] == 8
+
+
+def test_local_llm_refiner_validation_accepts_only_ollama_and_lm_studio_models():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLocalLLMRefiner"]
+
+    assert node_cls.VALIDATE_INPUTS(
+        provider="LM Studio",
+        ollama_model="",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="",
+    ) is True
+
+    assert node_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="",
+        custom_model="",
+    ) is True
+
+    assert node_cls.VALIDATE_INPUTS(
+        provider="Custom Local Server",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="",
+        custom_model="legacy-qwen",
+    ) is True
+
+    shifted_result = node_cls.VALIDATE_INPUTS(
+        provider="Custom Local Server",
+        ollama_model="",
+        lm_studio_model="",
+        custom_model=5,
+    )
+    assert "Ollama Model" in shifted_result
+
+    provider_result = node_cls.VALIDATE_INPUTS(
+        provider="Remote API",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="qwen3.6-35b-a3b-nvfp4",
+    )
+    assert "Provider" in provider_result
+
+    url_result = node_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="http://127.0.0.1:11434",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="qwen3.6-35b-a3b-nvfp4",
+    )
+    assert "Ollama Model" in url_result
+
+    shifted_label_result = node_cls.VALIDATE_INPUTS(
+        provider="LM Studio",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="System Prompt",
+        custom_model="",
+    )
+    assert "LM Studio Model" in shifted_label_result
+    assert "shifted" in shifted_label_result
+
+
+def test_local_llm_refiner_legacy_custom_saved_values_do_not_execute_custom_server():
+    package = load_package()
+    node = package.DenoLocalLLMRefiner()
+    calls = []
+
+    def fake_run_single(**kwargs):
+        calls.append(kwargs)
+        return "answer", "", {}
+
+    node._run_single = fake_run_single
+
+    node.refine(
+        provider=["Custom Local Server"],
+        ollama_model=["qwen3.6:35b-a3b"],
+        lm_studio_model=["google/gemma-4-12b"],
+        custom_server_url=[False],
+        custom_model=[5],
+        system_prompt=["make a prompt"],
+        user_prompt=["one prompt"],
+        thinking=["Unload after run"],
+        seed=["bad"],
+        seed_mode=["fixed"],
+        model_memory=[None],
+        keep_minutes=[None],
+        unique_id=[123],
+    )
+
+    assert calls[0]["provider"] == "Ollama"
+    assert calls[0]["server_url"] == "http://127.0.0.1:11434"
+    assert calls[0]["model"] == "qwen3.6:35b-a3b"
+
+
+def test_local_llm_refiner_repairs_shifted_saved_widget_values():
+    package = load_package()
+    node = package.DenoLocalLLMRefiner()
+    calls = []
+
+    def fake_run_single(**kwargs):
+        calls.append(kwargs)
+        return "answer", "", {}
+
+    node._run_single = fake_run_single
+
+    node.refine(
+        provider=["LM Studio"],
+        ollama_model=["google/gemma-4-12b"],
+        lm_studio_model=["http://127.0.0.1:1234/v1"],
+        custom_server_url=["http://127.0.0.1:8000/v1"],
+        custom_model=["custom-model"],
+        system_prompt=["make a prompt"],
+        user_prompt=["one prompt"],
+        thinking=["false"],
+        seed=["NaN"],
+        seed_mode=["fixed"],
+        model_memory=[5],
+        keep_minutes=["bad"],
+        unique_id=[123],
+    )
+
+    assert calls[0]["provider"] == "LM Studio"
+    assert calls[0]["server_url"] == "http://127.0.0.1:1234/v1"
+    assert calls[0]["model"] == "google/gemma-4-12b"
+    assert calls[0]["thinking"] is False
+    assert calls[0]["seed"] == 1
+    assert calls[0]["model_memory"] == "Unload after run"
+    assert calls[0]["keep_minutes"] == 5
+
+
+def test_ai_review_gate_passes_or_blocks_media_outputs_from_reviewer_text():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    gate_cls = package.NODE_CLASS_MAPPINGS["DenoAIReviewGate"]
+    gate = package.DenoAIReviewGate()
+    image = object()
+    audio = object()
+    input_types = gate_cls.INPUT_TYPES()
+
+    assert "local llm reviewer" in gate_cls.SEARCH_ALIASES
+    assert "save reviewer" in gate_cls.SEARCH_ALIASES
+    assert "media reviewer" in gate_cls.SEARCH_ALIASES
+    assert gate_cls.RETURN_NAMES == ("image", "audio")
+    assert gate_cls.RETURN_TYPES == ("IMAGE", "AUDIO")
+    assert gate_cls.OUTPUT_NODE is True
+    assert list(input_types["required"]) == ["review", "review_mode", "approve_once"]
+    assert list(input_types["optional"]) == ["image", "audio", "reviewer_state"]
+    assert list(input_types["hidden"]) == ["unique_id"]
+    assert "pass_words" not in input_types["required"]
+    assert "reject_words" not in input_types["required"]
+    assert "unclear_result" not in input_types["required"]
+
+    passed = gate.gate(
+        review='{"verdict":"OK","reason":"good result"}',
+        image=image,
+        audio=audio,
+    )
+    assert passed["ui"]["deno_llm_gate"][0]["passed"] is True
+    assert passed["ui"]["deno_llm_gate"][0]["source"] == "Text review"
+    assert passed["ui"]["deno_llm_gate"][0]["verdict"] == "OK"
+    assert passed["ui"]["deno_llm_gate"][0]["reason"] == "good result"
+    assert passed["result"][0] is image
+    assert passed["result"][1] is audio
+
+    failed = gate.gate(
+        review='{"verdict":"FAIL","reason":"bad hands"}',
+        image=image,
+        audio=audio,
+    )
+    assert failed["ui"]["deno_llm_gate"][0]["passed"] is False
+    assert failed["ui"]["deno_llm_gate"][0]["verdict"] == "FAIL"
+    assert failed["ui"]["deno_llm_gate"][0]["reason"] == "bad hands"
+    assert isinstance(failed["result"][0], module.ExecutionBlocker)
+    assert failed["result"][0].message is None
+    assert isinstance(failed["result"][1], module.ExecutionBlocker)
+
+    bypass = gate.gate(
+        review='{"verdict":"FAIL","reason":"ignored"}',
+        review_mode="Pass",
+        image=image,
+        audio=audio,
+    )
+    assert bypass["ui"]["deno_llm_gate"][0]["passed"] is True
+    assert bypass["ui"]["deno_llm_gate"][0]["source"] == "Manual pass"
+    assert bypass["result"][0] is image
+    assert bypass["result"][1] is audio
+
+    once = gate.gate(
+        review='{"verdict":"FAIL","reason":"ignored"}',
+        approve_once=True,
+        image=image,
+        audio=audio,
+    )
+    assert once["ui"]["deno_llm_gate"][0]["passed"] is True
+    assert once["ui"]["deno_llm_gate"][0]["source"] == "Approve once"
+    assert once["ui"]["deno_llm_gate"][0]["approve_once_consumed"] is True
+    assert once["ui"]["deno_llm_gate"][0]["reason"] == "Approved once."
+
+
+def test_ai_review_gate_approve_once_can_pass_saved_image_snapshot_without_upstream_link():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    gate = package.DenoAIReviewGate()
+    image = np.zeros((1, 4, 5, 3), dtype=np.float32)
+    image[0, 1, 2, 0] = 0.75
+
+    failed = gate.gate(
+        review="fail",
+        image=image,
+        audio=None,
+        unique_id="approve-snapshot",
+    )
+    info = failed["ui"]["deno_llm_gate"][0]
+    assert info["passed"] is False
+    assert info["reason"] == "Reviewer marked this result as FAIL."
+    assert "snapshot_image" in info
+    assert "preview_image" in info
+
+    reviewer_state = json.dumps({"snapshot_image": info["snapshot_image"]})
+    approved = gate.gate(
+        review="Approved once.",
+        approve_once=True,
+        image=None,
+        audio=None,
+        reviewer_state=reviewer_state,
+        unique_id="approve-snapshot",
+    )
+    approved_info = approved["ui"]["deno_llm_gate"][0]
+    restored = approved["result"][0]
+
+    assert approved_info["passed"] is True
+    assert approved_info["source"] == "Approve once"
+    assert approved_info["approve_once_consumed"] is True
+    assert not isinstance(restored, module.ExecutionBlocker)
+    assert np.asarray(restored).shape == image.shape
+    assert np.isclose(np.asarray(restored)[0, 1, 2, 0], 0.75)
+
+def test_local_llm_refiner_normalizes_prompts_seed_modes_and_local_urls():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    assert module._flatten_prompts(["a", ["b", "c"]]) == ["a", "b", "c"]
+    assert module._seed_for_index(7, "fixed", 2) == 7
+    assert module._seed_for_index(7, "increment", 2) == 9
+    assert module._seed_for_index(7, "decrement", 9) == 0
+    assert module._normalize_lm_openai_url("http://127.0.0.1:1234") == "http://127.0.0.1:1234/v1"
+    assert module._normalize_comfy_vram_policy("Auto") == "Auto: unload only before first LLM call"
+    assert module._normalize_comfy_vram_policy("Always free") == "Always unload before each LLM call"
+    assert module._normalize_comfy_vram_policy("Never free") == "Never unload before LLM call"
+
+    try:
+        module._assert_local_url("https://example.com")
+    except RuntimeError as exc:
+        assert "Only local LLM servers" in str(exc)
+    else:
+        raise AssertionError("non-local URL should be rejected")
 
 
 def test_resize_box_declares_comfyui_contract():

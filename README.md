@@ -359,6 +359,25 @@ Main features:
 Note: this node prepares text conditioning only. Bernini visual conditioning still requires a ComfyUI/KJ backend that supports Bernini context latents.
 While that backend support is still a draft ComfyUI PR, use `tools/DENO_Bernini_Preview_Backend_Update.bat` only on a copied/test portable ComfyUI folder.
 
+### `(Deno) Local LLM Loader` and `(Deno) Local LLM Reviewer`
+
+Local LLM workflow helpers for calling models that are already running on your PC and using text reviews to control what gets saved.
+
+Main features:
+
+- call local Ollama or LM Studio models from ComfyUI
+- local-only server safety: use `127.0.0.1` or `localhost`
+- refresh provider-specific model lists from the node
+- stop a running local LLM request before unloading the model
+- connect prompt batches through one node run so the local model can stay loaded until the batch finishes
+- optionally attach an IMAGE to a vision-capable local model call
+- preview Thinking and Result text directly on the node
+- use `(Deno) Local LLM Reviewer` as a gate before Save nodes
+- pass or block IMAGE and AUDIO outputs from a review text result
+- approve the current reviewed result once, or rerun the path before the reviewer
+
+Audio note: the Local LLM Loader does not send AUDIO into a local model. The Reviewer can gate AUDIO when another text-generation node, including ComfyUI audio-capable text generation, creates the review text.
+
 ## Why This Exists
 
 These nodes are built to reduce repeated setup friction in actual ComfyUI production work.
@@ -394,6 +413,13 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `ltx multi lora`
 - `prompt guide`
 - `system prompt`
+- `local llm prompt`
+- `local llm reviewer`
+- `ai reviewer`
+- `media reviewer`
+- `audio review gate`
+- `ollama`
+- `lm studio`
 - `bernini`
 - `bernini prompt guide`
 - `bernini conditioning`

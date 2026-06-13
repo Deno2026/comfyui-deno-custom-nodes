@@ -38,6 +38,8 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "NVIDIA VFX/nvvfx" in description
     assert "LTX 2.3" in description
     assert "Bernini Prompt Guide" in description
+    assert "Local LLM Loader and Reviewer" in description
+    assert "audio/image review gates" in description
     assert "Bernini conditioning" in description
     assert "Wan 2.2" in description
     assert "reference video edit" in description
@@ -61,6 +63,14 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "reference-video-edit",
         "system-prompt",
         "prompt-guide",
+        "local-llm",
+        "local-llm-prompt",
+        "local-llm-reviewer",
+        "ai-reviewer",
+        "media-reviewer",
+        "audio-review-gate",
+        "ollama",
+        "lm-studio",
         "kj-bernini",
         "image-compare",
         "video-compare",
