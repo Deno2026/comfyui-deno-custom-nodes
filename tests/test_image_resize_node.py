@@ -2190,7 +2190,9 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "handlePreviewScrollbarPointer" in script
     assert "previewScrollbarBounds" in script
     assert 'previewWindow(node, "result"' in script
-    assert "maxPreviewCharsForWidth(panelW)" in script
+    assert "splitPreviewLinesForWidth(ctx, state.answer" in script
+    assert "previewTextWidth(panelW, false)" in script
+    assert "previewTextWidth(panelW, true)" in script
     assert "Thinking" in script
     assert "Result" in script
     assert "GateStatusWidget" in script

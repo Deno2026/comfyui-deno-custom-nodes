@@ -107,6 +107,21 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 api.reviewerRefreshSize({{ size: [420, 220] }}, [980, 246])[0] === 420,
                 "Reviewer refresh must not expand node width from stale computed widget width"
             );
+            const previewMeasureContext = {{
+                measureText(value) {{
+                    return {{ width: String(value || "").length * 6 }};
+                }},
+            }};
+            const longPreviewText = "A mystical forest where bioluminescent plants glow in soft neon hues, a majestic white stag with crystalline antlers.";
+            const wrappedPreview = api.splitPreviewLinesForWidth(previewMeasureContext, longPreviewText, api.previewTextWidth(520, false));
+            assert(
+                wrappedPreview[0].includes("bioluminescent plants glow"),
+                "Loader preview text must wrap by measured pixel width instead of clipping to a half-width character count"
+            );
+            assert(
+                wrappedPreview[0].length > 45,
+                "Wide Loader preview panels must use most of the available text width"
+            );
 
             const seedGenerator = {{
                 id: 1,

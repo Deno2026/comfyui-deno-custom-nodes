@@ -13,6 +13,8 @@ const GATE_GENERATED_PREFIX = "deno_local_llm_gate_";
 const DEFAULT_WIDTH = 560;
 const GATE_DEFAULT_WIDTH = 420;
 const PREVIEW_HEIGHT = 150;
+const PREVIEW_TEXT_FONT = "10px monospace";
+const PREVIEW_LINE_HEIGHT = 13;
 const PREVIEW_SCROLLBAR_TRACK_WIDTH = 8;
 const PREVIEW_SCROLLBAR_HIT_WIDTH = 18;
 const PREVIEW_SCROLLBAR_RIGHT_PAD = 8;
@@ -763,6 +765,7 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         collectReviewerSelectableSeedCandidates,
         incrementReviewerRetrySeed,
         maybeAutoRetryReviewer,
+        previewTextWidth,
         resetReviewerAutoRetry,
         reviewerAutoRetryEnabled,
         reviewerRefreshSize,
@@ -770,6 +773,7 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         reviewerWidgetLayoutWidth,
         setReviewerAutoRetryEnabled,
         setReviewerSeedTarget,
+        splitPreviewLinesForWidth,
     });
 }
 
@@ -1725,11 +1729,19 @@ class LocalLLMPreviewWidget {
         const thinkingH = Math.min(72, Math.max(58, Math.floor(panelH * 0.34)));
         const resultY = panelY + thinkingH + rowGap;
         const resultH = Math.max(56, panelH - thinkingH - rowGap);
-        const maxChars = maxPreviewCharsForWidth(panelW);
-        const answerLines = splitPreviewLines(state.answer, maxChars);
-        const thinkingLines = splitPreviewLines(state.thinking, maxChars);
         const answerMaxLines = maxPreviewLinesForHeight(resultH);
         const thinkingMaxLines = maxPreviewLinesForHeight(thinkingH);
+        ctx.save();
+        ctx.font = PREVIEW_TEXT_FONT;
+        let answerLines = splitPreviewLinesForWidth(ctx, state.answer, previewTextWidth(panelW, false));
+        let thinkingLines = splitPreviewLinesForWidth(ctx, state.thinking, previewTextWidth(panelW, false));
+        if (answerLines.length > answerMaxLines) {
+            answerLines = splitPreviewLinesForWidth(ctx, state.answer, previewTextWidth(panelW, true));
+        }
+        if (thinkingLines.length > thinkingMaxLines) {
+            thinkingLines = splitPreviewLinesForWidth(ctx, state.thinking, previewTextWidth(panelW, true));
+        }
+        ctx.restore();
         const answerView = previewWindow(node, "result", answerLines, answerMaxLines);
         const thinkingView = previewWindow(node, "thinking", thinkingLines, thinkingMaxLines);
         this.expandBounds = [x + panelW - buttonW - 10, panelY + 7, buttonW, buttonH];
@@ -3448,12 +3460,24 @@ function splitPreviewLines(value, maxChars = 68) {
 }
 
 function maxPreviewLinesForHeight(height) {
-    const lineHeight = 13;
-    return Math.max(1, Math.floor((Number(height) - 28) / lineHeight));
+    return Math.max(1, Math.floor((Number(height) - 28) / PREVIEW_LINE_HEIGHT));
 }
 
 function maxPreviewCharsForWidth(width) {
     return Math.max(18, Math.floor((Number(width) - 28) / 10));
+}
+
+function previewTextWidth(panelWidth, hasScroll = false) {
+    const reserved = hasScroll ? PREVIEW_SCROLLBAR_HIT_WIDTH + PREVIEW_SCROLLBAR_RIGHT_PAD + 10 : 16;
+    return Math.max(24, Number(panelWidth || 0) - reserved);
+}
+
+function splitPreviewLinesForWidth(ctx, value, maxWidth) {
+    const text = String(value || "").replace(/\r\n/g, "\n").trim();
+    if (!text) {
+        return ["Waiting for run output."];
+    }
+    return text.split("\n").flatMap((line) => wrapTextLineToWidth(ctx, line, maxWidth));
 }
 
 function previewWindow(node, key, lines, maxLines) {
@@ -3554,6 +3578,74 @@ function wrapTextLine(line, maxChars) {
     return chunks;
 }
 
+function wrapTextLineToWidth(ctx, line, maxWidth) {
+    const value = String(line || "");
+    const width = Math.max(24, Number(maxWidth || 0));
+    if (!value) {
+        return [""];
+    }
+    if (!ctx || typeof ctx.measureText !== "function") {
+        return wrapTextLine(value, Math.max(8, Math.floor(width / 6)));
+    }
+    if (ctx?.measureText?.(value)?.width <= width) {
+        return [value];
+    }
+
+    const parts = value.split(/(\s+)/);
+    const lines = [];
+    let current = "";
+    const pushCurrent = () => {
+        if (current) {
+            lines.push(current.trimEnd());
+            current = "";
+        }
+    };
+
+    for (const part of parts) {
+        if (!part) {
+            continue;
+        }
+        const candidate = `${current}${part}`;
+        if (!current || ctx.measureText(candidate).width <= width) {
+            current = candidate;
+            continue;
+        }
+        if (!part.trim()) {
+            pushCurrent();
+            continue;
+        }
+        pushCurrent();
+        if (ctx.measureText(part).width <= width) {
+            current = part.trimStart();
+            continue;
+        }
+        const chunks = breakLongPreviewToken(ctx, part, width);
+        lines.push(...chunks.slice(0, -1));
+        current = chunks[chunks.length - 1] || "";
+    }
+    pushCurrent();
+    return lines.length ? lines : [value];
+}
+
+function breakLongPreviewToken(ctx, token, maxWidth) {
+    const value = String(token || "");
+    const chunks = [];
+    let current = "";
+    for (const char of value) {
+        const candidate = `${current}${char}`;
+        if (!current || ctx.measureText(candidate).width <= maxWidth) {
+            current = candidate;
+            continue;
+        }
+        chunks.push(current);
+        current = char;
+    }
+    if (current) {
+        chunks.push(current);
+    }
+    return chunks;
+}
+
 function drawPreviewBlock(ctx, x, y, width, height, label, lines, textColor, options = {}) {
     drawRoundedRectangle(ctx, x, y, width, height, 6, "rgba(0, 0, 0, 0.58)", "rgba(126, 255, 166, 0.26)");
     ctx.fillStyle = "#9dffba";
@@ -3566,8 +3658,8 @@ function drawPreviewBlock(ctx, x, y, width, height, label, lines, textColor, opt
         drawSmallButton(ctx, options.buttonBounds, options.buttonLabel || "More", Boolean(options.buttonPressed));
     }
     ctx.fillStyle = textColor;
-    ctx.font = "10px monospace";
-    const lineHeight = 13;
+    ctx.font = PREVIEW_TEXT_FONT;
+    const lineHeight = PREVIEW_LINE_HEIGHT;
     const maxLines = Math.max(1, Math.floor((height - 28) / lineHeight));
     const hasScroll = Number(options.totalLines || 0) > Number(options.maxLines || maxLines);
     const shown = Array.isArray(lines) ? lines.slice(0, maxLines) : [];
