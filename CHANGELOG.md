@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.32 - 2026-06-14
+
+- Added Prompt Only final prompt extraction for Local LLM Loader, so Ollama and LM Studio models that add analysis text can pass only the final prompt downstream.
+- Models that cannot follow the Prompt Only format now stop with a clear error instead of sending analysis text into the workflow.
+
 ## 0.7.31 - 2026-06-14
 
 - Hardened Local LLM Loader's local Ollama / LM Studio HTTP path so non-local URLs are rejected before any connection is opened.

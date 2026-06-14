@@ -120,6 +120,12 @@ SHIFTED_MODEL_WIDGET_VALUES = {
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 PROGRESS_EVENT = "deno-local-llm-progress"
 THINK_TAG_RE = re.compile(r"<(?:think|thinking)>(.*?)</(?:think|thinking)>", re.IGNORECASE | re.DOTALL)
+FINAL_PROMPT_TAG_RE = re.compile(r"<final\\?_prompt>(.*?)</final\\?_prompt>", re.IGNORECASE | re.DOTALL)
+FINAL_PROMPT_MARKER_RE = re.compile(
+    r"FINAL\\?[_\s-]*PROMPT\\?[_\s-]*START\s*(.*?)\s*FINAL\\?[_\s-]*PROMPT\\?[_\s-]*END",
+    re.IGNORECASE | re.DOTALL,
+)
+FINAL_PROMPT_LINE_RE = re.compile(r"DENO_FINAL_PROMPT\s*:\s*([^\r\n]+)", re.IGNORECASE)
 REVIEWER_PREVIEW_SUBFOLDER = "deno_llm_reviewer"
 _WARM_LOCAL_LLM_KEYS: Dict[str, Optional[float]] = {}
 _ACTIVE_LOCAL_LLM_KEYS: Dict[str, int] = {}
@@ -157,8 +163,9 @@ def _open_local_llm_http_connection(
     host = parsed.hostname
     if not host:
         raise RuntimeError("Local LLM server URL is missing a host.")
+    port = parsed.port
     connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-    return connection_cls(host, parsed.port, timeout=timeout)
+    return connection_cls(host, port, timeout=timeout)
 
 
 def _strip_trailing_slash(url: str) -> str:
@@ -824,7 +831,57 @@ def _split_thinking_tags(answer: str, thinking: str) -> Tuple[str, str]:
     if extracted:
         answer = THINK_TAG_RE.sub("", answer or "").strip()
         thinking = "\n".join(part for part in [thinking, *extracted] if str(part or "").strip()).strip()
+    answer = re.sub(r"</?(?:think|thinking)>", "", answer or "", flags=re.IGNORECASE).strip()
     return answer or "", thinking or ""
+
+
+def _requires_final_prompt_block(system_prompt: str) -> bool:
+    prompt = str(system_prompt or "").lower()
+    return (
+        ("<final_prompt>" in prompt and "</final_prompt>" in prompt)
+        or ("final_prompt_start" in prompt and "final_prompt_end" in prompt)
+        or ("deno_final_prompt" in prompt)
+    )
+
+
+def _is_valid_final_prompt_candidate(candidate: str) -> bool:
+    text = str(candidate or "").strip()
+    if not text:
+        return False
+    lower = text.lower()
+    rejected_fragments = (
+        "your final image prompt here",
+        "the app will pass only",
+        "the app will keep only",
+        "return exactly",
+        "do not explain",
+        "downstream",
+    )
+    return not any(fragment in lower for fragment in rejected_fragments)
+
+
+def _extract_final_prompt_block(answer: str, require: bool = False) -> str:
+    text = answer or ""
+    for pattern in (FINAL_PROMPT_LINE_RE, FINAL_PROMPT_TAG_RE, FINAL_PROMPT_MARKER_RE):
+        matches = [match.group(1).strip() for match in pattern.finditer(text)]
+        matches = [match for match in matches if _is_valid_final_prompt_candidate(match)]
+        if matches:
+            return matches[-1]
+
+    if require:
+        raise RuntimeError(
+            "The local model did not return the required Prompt Only final prompt block. "
+            "Use a model that follows the Prompt Only preset, or remove the block requirement."
+        )
+    return text
+
+
+def _requires_final_prompt_tags(system_prompt: str) -> bool:
+    return _requires_final_prompt_block(system_prompt)
+
+
+def _extract_final_prompt_tags(answer: str, require: bool = False) -> str:
+    return _extract_final_prompt_block(answer, require=require)
 
 
 def _raise_if_thinking_only_result(answer: str, thinking: str) -> None:
@@ -1491,8 +1548,8 @@ class DenoLocalLLMRefiner:
         "Call a local Ollama or LM Studio model from ComfyUI and help rewrite or review prompt text.\n\n"
         "An optional IMAGE input can be attached to the local model call. "
         "Use a vision-capable local model for image review.\n\n"
-        "Designed for prompt-batcher workflows: use the Prompt field or connect a STRING list into Prompt, "
-        "and this node processes the whole batch in one execution so the local LLM can stay "
+        "Designed for prompt-batcher workflows: use the in-node Prompt field or connect STRING into Prompt, "
+        "and this node processes the whole prompt batch in one execution so the local LLM can stay "
         "loaded until the batch is complete.\n\n"
         "Only localhost / 127.0.0.1 servers are allowed."
     )
@@ -1676,6 +1733,7 @@ class DenoLocalLLMRefiner:
                     _clear_local_llm_active(active_key)
                 _mark_local_llm_warm(provider_value, server_value, model_value, memory_value, keep_minutes_value)
                 answer, thought = _split_thinking_tags(answer, thought)
+                answer = _extract_final_prompt_block(answer, require=_requires_final_prompt_block(system_value))
                 if thinking_value:
                     _raise_if_thinking_only_result(answer, thought)
                 results.append(answer)

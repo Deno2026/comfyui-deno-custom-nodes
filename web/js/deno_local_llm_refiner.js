@@ -16,12 +16,42 @@ const PREVIEW_HEIGHT = 150;
 const PROMPT_WIDGET_MIN_HEIGHT = 118;
 const PROMPT_WIDGET_DEFAULT_HEIGHT = 156;
 const PROMPT_WIDGET_MAX_HEIGHT = 460;
-const PROMPT_WIDGET_SIDE_INSET = 10;
+const PROMPT_WIDGET_SIDE_INSET = 0;
 const PREVIEW_TEXT_FONT = "10px monospace";
 const PREVIEW_LINE_HEIGHT = 13;
 const PREVIEW_SCROLLBAR_TRACK_WIDTH = 8;
 const PREVIEW_SCROLLBAR_HIT_WIDTH = 18;
 const PREVIEW_SCROLLBAR_RIGHT_PAD = 8;
+const LOADER_WIDGET_SOCKET_NAMES = new Set([
+    "provider",
+    "Provider",
+    "ollama_model",
+    "Ollama Model",
+    "lm_studio_model",
+    "LM Studio Model",
+    "custom_server_url",
+    "Custom Server URL",
+    "Legacy Server",
+    "custom_model",
+    "Custom Model",
+    "Legacy Model",
+    "system_prompt",
+    "System Prompt",
+    "user_prompt",
+    "thinking",
+    "Thinking",
+    "seed",
+    "Seed",
+    "seed_mode",
+    "Seed Mode",
+    "model_memory",
+    "Model After Run",
+    "keep_minutes",
+    "Keep Minutes",
+    "comfy_vram_policy",
+    "ComfyUI VRAM",
+    "Unload ComfyUI Models Setting",
+]);
 const PROVIDER_OLLAMA = "Ollama";
 const PROVIDER_LM_STUDIO = "LM Studio";
 const LEGACY_PROVIDER_CUSTOM = "Custom Local Server";
@@ -115,7 +145,26 @@ const REVIEWER_JSON_SYSTEM_PROMPT = [
     '  "issues": ["important problems, or an empty array"]',
     "}",
 ].join("\n");
+const PROMPT_ONLY_SYSTEM_PROMPT = [
+    "You are an image prompt generator.",
+    "",
+    "Return exactly one final positive image prompt only.",
+    "Do not explain, analyze, reason, list steps, give tips, add headings, use markdown, or mention your process.",
+    "Do not write phrases like \"thinking process\", \"analyze the request\", \"draft\", \"final output\", \"tips\", or \"here is\".",
+    "",
+    "Write exactly one line in this format:",
+    "DENO_FINAL_PROMPT: your final image prompt here",
+    "",
+    "The app will pass only the text after DENO_FINAL_PROMPT: downstream.",
+    "If the user asks for a specific language, use that language. Otherwise write a natural English image prompt.",
+].join("\n");
 const BUILTIN_SYSTEM_PROMPT_PRESETS = Object.freeze([
+    {
+        id: "prompt_only",
+        label: "Prompt Only",
+        description: "Image prompt preset that keeps only the final prompt and removes explanations.",
+        text: PROMPT_ONLY_SYSTEM_PROMPT,
+    },
     {
         id: "reviewer_json",
         label: "Reviewer JSON",
@@ -1551,10 +1600,11 @@ function setupNode(node) {
         syncLoaderOutputSlots(node);
         removeLegacyPromptBoxDomElements();
         removeGeneratedWidgets(node);
-        removePromptWidgets(node);
-        migrateLegacyPromptInput(node);
         ensureSystemPromptWidget(node);
         ensurePromptWidget(node);
+        removePromptWidgets(node);
+        normalizeLoaderPromptInputSocket(node);
+        removeLoaderWidgetInputSockets(node);
         ensureSeedModeWidget(node);
         migrateLegacyModelWidgets(node);
         removeLegacyWidgets(node);
@@ -2737,10 +2787,11 @@ function schedulePostSetupCleanup(node) {
     }
     node.__denoLocalLLMCleanupScheduled = true;
     const cleanup = () => {
-        removePromptWidgets(node);
-        migrateLegacyPromptInput(node);
         ensureSystemPromptWidget(node);
         ensurePromptWidget(node);
+        removePromptWidgets(node);
+        normalizeLoaderPromptInputSocket(node);
+        removeLoaderWidgetInputSockets(node);
         ensureProviderWidgets(node);
         migrateLegacyModelWidgets(node);
         removeLegacyWidgets(node);
@@ -2871,33 +2922,176 @@ function isCollapsedComputeSize(computeSize) {
 }
 
 function removePromptWidgets(node) {
+    const promptWidget = getWidget(node, "prompt");
+    let copiedLegacyValue = false;
     node.widgets = (node.widgets || []).filter((widget) => {
         const name = String(widget?.name || "");
-        return name !== "user_prompt";
+        if (name !== "user_prompt") {
+            return true;
+        }
+        const legacyValue = String(widget?.value || "");
+        if (!copiedLegacyValue && promptWidget && !String(promptWidget.value || "").trim() && legacyValue.trim()) {
+            promptWidget.value = legacyValue;
+            copiedLegacyValue = true;
+        }
+        removeWidgetElement(widget);
+        return false;
     });
 }
 
-function migrateLegacyPromptInput(node) {
-    const inputs = node.inputs || [];
-    let promptInput = inputs.find((input) => input?.name === "prompt");
-    for (const input of [...inputs]) {
-        if (input?.name !== "user_prompt") {
+function normalizeLoaderPromptInputSocket(node) {
+    if (!node) {
+        return false;
+    }
+    if (!Array.isArray(node.inputs)) {
+        node.inputs = [];
+    }
+
+    let changed = false;
+    let promptInput = node.inputs.find((input) => isPromptWidgetSocket(input));
+    for (let index = node.inputs.length - 1; index >= 0; index -= 1) {
+        const input = node.inputs[index];
+        const identifiers = loaderSocketIdentifiers(input);
+        const isLegacyUserPrompt = identifiers.includes("user_prompt");
+        if (!isLegacyUserPrompt) {
             continue;
         }
-        if (!promptInput) {
-            input.name = "prompt";
-            input.label = "prompt";
+        if (!promptInput || promptInput === input) {
             promptInput = input;
+            setPromptInputSocketFields(promptInput);
+            changed = true;
             continue;
         }
-        if (promptInput.link == null && input.link != null) {
-            promptInput.link = input.link;
+        if (asInputLinkList(promptInput).length === 0 && asInputLinkList(input).length > 0) {
+            promptInput.link = input.link ?? null;
+            promptInput.links = Array.isArray(input.links) ? [...input.links] : [];
+            updateInputLinkSlots(node, asInputLinkList(promptInput), node.inputs.indexOf(promptInput));
         }
-        const index = node.inputs.indexOf(input);
-        if (index >= 0) {
-            node.inputs.splice(index, 1);
+        disconnectInputSlot(node, index);
+        node.inputs.splice(index, 1);
+        changed = true;
+    }
+
+    promptInput = node.inputs.find((input) => isPromptWidgetSocket(input));
+    if (!promptInput) {
+        promptInput = {
+            name: "prompt",
+            localized_name: "prompt",
+            label: "prompt",
+            type: "STRING",
+            link: null,
+        };
+        const imageIndex = node.inputs.findIndex((input) => String(input?.name || input?.label || input?.localized_name || "") === "image");
+        node.inputs.splice(imageIndex >= 0 ? imageIndex + 1 : 0, 0, promptInput);
+        changed = true;
+    }
+    setPromptInputSocketFields(promptInput);
+    if (changed) {
+        node.inputs.forEach((input, index) => updateInputLinkSlots(node, asInputLinkList(input), index));
+        markGraphDirty(node);
+    }
+    return changed;
+}
+
+function setPromptInputSocketFields(input) {
+    if (!input) {
+        return;
+    }
+    input.name = "prompt";
+    input.localized_name = "prompt";
+    input.label = "prompt";
+    input.type = "STRING";
+}
+
+function removeLoaderWidgetInputSockets(node) {
+    if (!Array.isArray(node?.inputs)) {
+        return false;
+    }
+    let removed = false;
+    for (let index = node.inputs.length - 1; index >= 0; index -= 1) {
+        const input = node.inputs[index];
+        if (!isLoaderWidgetSocket(input)) {
+            continue;
+        }
+        if (isPromptWidgetSocket(input)) {
+            copyLinkedPromptTextIntoWidget(node, input);
+        }
+        disconnectInputSlot(node, index);
+        node.inputs.splice(index, 1);
+        removed = true;
+    }
+    if (!removed) {
+        return false;
+    }
+    node.inputs.forEach((input, index) => updateInputLinkSlots(node, asInputLinkList(input), index));
+    markGraphDirty(node);
+    return true;
+}
+
+function isLoaderWidgetSocket(input) {
+    return loaderSocketIdentifiers(input).some((identifier) => LOADER_WIDGET_SOCKET_NAMES.has(identifier));
+}
+
+function isPromptWidgetSocket(input) {
+    return loaderSocketIdentifiers(input).some((identifier) => ["prompt", "user_prompt", "Prompt"].includes(identifier));
+}
+
+function loaderSocketIdentifiers(input) {
+    return [
+        input?.name,
+        input?.label,
+        input?.localized_name,
+    ].map((value) => String(value || "")).filter(Boolean);
+}
+
+function copyLinkedPromptTextIntoWidget(node, input) {
+    const promptWidget = getWidget(node, "prompt");
+    if (!promptWidget || String(promptWidget.value || "").trim()) {
+        return false;
+    }
+    const text = linkedPromptTextCandidate(node, input);
+    if (!text.trim()) {
+        return false;
+    }
+    promptWidget.value = text;
+    return true;
+}
+
+function linkedPromptTextCandidate(node, input) {
+    const graph = safeNodeGraph(node) || safeAppGraph();
+    const links = graph?.links || {};
+    for (const linkId of asInputLinkList(input)) {
+        const link = links?.[linkId];
+        if (link?.origin_id == null) {
+            continue;
+        }
+        const origin = graphNodeById(graph, link.origin_id);
+        const value = bestStringWidgetValue(origin);
+        if (value.trim()) {
+            return value;
         }
     }
+    return "";
+}
+
+function bestStringWidgetValue(node) {
+    const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
+    const preferredNames = ["prompt", "text", "positive_prompt", "caption", "value", "string"];
+    for (const preferredName of preferredNames) {
+        const widget = widgets.find((candidate) => String(candidate?.name || "").toLowerCase() === preferredName);
+        const value = String(widget?.value || "");
+        if (value.trim()) {
+            return value;
+        }
+    }
+    let best = "";
+    for (const widget of widgets) {
+        const value = String(widget?.value || "");
+        if (value.trim() && value.length > best.length) {
+            best = value;
+        }
+    }
+    return best;
 }
 
 function ensureSystemPromptWidget(node) {
@@ -3459,8 +3653,6 @@ function polishWidgetLabels(node) {
 
 function polishInputLabels(node) {
     const labels = {
-        user_prompt: "prompt",
-        prompt: "prompt",
         image: "image",
     };
     for (const input of node.inputs || []) {
@@ -4051,9 +4243,11 @@ function refreshNode(node) {
     }
     node.__denoLocalLLMRefreshing = true;
     try {
-        migrateLegacyPromptInput(node);
         ensureProviderWidgets(node);
         ensurePromptWidget(node);
+        removePromptWidgets(node);
+        normalizeLoaderPromptInputSocket(node);
+        removeLoaderWidgetInputSockets(node);
         ensureSeedModeWidget(node);
         setActiveProviderModelVisibility(node);
         if (!(node.widgets || []).some((widget) => isRefreshButtonWidget(widget)) && activeModelWidget(node)) {

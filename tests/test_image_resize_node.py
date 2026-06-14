@@ -2167,6 +2167,9 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "openSystemPromptDialog" in script
     assert "Optional system prompt. Empty is OK." in script
     assert "SYSTEM_PROMPT_PRESET_STORAGE_KEY" in script
+    assert "Prompt Only" in script
+    assert "PROMPT_ONLY_SYSTEM_PROMPT" in script
+    assert "DENO_FINAL_PROMPT:" in script
     assert "Reviewer JSON" in script
     assert "Return only valid JSON. Do not write markdown." in script
     assert "writeSystemPromptUserPresets" in script
@@ -2923,6 +2926,58 @@ def test_local_llm_refiner_rejects_thinking_only_result_instead_of_empty_output(
             )
     finally:
         module._WARM_LOCAL_LLM_KEYS.clear()
+
+
+def test_local_llm_refiner_extracts_prompt_only_final_prompt_block():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    legacy_answer = (
+        "Here's a thinking process that the model should not pass downstream.\n"
+        "<final_prompt>A serene cat drinking clear water in soft morning light.</final_prompt>"
+    )
+    marker_answer = (
+        "I will analyze this first, which should not pass downstream.\n"
+        "DENO_FINAL_PROMPT: "
+        "A fluffy ginger cat gently drinking water from a ceramic bowl in warm morning light."
+    )
+    inline_marker_answer = (
+        "The user wants an image prompt, but this analysis should be removed."
+        "DENO_FINAL_PROMPT: A photorealistic cat lapping water from a clear bowl in soft natural light."
+    )
+    full_marker_answer = (
+        "Analysis should be ignored.\n"
+        "FINAL_PROMPT_START\n"
+        "A silver tabby cat drinking from a clear stream in soft forest light.\n"
+        "FINAL_PROMPT_END"
+    )
+
+    assert (
+        module._extract_final_prompt_block(legacy_answer)
+        == "A serene cat drinking clear water in soft morning light."
+    )
+    assert (
+        module._extract_final_prompt_block(marker_answer)
+        == "A fluffy ginger cat gently drinking water from a ceramic bowl in warm morning light."
+    )
+    assert (
+        module._extract_final_prompt_block(inline_marker_answer)
+        == "A photorealistic cat lapping water from a clear bowl in soft natural light."
+    )
+    assert (
+        module._extract_final_prompt_block(full_marker_answer)
+        == "A silver tabby cat drinking from a clear stream in soft forest light."
+    )
+    assert module._extract_final_prompt_block("Plain prompt without tags") == "Plain prompt without tags"
+    assert module._requires_final_prompt_block("Use <final_prompt>...</final_prompt> for the result.")
+    assert module._requires_final_prompt_block("Write the result as DENO_FINAL_PROMPT: ...")
+    assert module._requires_final_prompt_block("Write between FINAL_PROMPT_START and FINAL_PROMPT_END.")
+    assert not module._requires_final_prompt_block("Return only the prompt.")
+
+    with pytest.raises(RuntimeError, match="required Prompt Only final prompt block"):
+        module._extract_final_prompt_block("The final answer is not tagged.", require=True)
+    with pytest.raises(RuntimeError, match="required Prompt Only final prompt block"):
+        module._extract_final_prompt_block("DENO_FINAL_PROMPT: your final image prompt here", require=True)
 
 
 def test_local_llm_refiner_auto_vram_free_runs_once_for_keep_loaded():

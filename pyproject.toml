@@ -1,7 +1,7 @@
 [project]
 name = "deno-custom-nodes"
-description = "DENO RTX node pack for ComfyUI: RTX Video Super Resolution, RTX Super Resolution, Video SR/VSR, NVIDIA VFX/nvvfx, RTX upscale helpers, LTX 2.3 workflows, Bernini Prompt Guide, Local LLM Loader and Reviewer helpers, audio/image review gates, Bernini conditioning helpers, Wan 2.2 reference video edit workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
-version = "0.7.31"
+description = "DENO RTX node pack for ComfyUI: RTX Video Super Resolution, RTX Super Resolution, Video SR/VSR, NVIDIA VFX/nvvfx, RTX upscale helpers, LTX 2.3 workflows, Bernini Prompt Guide, Local LLM Loader and Reviewer helpers, Prompt Only final prompt extraction, audio/image review gates, Bernini conditioning helpers, Wan 2.2 reference video edit workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
+version = "0.7.32"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
@@ -24,8 +24,11 @@ keywords = [
   "system-prompt",
   "prompt-guide",
   "local-llm",
+  "local-llm-loader",
   "local-llm-prompt",
   "local-llm-reviewer",
+  "prompt-only",
+  "final-prompt",
   "ai-reviewer",
   "media-reviewer",
   "audio-review-gate",
