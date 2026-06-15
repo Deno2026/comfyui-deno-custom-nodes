@@ -374,6 +374,7 @@ _OPTIONAL_NODES = (
     ("deno_ltx_multi_lora_loader", "DenoLTXMultiLoraLoader", "(Deno) LTX Multi LoRA Loader"),
     ("deno_ltx_prompt_guide", "DenoLTXPromptGuide", "(Deno) LTX Prompt Guide"),
     ("deno_bernini_prompt_guide", "DenoBerniniPromptGuide", "(Deno) Bernini Prompt Guide"),
+    ("deno_ideogram_director", "DenoIdeogramDirector", "(Deno) Ideogram Director"),
     ("deno_local_llm_refiner", "DenoLocalLLMRefiner", "(Deno) Local LLM Loader"),
     ("deno_local_llm_refiner", "DenoAIReviewGate", "(Deno) Local LLM Reviewer"),
     ("deno_local_llm_refiner", "DenoPromptText", "(Deno) Prompt Text"),

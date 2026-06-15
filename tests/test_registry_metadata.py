@@ -1,5 +1,7 @@
 from pathlib import Path
+import ast
 import importlib.util
+import json
 import tomllib
 import re
 import sys
@@ -11,6 +13,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 PUBLISH_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "publish_registry.yml"
 COMFYIGNORE_PATH = REPO_ROOT / ".comfyignore"
+INIT_PATH = REPO_ROOT / "__init__.py"
+NODE_LIST_PATH = REPO_ROOT / "node_list.json"
 PRESTARTUP_PATH = REPO_ROOT / "prestartup_script.py"
 INSTALL_BAT_PATH = REPO_ROOT / "tools" / "install_rtx_vfx.bat"
 TOOLS_INSTALL_GUIDE_STUB_PATH = REPO_ROOT / "tools" / "OPEN_INSTALL_GUIDE.txt"
@@ -20,6 +24,49 @@ RTX_WEB_INSTALL_GUIDE_PATH = REPO_ROOT / "docs" / "rtx-vfx-install" / "index.htm
 RTX_INSTALLER_README_PATH = REPO_ROOT / "tools" / "README_RTX_VFX_EASY_INSTALL.md"
 WEB_INSTALL_GUIDE_URL = "https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/"
 ZIP_INSTALLER_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip"
+
+
+def _declared_public_nodes_from_init():
+    tree = ast.parse(INIT_PATH.read_text(encoding="utf-8"))
+    node_ids = []
+    display_names = {}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == "NODE_CLASS_MAPPINGS":
+                if isinstance(node.value, ast.Dict):
+                    for key in node.value.keys:
+                        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                            node_ids.append(key.value)
+            if isinstance(target, ast.Name) and target.id == "NODE_DISPLAY_NAME_MAPPINGS":
+                if isinstance(node.value, ast.Dict):
+                    for key, value in zip(node.value.keys, node.value.values):
+                        if (
+                            isinstance(key, ast.Constant)
+                            and isinstance(key.value, str)
+                            and isinstance(value, ast.Constant)
+                            and isinstance(value.value, str)
+                        ):
+                            display_names[key.value] = value.value
+            if isinstance(target, ast.Name) and target.id == "_OPTIONAL_NODES":
+                if isinstance(node.value, (ast.Tuple, ast.List)):
+                    for item in node.value.elts:
+                        if not isinstance(item, (ast.Tuple, ast.List)) or len(item.elts) < 3:
+                            continue
+                        class_id = item.elts[1]
+                        display_name = item.elts[2]
+                        if (
+                            isinstance(class_id, ast.Constant)
+                            and isinstance(class_id.value, str)
+                            and isinstance(display_name, ast.Constant)
+                            and isinstance(display_name.value, str)
+                        ):
+                            node_ids.append(class_id.value)
+                            display_names[class_id.value] = display_name.value
+
+    return node_ids, display_names
 
 
 def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
@@ -94,6 +141,19 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert pyproject["tool"]["comfy"]["Icon"].endswith("icon.svg")
 
 
+def test_manager_node_list_matches_public_node_registration():
+    node_list = json.loads(NODE_LIST_PATH.read_text(encoding="utf-8"))
+    declared_node_ids, display_names = _declared_public_nodes_from_init()
+    comfyignore = COMFYIGNORE_PATH.read_text(encoding="utf-8")
+
+    assert isinstance(node_list, dict)
+    assert list(node_list) == declared_node_ids
+    assert node_list == {node_id: display_names[node_id] for node_id in declared_node_ids}
+    assert "node_list.json" not in comfyignore
+    assert "DenoLTX8GBModelDownloader" not in node_list
+    assert "DenoRandomPromptBox" not in node_list
+
+
 def test_publish_workflow_exists_and_fails_without_registry_secret():
     workflow = PUBLISH_WORKFLOW_PATH.read_text()
 
@@ -137,8 +197,15 @@ def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
 
     assert "SESSION_HANDOFF.md" in comfyignore
     assert "AGENTS.md" in comfyignore
+    assert "docs/NODE_WORK_INDEX.md" in comfyignore
     assert "docs/DENO_NODE_RETROSPECTIVE.md" in comfyignore
     assert "docs/DENO_NODE_VISUAL_IDENTITY.md" in comfyignore
+    assert "docs/CLAUDE_NODE_FRONTEND_GUIDE.md" in comfyignore
+    assert "docs/TRANSLATOR_REFACTOR_SPEC.md" in comfyignore
+    assert "docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md" in comfyignore
+    assert "docs/nodes/RANDOM_PROMPT_BOX.md" in comfyignore
+    assert "docs/handoff_archive/" in comfyignore
+    assert "tmp/" in comfyignore
 
 
 def test_visual_fold_frontend_is_visual_only():

@@ -9,6 +9,7 @@
   "DenoLTXMultiLoraLoader": "(Deno) LTX Multi LoRA Loader",
   "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
   "DenoBerniniPromptGuide": "(Deno) Bernini Prompt Guide",
+  "DenoIdeogramDirector": "(Deno) Ideogram Director",
   "DenoLocalLLMRefiner": "(Deno) Local LLM Loader",
   "DenoAIReviewGate": "(Deno) Local LLM Reviewer",
   "DenoPromptText": "(Deno) Prompt Text",

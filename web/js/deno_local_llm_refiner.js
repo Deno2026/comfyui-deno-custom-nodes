@@ -74,6 +74,25 @@ const COMFY_VRAM_ALIASES = {
     "Never free": "Never unload before LLM call",
 };
 const SEED_MODE_VALUES = ["fixed", "increment", "decrement", "randomize"];
+const LOADER_SERIALIZED_WIDGET_COUNT = 13;
+const LOADER_SERIALIZED_WIDGET_NAMES = [
+    "provider",
+    "ollama_model",
+    "lm_studio_model",
+    "custom_server_url",
+    "custom_model",
+    "system_prompt",
+    "thinking",
+    "seed",
+    "seed_mode",
+    "model_memory",
+    "keep_minutes",
+    "comfy_vram_policy",
+    "prompt",
+];
+const LOADER_GENERATED_BUTTON_VALUES = ["Refresh Models", "Stop LLM", "Unload LLM"];
+const LOADER_SYSTEM_PROMPT_BUTTON_VALUE = "System Prompt";
+const LEGACY_CONTROL_AFTER_GENERATE_VALUES = new Set(["fixed", "randomize", "increment", "decrement", "random"]);
 const SHIFTED_MODEL_WIDGET_VALUES = new Set([
     ...PROVIDER_VALUES,
     LEGACY_PROVIDER_CUSTOM,
@@ -300,7 +319,8 @@ function getLocalLLMNodeState(node) {
     return node?.__denoLocalLLMState || localLLMCachedStateForNode(node) || {};
 }
 
-function localLLMNodeById(nodeId) {
+function localLLMNodeById(nodeId, options = {}) {
+    const allowSingleFallback = options?.allowSingleFallback !== false;
     const id = String(nodeId ?? "");
     if (!id) {
         return null;
@@ -325,7 +345,7 @@ function localLLMNodeById(nodeId) {
             }
         }
     }
-    return localNodes.length === 1 ? localNodes[0] : null;
+    return allowSingleFallback && localNodes.length === 1 ? localNodes[0] : null;
 }
 
 function isContextWindowError(message) {
@@ -353,6 +373,29 @@ function localLLMExecutionErrorMessage(detail) {
         );
     }
     return `Local LLM run failed. ${rawMessage}`;
+}
+
+function isLocalLLMOwnExecutionError(detail) {
+    const nodeType = String(detail?.node_type || detail?.type || detail?.class_type || "");
+    if (nodeType && nodeType !== NODE_NAME) {
+        return false;
+    }
+    const rawMessage = String(
+        detail?.exception_message ||
+        detail?.message ||
+        detail?.error ||
+        "",
+    );
+    if (
+        rawMessage.includes("Ideogram Director") ||
+        rawMessage.includes("연결된 프롬프트") ||
+        rawMessage.includes("Incoming Prompt") ||
+        rawMessage.includes("Input Prompt") ||
+        rawMessage.includes("Connected Prompt")
+    ) {
+        return false;
+    }
+    return true;
 }
 
 function localLLMEventApis() {
@@ -465,6 +508,16 @@ app.registerExtension({
         }
         registeredNodeData = nodeData;
 
+        const configure = nodeType.prototype.configure;
+        nodeType.prototype.configure = function (info) {
+            const normalizedValues = normalizeLocalLLMLoaderWidgetValues(info);
+            this.__denoLocalLLMSavedWidgetValues = Array.isArray(normalizedValues) ? [...normalizedValues] : null;
+            preserveLocalLLMLoaderSavedComboOptions(this, normalizedValues);
+            const result = configure?.apply(this, arguments);
+            applyLocalLLMLoaderSavedWidgetValues(this, this.__denoLocalLLMSavedWidgetValues);
+            return result;
+        };
+
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             const result = onNodeCreated?.apply(this, arguments);
@@ -490,6 +543,116 @@ app.registerExtension({
         installPreviewWheelHandler();
     },
 });
+
+function normalizeLocalLLMLoaderWidgetValues(info) {
+    if (!info || !Array.isArray(info.widgets_values)) {
+        return null;
+    }
+    const normalized = normalizeLocalLLMLoaderSerializedValues(info.widgets_values);
+    info.widgets_values = normalized;
+    return normalized;
+}
+
+function normalizeLocalLLMLoaderSerializedValues(values) {
+    if (!Array.isArray(values)) {
+        return null;
+    }
+    let normalized = [...values];
+    const hasGeneratedButtonRun = LOADER_GENERATED_BUTTON_VALUES.every((button, index) => String(normalized[3 + index] ?? "") === button);
+    if (hasGeneratedButtonRun) {
+        normalized.splice(3, LOADER_GENERATED_BUTTON_VALUES.length);
+        normalized = normalizeLocalLLMLoaderLegacyButtonValues(normalized);
+    }
+    return normalized.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
+}
+
+function normalizeLocalLLMLoaderLegacyButtonValues(values) {
+    const normalized = [...values];
+    const tailSystemPromptButtonIndex = normalized.findIndex((value, index) => index >= 8 && String(value ?? "") === LOADER_SYSTEM_PROMPT_BUTTON_VALUE);
+    const tailSystemPrompt = tailSystemPromptButtonIndex >= 0 ? normalized[tailSystemPromptButtonIndex + 1] ?? "" : "";
+    if (tailSystemPromptButtonIndex >= 0) {
+        normalized.splice(tailSystemPromptButtonIndex, 2);
+    }
+
+    const legacyControl = String(normalized[5] ?? "").trim();
+    const hasLegacyControlAfterGenerate =
+        normalized.length >= 13 &&
+        LEGACY_CONTROL_AFTER_GENERATE_VALUES.has(legacyControl) &&
+        typeof normalized[6] === "boolean";
+    if (hasLegacyControlAfterGenerate) {
+        normalized.splice(5, 1, tailSystemPrompt);
+        return normalized;
+    }
+
+    if (tailSystemPromptButtonIndex >= 0 && normalized.length < LOADER_SERIALIZED_WIDGET_COUNT) {
+        normalized.splice(5, 0, tailSystemPrompt);
+        return normalized;
+    }
+
+    const promptIndex = LOADER_SERIALIZED_WIDGET_NAMES.indexOf("prompt");
+    if (
+        tailSystemPromptButtonIndex >= 0 &&
+        promptIndex >= 0 &&
+        promptIndex < normalized.length &&
+        !String(normalized[promptIndex] ?? "").trim() &&
+        String(tailSystemPrompt ?? "").trim()
+    ) {
+        normalized[promptIndex] = tailSystemPrompt;
+    }
+    return normalized;
+}
+
+function preserveLocalLLMLoaderSavedComboOptions(node, values) {
+    if (!node || !Array.isArray(values)) {
+        return;
+    }
+    preserveWidgetOption(getWidget(node, "provider"), values[0]);
+    preserveWidgetOption(getWidget(node, "ollama_model"), values[1]);
+    preserveWidgetOption(getWidget(node, "lm_studio_model"), values[2]);
+}
+
+function preserveWidgetOption(widget, value) {
+    const text = String(value ?? "").trim();
+    if (!widget || !text) {
+        return false;
+    }
+    widget.options = widget.options || {};
+    const values = Array.isArray(widget.options.values)
+        ? [...widget.options.values].map((item) => String(item))
+        : Array.isArray(widget.options.list)
+          ? [...widget.options.list].map((item) => String(item))
+          : [];
+    const reordered = [text, ...values.filter((item) => item !== text)];
+    widget.options.values = reordered;
+    widget.options.list = reordered;
+    return true;
+}
+
+function applyLocalLLMLoaderSavedWidgetValues(node, values) {
+    if (!node || !Array.isArray(values)) {
+        return false;
+    }
+    let changed = false;
+    for (let index = 0; index < LOADER_SERIALIZED_WIDGET_NAMES.length; index++) {
+        if (index >= values.length) {
+            continue;
+        }
+        const name = LOADER_SERIALIZED_WIDGET_NAMES[index];
+        const widget = getWidget(node, name);
+        if (!widget) {
+            continue;
+        }
+        const value = values[index];
+        if (name === "provider" || name === "ollama_model" || name === "lm_studio_model") {
+            preserveWidgetOption(widget, value);
+        }
+        if (widget.value !== value) {
+            widget.value = value;
+            changed = true;
+        }
+    }
+    return changed;
+}
 
 function installReviewerGraphToPromptHook() {
     if (reviewerGraphPromptHookInstalled) {
@@ -1035,8 +1198,16 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         applyReviewerPassMode,
         applyReviewerRegenerateMode,
         applyReviewerSubmitModes,
+        isLocalLLMOwnExecutionError,
         localLLMExecutionErrorMessage,
+        normalizeLocalLLMLoaderSerializedValues,
+        normalizeLocalLLMLoaderWidgetValues,
+        applyLocalLLMLoaderSavedWidgetValues,
+        preserveLocalLLMLoaderSavedComboOptions,
+        preserveWidgetOption,
         migrateLocalLLMPromptInputNames,
+        modelChoiceValuesWithSavedValue,
+        hasUsableSavedModelValue,
         collectReviewerSeedCandidates,
         collectReviewerSelectableSeedCandidates,
         incrementReviewerRetrySeed,
@@ -1094,7 +1265,10 @@ function installProgressListener() {
                 markGraphDirty(node);
             });
             eventApi.addEventListener("execution_error", ({ detail }) => {
-                const node = localLLMNodeById(detail?.node_id);
+                if (!isLocalLLMOwnExecutionError(detail)) {
+                    return;
+                }
+                const node = localLLMNodeById(detail?.node_id, { allowSingleFallback: false });
                 if (!node) {
                     return;
                 }
@@ -1462,7 +1636,11 @@ function graphPointCandidatesFromWheelEvent(event, canvas, ds) {
         addGraphPoint(graphPointFromCanvasPoint(pair, ds));
     };
 
-    addCanvasPoint(canvasPointFromWheelEvent(event, canvas));
+    const directCanvasPoint = canvasPointFromWheelEvent(event, canvas);
+    addCanvasPoint(directCanvasPoint);
+    if (directCanvasPoint) {
+        return dedupePointCandidates(candidates);
+    }
 
     const canvasObj = app.canvas || {};
     addGraphPoint(canvasObj.graph_mouse);
@@ -1549,7 +1727,11 @@ function previewNodeCandidates(graph) {
 }
 
 function canvasPointFromWheelEvent(event, canvas) {
-    if (typeof event.offsetX === "number" && typeof event.offsetY === "number") {
+    if (
+        (event?.target === canvas || event?.currentTarget === canvas)
+        && typeof event.offsetX === "number"
+        && typeof event.offsetY === "number"
+    ) {
         return [event.offsetX, event.offsetY];
     }
     if (typeof event.clientX === "number" && typeof event.clientY === "number") {
@@ -4099,11 +4281,12 @@ async function refreshModels(node) {
     const provider = currentProvider(node);
     const serverUrl = defaultServerForProvider(provider, node);
     const modelWidget = activeModelWidget(node);
+    const savedModel = String(modelWidget?.value || "").trim();
     node.__denoLocalLLMState = {
         ...(node.__denoLocalLLMState || {}),
         status: "loading models",
         provider,
-        model: String(modelWidget?.value || ""),
+        model: savedModel,
     };
     refreshNode(node);
     try {
@@ -4117,19 +4300,26 @@ async function refreshModels(node) {
             throw new Error(payload.error || `HTTP ${response.status}`);
         }
         const choices = normalizeModelChoices(Array.isArray(payload.models) ? payload.models : []);
+        const savedModelStillExists = choices.some((choice) => choice.id === savedModel);
         updateModelChoices(node, provider, choices);
         const current = String(modelWidget?.value || "").trim();
-        const currentStillExists = choices.some((choice) => choice.id === current);
-        if (modelWidget && choices[0]?.id && (!current || isShiftedModelWidgetValue(current) || !currentStillExists)) {
+        if (modelWidget && choices[0]?.id && (!current || isShiftedModelWidgetValue(current))) {
             modelWidget.value = choices[0].id;
         }
+        const savedModelMissing =
+            hasUsableSavedModelValue(savedModel) &&
+            choices.length > 0 &&
+            !savedModelStillExists &&
+            String(modelWidget?.value || "").trim() === savedModel;
         node.__denoLocalLLMState = {
             ...(node.__denoLocalLLMState || {}),
-            status: choices.length ? `${choices.length} models found` : "no models found",
+            status: savedModelMissing ? "saved model not found" : choices.length ? `${choices.length} models found` : "no models found",
             provider,
             model: String(modelWidget?.value || ""),
             answer: "",
-            thinking: choices.length
+            thinking: savedModelMissing
+                ? `Saved ${provider} model "${savedModel}" is not in the current model list. The node keeps the saved value, but running it may fail until you load it or choose another model.`
+                : choices.length
                 ? `Model list is ready. Choose from the ${provider} model row.`
                 : "No models were returned by the local server.",
         };
@@ -4174,14 +4364,39 @@ function updateModelChoices(node, provider, choices) {
     };
     const widget = getWidget(node, activeModelNameForProvider(providerKey));
     if (widget && Array.isArray(choices) && choices.length) {
-        const values = choices.map((choice) => choice.id).filter(Boolean);
+        const savedValue = String(widget.value || "").trim();
+        const values = modelChoiceValuesWithSavedValue(choices, savedValue);
         widget.options = widget.options || {};
         widget.options.values = values;
         widget.options.list = values;
-        if (isShiftedModelWidgetValue(widget.value) || !String(widget.value || "").trim()) {
+        if (!hasUsableSavedModelValue(widget.value)) {
             widget.value = firstValidWidgetChoice(widget);
         }
     }
+}
+
+function modelChoiceValuesWithSavedValue(choices, savedValue) {
+    const seen = new Set();
+    const values = [];
+    const current = String(savedValue || "").trim();
+    if (hasUsableSavedModelValue(current)) {
+        seen.add(current);
+        values.push(current);
+    }
+    for (const choice of choices || []) {
+        const id = String(choice?.id || "").trim();
+        if (!id || seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        values.push(id);
+    }
+    return values;
+}
+
+function hasUsableSavedModelValue(value) {
+    const text = String(value || "").trim();
+    return Boolean(text && !isShiftedModelWidgetValue(text));
 }
 
 function moveWidgetAfter(node, widget, anchor) {

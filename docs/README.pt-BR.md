@@ -29,6 +29,14 @@ Diferente do Subgraph, o Visual Fold não move nós para um grafo filho. Ele ser
 
 ## Included Nodes
 
+### `(Deno) Ideogram Director`
+
+Visual Ideogram 4 prompt builder for structured JSON captions and bbox layout work.
+
+![Deno Ideogram Director](images/ideogram-director.png)
+
+Main features: draw and edit bbox regions, import JSON prompts from Local LLM Loader or another STRING source, ask before replacing an existing board, reject malformed JSON clearly, use style/layout preset galleries, and optionally output model-ready English while preserving literal TEXT box words.
+
 ### `(Deno) Resize Box`
 
 Nó de resolução e redimensionamento de imagem para ComfyUI.
@@ -168,7 +176,7 @@ Esses nós reduzem atritos repetidos no trabalho real com ComfyUI. O objetivo n�
 
 ## Search Tips
 
-Você pode pesquisar por `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`.
+Você pode pesquisar por `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`.
 
 ## Install
 

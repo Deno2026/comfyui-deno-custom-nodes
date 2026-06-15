@@ -1,0 +1,215 @@
+# Ideogram Director
+
+Status: public release candidate for 0.7.33. State as of 2026-06-15.
+
+Read this folder only when the task is about Ideogram 4 JSON captions, bbox composition, KJ Prompt Builder analysis, or the proposed `(Deno) Ideogram Director`.
+
+## Documents
+
+- `SPEC.md`: current clean-room DENO build spec and intended contract.
+- `KJ_BUILDER_UX_RESEARCH.md`: KJ Prompt Builder research and UX analysis. Do not copy KJ GPL code into this repo.
+- `FEATURE_DRAFT.md`: active feature sketch and next implementation direction.
+- `style_presets.json`: planned style preset data. The preset gallery still needs UI wiring.
+
+## Boundary
+
+The intended DENO direction is clean-room implementation from public Ideogram 4 behavior and schema knowledge, not a KJ code fork.
+
+Current local implementation files:
+
+- `deno_ideogram_director.py`
+- `web/js/deno_ideogram_director.js`
+
+Release scope note: Ideogram Director is intended for the 0.7.33 public release. Keep standalone
+Translator and Random Prompt Box out of the public release surface unless the user explicitly
+restarts and approves those nodes separately.
+
+## Current State (2026-06-14)
+
+- JS rev marker: `IDD_REV = "r2026.06.15-replace-clears-preview-a"` in `web/js/deno_ideogram_director.js` (check the served
+  JS for this string after a sync; the user needs Ctrl+Shift+R to pick up a new rev).
+- Galleries open **full-screen** (wave 4, 2026-06-13): the "Presets…" / "Layout presets…" buttons
+  mount the gallery as a body overlay (`idd-gal-fs`, fixed inset:0, 8-col style / 6-col layout grid;
+  Escape / outside-click / Close to dismiss). Wheel over the open gallery scrolls the gallery and
+  does not zoom the canvas behind it.
+- Gallery header (wave 4c) has three zones: **title left · Photo/Art/My tabs centered & enlarged ·
+  count + "Save current as preset" + "Close" together top-right** (the bottom action row is gone).
+  Saving a style as "My preset" now **captures the current board result image** (`bimg`, a
+  same-origin `/view` image → drawn to a canvas → 192×240 webp dataURL stored as `p.thumb` in
+  localStorage) and shows it as the card thumbnail; with no result yet it falls back to the lettered
+  tile. Layout saves are unchanged (composition only).
+- Library size (2026-06-13, wave 4): **219 style presets** (`IDD_STYLES`, 92 photo + 127 art; **211
+  with real webp thumbs + 8 lettered-tile fallbacks**) across ~30
+  categories, and **100 layout presets** (`IDD_LAYOUTS`, **97 with real example-photo thumbs + 3
+  wireframe fallbacks**) across 8 categories (composition/social/video/marketing/print/presentation/
+  infographic/document). The remaining 11 fallbacks are a hard checkpoint refusal (the model renders
+  its "Image blocked by safety filter" card at every seed and after rewording — mostly vehicles and a
+  few scene types); they stay as clean lettered/wireframe fallbacks. BOTH galleries have category chips + search + scroll. **Layout presets
+  inject DRAFT prompt text**: clicking a built-in layout fills summary + background + box desc/text
+  (a ready-to-edit scene), not just empty boxes; user-saved layouts also capture the current
+  summary/background. Catalogs: `tmp/hook50/style_catalog{,2,3}.json` (styles),
+  `tmp/hook50/layout_catalog{,3}.json` (layouts); generators `gen_style_library.py` /
+  `gen_layout_lib.py` (queue|convert|tojs, `IDD_CATALOG` env points the style generator at a
+  catalog, `IDD_SEED_OFFSET` env re-rolls a seed; layout generator merges layout_catalog + _catalog3).
+  `tmp/hook50/patch_js.py` surgically replaces IDD_LAYOUTS and appends styles into IDD_STYLES.
+  Workflow for scale: append catalog → big batch queue → ONE vision-QA pass (`mega-lib-qa` workflow)
+  → rebake fails with a seed offset → delete persistent fails (style→letter tile, layout→wireframe)
+  → patch JS → sync → headless verify. Safety filter (people/portrait styles) is the main loss
+  source; ~67-73% first-pass good, ~85-90% after one rebake round.
+- Sockets/widgets: all UI widgets `socketless`; `import_json` is `forceInput` and declared LAST;
+  old-save layouts are migrated in a `configure` wrap plus a frontend `sanitizeWidgets` recovery.
+- Incoming JSON Prompt live-sync: a wired JSON is FNV-1a signed identically in py `_import_sig` and js
+  `fnv1a`. Default `Ask Before Replacing` fills an empty board automatically, then asks before a connected
+  prompt replaces an existing board; `Always Replace` always applies new valid JSON prompts automatically. The old
+  saved values `Ask before replacing board`, `Use only when board is empty`, `Ignore input prompt`,
+  old `Review First`, and the ambiguous WIP-era `Auto Replace` normalize to `Ask Before Replacing`.
+  Only the explicit current label `Always Replace` or explicit old `Replace board automatically`
+  enables automatic replacement. Runtime LLM values reach the frontend
+  only via `build()`'s `ui.idd_import` echo on the `executed` event. `applyImportedCaption` remains
+  the single authoritative sync path (absent fields are cleared). The frontend re-checks the visible
+  board and Incoming JSON Prompt mode before any overwrite.
+  `caption_data.importSig` is authoritative on the backend: if the same wired JSON already seeded the
+  editor, was intentionally kept, or was intentionally cleared, the same JSON will not refill or pass
+  through just because the visible board is empty. The frontend uses the same sig guard so stale
+  pending prompts disappear without doing real work.
+  Rev `generate-prompt-guard-a` also treats saved `caption_data.boxes` as board content on the frontend.
+  This prevents a global ComfyUI Run / backend `idd_import` echo from seeing a temporarily empty
+  frontend `boxes` array and overwriting an already-authored board without the Ask dialog.
+  While an incoming prompt choice is pending, downstream image/result events no longer clear the
+  Ask dialog or repaint the board image; the user must choose `Apply and Replace` or
+  `Keep Current Board` first.
+  The Director's own `Generate` / `Regenerate` button and the global ComfyUI `Run` button both
+  preflight the currently connected upstream JSON before queueing. If the board already has content
+  and a different valid JSON is connected, the button shows `Apply and Replace` / `Keep Current Board`
+  and does not queue until the user chooses. This protects manual style/bbox edits from being
+  overwritten by a stale LLM source when the user simply wants to regenerate the current board.
+  Applying a new valid JSON prompt also clears the previous generated result preview immediately;
+  `Keep Current Board` preserves the existing preview, but `Apply and Replace` / `Always Replace`
+  starts the next scene with only the new boxes/layout visible until the new result arrives.
+  Pending imports are a real execution gate in `Ask Before Replacing` only after the visible board already has
+  content: the backend sends `deno-ideogram-director-pending` to the matching node and raises a clear
+  error before downstream sampler nodes run. The user chooses `Apply and Replace` or
+  `Keep Current Board`; the frontend saves that decision and immediately queues the workflow again so the
+  downstream sampler continues without a second manual Generate click.
+  Rev `incoming-prompt-b` also fixes the real LLM compact-JSON path and fragile event matching:
+  `prompt/bg/elements` and similar aliases are normalized into the official
+  `high_level_description/compositional_deconstruction.elements` schema on both backend and frontend,
+  reversed bbox coordinates are ordered before display/output, and `node` / `node_id` /
+  `display_node` event ids all route to the same Director instance. This is the guard for the bug
+  where an upstream LLM result looked connected but no bbox labels appeared on the board.
+  If `import_json` is connected/non-empty but cannot be parsed as valid JSON, the backend raises a
+  clear English JSON-format message before downstream sampler/output nodes run. The frontend renders
+  a Director-local red banner with `Check the JSON prompt.` and asks the user to regenerate
+  the upstream LLM output. Invalid JSON is never used as plain text and is never partially applied.
+  If the current board has content, `Keep Current Board` records only the rejected JSON signature so
+  the same bad input stops blocking and the node can generate from the current board.
+  If the user changes an upstream node such as Local LLM Loader after an invalid JSON warning
+  (for example enabling Thinking or changing seed/model), the stale warning is released and the next
+  Run is allowed to reach the upstream node so it can regenerate a new JSON prompt.
+- Caption contract: emits the caption_verifier shape, single-line minified; `aspect_ratio` is
+  stripped from the final caption by default on BOTH output paths (matches official
+  `magic_prompt.py`); `include_aspect_ratio` toggle (default off) preserves it; bboxes are never
+  stripped. JSON parse is lenient on both sides (raw → ```fence → first/last brace span), then
+  wired captions are normalized to the official schema before board sync or prompt output.
+- Frontend feature set: Verdant Pro theme; per-box color via inline `--bc`; custom color picker
+  (SV field + hue bar + HEX/RGB/HSL readouts + copy chips + Delete/Save in ONE popover); staged
+  resolution popup (/16 FORCED, ratio-locked drag-resize, free megapixel input, Apply commits,
+  preferred classic dims e.g. 2.08MP → 1920×1088); result-image dimmer in the board view cluster
+  beside the eye toggle;
+  user-approved fresh-node default size `850×1000` (from saved `ideogram-director.json`;
+  right rail visible at first open, still manually resizable);
+  bbox visibility toggle
+  (B key); fullscreen; **seed pill with an explicit two-segment switch `[Fixed | Random]`**
+  (active segment filled — green Fixed / amber Random — number dims when Random; rev `-j`);
+  node-owned Ctrl+Z/Y (never reaches graph undo; text fields keep native undo); board/photo/bbox
+  wheel and middle-click are canvas-first (ComfyUI zoom/pan), with a direct zoom fallback if the
+  frontend does not react to the forwarded wheel event; Copy JSON copies the OFFICIAL caption.
+  **Paste JSON opens a dialog** (rev `-h`): the user Ctrl+V's the caption into a textarea then clicks
+  Paste (Ctrl+Enter also applies; garbage → inline error, board untouched) — more reliable than reading
+  the clipboard directly. Accepts official captions (fenced too) and the internal board format.
+- Top bar (rev `incoming-json-keep-board-a`): **"Layout Presets" button** · spacer ·
+  Incoming JSON Prompt status (`Ask Before Replacing`, `Always Replace`, `Prompt Needs Review`, or `JSON Needs Review`) · resolution
+  chip · Translate On/Off · seed switch · Generate. Apply/Keep controls live inside the board
+  notice only, not duplicated in the top bar.
+  The duplicate internal node title and `Caption✓` text are intentionally removed because the ComfyUI
+  node title already names the node and the seed controls must remain visible at the default size.
+  The old status dot is not mounted; Style stays above Elements in the right rail so Photo/Art remains
+  visible at the compact default size. Elements list rows mirror the canvas boxes: click selects and
+  double-click opens the same element editor as double-clicking the bbox on the board.
+  Pre-marker saved nodes with stale heights are reset once to the 850×1000 default; after saving
+  with `idd_size_rev=size-2026.06.14-stable-a`, user-resized dimensions are preserved.
+- Preset galleries (expanded 2026-06-12, JS rev `r2026.06.12-b`): two ORTHOGONAL axes. STYLE gallery
+  (Presets… button in the Style section) = Photo/Art/My tabs + a **category chip row + search box +
+  scrollable grid** (built for a large library). Built-ins are **45 looks** in `IDD_STYLES` (each
+  has `cat` for the chip filter); clicking a card sets style_mode + the style fields (+palette for
+  user presets) and never touches boxes/ratio. The chip row is DATA-DRIVEN (derived from the
+  distinct `cat` values present) so adding a preset with a new `cat` makes a new chip appear with no
+  UI change. LAYOUT gallery (bottom bar) = 10 built-in cards that now show a **real generated
+  example photo** per layout (`web/js/styles/layouts/<key>.webp`, full composition at true ratio;
+  falls back to the wireframe miniature if the image is missing or for user-saved layouts); clicking
+  sets ratio (via dimsFor at the current megapixel budget) + replaces the starter boxes and never
+  touches style. "My presets" live in localStorage (`denoIdd.stylePresets` / `denoIdd.layoutPresets`)
+  — browser-local, no files, no Registry-sensitive APIs; delete is arm("Delete?")→confirm.
+  Style thumbnails are bundled webp at `web/js/styles/<key>.webp` (256×320), resolved via
+  `new URL(".", import.meta.url)` because the install folder name varies — a missing file degrades to
+  a lettered placeholder card (2 styles, `bw_fine_art` + `flat_vector`, ship as placeholders because
+  the Ideogram4 safety filter persistently blocked their thumbnail; the presets themselves work).
+  NOTE: import.meta means `node --check` must run on a `.mjs` COPY of the file. The STYLE gallery grid
+  is now an intentional scroll area (`.idd-gal-scroll`) — the node's capture-phase wheel forwarder
+  has explicit exceptions only for real local controls (`.idd-gal-scroll`, `.idd-importlist`, text
+  inputs/selects), so wheel scrolls those controls while the board/photo/bbox surface stays
+  canvas-first everywhere else. One apply = one undo step.
+- Clear Board is a real editor reset, not just `boxes=[]`: it clears boxes, summary/background,
+  style mode/fields/palette, result preview state, and serializes the current wired `import_json`
+  signature so the same connected JSON does not auto-refill the board after F5/R. A changed/new
+  import JSON may still refresh the editor unless `import_mode` rules say otherwise.
+- Preset generation harness (reusable, catalog-driven): `tmp/hook50/style_catalog.json` is the source
+  of truth (key/name/mode/cat/apply + gen subject+background); `tmp/hook50/gen_style_library.py`
+  `queue|convert|tojs` renders thumbnails, webp-bundles (9% edge crop), and emits IDD_STYLES JS.
+  Layouts: `tmp/hook50/gen_layout_thumbs.py`. Adding more presets = append catalog entries → queue →
+  QA → convert → paste `tojs` output into `IDD_STYLES`. Generation lessons (see
+  [[ideogram-director-ux-decisions]]): concrete in-style backgrounds (no negations), neutral
+  subjects, and the safety filter is seed-stochastic — re-roll a blocked thumbnail, and if it keeps
+  blocking after a few tries, delete its webp so it falls back to the clean lettered tile.
+- Verification: headless Playwright suites under `tmp/ideogram-director/*.cjs` (live-sync E2E,
+  copy/paste, undo ownership, resolution popup, picker, ergonomics, migration, corrupt-save
+  recovery — all passing; `verify_a` `resultPainted` is a known placeholder failure, not a
+  regression). Rev `connected-prompt-f/g` adds focused backend regression coverage for compact LLM JSON
+  and a disposable Chrome/CDP canvas proof at
+  `tmp/ideogram-director/compact_json_sync_verify.cjs`: compact JSON connected from `DenoPromptText`
+  auto-fills an empty `Ask Before Replacing` board, shows the replacement gate once the board has content,
+  `Apply and Replace` creates visible bbox labels, `Keep Current Board` records the ignored input
+  signature, `Always Replace` applies without a manual gate,
+  graphToPrompt serializes the applied box, and invalid JSON shows a blocking regenerate warning
+  with a current-board keep path that never uses the bad JSON text.
+  `tmp/ideogram-director/input_prompt_interaction_verify.cjs` adds real mouse-event clicks,
+  the two-choice Incoming JSON Prompt popup, pending/invalid/final screenshots, automatic continue-after-choice
+  queueing, invalid-input keep-current verification, and the regression where clicking the real
+  `.idd-regen` button and the global `app.queuePrompt()` path after an upstream JSON change must show
+  Apply/Keep without queueing or overwriting the current board/style first. Real-canvas use throughout
+  the session. Note
+  `tmp/` is disposable by repo policy — promote any suite worth keeping before cleanup.
+
+## Next Reminders
+
+- Add an Ideogram-specific Local LLM system prompt preset that can emit official JSON captions and, when requested, a valid `style_description`.
+- Real-canvas user QA of the preset galleries (open both, apply, save/delete a MY preset) — the
+  headless suite passed but the user click-through is the completion gate.
+- Sync docs and tests with the integrated node state before any release gate.
+- Thumbnail regeneration notes (if a style thumb ever needs re-baking): use
+  `tmp/hook50/gen_style_thumbs.py`; NEVER write negations in the caption ("no checkered pattern"
+  made the model DRAW checkerboards) — specify a CONCRETE in-style background instead; glamour
+  subject wording trips the safety filter; webp conversion center-crops 9% per edge to kill thin
+  print-matte borders.
+- Standalone `(Deno) Translator` is paused and excluded from registration. The Director's built-in
+  control remains a persistent `Translate On/Off` toggle, not a language search/selector. Source
+  language is detected automatically. Users can write the board in Korean or another native
+  language, then turn Translate on so the node outputs model-ready English for the sampler. The
+  board stays in the user's language. Description fields are converted to English, but TEXT boxes
+  keep the exact typed words so signs, logos, headlines, and poster text are not translated
+  accidentally.
+- Style quality pass (2026-06-14): art presets that were pulling outputs toward photo/realistic,
+  overly dark, or weak pixel/wireframe looks were reworded in both `IDD_STYLES` and
+  `tmp/hook50/style_catalog*.json`. Keep future art presets medium-clear but avoid self-defeating
+  terms such as `photoreal`, `octane`, `subsurface`, `soft realistic skin`, `chiaroscuro`, and
+  `tenebrism` unless the dark/realistic behavior is truly intentional.

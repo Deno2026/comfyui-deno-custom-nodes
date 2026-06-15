@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.33 - 2026-06-15
+
+- Added Ideogram Director, a visual Ideogram 4 JSON/bbox prompt builder with editable boxes, layout presets, style presets, and model-ready prompt output.
+- Improved Ideogram Director's connected JSON prompt flow so existing boards ask before replacement, invalid JSON is rejected clearly, and current-board edits can continue safely.
+- Kept the standalone Translator and Random Prompt Box out of the public release while preserving Ideogram Director's built-in Translate On/Off helper.
+- Hardened public workflow migration checks for older DENO workflow files.
+
 ## 0.7.32 - 2026-06-14
 
 - Added Prompt Only final prompt extraction for Local LLM Loader, so Ollama and LM Studio models that add analysis text can pass only the final prompt downstream.

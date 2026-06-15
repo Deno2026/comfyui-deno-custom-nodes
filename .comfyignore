@@ -20,12 +20,28 @@ SESSION_HANDOFF.md
 AGENTS.md
 docs/DENO_NODE_RETROSPECTIVE.md
 docs/DENO_NODE_VISUAL_IDENTITY.md
+docs/NODE_WORK_INDEX.md
+docs/TRANSLATOR_REFACTOR_SPEC.md
+docs/CLAUDE_NODE_FRONTEND_GUIDE.md
+docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md
+docs/handoff_archive/
+docs/nodes/
+docs/nodes/CAPTION_TRANSLATE.md
+docs/nodes/RANDOM_PROMPT_BOX.md
+tmp/
+
+# Paused local/WIP node wrappers. Keep these out of the public package until
+# the user explicitly restarts and release-approves the feature.
+deno_caption_translate.py
+deno_random_prompt_box.py
+web/js/deno_random_prompt_box.js
 
 tools/compare_rtx_vfx_env.ps1
 tools/README_RTX_VFX_EASY_INSTALL.md
 tools/install_rtx_vfx.bat
 tools/install_rtx_vfx_bat.zip
 tools/test_portable_baseline.ps1
+tools/comfyui_cdp_probe.ps1
 tools/rtx_vfx_env_report_*.json
 tools/DENO_RTX_VFX_install_log.txt
 tools/DENO_RTX_VFX_runtime_path.txt

@@ -29,6 +29,22 @@ ComfyUI Subgraph는 노드를 하위 그래프로 이동시키는 기능입니�
 
 ## Included Nodes
 
+### `(Deno) Ideogram Director`
+
+Ideogram 4용 구조화 JSON 프롬프트와 bbox 배치를 ComfyUI 캔버스 안에서 편집하는 시각형 프롬프트 빌더입니다.
+
+![Deno Ideogram Director](images/ideogram-director.png)
+
+주요 기능:
+
+- 캔버스 위에서 bbox 영역을 직접 그리고 편집
+- Local LLM Loader 또는 다른 STRING 출력에서 JSON 프롬프트 가져오기
+- 기존 보드가 있을 때 새 JSON으로 교체할지 먼저 확인
+- 잘못된 JSON은 명확하게 거절하고 깨진 프롬프트를 샘플러로 보내지 않음
+- 스타일/레이아웃 프리셋 갤러리와 가벼운 미리보기 썸네일
+- Translate On/Off 보조 기능으로 장면 설명은 영어 출력, 실제 TEXT 박스 단어는 그대로 보존
+- 출력: `prompt`, `width`, `height`, `seed`, `bboxes`
+
 ### `(Deno) Resize Box`
 
 ComfyUI용 해상도 도우미와 이미지 리사이즈 노드입니다.
@@ -176,7 +192,7 @@ Negative preset은 출력 모드가 아니라 아래 negative prompt 칸을 자�
 
 ## Search Tips
 
-GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm prompt`, `local llm reviewer`, `ai reviewer`, `media reviewer`, `audio review gate`, `ollama`, `lm studio`, `bernini`, `bernini prompt guide`, `bernini conditioning`, `comfyui bernini`, `kj bernini`, `reference video edit`, `wan-2.2`, `wan2.2`, `visual fold` 같은 키워드로 찾을 수 있습니다.
+GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `ai reviewer`, `media reviewer`, `audio review gate`, `ollama`, `lm studio`, `bernini`, `bernini prompt guide`, `bernini conditioning`, `comfyui bernini`, `kj bernini`, `reference video edit`, `wan-2.2`, `wan2.2`, `visual fold` 같은 키워드로 찾을 수 있습니다.
 
 ## Install
 

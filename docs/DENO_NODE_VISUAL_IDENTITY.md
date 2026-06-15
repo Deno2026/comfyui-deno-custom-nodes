@@ -16,8 +16,11 @@ The preferred DENO visual direction is represented by:
 - `(Deno) Multi LoRA Loader`
 - `(Deno) LTX Multi LoRA Loader`
 - `(Deno) LTX Sequencer`
+- `(Deno) Ideogram Director` for ambitious custom-DOM tools and flagship interaction quality
 
 The newest RTX VFX test node should be treated as an experimental implementation, not the default visual reference.
+
+Use `docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md` only when designing or reviewing a substantial custom frontend. Do not load that long reference for routine backend fixes or tiny UI patches.
 
 ## Core Identity
 
@@ -28,6 +31,21 @@ The newest RTX VFX test node should be treated as an experimental implementation
 - Depth comes from borders and subtle contrast, not heavy shadows or flashy gradients.
 - Typography is compact and literal: small sans labels, strong weights for buttons/counts, no decorative copy inside the node.
 - The node should feel like a practical production tool, not a marketing card inside ComfyUI.
+
+## Ideogram Director Lessons
+
+Ideogram Director is the current high-satisfaction DENO reference for a complex visual tool. Reuse these lessons when a node needs more than standard widgets:
+
+- Color is state, not decoration. Reserve green for interactive, selected, ready, or primary action states. Let idle borders and passive dividers use neutral gray/white alpha so the green has meaning.
+- Keep the host ComfyUI canvas first. A custom panel is a guest inside the graph; wheel, middle-click pan, resize, focus, and undo ownership must feel predictable.
+- Use one strong primary action in the terminal position where the user's loop ends, such as `Generate` becoming `Regenerate`. Do not scatter equal-looking commands.
+- Keep frequent controls visible and group rare controls into popups, rails, or detail panels. The layout should follow the user's workflow frequency, not backend option order.
+- Previews should be honest. Use a real result image, real generated thumbnail, or clear wireframe. Avoid fake atmospheric previews that make users expect a different final output.
+- Make state legible without reading docs: fixed vs random seed, selected bbox, active style, missing input, and destructive action should all look different.
+- Keep destructive actions visually separated and confirm them when the action can wipe user work.
+- Preserve DOM identity during interactive editing when possible. Updating a selected class is often safer than rebuilding elements on every click; rebuilding can break double-click, drag, focus, or native text undo paths.
+- Use compact typography, with monospace for numeric or code-like readouts such as seed, ratio, bbox, hex colors, and JSON-adjacent values.
+- If a helper loop only previews, imports, or annotates data, isolate failure so it cannot break the downstream generation path.
 
 ## Default Palette
 

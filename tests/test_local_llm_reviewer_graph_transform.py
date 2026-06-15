@@ -95,12 +95,169 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
 
             const api = context.capturedApi;
             assert(api, "reviewer graph test API was not exposed");
+            const savedLoaderValues = [
+                "LM Studio",
+                "gemma3:1b",
+                "codex/missing-saved-lm-studio-model",
+                "Refresh Models",
+                "Stop LLM",
+                "Unload LLM",
+                "http://127.0.0.1:8000/v1",
+                "",
+                "",
+                false,
+                1,
+                "fixed",
+                "Unload after run",
+                5,
+                "Auto: unload only before first LLM call",
+                "Prompt text",
+                "System Prompt",
+                "",
+            ];
+            const normalizedLoaderValues = api.normalizeLocalLLMLoaderSerializedValues(savedLoaderValues);
+            assert(normalizedLoaderValues.length === 13, "Loader configure migration must keep only real serialized widgets");
+            assert(normalizedLoaderValues[0] === "LM Studio", "Loader configure migration must preserve saved provider");
+            assert(normalizedLoaderValues[2] === "codex/missing-saved-lm-studio-model", "Loader configure migration must preserve saved LM Studio model");
+            assert(normalizedLoaderValues[3] === "http://127.0.0.1:8000/v1", "Loader configure migration must remove generated button values before legacy fields");
+            assert(normalizedLoaderValues[12] === "Prompt text", "Loader configure migration must preserve the prompt widget value");
+            const normalizedInfo = {{ widgets_values: [...savedLoaderValues] }};
+            api.normalizeLocalLLMLoaderWidgetValues(normalizedInfo);
+            assert(normalizedInfo.widgets_values[2] === "codex/missing-saved-lm-studio-model", "Loader configure migration wrapper must update info.widgets_values in place");
+            const modelChoices = api.modelChoiceValuesWithSavedValue(
+                [{{ id: "google/gemma-4-e4b" }}, {{ id: "google/gemma-4-12b" }}],
+                "codex/missing-saved-lm-studio-model"
+            );
+            assert(modelChoices[0] === "codex/missing-saved-lm-studio-model", "Model refresh must keep the saved missing model in the dropdown");
+            const comboNode = {{
+                widgets: [
+                    {{ name: "provider", options: {{ values: ["Ollama", "LM Studio"] }} }},
+                    {{ name: "ollama_model", options: {{ values: ["gemma3:1b"] }} }},
+                    {{ name: "lm_studio_model", options: {{ values: ["google/gemma-4-e4b"] }} }},
+                ],
+            }};
+            api.preserveLocalLLMLoaderSavedComboOptions(comboNode, normalizedLoaderValues);
+            assert(
+                comboNode.widgets[2].options.values[0] === "codex/missing-saved-lm-studio-model",
+                "Loader configure must add saved missing LM Studio model before combo restore can replace it"
+            );
+            const savedExistingComboNode = {{
+                widgets: [
+                    {{ name: "lm_studio_model", options: {{ values: ["google/gemma-4-e4b", "google/gemma-4-12b"] }} }},
+                ],
+            }};
+            api.preserveWidgetOption(savedExistingComboNode.widgets[0], "google/gemma-4-12b");
+            assert(
+                savedExistingComboNode.widgets[0].options.values.join(",") === "google/gemma-4-12b,google/gemma-4-e4b",
+                "Loader configure must move an existing saved LM Studio model before the default model"
+            );
+            const currentSavedLoaderValuesWithPromptAfterSystemPromptButton = [
+                "LM Studio",
+                "gemma3:1b",
+                "google/gemma-4-12b",
+                "Refresh Models",
+                "Stop LLM",
+                "Unload LLM",
+                "http://127.0.0.1:8000/v1",
+                "",
+                "Return only the final prompt.",
+                false,
+                123,
+                "fixed",
+                "Unload after run",
+                5,
+                "Auto: unload only before first LLM call",
+                "",
+                "System Prompt",
+                "a cat drinking water",
+            ];
+            const normalizedPromptAfterButton = api.normalizeLocalLLMLoaderSerializedValues(currentSavedLoaderValuesWithPromptAfterSystemPromptButton);
+            assert(normalizedPromptAfterButton.length === 13, "Loader current saved values with prompt after System Prompt button must normalize to 13 widgets");
+            assert(normalizedPromptAfterButton[0] === "LM Studio", "Loader prompt-after-button values must preserve provider");
+            assert(normalizedPromptAfterButton[2] === "google/gemma-4-12b", "Loader prompt-after-button values must preserve selected LM Studio model");
+            assert(normalizedPromptAfterButton[5] === "Return only the final prompt.", "Loader prompt-after-button values must preserve system prompt");
+            assert(normalizedPromptAfterButton[12] === "a cat drinking water", "Loader prompt-after-button values must restore the Prompt textarea value");
+            const currentSavedLoaderValuesWithOldButtons = [
+                "LM Studio",
+                "qwen3.6:35b-a3b",
+                "google/gemma-4-12b",
+                "Refresh Models",
+                "Stop LLM",
+                "Unload LLM",
+                "http://127.0.0.1:8000/v1",
+                "",
+                "fixed",
+                false,
+                2,
+                "fixed",
+                "Unload after run",
+                1,
+                "Auto: unload only before first LLM call",
+                "Prompt text",
+                "System Prompt",
+                "System Prompt text",
+            ];
+            const normalizedCurrentSaved = api.normalizeLocalLLMLoaderSerializedValues(currentSavedLoaderValuesWithOldButtons);
+            assert(normalizedCurrentSaved.length === 13, "Loader current saved values with old buttons must normalize to the current 13 widgets");
+            assert(normalizedCurrentSaved[0] === "LM Studio", "Loader current saved values must preserve provider");
+            assert(normalizedCurrentSaved[2] === "google/gemma-4-12b", "Loader current saved values must preserve selected LM Studio model");
+            assert(normalizedCurrentSaved[5] === "System Prompt text", "Loader current saved values must move the real system prompt into the current slot");
+            assert(normalizedCurrentSaved[6] === false, "Loader current saved values must keep thinking in the current slot");
+            assert(normalizedCurrentSaved[7] === 2, "Loader current saved values must keep seed in the current slot");
+            assert(normalizedCurrentSaved[12] === "Prompt text", "Loader current saved values must keep the prompt in the current slot");
+            const staleFirstRunNode = {{
+                widgets: [
+                    {{ name: "provider", value: "Ollama", options: {{ values: ["Ollama", "LM Studio"] }} }},
+                    {{ name: "ollama_model", value: "gemma3:1b", options: {{ values: ["gemma3:1b", "qwen3.6:35b-a3b"] }} }},
+                    {{ name: "lm_studio_model", value: "google/gemma-4-e4b", options: {{ values: ["google/gemma-4-e4b", "google/gemma-4-12b"] }} }},
+                    {{ name: "custom_server_url", value: "http://127.0.0.1:8000/v1" }},
+                    {{ name: "custom_model", value: "" }},
+                    {{ name: "system_prompt", value: "fixed" }},
+                    {{ name: "thinking", value: true }},
+                    {{ name: "seed", value: 1 }},
+                    {{ name: "seed_mode", value: "fixed" }},
+                    {{ name: "model_memory", value: "Unload after run" }},
+                    {{ name: "keep_minutes", value: 1 }},
+                    {{ name: "comfy_vram_policy", value: "Auto: unload only before first LLM call" }},
+                    {{ name: "prompt", value: "" }},
+                ],
+            }};
+            api.applyLocalLLMLoaderSavedWidgetValues(staleFirstRunNode, normalizedCurrentSaved);
+            assert(staleFirstRunNode.widgets[0].value === "LM Studio", "Loader first-run repair must restore saved provider before queue submit");
+            assert(staleFirstRunNode.widgets[2].value === "google/gemma-4-12b", "Loader first-run repair must restore saved LM Studio model before queue submit");
+            assert(staleFirstRunNode.widgets[2].options.values[0] === "google/gemma-4-12b", "Loader first-run repair must keep saved LM Studio model first in the combo");
+            assert(staleFirstRunNode.widgets[5].value === "System Prompt text", "Loader first-run repair must clear shifted seed-mode text from system prompt");
+            assert(staleFirstRunNode.widgets[7].value === 2, "Loader first-run repair must restore saved seed before queue submit");
+            assert(staleFirstRunNode.widgets[12].value === "Prompt text", "Loader first-run repair must restore saved prompt textarea before queue submit");
             assert(
                 api.localLLMExecutionErrorMessage({{
                     node_id: 2,
                     exception_message: "The number of tokens to keep from the initial prompt is greater than the context length (n_keep: 6667>= n_ctx: 4096).",
                 }}).includes("Context window is too small"),
                 "Loader execution errors must turn LM Studio context failures into a readable node message"
+            );
+            assert(
+                api.isLocalLLMOwnExecutionError({{
+                    node_id: 2,
+                    node_type: "DenoLocalLLMRefiner",
+                    exception_message: "LM Studio server returned HTTP 500",
+                }}) === true,
+                "Loader must keep its own provider execution errors"
+            );
+            assert(
+                api.isLocalLLMOwnExecutionError({{
+                    node_id: 999,
+                    node_type: "DenoIdeogramDirector",
+                    exception_message: "The incoming prompt is not valid JSON.",
+                }}) === false,
+                "Loader must ignore Ideogram Director execution errors"
+            );
+            assert(
+                api.isLocalLLMOwnExecutionError({{
+                    node_id: 999,
+                    exception_message: "Incoming Prompt needs review on the Ideogram Director node.",
+                }}) === false,
+                "Loader must ignore downstream incoming-prompt errors even if ComfyUI omits node_type"
             );
             assert(
                 api.reviewerControlTooltip("review").includes("pass or block"),

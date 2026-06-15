@@ -35,6 +35,22 @@ This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph
 
 ## Included Nodes
 
+### `(Deno) Ideogram Director`
+
+Visual Ideogram 4 prompt builder for structured JSON captions and bbox layout work.
+
+![Deno Ideogram Director](docs/images/ideogram-director.png)
+
+Main features:
+
+- draw and edit bbox regions directly on the ComfyUI canvas
+- import JSON prompts from a Local LLM Loader or other STRING source
+- ask before replacing an existing board, or switch to always replace
+- reject malformed JSON clearly instead of passing broken prompt text downstream
+- style and layout preset galleries with lightweight preview thumbnails
+- optional Translate On/Off helper that outputs model-ready English while preserving literal TEXT box words such as signs, logos, and headlines
+- outputs: `prompt`, `width`, `height`, `seed`, `bboxes`
+
 ### `(Deno) Resize Box`
 
 Resolution helper and image resize node for ComfyUI.
@@ -390,6 +406,13 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `deno custom nodes`
 - `(deno)`
 - `comfyui custom nodes`
+- `ideogram`
+- `ideogram 4`
+- `ideogram director`
+- `json prompt`
+- `bbox`
+- `bounding boxes`
+- `layout prompt`
 - `rtx super`
 - `rtx video super resolution`
 - `rtx 2 pass`
@@ -413,8 +436,11 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `ltx multi lora`
 - `prompt guide`
 - `system prompt`
+- `local llm loader`
 - `local llm prompt`
 - `local llm reviewer`
+- `prompt only`
+- `final prompt`
 - `ai reviewer`
 - `media reviewer`
 - `audio review gate`

@@ -21,12 +21,62 @@ const LANGUAGE_PROFILES = {
     [LANGUAGE_ENGLISH]: { unitsPerSecond: 2.75, segmentPadding: 0.15, punctuationPause: 0.12 },
 };
 
+// --- Legacy saved-workflow widget migration -------------------------------
+// Public v0.3.8 workflows serialized two extra display-widget slots around the
+// real inputs:
+//   ["", positive_prompt, language, frame_rate, "", show_negative_prompt, negative_prompt]
+// The current node keeps those display widgets as serialize:false custom
+// widgets, so it only expects the 5 real widget values:
+//   [positive_prompt, language, frame_rate, show_negative_prompt, negative_prompt]
+// Normalize the legacy array in configure(), before LiteGraph maps saved
+// values onto widgets, so old workflows do not lose the prompt / frame rate to
+// positional drift. Mirrors DenoLTX23PresetLoader's
+// getNormalizedLtxSerializedValues() in deno_extra_nodes.js.
+const LTX_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT = 5;
+
+function getNormalizedLtxPromptGuideSerializedValues(values) {
+    if (!Array.isArray(values)) {
+        return null;
+    }
+
+    // Legacy v0.3.8: two empty display-widget slots at index 0 and 4. Only
+    // remap this exact shape so we never reshuffle a current-layout array.
+    if (
+        values.length >= 7 &&
+        (values[0] === "" || values[0] == null) &&
+        (values[4] === "" || values[4] == null)
+    ) {
+        return [values[1], values[2], values[3], values[5], values[6]];
+    }
+
+    // Current layout already starts with the 5 real widget values; drop any
+    // trailing non-serialized leftovers without touching known-good values.
+    if (values.length >= LTX_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT) {
+        return values.slice(0, LTX_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT);
+    }
+
+    return null;
+}
+
+function normalizeLtxPromptGuideLegacyWidgetValues(info) {
+    const normalized = getNormalizedLtxPromptGuideSerializedValues(info?.widgets_values);
+    if (normalized) {
+        info.widgets_values = normalized;
+    }
+}
+
 app.registerExtension({
     name: "Deno.LTXPromptGuide",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== NODE_NAME) {
             return;
         }
+
+        const configure = nodeType.prototype.configure;
+        nodeType.prototype.configure = function (info) {
+            normalizeLtxPromptGuideLegacyWidgetValues(info);
+            return configure?.apply(this, arguments);
+        };
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {

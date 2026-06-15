@@ -193,6 +193,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
         "DenoBerniniPromptGuide",
+        "DenoIdeogramDirector",
         "DenoLocalLLMRefiner",
         "DenoAIReviewGate",
         "DenoPromptText",
@@ -225,6 +226,8 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoBerniniPromptGuide"] == "(Deno) Bernini Prompt Guide"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoIdeogramDirector"] == "(Deno) Ideogram Director"
+    assert "DenoTranslate" not in package.NODE_CLASS_MAPPINGS
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLocalLLMRefiner"] == "(Deno) Local LLM Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoAIReviewGate"] == "(Deno) Local LLM Reviewer"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoPromptText"] == "(Deno) Prompt Text"
@@ -2028,6 +2031,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "help rewrite or review prompt text" in node_cls.DESCRIPTION
     assert "Ollama or LM Studio" in node_cls.DESCRIPTION
     assert "An optional IMAGE input" in node_cls.DESCRIPTION
+    assert "connect STRING into Prompt" in node_cls.DESCRIPTION
     assert "AUDIO" not in node_cls.DESCRIPTION
     assert required["provider"][0] == ["Ollama", "LM Studio"]
     assert "server_url" not in required
@@ -2104,10 +2108,23 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "showModelMenu" not in script
     assert "normalizeModelChoices" in script
     assert "updateModelChoices" in script
+    assert "modelChoiceValuesWithSavedValue" in script
+    assert "hasUsableSavedModelValue" in script
+    assert "normalizeLocalLLMLoaderSerializedValues" in script
+    assert "normalizeLocalLLMLoaderWidgetValues" in script
+    assert "preserveLocalLLMLoaderSavedComboOptions" in script
+    assert "preserveWidgetOption" in script
+    assert "const configure = nodeType.prototype.configure" in script
+    assert "saved model not found" in script
+    assert "!currentStillExists" not in script
     assert "installProgressListener" in script
     assert "progressError = String(detail.error || \"\")" in script
     assert "exception_message: progressError" in script
     assert 'eventApi.addEventListener("execution_error"' in script
+    assert "isLocalLLMOwnExecutionError" in script
+    assert "allowSingleFallback: false" in script
+    assert "nodeType && nodeType !== NODE_NAME" in script
+    assert "Incoming Prompt" in script
     assert "localLLMExecutionErrorMessage" in script
     assert "Context window is too small for this prompt." in script
     assert 'status: "error"' in script
@@ -2150,6 +2167,21 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "Regenerating the path into this reviewer." in script
     assert "app.graph" not in script
     assert "removePromptWidgets" in script
+    assert "const LOADER_WIDGET_SOCKET_NAMES = new Set([" in script
+    loader_socket_block = script.split("const LOADER_WIDGET_SOCKET_NAMES = new Set([", 1)[1].split("]);", 1)[0]
+    assert '"provider",' in script
+    assert '"Provider",' in script
+    assert '"ollama_model",' in script
+    assert '"lm_studio_model",' in script
+    assert '"prompt"' not in loader_socket_block
+    assert '"Prompt"' not in loader_socket_block
+    assert "normalizeLoaderPromptInputSocket" in script
+    assert "setPromptInputSocketFields" in script
+    assert "const PROMPT_WIDGET_SIDE_INSET = 0;" in script
+    assert "removeLoaderWidgetInputSockets" in script
+    assert "isLoaderWidgetSocket" in script
+    assert "input?.localized_name" in script
+    assert "copyLinkedPromptTextIntoWidget" in script
     assert "removeWidgetElement" in script
     assert "migrateLocalLLMPromptInputNames" in script
     assert "ensureSystemPromptWidget" in script
@@ -2603,54 +2635,40 @@ def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
     assert unload_calls == [("http://127.0.0.1:1234", "google/gemma-4-12b")]
 
 
-def test_local_llm_refiner_sends_progress_error_before_raising():
+def test_local_llm_refiner_sends_progress_error_before_raising(monkeypatch):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
     events = []
 
+    monkeypatch.setattr(module, "_send_progress", lambda payload: events.append(dict(payload)))
+    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_mark_local_llm_active", lambda *_args, **_kwargs: "active")
+    monkeypatch.setattr(module, "_clear_local_llm_active", lambda _key: None)
+
     def fail_run(**_kwargs):
         raise RuntimeError("context length exceeded: n_keep 9012 >= n_ctx 4096")
 
-    original_progress = module._send_progress
-    original_unload_other = module._unload_other_warm_local_llms
-    original_prepare_vram = module._prepare_comfy_vram_before_llm
-    original_mark_active = module._mark_local_llm_active
-    original_clear_active = module._clear_local_llm_active
-    original_run_single = node._run_single
+    monkeypatch.setattr(node, "_run_single", fail_run)
 
-    try:
-        module._send_progress = lambda payload: events.append(dict(payload))
-        module._unload_other_warm_local_llms = lambda **_kwargs: {}
-        module._prepare_comfy_vram_before_llm = lambda **_kwargs: {}
-        module._mark_local_llm_active = lambda *_args, **_kwargs: "active"
-        module._clear_local_llm_active = lambda _key: None
-        node._run_single = fail_run
-
-        with pytest.raises(RuntimeError, match="context length exceeded"):
-            node.refine(
-                provider="LM Studio",
-                ollama_model="huihui_ai/gemma-4-abliterated:12b",
-                lm_studio_model="google/gemma-4-12b",
-                custom_server_url="http://127.0.0.1:8000/v1",
-                custom_model="",
-                system_prompt="",
-                thinking=False,
-                seed=1,
-                seed_mode="fixed",
-                model_memory="Unload after run",
-                keep_minutes=5,
-                comfy_vram_policy="Never unload before LLM call",
-                prompt="hello",
-                unique_id="9",
-            )
-    finally:
-        module._send_progress = original_progress
-        module._unload_other_warm_local_llms = original_unload_other
-        module._prepare_comfy_vram_before_llm = original_prepare_vram
-        module._mark_local_llm_active = original_mark_active
-        module._clear_local_llm_active = original_clear_active
-        node._run_single = original_run_single
+    with pytest.raises(RuntimeError, match="context length exceeded"):
+        node.refine(
+            provider="LM Studio",
+            ollama_model="huihui_ai/gemma-4-abliterated:12b",
+            lm_studio_model="google/gemma-4-12b",
+            custom_server_url="http://127.0.0.1:8000/v1",
+            custom_model="",
+            system_prompt="",
+            thinking=False,
+            seed=1,
+            seed_mode="fixed",
+            model_memory="Unload after run",
+            keep_minutes=5,
+            comfy_vram_policy="Never unload before LLM call",
+            prompt="hello",
+            unique_id="9",
+        )
 
     assert events[0]["status"] == "running"
     assert events[-1]["status"] == "error"
@@ -2928,11 +2946,11 @@ def test_local_llm_refiner_rejects_thinking_only_result_instead_of_empty_output(
         module._WARM_LOCAL_LLM_KEYS.clear()
 
 
-def test_local_llm_refiner_extracts_prompt_only_final_prompt_block():
+def test_local_llm_refiner_extracts_final_prompt_tags_from_chatty_model_output():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
 
-    legacy_answer = (
+    chatty_answer = (
         "Here's a thinking process that the model should not pass downstream.\n"
         "<final_prompt>A serene cat drinking clear water in soft morning light.</final_prompt>"
     )
@@ -2953,7 +2971,7 @@ def test_local_llm_refiner_extracts_prompt_only_final_prompt_block():
     )
 
     assert (
-        module._extract_final_prompt_block(legacy_answer)
+        module._extract_final_prompt_block(chatty_answer)
         == "A serene cat drinking clear water in soft morning light."
     )
     assert (
@@ -2969,10 +2987,14 @@ def test_local_llm_refiner_extracts_prompt_only_final_prompt_block():
         == "A silver tabby cat drinking from a clear stream in soft forest light."
     )
     assert module._extract_final_prompt_block("Plain prompt without tags") == "Plain prompt without tags"
-    assert module._requires_final_prompt_block("Use <final_prompt>...</final_prompt> for the result.")
+    assert module._requires_final_prompt_tags("Use <final_prompt>...</final_prompt> for the result.")
     assert module._requires_final_prompt_block("Write the result as DENO_FINAL_PROMPT: ...")
     assert module._requires_final_prompt_block("Write between FINAL_PROMPT_START and FINAL_PROMPT_END.")
-    assert not module._requires_final_prompt_block("Return only the prompt.")
+    assert not module._requires_final_prompt_tags("Return only the prompt.")
+    assert (
+        module._extract_final_prompt_block("DENO_FINAL_PROMPT: your final image prompt here", require=False)
+        == "DENO_FINAL_PROMPT: your final image prompt here"
+    )
 
     with pytest.raises(RuntimeError, match="required Prompt Only final prompt block"):
         module._extract_final_prompt_block("The final answer is not tagged.", require=True)
@@ -3472,6 +3494,22 @@ def test_local_llm_refiner_validation_accepts_only_ollama_and_lm_studio_models()
     )
     assert "LM Studio Model" in shifted_label_result
     assert "shifted" in shifted_label_result
+
+
+def test_local_llm_refiner_missing_saved_model_error_is_clear():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    error = module._local_llm_http_error(
+        404,
+        '{"error":{"type":"model_not_found","message":"Model with instance identifier \'missing-model\' is not loaded."}}',
+        {"model": "missing-model"},
+    )
+
+    message = str(error)
+    assert "Selected local LLM model is not available: missing-model" in message
+    assert "Refresh Models and choose another model" in message
+    assert "Server detail:" in message
 
 
 def test_local_llm_refiner_legacy_custom_saved_values_do_not_execute_custom_server():

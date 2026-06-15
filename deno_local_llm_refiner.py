@@ -248,6 +248,63 @@ def _canonical_local_llm_state_url(provider: str, server_url: str) -> str:
     return urllib.parse.urlunparse((parsed.scheme.lower() or "http", netloc, path, "", "", ""))
 
 
+def _model_unavailable_message(model: str, detail: str = "") -> str:
+    model_value = str(model or "").strip()
+    if model_value:
+        message = (
+            f"Selected local LLM model is not available: {model_value}. "
+            "Refresh Models and choose another model, or load this model in Ollama / LM Studio first."
+        )
+    else:
+        message = "Selected local LLM model is not available. Refresh Models and choose another model."
+    detail_value = str(detail or "").strip()
+    if detail_value:
+        message = f"{message} Server detail: {detail_value[:300]}"
+    return message
+
+
+def _looks_like_model_unavailable_error(message: str) -> bool:
+    text = str(message or "").lower()
+    return any(
+        marker in text
+        for marker in (
+            "model_not_found",
+            "model not found",
+            "not found",
+            "not loaded",
+            "no such model",
+            "unknown model",
+            "model is not loaded",
+        )
+    )
+
+
+def _extract_local_llm_error_detail(data: str) -> str:
+    text = str(data or "").strip()
+    if not text:
+        return ""
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return text
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict):
+        return str(error.get("message") or error.get("type") or error)
+    if error is not None:
+        return str(error)
+    return text
+
+
+def _local_llm_http_error(status: int, data: str, payload: Optional[Dict[str, Any]] = None) -> RuntimeError:
+    detail = _extract_local_llm_error_detail(data)
+    model = ""
+    if isinstance(payload, dict):
+        model = str(payload.get("model") or payload.get("instance_id") or "").strip()
+    if status in {400, 404, 405} and model and _looks_like_model_unavailable_error(detail):
+        return RuntimeError(_model_unavailable_message(model, detail))
+    return RuntimeError(f"Local LLM server returned HTTP {status}: {str(data or '')[:800]}")
+
+
 def _http_json(
     url: str,
     payload: Optional[Dict[str, Any]] = None,
@@ -268,7 +325,7 @@ def _http_json(
         response = connection.getresponse()
         data = response.read().decode("utf-8", errors="replace")
         if response.status >= 400:
-            raise RuntimeError(f"Local LLM server returned HTTP {response.status}: {data[:800]}")
+            raise _local_llm_http_error(response.status, data, payload)
     except (TimeoutError, OSError, http.client.HTTPException) as exc:
         raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
     finally:
@@ -350,7 +407,7 @@ def _iter_cancellable_response_lines(
             response = connection.getresponse()
             if response.status >= 400:
                 message = response.read().decode("utf-8", errors="replace")
-                raise RuntimeError(f"Local LLM server returned HTTP {response.status}: {message[:800]}")
+                raise _local_llm_http_error(response.status, message, payload)
             while not stop_event.is_set():
                 raw_line = response.readline()
                 if raw_line == b"":
@@ -1868,7 +1925,10 @@ class DenoLocalLLMRefiner:
 
         for chunk in _http_stream_json_lines(f"{base}/api/chat", payload, cancel_key=cancel_key):
             if chunk.get("error"):
-                raise RuntimeError(str(chunk.get("error")))
+                detail = str(chunk.get("error"))
+                if _looks_like_model_unavailable_error(detail):
+                    raise RuntimeError(_model_unavailable_message(model, detail))
+                raise RuntimeError(detail)
             message = chunk.get("message") or {}
             content = str(message.get("content") or "")
             thought = str(message.get("thinking") or "")
@@ -1973,8 +2033,12 @@ class DenoLocalLLMRefiner:
             if chunk.get("error"):
                 error = chunk.get("error")
                 if isinstance(error, dict):
-                    raise RuntimeError(str(error.get("message") or error))
-                raise RuntimeError(str(error))
+                    detail = str(error.get("message") or error)
+                else:
+                    detail = str(error)
+                if _looks_like_model_unavailable_error(detail):
+                    raise RuntimeError(_model_unavailable_message(model, detail))
+                raise RuntimeError(detail)
             event_type = str(chunk.get("type") or event_name or "")
             content = str(chunk.get("content") or "") if event_type == "message.delta" else ""
             thought = str(chunk.get("content") or "") if event_type == "reasoning.delta" else ""

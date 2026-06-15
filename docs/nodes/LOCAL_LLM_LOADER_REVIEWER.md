@@ -26,8 +26,9 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 - Do not reintroduce Custom Local Server, vLLM, generic OpenAI-compatible, or remote-provider UI paths unless the user explicitly reverses direction.
 - Hidden legacy fields may remain only to prevent saved workflow widget-order breakage.
 - `DenoLocalLLMRefiner` output socket is `result` only.
-- Loader's canonical prompt input is `prompt`. The in-node Prompt textarea is the actual backend `prompt` widget moved into the lower editor area; any connected prompt link must feed that same backend input name.
-- Do not reintroduce a separate active `user_prompt` or `prompt_text` path. Old saved `user_prompt` links may exist only as a narrow frontend migration into `prompt`.
+- Loader's canonical prompt input is backend `prompt`. Users can type in the in-node Prompt textarea or connect a STRING/STRING list into the visible `prompt` socket; both paths feed the same backend input, not two separate prompt systems.
+- Do not expose widget controls as visible left-side sockets. `provider`, model rows, system prompt, thinking, seed, memory, and VRAM policy are internal node controls. The normal Loader input sockets are `image` and `prompt`.
+- Old saved `user_prompt` sockets migrate to `prompt`. Converted Provider/Model/Seed/VRAM widget sockets must be removed rather than kept as live ghost controls.
 - Thinking is shown in node preview/popup UI, not as a workflow output socket.
 - Optional media input is IMAGE only.
 - Loader has separate `Stop LLM` and `Unload LLM`.
@@ -66,14 +67,20 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 - Fixed / increment / decrement seed modes use a stable ComfyUI cache key. If provider, model, prompts, seed, image, memory policy, and VRAM policy are unchanged, the Loader should not call the local LLM again.
 - `randomize` seed mode uses a fresh cache key for each run. Prompt/model/seed/image/memory/VRAM changes must still invalidate the cache and rerun the Loader.
 - Thinking-only responses with no final result are rejected with a clear error instead of passing an empty prompt downstream.
+- Saved LM Studio/Ollama model selections must survive workflow reload even when the live model list returns the default model first. Configure-time normalization moves the saved model value before default choices and strips old serialized button/control values so saved 12B-style selections do not fall back to e4b. First queue submit after reload must not require pressing `Refresh Models` to restore the saved provider/model/system prompt/seed/prompt slots.
 - Local preview scrollbars support wheel and thumb drag, with modal wheel scrolling preserved.
+- Local preview wheel hit-testing must use the current event's real `clientX/clientY` first. Do not
+  let stale LiteGraph `graph_mouse` / `last_mouse` coordinates scroll the Loader preview while the
+  pointer is over a neighboring custom node such as Ideogram Director.
 - Loader Prompt is now an in-node textarea under the System Prompt button. Manual node resize grows/shrinks the Prompt textarea, not the Result preview.
 - Loader Result preview stays compact and opens its full text through its own `More` button.
 - Reviewer button tooltips are DOM overlays mounted on `document.body`, not canvas-drawn text, so they can extend outside the node frame without clipping. Canvas pointermove also performs Reviewer button hit-testing so tooltip display does not depend only on LiteGraph custom-widget hover callbacks.
 - System Prompt popup has a softer modal theme and browser-local presets. The built-in `Reviewer JSON` preset asks the LLM to return `verdict`, `reason`, `matched`, and `issues`; the backend gate already reads JSON `verdict`/`reason`. User presets are stored in browser `localStorage`; the workflow still saves only the real `system_prompt` widget value.
-- System Prompt popup also includes a built-in `Prompt Only` preset for prompt generation. Some LM Studio/Ollama models can write analysis text in the normal message body even when reasoning/thinking is off. The preset asks the model to return one line starting with `DENO_FINAL_PROMPT:`, and the backend passes only the text after that prefix downstream. Legacy `<final_prompt>...</final_prompt>` and full `FINAL_PROMPT_START`/`FINAL_PROMPT_END` prompts are still supported for saved workflows. If the system prompt requires a final prompt block but the model does not return it, the Loader fails clearly instead of passing raw analysis text into the workflow.
+- System Prompt popup also includes a built-in `Prompt Only` preset for prompt generation. Some LM Studio/Ollama reasoning-capable models can write analysis text in the normal message body even when reasoning/thinking is off. The preset asks the model to return one line starting with `DENO_FINAL_PROMPT:`, and the backend passes only the text after that prefix downstream. Legacy `<final_prompt>...</final_prompt>` and full `FINAL_PROMPT_START`/`FINAL_PROMPT_END` prompts are still supported for saved workflows. If the system prompt requires a final prompt block but the model does not return it, the Loader fails clearly instead of passing raw analysis/garbage text into the workflow.
+- Loader frontend execution-error handling must be strict to the Loader node. Downstream errors from Ideogram Director's Incoming Prompt / invalid JSON gate must stay on the Director and must not appear in the Loader Result panel just because there is only one Loader on the graph.
 - Reviewer remains compatible with old one-word review text: `OK`, `PASS`, `APPROVE`, `APPROVED` pass; `FAIL`, `REJECT`, `BAD` block. JSON is optional and mainly adds a readable reason.
 - Reviewer has a `How to use` button that opens a DOM modal explaining wiring, recommended Loader system prompt, button meanings, auto retry, seed target, and audio gating.
+- Registry scanner hardening: Local LLM HTTP calls must stay visibly local-only. The backend must reject non-local URLs before opening a connection, route JSON and streaming calls through the same local URL parser, and avoid generic `urllib.request.urlopen`-style helpers that look like arbitrary outbound networking. This does not guarantee future Registry scanners will ignore all local LLM networking, but it removes the exact ambiguous call pattern that flagged `0.7.29` / `0.7.30`.
 
 ## Verification Matrix
 
@@ -117,13 +124,18 @@ Before calling this node done after a behavior change, cover the affected cells:
   - Regenerate submit mode wins over stale Pass widget values.
   - `How to use` opens outside the canvas frame, scrolls locally, and does not change serialized workflow values.
 - Real canvas control test for buttons, preview scrollbars, More popup, resize grow/shrink, and wheel/middle-click behavior.
+- Adjacent-node wheel leak test:
+  - Put Local LLM Loader next to Ideogram Director.
+  - Make the Loader preview scrollable.
+  - Wheel over the Ideogram board and over the Ideogram popup.
+  - Loader preview scroll state must not change.
 - Loader prompt UI:
   - System Prompt button appears below the compact preview area.
   - System Prompt popup can load the built-in `Reviewer JSON` preset, save/delete browser-local user presets, and save the edited text back into the single `system_prompt` backend widget.
   - Prompt textarea appears under System Prompt.
   - Dragging the node taller grows the Prompt textarea.
   - Result uses `More` for full text instead of taking all extra node height.
-  - Old `user_prompt` links migrate to `prompt` without becoming a second active input contract.
+  - Old `user_prompt` sockets migrate to visible `prompt`. Converted Provider/Model/Seed/VRAM COMBO sockets disappear after setup/refresh. `prompt` remains the only supported STRING input socket and feeds the same backend value as the in-node textarea.
 
 ## Latest Review Evidence
 
@@ -200,6 +212,7 @@ Before calling this node done after a behavior change, cover the affected cells:
 - Active ComfyUI queue was idle.
 - Served JS from `http://127.0.0.1:8188/extensions/deno-custom-nodes/deno_local_llm_refiner.js` contained the Loader, Reviewer, VRAM label, Stop LLM, and Unload LLM markers.
 - `/object_info/DenoLocalLLMRefiner`, `/object_info/DenoAIReviewGate`, and `/object_info/DenoPromptText` returned real node entries.
+- `/object_info/DenoRandomPromptBox` returned `{}` and source/runtime registration files do not register it.
 - Real ComfyUI queue run passed:
   - workflow: `DenoPromptText -> DenoLocalLLMRefiner -> DenoAIReviewGate`
   - provider: LM Studio
