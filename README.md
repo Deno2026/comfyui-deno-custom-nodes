@@ -37,6 +37,8 @@ This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph
 
 ### `(Deno) Ideogram Director`
 
+[Watch the long-form workflow demo](https://youtu.be/Z8s27skkIDM)
+
 Visual Ideogram 4 prompt builder for structured JSON captions and bbox layout work.
 
 ![Deno Ideogram Director](docs/images/ideogram-director.png)
