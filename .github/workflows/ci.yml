@@ -24,4 +24,7 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run test suite
-        run: python -m pytest tests --import-mode=importlib -q
+        working-directory: tests
+        env:
+          PYTHONPATH: ..
+        run: python -m pytest . --import-mode=importlib -q
