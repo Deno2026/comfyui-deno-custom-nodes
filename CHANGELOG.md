@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.34 - 2026-06-16
+
+- Fixed Ideogram Director so ComfyUI resize/fit interactions no longer collapse the board to about half height.
+- Preserved user-resized Ideogram Director node sizes while keeping saved workflows compatible.
+
 ## 0.7.33 - 2026-06-15
 
 - Added Ideogram Director, a visual Ideogram 4 JSON/bbox prompt builder with editable boxes, layout presets, style presets, and model-ready prompt output.

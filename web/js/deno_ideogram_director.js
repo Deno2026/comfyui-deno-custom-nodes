@@ -1447,7 +1447,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.15-replace-clears-preview-a";
+        const IDD_REV = "r2026.06.16-compute-size-preserve-e";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -3204,6 +3204,44 @@
           serialize: false, hideOnZoom: false, getMinHeight: () => 480,
         });
         node.resizable = true;
+        const iddPositive = (value, fallback = 0) => {
+          const n = Number(value);
+          return Number.isFinite(n) && n > 0 ? n : fallback;
+        };
+        const iddSizeValue = (size, index, fallback = 0) => iddPositive(size && size[index], fallback);
+        let iddUseConfiguredSize = true;
+        function installIddComputeSizeGuard() {
+          const nativeComputeSize = node.computeSize;
+          if (nativeComputeSize && nativeComputeSize._denoIddComputeSizeGuard) return;
+          const guardedComputeSize = function () {
+            const computed = nativeComputeSize
+              ? nativeComputeSize.apply(this, arguments)
+              : [IDD_DEFAULT_W, IDD_DEFAULT_H];
+            const current = this.size || [];
+            const configured = iddUseConfiguredSize ? (this._iddConfiguredSize || []) : [];
+
+            // Some ComfyUI fit paths use computeSize() after DOM interaction. The hidden
+            // widgets make the native value too small, so preserve the user's current box.
+            return [
+              Math.max(
+                IDD_MIN_W,
+                iddSizeValue(computed, 0, IDD_DEFAULT_W),
+                iddSizeValue(configured, 0),
+                iddSizeValue(current, 0)
+              ),
+              Math.max(
+                IDD_MIN_H,
+                iddSizeValue(computed, 1, IDD_DEFAULT_H),
+                iddSizeValue(configured, 1),
+                iddSizeValue(current, 1)
+              ),
+            ];
+          };
+          guardedComputeSize._denoIddComputeSizeGuard = true;
+          guardedComputeSize._denoIddNativeComputeSize = nativeComputeSize;
+          node.computeSize = guardedComputeSize;
+        }
+        installIddComputeSizeGuard();
         // Reset stale pre-marker saved sizes once. After a workflow is saved with this marker, keep
         // the user's saved size instead of fighting manual resize.
         setTimeout(() => {
@@ -3219,8 +3257,12 @@
           if (!node.size || Math.abs(node.size[0] - next[0]) > 0.5 || Math.abs(node.size[1] - next[1]) > 0.5) {
             node.setSize(next);
           }
+          iddUseConfiguredSize = false;
+          node._iddConfiguredSize = null;
+          installIddComputeSizeGuard();
           node.setDirtyCanvas(true, true); layoutStage();
         }, 0);
+        setTimeout(installIddComputeSizeGuard, 250);
 
         let railOpen = true;
         railBtn.onclick = (e) => {
@@ -3610,10 +3652,15 @@
         }
         copy.addEventListener("click", (e) => {
           e.stopPropagation();
+          const done = (label) => {
+            copy.textContent = label;
+            setTimeout(() => { copy.textContent = "Copy JSON"; }, 900);
+          };
           try {
-            navigator.clipboard.writeText(JSON.stringify(assembleCaption()));
-            copy.textContent = "✓ Copied"; setTimeout(() => { copy.textContent = "Copy JSON"; }, 900);
-          } catch (x) {}
+            const written = navigator.clipboard.writeText(JSON.stringify(assembleCaption()));
+            if (written && typeof written.then === "function") written.then(() => done("✓ Copied"), () => done("Copy failed"));
+            else done("✓ Copied");
+          } catch (x) { done("Copy failed"); }
         });
         // Paste understands BOTH dialects: an OFFICIAL Ideogram caption (LLM output / shared
         // prompt / our Copy) → full board sync, or an internal board copy (older Copy format).

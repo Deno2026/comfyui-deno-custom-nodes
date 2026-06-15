@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -751,6 +753,70 @@ def test_ideogram_director_frontend_connected_prompt_contract():
     assert "openElementEditor(idx)" in script
     assert "if (p.used)" not in script
     assert "applyConnectedPrompt(cap, sig, true);       // persist boxes + importSig" not in script
+
+
+def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert 'const IDD_REV = "r2026.06.16-compute-size-preserve-e"' in script
+    assert "function installIddComputeSizeGuard()" in script
+    assert "guardedComputeSize._denoIddComputeSizeGuard = true" in script
+    assert "setTimeout(installIddComputeSizeGuard, 250)" in script
+    assert "const iddSizeValue = (size, index, fallback = 0) => iddPositive(size && size[index], fallback)" in script
+    assert "let iddUseConfiguredSize = true" in script
+    assert "const current = this.size || []" in script
+    assert "const configured = iddUseConfiguredSize ? (this._iddConfiguredSize || []) : []" in script
+    assert "iddUseConfiguredSize = false" in script
+    assert "node._iddConfiguredSize = null" in script
+    assert "Array.isArray(this.size)" not in script
+    assert "Array.isArray(this._iddConfiguredSize)" not in script
+    assert "iddSizeValue(current, 1)" in script
+    assert "iddSizeValue(configured, 1)" in script
+    assert 'written.then(() => done("✓ Copied"), () => done("Copy failed"))' in script
+
+
+def test_ideogram_director_compute_size_guard_does_not_restore_stale_saved_size(tmp_path):
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node runtime not available")
+
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+    start = script.index("        const iddPositive =")
+    end = script.index("        // Reset stale pre-marker saved sizes once.", start)
+    guard_block = "\n".join(
+        line[8:] if line.startswith("        ") else line
+        for line in script[start:end].splitlines()
+    )
+    harness = f"""
+const IDD_DEFAULT_W = 850;
+const IDD_DEFAULT_H = 1000;
+const IDD_MIN_W = 760;
+const IDD_MIN_H = 560;
+let node = {{
+  size: {{0: 800, 1: 700}},
+  _iddConfiguredSize: {{0: 850, 1: 1000}},
+  computeSize() {{ return [760, 598]; }},
+}};
+{guard_block}
+function same(a, b) {{ return JSON.stringify(a) === JSON.stringify(b); }}
+function check(actual, expected, label) {{
+  if (!same(actual, expected)) {{
+    console.error(label + " expected " + JSON.stringify(expected) + " got " + JSON.stringify(actual));
+    process.exit(1);
+  }}
+}}
+installIddComputeSizeGuard();
+check(node.computeSize(), [850, 1000], "configured size participates during initial restore");
+iddUseConfiguredSize = false;
+node._iddConfiguredSize = null;
+check(node.computeSize(), [800, 700], "manual shrink wins after initial restore");
+node.size = {{0: 900, 1: 1100}};
+check(node.computeSize(), [900, 1100], "manual grow wins after initial restore");
+node.size = {{0: 850, 1: 1000}};
+check(node.computeSize(), [850, 1000], "fit path preserves current default");
+"""
+    result = subprocess.run([node_bin, "-e", harness], text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_ideogram_director_rejects_non_english_output_language(monkeypatch):
