@@ -31,11 +31,9 @@ ComfyUI Subgraph는 노드를 하위 그래프로 이동시키는 기능입니�
 
 ### `(Deno) Ideogram Director`
 
-[롱폼 워크플로우 소개 영상](https://youtu.be/Z8s27skkIDM)
+[![Ideogram Director workflow demo](https://img.youtube.com/vi/Z8s27skkIDM/maxresdefault.jpg)](https://youtu.be/Z8s27skkIDM)
 
 Ideogram 4용 구조화 JSON 프롬프트와 bbox 배치를 ComfyUI 캔버스 안에서 편집하는 시각형 프롬프트 빌더입니다.
-
-![Deno Ideogram Director](images/ideogram-director.png)
 
 주요 기능:
 
