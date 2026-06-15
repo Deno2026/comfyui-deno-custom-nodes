@@ -40,7 +40,24 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public Registry version before this handoff: `0.7.32` active.
+Current public release attempt: `0.7.33`.
+
+Release artifacts created:
+
+- GitHub release/tag: `v0.7.33`
+- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.33`
+- Release commit/tag target: `b333f4a`
+- Current `main` also contains CI-only follow-up commits after the release tag.
+
+Propagation state at last update:
+
+- GitHub Actions: latest `main` CI and Pages are green.
+- Comfy Registry: `0.7.33` is `NodeVersionStatusPending` with empty `status_reason`.
+- Install endpoint: points to `0.7.33` while it is pending.
+- CDN package: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.33/node.zip` returns 200.
+- ComfyUI Manager map PR: `https://github.com/Comfy-Org/ComfyUI-Manager/pull/2987`
+  - PR branch updated to include 19 DENO public nodes including `DenoIdeogramDirector`.
+  - Main Manager map may remain stale until PR merge and cache refresh.
 
 0.7.33 release scope:
 
@@ -116,6 +133,10 @@ Verified in release prep:
 - `node --check web/js/deno_local_llm_refiner.js`
 - `node --check` on an `.mjs` copy of `web/js/deno_ltx_prompt_guide.js`
 - `py -m pytest tests -q` -> 159 passed
+- GitHub CI follow-up fixed pytest collection without installing torch:
+  - `c532a03` runs pytest through the suite.
+  - `cdcaa04` adds test-only torch stubs for CI collection.
+  - Latest GitHub CI after `cdcaa04` passed.
 - `git diff --check` -> no whitespace errors; CRLF warnings only
 - package surface scan:
   - includes Ideogram Director files, `deno_translate_engine.py`, `node_list.json`, and public screenshot
@@ -124,14 +145,19 @@ Verified in release prep:
 
 Mandatory GPT-5.5 xhigh release reviewer was attached for frontend/backend sync, ghost-feature, metadata, migration, and package-surface review.
 
+Final reviewer result: PASS.
+
+CDN package check after publish:
+
+- `node_list.json` has 19 public nodes.
+- Includes `DenoIdeogramDirector`, `DenoLocalLLMRefiner`, and `DenoAIReviewGate`.
+- Excludes standalone Translator and Random Prompt Box.
+- Excludes `tests/` from the Registry package.
+
 ## Next Session Checklist
 
 1. Run `git status --short` first.
-2. If continuing 0.7.33 release, use the clean release worktree above, not the dirty source tree.
-3. Confirm the reviewer result before push/release.
-4. After release:
-   - verify GitHub commit/tag/release and Actions
-   - verify Comfy Registry version is active, not merely pending
-   - verify install endpoint points to 0.7.33
-   - verify Manager discovery / map state
-   - update this handoff with final propagation status
+2. If continuing propagation checks, use the clean release worktree above, not the dirty source tree.
+3. Keep watching Comfy Registry until `0.7.33` becomes active or flagged.
+4. Keep watching Manager PR #2987 until it merges and the public map lists 19 DENO nodes.
+5. After Registry becomes active, verify install/update through ComfyUI Manager or a disposable runtime when practical.
