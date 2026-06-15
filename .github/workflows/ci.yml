@@ -24,17 +24,4 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run test suite
-        run: |
-          python - <<'PY'
-          import importlib.util
-          from pathlib import Path
-
-          repo = Path("tests")
-          for filename in ["test_image_resize_node.py", "test_registry_metadata.py"]:
-              spec = importlib.util.spec_from_file_location(filename[:-3], repo / filename)
-              mod = importlib.util.module_from_spec(spec)
-              spec.loader.exec_module(mod)
-              for name in [n for n in dir(mod) if n.startswith("test_")]:
-                  getattr(mod, name)()
-                  print("ok", filename, name)
-          PY
+        run: python -m pytest tests -q
