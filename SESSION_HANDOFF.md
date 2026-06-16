@@ -42,40 +42,39 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.36`.
+Current public release attempt: `0.7.37`.
 
 Release artifacts created:
 
-- GitHub release/tag: `v0.7.36`
-- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.36`
-- Release commit/tag target: `6002c27e27d94da4255ca7acc64300d0451672ce`
-- Release worktree: `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.36-hotfix`
+- GitHub release/tag: `v0.7.37`
+- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.37`
+- Release commit/tag target: `3fff79f3d248755b368db83e8e9826172f884828`
+- Release worktree: `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.37-release`
 
 Propagation state at last update on 2026-06-16:
 
-- GitHub Actions for commit `6002c27`: CI success, Publish to Comfy registry success, Pages success.
-- GitHub Release `v0.7.36` is public and points to `main`.
-- Comfy Registry version `0.7.36` exists and the install endpoint points to `0.7.36`, but Registry
+- GitHub Actions for commit `3fff79f`: CI success, Publish to Comfy registry success, Pages success.
+- GitHub Release `v0.7.37` is public.
+- Comfy Registry version `0.7.37` exists and the install endpoint points to `0.7.37`, but Registry
   still reports `NodeVersionStatusPending` with empty `status_reason`.
-- CDN package: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.36/node.zip` returns 200.
-- CDN package check passed: pyproject `0.7.36`, Ideogram rev `r2026.06.16-recreate-size-j`,
-  includes the released node files, excludes `tests/`, `tmp/`, internal node docs, runtime-matrix
-  tool, standalone Translator wrapper, and Random Prompt Box.
+- CDN package: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.37/node.zip` returns 200.
+- CDN package check passed: pyproject `0.7.37`, Local LLM frontend seed hook
+  `applyLocalLLMAfterGenerateSeedModes`, includes the released node files, and excludes `tests/`,
+  `tmp/`, `SESSION_HANDOFF.md`, and internal node docs.
 - ComfyUI Manager map already lists this repo with `DenoIdeogramDirector` and `DenoLocalLLMRefiner`.
-- Heartbeat monitor `deno-comfy-registry-result-watch` is active every 30 minutes for 0.7.36.
+- Heartbeat monitor `deno-0-7-37-registry-monitor` is active every 30 minutes for 0.7.37.
   Its TOML has runtime fields restored manually after `automation_update`; the checker still notes
   the current Desktop thread id is not present in `state_5.sqlite`.
 
-0.7.36 release scope:
+0.7.37 release scope:
 
-1. `(Deno) Ideogram Director`: Desktop collapse/rail-only shrink defense plus right-click
-   `Recreate node` size/top-bar recovery.
-2. `(Deno) LTX Model Loader`: GGUF row mapping plus Save/F5 preservation for external/extra-path
-   model values.
-3. `(Deno) LTX Prompt Guide`: positive/negative prompt Save/F5 preservation and legacy saved-layout
-   migration.
-4. `(Deno) Local LLM Loader`: missing saved-model display/rejection on PCs without the saved model,
-   plus GitHub issue #24 LM Studio reasoning payload fix.
+1. `(Deno) Local LLM Loader`: `Seed Mode` now updates the visible `Seed` widget after queue submit
+   for `increment`, `decrement`, and `randomize`, without adding a serialized
+   `control_after_generate` widget or shifting saved workflow widget slots.
+2. Backend seed-mode normalization accepts legacy `random` as `randomize`.
+
+0.7.36 remains the prior hotfix for Ideogram Director, LTX Model Loader, LTX Prompt Guide, and Local
+LLM missing saved-model / LM Studio reasoning payload behavior.
 
 Important packaging boundary:
 
@@ -88,7 +87,7 @@ Important packaging boundary:
 
 ### Ideogram Director
 
-Status: public `0.7.36` patch release submitted. Registry activation is pending.
+Status: public fixes included since `0.7.36`; current package `0.7.37` is pending Registry activation.
 
 Key behavior:
 
@@ -118,7 +117,7 @@ Current files:
 
 ### Local LLM Loader / Reviewer
 
-Status: included in 0.7.36 hotfix scope.
+Status: included in 0.7.37 hotfix scope.
 
 Key behavior:
 
@@ -129,6 +128,9 @@ Key behavior:
 - LM Studio `reasoning` payload is capability-aware. Thinking off sends `reasoning: "off"` only when
   the selected model reports `off` support; otherwise the field is omitted. Thinking on still sends
   `reasoning: "on"`.
+- Loader `Seed Mode` updates the visible `Seed` widget after queue submit for `increment`,
+  `decrement`, and `randomize`, without adding `control_after_generate` or shifting saved widget
+  values.
 - Prompt Only extraction remains for models that output reasoning/analysis before the final prompt.
 - Reviewer graph transform and retry/seed behavior are covered by focused tests.
 
@@ -160,31 +162,26 @@ Do not register, advertise, or package it until the user explicitly restarts it.
 
 ## Verification Snapshot
 
-0.7.36 release worktree:
+0.7.37 release worktree:
 
-`E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.36-hotfix`
+`E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.37-release`
 
-Verified in 0.7.36 release prep:
+Verified in 0.7.37 release prep:
 
-- `node --check` on `web/js/deno_extra_nodes.js`, `web/js/deno_local_llm_refiner.js`,
-  `web/js/deno_ltx_prompt_guide.js`, and a `.mjs` copy of `web/js/deno_ideogram_director.js`
-- `py -m py_compile deno_local_llm_refiner.py deno_ideogram_director.py`
+- `node --check web/js/deno_local_llm_refiner.js`
+- `py -m compileall deno_local_llm_refiner.py`
 - `py -m pytest tests -q` -> 172 passed
 - `py -m pytest tests/test_registry_metadata.py -q` -> 13 passed
 - `py -m pytest tests/test_public_workflow_migration.py -q` -> 26 passed
 - `git diff --check` -> no whitespace errors; CRLF warnings only
-- Runtime matrix tool confirmed Easy `8188` and Desktop `8000` are serving Ideogram rev
-  `r2026.06.16-recreate-size-j`; both `/object_info/DenoIdeogramDirector` are reachable and queues
-  were idle at release check time.
-- Normalized source/runtime comparison: key JS and Local LLM backend matched between clean worktree,
-  Easy runtime, and Desktop runtime. Desktop `deno_ideogram_director.py` differed only by one comment
-  string and is not a behavior difference.
+- Runtime proof before release: Easy `8188` and Desktop `8000` served the Local LLM seed hook and
+  real frontend queue-submit probes showed `increment` / `decrement` updating the visible seed.
+- `/object_info/DenoLocalLLMRefiner` still exposes `seed` and `seed_mode`; no new
+  `control_after_generate` widget was added.
 - CDN package check after publish:
-  - pyproject version `0.7.36`
-  - JS rev `r2026.06.16-recreate-size-j`
-  - includes Ideogram Director, Local LLM Loader, LTX Model Loader JS, and LTX Prompt Guide JS
-  - excludes `tests/`, `tmp/`, internal node docs, runtime-matrix tool, standalone Translator wrapper,
-    and Random Prompt Box
+  - pyproject version `0.7.37`
+  - Local LLM JS includes `applyLocalLLMAfterGenerateSeedModes`
+  - excludes `tests/`, `tmp/`, `SESSION_HANDOFF.md`, and internal node docs
 
 Mandatory GPT-5.5 xhigh release reviewer was attached for frontend/backend sync, ghost-feature, metadata, migration, and package-surface review.
 
@@ -194,8 +191,9 @@ Final reviewer result: PASS.
 
 1. Run `git status --short` first.
 2. If continuing propagation checks, use the clean release worktree above, not the dirty source tree.
-3. Keep watching Comfy Registry until `0.7.36` becomes active or flagged. Do not call public
+3. Keep watching Comfy Registry until `0.7.37` becomes active or flagged. Do not call public
    propagation fully complete while it is pending.
 4. After Registry becomes active, verify install/update through ComfyUI Manager or a disposable runtime when practical.
-5. Manager map already lists `DenoIdeogramDirector`; when Registry `0.7.36` becomes Active and the
-   install endpoint still resolves to `0.7.36`, the 30-minute monitor can stop.
+5. Manager map already lists `DenoIdeogramDirector` and `DenoLocalLLMRefiner`; when Registry
+   `0.7.37` becomes Active and the install endpoint still resolves to `0.7.37`, the 30-minute
+   monitor can stop.
