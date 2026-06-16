@@ -758,19 +758,22 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.16-compute-size-preserve-e"' in script
+    assert 'const IDD_REV = "r2026.06.16-rail-scroll-h"' in script
     assert "function installIddComputeSizeGuard()" in script
+    assert "function installIddResizeIntentGuard()" in script
     assert "guardedComputeSize._denoIddComputeSizeGuard = true" in script
     assert "setTimeout(installIddComputeSizeGuard, 250)" in script
     assert "const iddSizeValue = (size, index, fallback = 0) => iddPositive(size && size[index], fallback)" in script
     assert "let iddUseConfiguredSize = true" in script
+    assert "let iddUserResizing = false" in script
+    assert "const preserveCurrent = !iddUserResizing" in script
     assert "const current = this.size || []" in script
     assert "const configured = iddUseConfiguredSize ? (this._iddConfiguredSize || []) : []" in script
     assert "iddUseConfiguredSize = false" in script
     assert "node._iddConfiguredSize = null" in script
     assert "Array.isArray(this.size)" not in script
     assert "Array.isArray(this._iddConfiguredSize)" not in script
-    assert "iddSizeValue(current, 1)" in script
+    assert "preserveCurrent ? iddSizeValue(current, 1) : 0" in script
     assert "iddSizeValue(configured, 1)" in script
     assert 'written.then(() => done("✓ Copied"), () => done("Copy failed"))' in script
 
@@ -797,6 +800,7 @@ let node = {{
   _iddConfiguredSize: {{0: 850, 1: 1000}},
   computeSize() {{ return [760, 598]; }},
 }};
+let app = {{ canvas: null }};
 {guard_block}
 function same(a, b) {{ return JSON.stringify(a) === JSON.stringify(b); }}
 function check(actual, expected, label) {{
@@ -812,6 +816,10 @@ node._iddConfiguredSize = null;
 check(node.computeSize(), [800, 700], "manual shrink wins after initial restore");
 node.size = {{0: 900, 1: 1100}};
 check(node.computeSize(), [900, 1100], "manual grow wins after initial restore");
+iddUserResizing = true;
+check(node.computeSize(), [760, 598], "active user resize ignores current enlarged box");
+iddUserResizing = false;
+check(node.computeSize(), [900, 1100], "finished resize preserves chosen size again");
 node.size = {{0: 850, 1: 1000}};
 check(node.computeSize(), [850, 1000], "fit path preserves current default");
 """

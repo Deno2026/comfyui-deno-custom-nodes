@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.35 - 2026-06-16
+
+- Fixed Ideogram Director so a manually enlarged node can be shrunk again with the ComfyUI resize handle.
+- Restored mouse-wheel scrolling inside Ideogram Director's right prompt/style/elements panel while keeping the board canvas-first.
+
 ## 0.7.34 - 2026-06-16
 
 - Fixed Ideogram Director so ComfyUI resize/fit interactions no longer collapse the board to about half height.

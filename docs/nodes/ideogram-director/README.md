@@ -24,10 +24,23 @@ Release scope note: Ideogram Director is intended for the 0.7.33 public release.
 Translator and Random Prompt Box out of the public release surface unless the user explicitly
 restarts and approves those nodes separately.
 
-## Current State (2026-06-14)
+## Current State (2026-06-16)
 
-- JS rev marker: `IDD_REV = "r2026.06.15-replace-clears-preview-a"` in `web/js/deno_ideogram_director.js` (check the served
+- JS rev marker: `IDD_REV = "r2026.06.16-rail-scroll-h"` in `web/js/deno_ideogram_director.js` (check the served
   JS for this string after a sync; the user needs Ctrl+Shift+R to pick up a new rev).
+- Sizing hotfix (2026-06-16): a user report that Ideogram Director can shrink to about half height
+  after interaction was confirmed as a real `computeSize()` contract risk. The guard makes
+  `computeSize()` preserve the current/saved node box for automatic fit paths.
+- Resize-shrink follow-up (2026-06-16): the first sizing guard also made LiteGraph treat the user's
+  enlarged node box as the resize minimum, so mouse-dragging the bottom-right handle could grow the
+  Director but not shrink it again. Rev `rail-scroll-h` separates automatic fit protection from
+  active user resizing: while the resize handle is being dragged, `computeSize()` no longer uses the
+  current enlarged box as the minimum; after the drag ends, automatic fit paths still preserve the
+  user's chosen size.
+- Right rail wheel follow-up (2026-06-16): the board/photo/bbox surface remains canvas-first for
+  wheel zoom and middle-click pan, but the right rail is an intentional local scroll area. Wheel over
+  `.idd-rail` scrolls the prompt/style/elements panel when many bbox rows or fields overflow,
+  without changing the graph zoom behind it.
 - Galleries open **full-screen** (wave 4, 2026-06-13): the "Presets…" / "Layout presets…" buttons
   mount the gallery as a body overlay (`idd-gal-fs`, fixed inset:0, 8-col style / 6-col layout grid;
   Escape / outside-click / Close to dismiss). Wheel over the open gallery scrolls the gallery and
@@ -122,8 +135,8 @@ restarts and approves those nodes separately.
   (B key); fullscreen; **seed pill with an explicit two-segment switch `[Fixed | Random]`**
   (active segment filled — green Fixed / amber Random — number dims when Random; rev `-j`);
   node-owned Ctrl+Z/Y (never reaches graph undo; text fields keep native undo); board/photo/bbox
-  wheel and middle-click are canvas-first (ComfyUI zoom/pan), with a direct zoom fallback if the
-  frontend does not react to the forwarded wheel event; Copy JSON copies the OFFICIAL caption.
+  wheel and middle-click are canvas-first (ComfyUI zoom/pan), while the right rail and gallery lists
+  keep local wheel scroll; Copy JSON copies the OFFICIAL caption.
   **Paste JSON opens a dialog** (rev `-h`): the user Ctrl+V's the caption into a textarea then clicks
   Paste (Ctrl+Enter also applies; garbage → inline error, board untouched) — more reliable than reading
   the clipboard directly. Accepts official captions (fenced too) and the internal board format.
@@ -156,9 +169,9 @@ restarts and approves those nodes separately.
   the Ideogram4 safety filter persistently blocked their thumbnail; the presets themselves work).
   NOTE: import.meta means `node --check` must run on a `.mjs` COPY of the file. The STYLE gallery grid
   is now an intentional scroll area (`.idd-gal-scroll`) — the node's capture-phase wheel forwarder
-  has explicit exceptions only for real local controls (`.idd-gal-scroll`, `.idd-importlist`, text
-  inputs/selects), so wheel scrolls those controls while the board/photo/bbox surface stays
-  canvas-first everywhere else. One apply = one undo step.
+  has explicit exceptions only for real local controls (`.idd-rail`, `.idd-gal-scroll`,
+  `.idd-importlist`, text inputs/selects), so wheel scrolls those controls while the board/photo/bbox
+  surface stays canvas-first everywhere else. One apply = one undo step.
 - Clear Board is a real editor reset, not just `boxes=[]`: it clears boxes, summary/background,
   style mode/fields/palette, result preview state, and serializes the current wired `import_json`
   signature so the same connected JSON does not auto-refill the board after F5/R. A changed/new

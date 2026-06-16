@@ -1235,7 +1235,7 @@
       .idd-zoom button{width:24px;height:24px;border-radius:6px;border:1px solid var(--gfaint);
         background:rgba(1,6,4,.8);color:var(--acc);cursor:pointer;font-size:14px;line-height:1;}
       .idd-rail{width:248px;flex:0 0 auto;border-left:1px solid var(--gfaint);background:rgba(1,6,4,.5);
-        overflow-y:auto;transition:width .15s ease;}
+        overflow-y:auto;overscroll-behavior:contain;transition:width .15s ease;}
       .idd-rail.collapsed{width:0;border-left:none;}
       .idd-railpad{padding:9px;display:flex;flex-direction:column;gap:11px;min-width:230px;}
       .idd-sec{display:flex;flex-direction:column;gap:5px;}
@@ -1447,7 +1447,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.16-compute-size-preserve-e";
+        const IDD_REV = "r2026.06.16-rail-scroll-h";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -2358,7 +2358,7 @@
         bdEditBtn.onclick = (e) => { e.stopPropagation(); setBdEdit(!bdEdit); };
 
         // Canvas passthrough — RULE: wheel-zoom and middle-click-pan belong to the ComfyUI canvas
-        // over the board/photo/bbox surface. Only deliberate local scroll areas keep their wheel.
+        // over the board/photo/bbox surface. Deliberate local scroll areas keep their wheel.
         const _cvEl = () => (app.canvas && app.canvas.canvas) || null;
         const _graphState = () => {
           const ds = app.canvas && app.canvas.ds;
@@ -2372,7 +2372,7 @@
         };
         const _localWheelTarget = (t) => {
           if (!t || !t.closest) return false;
-          return !!t.closest(".idd-gal-scroll,.idd-importlist,textarea,input,select");
+          return !!t.closest(".idd-rail,.idd-gal-scroll,.idd-importlist,textarea,input,select");
         };
         function _fallbackWheelZoom(e) {
           const gc = app.canvas, cel = _cvEl(), ds = gc && gc.ds;
@@ -3210,6 +3210,8 @@
         };
         const iddSizeValue = (size, index, fallback = 0) => iddPositive(size && size[index], fallback);
         let iddUseConfiguredSize = true;
+        let iddUserResizing = false;
+        const iddResizeCleanups = [];
         function installIddComputeSizeGuard() {
           const nativeComputeSize = node.computeSize;
           if (nativeComputeSize && nativeComputeSize._denoIddComputeSizeGuard) return;
@@ -3219,21 +3221,24 @@
               : [IDD_DEFAULT_W, IDD_DEFAULT_H];
             const current = this.size || [];
             const configured = iddUseConfiguredSize ? (this._iddConfiguredSize || []) : [];
+            const preserveCurrent = !iddUserResizing;
 
             // Some ComfyUI fit paths use computeSize() after DOM interaction. The hidden
             // widgets make the native value too small, so preserve the user's current box.
+            // While the user is dragging the LiteGraph resize handle, do not use the current
+            // enlarged box as the resize minimum or the node can grow but never shrink again.
             return [
               Math.max(
                 IDD_MIN_W,
                 iddSizeValue(computed, 0, IDD_DEFAULT_W),
                 iddSizeValue(configured, 0),
-                iddSizeValue(current, 0)
+                preserveCurrent ? iddSizeValue(current, 0) : 0
               ),
               Math.max(
                 IDD_MIN_H,
                 iddSizeValue(computed, 1, IDD_DEFAULT_H),
                 iddSizeValue(configured, 1),
-                iddSizeValue(current, 1)
+                preserveCurrent ? iddSizeValue(current, 1) : 0
               ),
             ];
           };
@@ -3242,6 +3247,53 @@
           node.computeSize = guardedComputeSize;
         }
         installIddComputeSizeGuard();
+        function installIddResizeIntentGuard() {
+          const graphCanvas = app?.canvas;
+          const canvas = graphCanvas?.canvas;
+          if (!canvas) return;
+          const asNumber = (value, fallback = 0) => {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : fallback;
+          };
+          const eventToGraph = (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const scale = asNumber(graphCanvas.ds?.scale, 1) || 1;
+            const offset = graphCanvas.ds?.offset || [0, 0];
+            return {
+              x: (event.clientX - rect.left) / scale - asNumber(offset[0]),
+              y: (event.clientY - rect.top) / scale - asNumber(offset[1]),
+              scale,
+            };
+          };
+          const isResizeCorner = (event) => {
+            if (!node.size || !node.pos || event.button > 0) return false;
+            const p = eventToGraph(event);
+            const right = asNumber(node.pos[0]) + asNumber(node.size[0]);
+            const bottom = asNumber(node.pos[1]) + asNumber(node.size[1]);
+            const pad = Math.max(22 / p.scale, 12);
+            return p.x >= right - pad && p.x <= right + pad && p.y >= bottom - pad && p.y <= bottom + pad;
+          };
+          const begin = (event) => {
+            if (!isResizeCorner(event)) return;
+            iddUserResizing = true;
+          };
+          const end = () => { iddUserResizing = false; };
+          canvas.addEventListener("pointerdown", begin, true);
+          canvas.addEventListener("mousedown", begin, true);
+          window.addEventListener("pointerup", end, true);
+          window.addEventListener("pointercancel", end, true);
+          window.addEventListener("mouseup", end, true);
+          window.addEventListener("blur", end, true);
+          iddResizeCleanups.push(
+            () => canvas.removeEventListener("pointerdown", begin, true),
+            () => canvas.removeEventListener("mousedown", begin, true),
+            () => window.removeEventListener("pointerup", end, true),
+            () => window.removeEventListener("pointercancel", end, true),
+            () => window.removeEventListener("mouseup", end, true),
+            () => window.removeEventListener("blur", end, true),
+          );
+        }
+        installIddResizeIntentGuard();
         // Reset stale pre-marker saved sizes once. After a workflow is saved with this marker, keep
         // the user's saved size instead of fighting manual resize.
         setTimeout(() => {
@@ -3955,6 +4007,7 @@
         chain(node, "onRemoved", function () {
           directorNodes.delete(node);
           try { stageRO.disconnect(); } catch (e) {}
+          for (const cleanup of iddResizeCleanups.splice(0)) { try { cleanup(); } catch (e) {} }
           try { document.removeEventListener("keydown", fsEsc); } catch (e) {}
           try { document.removeEventListener("pointerdown", closeRes); } catch (e) {}
           try { window.removeEventListener("pointermove", _onPanMove); window.removeEventListener("pointerup", _onPanUp); } catch (e) {}

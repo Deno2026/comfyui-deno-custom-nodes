@@ -333,6 +333,30 @@ def test_preview_nodes_preserve_user_resized_node_size():
     assert "if (isManualSized(node))" in image_compare
 
 
+def test_ideogram_director_compute_size_guard_allows_user_shrink():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert 'IDD_REV = "r2026.06.16-rail-scroll-h"' in script
+    assert "let iddUserResizing = false;" in script
+    assert "const preserveCurrent = !iddUserResizing;" in script
+    assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
+    assert "preserveCurrent ? iddSizeValue(current, 1) : 0" in script
+    assert "installIddResizeIntentGuard()" in script
+    assert 'canvas.addEventListener("pointerdown", begin, true);' in script
+    assert 'window.addEventListener("pointerup", end, true);' in script
+    assert 'window.addEventListener("pointercancel", end, true);' in script
+    assert 'window.removeEventListener("pointercancel", end, true)' in script
+
+
+def test_ideogram_director_right_rail_keeps_local_wheel_scroll():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert "Deliberate local scroll areas keep their wheel." in script
+    assert 't.closest(".idd-rail,.idd-gal-scroll,.idd-importlist,textarea,input,select")' in script
+    assert "overflow-y:auto;overscroll-behavior:contain;transition:width .15s ease;" in script
+    assert "for (const elc of [seedIn, rail, summary, bgArea]) stop(elc);" in script
+
+
 def test_rtx_vfx_preflight_node_is_not_registered():
     package = load_package()
 
