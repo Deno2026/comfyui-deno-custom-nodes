@@ -19,6 +19,7 @@ PRESTARTUP_PATH = REPO_ROOT / "prestartup_script.py"
 INSTALL_BAT_PATH = REPO_ROOT / "tools" / "install_rtx_vfx.bat"
 TOOLS_INSTALL_GUIDE_STUB_PATH = REPO_ROOT / "tools" / "OPEN_INSTALL_GUIDE.txt"
 README_PATH = REPO_ROOT / "README.md"
+BANNER_PATH = REPO_ROOT / "docs" / "images" / "deno-custom-nodes-banner.jpg"
 RTX_INSTALL_GUIDE_PATH = REPO_ROOT / "docs" / "RTX_VFX_INSTALL_GUIDE.md"
 RTX_WEB_INSTALL_GUIDE_PATH = REPO_ROOT / "docs" / "rtx-vfx-install" / "index.html"
 RTX_INSTALLER_README_PATH = REPO_ROOT / "tools" / "README_RTX_VFX_EASY_INSTALL.md"
@@ -139,6 +140,10 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert pyproject["tool"]["comfy"]["DisplayName"] == "Deno Custom Nodes"
     assert pyproject["tool"]["comfy"]["requires-comfyui"] == ">=0.3.0"
     assert pyproject["tool"]["comfy"]["Icon"].endswith("icon.svg")
+    assert pyproject["tool"]["comfy"]["Banner"].endswith("/docs/images/deno-custom-nodes-banner.jpg")
+    assert BANNER_PATH.exists()
+    assert BANNER_PATH.stat().st_size > 100_000
+    assert "docs/images/deno-custom-nodes-banner.jpg" in README_PATH.read_text(encoding="utf-8")
 
 
 def test_manager_node_list_matches_public_node_registration():

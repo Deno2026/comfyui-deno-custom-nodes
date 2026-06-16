@@ -1,7 +1,7 @@
 [project]
 name = "deno-custom-nodes"
 description = "DENO RTX node pack for ComfyUI: Ideogram Director visual JSON/bbox prompt builder, Local LLM Loader and Reviewer helpers, Prompt Only final prompt extraction, RTX Video Super Resolution, RTX Super Resolution, Video SR/VSR, NVIDIA VFX/nvvfx, RTX upscale helpers, LTX 2.3 workflows, Bernini Prompt Guide, audio/image review gates, Bernini conditioning helpers, Wan 2.2 reference video edit workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
-version = "0.7.37"
+version = "0.7.38"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
@@ -63,4 +63,5 @@ Documentation = "https://github.com/Deno2026/comfyui-deno-custom-nodes#readme"
 PublisherId = "deno2026"
 DisplayName = "Deno Custom Nodes"
 Icon = "https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/icon.svg"
+Banner = "https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/docs/images/deno-custom-nodes-banner.jpg"
 requires-comfyui = ">=0.3.0"

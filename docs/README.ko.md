@@ -4,6 +4,8 @@
 
 [YouTube Channel](https://www.youtube.com/@Denoise-AI)
 
+![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
+
 실제 ComfyUI 작업에서 반복되는 이미지, 비디오, LTX, RTX, 모델 설치 흐름을 더 빠르고 편하게 만들기 위한 Deno 커스텀 노드 모음입니다. 대부분의 Deno 노드는 ComfyUI 캔버스를 벗어나지 않고 도움말을 볼 수 있는 작은 초록색 `i` 버튼을 포함합니다.
 
 ## Release Notes
@@ -42,7 +44,7 @@ Ideogram 4용 구조화 JSON 프롬프트와 bbox 배치를 ComfyUI 캔버스 �
 - 기존 보드가 있을 때 새 JSON으로 교체할지 먼저 확인
 - 잘못된 JSON은 명확하게 거절하고 깨진 프롬프트를 샘플러로 보내지 않음
 - 스타일/레이아웃 프리셋 갤러리와 가벼운 미리보기 썸네일
-- Translate On/Off 보조 기능으로 장면 설명은 영어 출력, 실제 TEXT 박스 단어는 그대로 보존
+- Language 보기로 장면 설명을 원하는 언어로 읽고 수정할 수 있으며, 최종 출력은 생성용 영어로 유지. 실제 TEXT 박스 단어는 간판, 로고, 제목처럼 그대로 보존
 - 출력: `prompt`, `width`, `height`, `seed`, `bboxes`
 
 ### `(Deno) Resize Box`

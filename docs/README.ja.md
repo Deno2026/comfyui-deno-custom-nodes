@@ -4,6 +4,8 @@
 
 [YouTube Channel](https://www.youtube.com/@Denoise-AI)
 
+![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
+
 Deno Custom Nodes は、ComfyUI の実制作でよく繰り返す画像、動画、LTX、RTX、モデル準備の作業を、より速く、分かりやすく、日常的に使いやすくするためのカスタムノード集です。多くの Deno ノードには、キャンバスを離れずに説明を確認できる小さな緑色の `i` ボタンがあります。
 
 ## Release Notes
@@ -35,7 +37,7 @@ Visual Ideogram 4 prompt builder for structured JSON captions and bbox layout wo
 
 ![Deno Ideogram Director](images/ideogram-director.png)
 
-Main features: draw and edit bbox regions, import JSON prompts from Local LLM Loader or another STRING source, ask before replacing an existing board, reject malformed JSON clearly, use style/layout preset galleries, and optionally output model-ready English while preserving literal TEXT box words.
+Main features: draw and edit bbox regions, import JSON prompts from Local LLM Loader or another STRING source, ask before replacing an existing board, reject malformed JSON clearly, use style/layout preset galleries, and use Language view to read/edit board descriptions in your language while final output stays model-ready English and literal TEXT box words stay exact.
 
 ### `(Deno) Resize Box`
 

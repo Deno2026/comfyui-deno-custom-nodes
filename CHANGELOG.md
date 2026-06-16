@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.38 - 2026-06-16
+
+- Added a Deno Custom Nodes banner for the ComfyUI Manager and Registry listing.
+- Added Ideogram Director `Language` view so board descriptions can be read and edited in another language while final output stays model-ready English.
+- Improved tiny or overlapping Ideogram Director bbox editing by making the number badge a reliable drag handle.
+- Fixed Ideogram Director's resolution popup so it opens as a viewport overlay instead of being clipped inside the node.
+
 ## 0.7.37 - 2026-06-16
 
 - Fixed Local LLM Loader `Seed Mode` so `increment`, `decrement`, and `randomize` update the visible seed after each queued run without shifting saved workflow widget values.

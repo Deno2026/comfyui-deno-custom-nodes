@@ -4,6 +4,8 @@
 
 [YouTube Channel](https://www.youtube.com/@Denoise-AI)
 
+![Deno Custom Nodes banner](docs/images/deno-custom-nodes-banner.jpg)
+
 Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
@@ -48,7 +50,7 @@ Main features:
 - ask before replacing an existing board, or switch to always replace
 - reject malformed JSON clearly instead of passing broken prompt text downstream
 - style and layout preset galleries with lightweight preview thumbnails
-- optional Translate On/Off helper that outputs model-ready English while preserving literal TEXT box words such as signs, logos, and headlines
+- Language view for reading and editing board descriptions in your language while final output stays model-ready English. Literal TEXT box words such as signs, logos, and headlines are preserved exactly
 - outputs: `prompt`, `width`, `height`, `seed`, `bboxes`
 
 ### `(Deno) Resize Box`

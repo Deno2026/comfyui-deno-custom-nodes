@@ -655,33 +655,22 @@
 .idd-importbtn.on{background:rgba(66,189,127,.10) !important;color:var(--g) !important;border-color:var(--gdim) !important;}
 .idd-importbtn.pending{background:rgba(232,180,90,.16) !important;color:#ffd48a !important;border-color:rgba(232,180,90,.45) !important;}
 .idd-importbtn.error{background:rgba(135,25,25,.48) !important;color:#ffd1c7 !important;border-color:rgba(255,120,90,.70) !important;}
-.idd-langselect{width:100%;box-sizing:border-box;background:#0c100e;border:1px solid rgba(255,255,255,.10);
-  border-radius:8px;color:#e4e8e5;padding:8px 10px;font:12px "Segoe UI Variable Text","Segoe UI",sans-serif;}
-.idd-langselect:focus{outline:none;border-color:rgba(66,189,127,.55);box-shadow:0 0 0 2px rgba(66,189,127,.10);}
-.idd-modal-panel.idd-lang-panel{width:540px;max-width:92%;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
-.idd-langpolicy{border:1px solid rgba(66,189,127,.24);background:rgba(66,189,127,.06);border-radius:9px;
-  padding:9px 10px;margin-top:9px;color:#c5d0ca;font:11px/1.45 "Segoe UI Variable Text","Segoe UI",sans-serif;}
-.idd-langpolicy-title{font:700 11px "Segoe UI Variable Text","Segoe UI",sans-serif;color:#a8f7c7;margin-bottom:6px;}
-.idd-langpolicy-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-.idd-langpolicy b{display:block;color:#e4e8e5;font-weight:650;margin-bottom:3px;}
-.idd-langpolicy span{display:block;color:#8d978f;}
-.idd-langpolicy .keep b{color:#a8f7c7;}
-.idd-langpolicy-example{margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.08);color:#9ba59f;}
-.idd-translate-toggle{cursor:pointer;width:100%;box-sizing:border-box;display:flex;align-items:center;gap:12px;text-align:left;
-  background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:9px;color:#dbe0dc;
-  padding:10px 12px;margin-top:10px;font:12px/1.45 "Segoe UI Variable Text","Segoe UI",sans-serif;}
-.idd-translate-toggle:hover{border-color:rgba(66,189,127,.50);background:rgba(66,189,127,.08);}
-.idd-translate-toggle.on{border-color:rgba(66,189,127,.70);background:rgba(66,189,127,.15);}
-.idd-translate-toggle .switch{position:relative;width:38px;height:20px;border-radius:999px;background:rgba(255,255,255,.12);
-  border:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
-.idd-translate-toggle .switch:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;
-  background:#aeb7b1;transition:transform .14s ease,background .14s ease;}
-.idd-translate-toggle.on .switch{background:rgba(66,189,127,.24);border-color:rgba(66,189,127,.48);}
-.idd-translate-toggle.on .switch:after{transform:translateX(18px);background:#77e7a8;}
-.idd-translate-toggle b{display:block;font:700 12px "Segoe UI Variable Text","Segoe UI",sans-serif;color:#e4e8e5;}
-.idd-translate-toggle span{display:block;color:#8d978f;font-size:11px;margin-top:2px;}
-.idd-translate-note{margin-top:8px;color:#8d978f;font:11px/1.45 "Segoe UI Variable Text","Segoe UI",sans-serif;}
-.idd-translate-note strong{color:#a8f7c7;font-weight:650;}
+.idd-lang-full .idd-modal-panel.idd-lang-panel{width:100%;max-width:100%;height:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;}
+.idd-lang-full .idd-modal-h{gap:14px;flex:0 0 auto;}
+.idd-lang-full .idd-h-center{min-width:0;}
+.idd-langsearch{width:100%;box-sizing:border-box;background:#0c100e;border:1px solid rgba(255,255,255,.10);
+  border-radius:8px;color:#e4e8e5;padding:10px 12px;font:13px "Segoe UI Variable Text","Segoe UI",sans-serif;}
+.idd-langsearch:focus{outline:none;border-color:rgba(66,189,127,.55);box-shadow:0 0 0 2px rgba(66,189,127,.10);}
+.idd-langstatus{color:#8d978f;font:11px/1.45 "Segoe UI Variable Text","Segoe UI",sans-serif;margin-top:4px;}
+.idd-langgrid{flex:1 1 auto;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));
+  gap:8px;padding:4px 1px 2px;align-content:start;}
+.idd-langcard{cursor:pointer;text-align:left;background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:8px;
+  color:#dbe0dc;padding:10px 11px;min-height:58px;font:12px/1.25 "Segoe UI Variable Text","Segoe UI",sans-serif;}
+.idd-langcard:hover{border-color:rgba(66,189,127,.48);background:rgba(66,189,127,.08);}
+.idd-langcard.on{border-color:rgba(66,189,127,.72);background:rgba(66,189,127,.14);box-shadow:inset 0 0 0 1px rgba(66,189,127,.22);}
+.idd-langcard b{display:block;color:#e4e8e5;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.idd-langcard.on b{color:#a8f7c7;}
+.idd-langcard span{display:block;color:#8d978f;font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .idd-modal-panel.idd-import-panel{width:500px;max-width:92%;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
 .idd-importlist{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
 .idd-importrow{cursor:pointer;text-align:left;background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:8px;color:#dbe0dc;padding:9px 10px;font:12px "Segoe UI Variable Text","Segoe UI",sans-serif;}
@@ -689,7 +678,7 @@
 .idd-importrow.on{border-color:rgba(66,189,127,.70);background:rgba(66,189,127,.14);color:#a8f7c7;}
 .idd-importrow b{display:block;font:700 12px "Segoe UI Variable Text","Segoe UI",sans-serif;}
 .idd-importrow span{display:block;color:#89958d;font-size:11px;margin-top:2px;line-height:1.35;}
-.idd-respop{background:#181e1b !important;border:1px solid rgba(255,255,255,.10) !important;
+.idd-respop{position:fixed !important;background:#181e1b !important;border:1px solid rgba(255,255,255,.10) !important;
   border-radius:10px !important;box-shadow:0 12px 32px rgba(0,0,0,.55) !important;}
 .idd-mplbl{color:var(--dim) !important;letter-spacing:.3px;}
 .idd-mp{background:#222824 !important;border:1px solid rgba(255,255,255,.08) !important;color:var(--txt) !important;
@@ -725,7 +714,8 @@
   box-shadow:0 0 0 1px rgba(0,0,0,.6),0 0 0 2px var(--bc,#4ecb8d) !important;}
 .idd-box.hov{box-shadow:0 0 0 1px rgba(0,0,0,.6),0 0 0 2px color-mix(in srgb,var(--bc,#4ecb8d) 55%,transparent) !important;}
 .idd-box .tag{color:#0b1410 !important;border-radius:0 0 5px 0 !important;
-  font:600 10px "Cascadia Code","Consolas",ui-monospace,monospace !important;box-shadow:0 1px 2px rgba(0,0,0,.4);}
+  font:600 10px "Cascadia Code","Consolas",ui-monospace,monospace !important;box-shadow:0 1px 2px rgba(0,0,0,.4);
+  cursor:move !important;z-index:6 !important;touch-action:none !important;user-select:none !important;}
 .idd-box .lab{color:#f2f5f3 !important;font:11px/1.4 "Segoe UI Variable Text","Segoe UI",sans-serif !important;
   text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 5px rgba(0,0,0,.75) !important;}
 .idd-h{background:var(--bc,#4ecb8d) !important;border:1px solid #0b1410 !important;border-radius:2px !important;
@@ -1028,33 +1018,22 @@
       .idd-importbtn.on{background:rgba(72,255,132,.10);color:var(--g);border-color:var(--gdim);}
       .idd-importbtn.pending{background:rgba(232,180,90,.16);color:#ffd48a;border-color:rgba(232,180,90,.45);}
       .idd-importbtn.error{background:rgba(135,25,25,.48);color:#ffd1c7;border-color:rgba(255,120,90,.70);}
-      .idd-langselect{width:100%;box-sizing:border-box;background:#050a08;border:1px solid var(--gfaint);
-        border-radius:8px;color:var(--txt);padding:8px 10px;font:12px 'Segoe UI';}
-      .idd-langselect:focus{border-color:var(--gdim);outline:none;}
-      .idd-modal-panel.idd-lang-panel{width:540px;max-width:92%;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
-      .idd-langpolicy{border:1px solid rgba(72,255,132,.24);background:rgba(72,255,132,.06);border-radius:9px;
-        padding:9px 10px;margin-top:9px;color:#c5d0ca;font:11px/1.45 'Segoe UI';}
-      .idd-langpolicy-title{font:700 11px 'Segoe UI';color:var(--acc);margin-bottom:6px;}
-      .idd-langpolicy-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-      .idd-langpolicy b{display:block;color:var(--txt);font-weight:650;margin-bottom:3px;}
-      .idd-langpolicy span{display:block;color:var(--dim);}
-      .idd-langpolicy .keep b{color:var(--acc);}
-      .idd-langpolicy-example{margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.08);color:#9ba59f;}
-      .idd-translate-toggle{cursor:pointer;width:100%;box-sizing:border-box;display:flex;align-items:center;gap:12px;text-align:left;
-        background:#050a08;border:1px solid var(--gfaint);border-radius:9px;color:#dbe0dc;
-        padding:10px 12px;margin-top:10px;font:12px/1.45 'Segoe UI';}
-      .idd-translate-toggle:hover{border-color:var(--gdim);background:rgba(72,255,132,.08);}
-      .idd-translate-toggle.on{border-color:var(--g);background:rgba(72,255,132,.14);}
-      .idd-translate-toggle .switch{position:relative;width:38px;height:20px;border-radius:999px;background:rgba(255,255,255,.12);
-        border:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
-      .idd-translate-toggle .switch:after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;
-        background:#aeb7b1;transition:transform .14s ease,background .14s ease;}
-      .idd-translate-toggle.on .switch{background:rgba(72,255,132,.24);border-color:rgba(72,255,132,.48);}
-      .idd-translate-toggle.on .switch:after{transform:translateX(18px);background:var(--g);}
-      .idd-translate-toggle b{display:block;font:700 12px 'Segoe UI';color:var(--txt);}
-      .idd-translate-toggle span{display:block;color:var(--dim);font-size:11px;margin-top:2px;}
-      .idd-translate-note{margin-top:8px;color:var(--dim);font:11px/1.45 'Segoe UI';}
-      .idd-translate-note strong{color:var(--acc);font-weight:650;}
+      .idd-lang-full .idd-modal-panel.idd-lang-panel{width:100%;max-width:100%;height:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;}
+      .idd-lang-full .idd-modal-h{gap:14px;flex:0 0 auto;}
+      .idd-lang-full .idd-h-center{min-width:0;}
+      .idd-langsearch{width:100%;box-sizing:border-box;background:#050a08;border:1px solid var(--gfaint);
+        border-radius:8px;color:var(--txt);padding:10px 12px;font:13px 'Segoe UI';}
+      .idd-langsearch:focus{border-color:var(--gdim);outline:none;box-shadow:0 0 0 2px rgba(72,255,132,.10);}
+      .idd-langstatus{color:var(--dim);font:11px/1.45 'Segoe UI';margin-top:4px;}
+      .idd-langgrid{flex:1 1 auto;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));
+        gap:8px;padding:4px 1px 2px;align-content:start;}
+      .idd-langcard{cursor:pointer;text-align:left;background:#050a08;border:1px solid var(--gfaint);border-radius:8px;
+        color:#dbe0dc;padding:10px 11px;min-height:58px;font:12px/1.25 'Segoe UI';}
+      .idd-langcard:hover{border-color:var(--gdim);background:rgba(72,255,132,.08);}
+      .idd-langcard.on{border-color:var(--g);background:rgba(72,255,132,.14);box-shadow:inset 0 0 0 1px rgba(72,255,132,.22);}
+      .idd-langcard b{display:block;color:var(--txt);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      .idd-langcard.on b{color:var(--acc);}
+      .idd-langcard span{display:block;color:var(--dim);font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
       .idd-modal-panel.idd-import-panel{width:500px;max-width:92%;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
       .idd-importlist{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
       .idd-importrow{cursor:pointer;text-align:left;background:#050a08;border:1px solid var(--gfaint);border-radius:8px;
@@ -1063,7 +1042,7 @@
       .idd-importrow.on{border-color:var(--g);background:rgba(72,255,132,.14);color:var(--acc);}
       .idd-importrow b{display:block;font:700 12px 'Segoe UI';}
       .idd-importrow span{display:block;color:var(--dim);font-size:11px;margin-top:2px;line-height:1.35;}
-      .idd-respop{position:absolute;top:calc(100% + 6px);right:0;z-index:80;background:#08130d;border:1px solid var(--gdim);
+      .idd-respop{position:fixed;top:0;left:0;right:auto;z-index:100001;background:#08130d;border:1px solid var(--gdim);
         border-radius:10px;box-shadow:0 10px 32px #000;padding:10px;width:232px;display:flex;flex-direction:column;gap:8px;}
       .idd-mprow{display:flex;align-items:center;gap:5px;}
       .idd-mplbl{color:var(--dim);font:10px 'Segoe UI';margin-right:auto;}
@@ -1134,8 +1113,8 @@
         background:rgba(72,255,132,.07);box-sizing:border-box;cursor:move;}
       .idd-box.text{border-style:dashed;}
       .idd-box.sel{box-shadow:0 0 0 1px #041208,0 0 10px var(--gdim);background:rgba(72,255,132,.13);}
-      .idd-box .tag{position:absolute;top:0;left:0;background:var(--g);color:#041208;font:bold 10px monospace;
-        padding:1px 5px;border-radius:0 0 4px 0;cursor:pointer;}
+      .idd-box .tag{position:absolute;top:0;left:0;z-index:6;background:var(--g);color:#041208;font:bold 10px monospace;
+        padding:1px 5px;border-radius:0 0 4px 0;cursor:move;touch-action:none;user-select:none;}
       .idd-box .lab{position:absolute;top:16px;left:3px;right:3px;bottom:3px;color:#eafff0;font:11px/1.35 'Segoe UI';
         text-shadow:0 1px 2px #000,0 0 4px #000a;overflow:hidden;white-space:normal;overflow-wrap:anywhere;pointer-events:none;}
       .idd-h{position:absolute;width:9px;height:9px;background:var(--g);border:1px solid #041208;border-radius:2px;
@@ -1465,7 +1444,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.16-recreate-size-j";
+        const IDD_REV = "r2026.06.16-respop-body-m";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -1775,6 +1754,7 @@
           renderBoxes(); renderPalette(); renderElements(); layoutStage();
           paintImportMode();
           paintPendingPrompt();
+          translateBoardToViewLanguage("auto");
           return true;
         }
         function handleConnectedPromptEcho(cap, sig) {
@@ -1868,11 +1848,35 @@
         paintImportMode();
         paintPendingPrompt();
         const NO_TRANSLATION = "No translation (keep as written)";
+        const VIEW_DEFAULT = "English";
+        const LEGACY_VIEW_ORIGINAL_VALUE = "Original (as written)";
         const LEGACY_NO_TRANSLATION = new Set(["", "Original", "Off", "No translation", NO_TRANSLATION]);
+        const LEGACY_VIEW_ORIGINAL = new Set(["", "Original", "As written", "Original / As written", LEGACY_VIEW_ORIGINAL_VALUE, NO_TRANSLATION]);
         const ENGLISH_PROMPT = "English";
         const ENGLISH_PROMPT_ALIASES = new Set(["English", "en", "eng", "English prompt", "Output English prompt", "English (recommended)"]);
-        const translateBtn = mkBtn("Translate Off"); translateBtn.classList.add("idd-langbtn");
+        const COMMON_LANGUAGE_NAMES = {
+          "English": "English",
+          "한국어": "Korean",
+          "日本語": "Japanese",
+          "中文 (简体)": "Chinese Simplified",
+          "中文 (繁體)": "Chinese Traditional",
+          "Español": "Spanish",
+          "Português": "Portuguese",
+          "Français": "French",
+          "Deutsch": "German",
+          "Italiano": "Italian",
+          "Русский": "Russian",
+          "ไทย": "Thai",
+          "Tiếng Việt": "Vietnamese",
+          "Bahasa Indonesia": "Indonesian",
+          "Türkçe": "Turkish",
+          "Українська": "Ukrainian",
+          "العربية": "Arabic",
+          "हिन्दी": "Hindi",
+        };
+        const translateBtn = mkBtn("Language"); translateBtn.classList.add("idd-langbtn");
         function isNoTranslation(v) { return LEGACY_NO_TRANSLATION.has(String(v || "").trim()); }
+        function isOriginalView(v) { return LEGACY_VIEW_ORIGINAL.has(String(v || "").trim()); }
         function isEnglishPrompt(v) {
           const value = String(v || "").trim();
           const lower = value.toLowerCase();
@@ -1889,90 +1893,151 @@
         function translateChoices() {
           return [NO_TRANSLATION, ENGLISH_PROMPT];
         }
+        function viewLanguageChoices() {
+          const w = W("view_language");
+          let values = [];
+          if (w && w.options) {
+            if (Array.isArray(w.options.values)) values = w.options.values.slice();
+            else if (Array.isArray(w.options)) values = w.options.slice();
+          }
+          if (!values.length) values = [
+            "English", "한국어", "日本語", "中文 (简体)", "中文 (繁體)",
+            "Español", "Português", "Français", "Deutsch", "Italiano", "Русский",
+            "ไทย", "Tiếng Việt", "Bahasa Indonesia",
+          ];
+          const out = [];
+          const seen = new Set();
+          for (const raw of [VIEW_DEFAULT, ...values]) {
+            if (isOriginalView(raw)) continue;
+            const v = String(raw || "").trim();
+            if (!v || seen.has(v)) continue;
+            seen.add(v);
+            out.push(v);
+          }
+          return out;
+        }
+        function normalizeViewLanguage(v) {
+          if (isOriginalView(v)) return VIEW_DEFAULT;
+          const raw = String(v || "").trim();
+          const choices = viewLanguageChoices();
+          return choices.includes(raw) ? raw : VIEW_DEFAULT;
+        }
+        function getViewLanguage() {
+          const val = normalizeViewLanguage(getW("view_language", VIEW_DEFAULT));
+          if (val !== getW("view_language", VIEW_DEFAULT)) setW("view_language", val);
+          return val;
+        }
+        function outputLanguageLabel() {
+          return "English";
+        }
         function paintTranslate() {
-          const val = normalizeTranslateValue(getW("translate_output", NO_TRANSLATION));
-          if (val !== getW("translate_output", NO_TRANSLATION)) setW("translate_output", val);
-          translateBtn.textContent = val === NO_TRANSLATION ? "Translate Off" : "Translate On";
-          translateBtn.classList.toggle("on", val !== NO_TRANSLATION);
-          translateBtn.title = val === NO_TRANSLATION
-            ? "Turn on to output model-ready English. Source language is detected automatically."
-            : "Descriptions output in English. Exact TEXT words stay as typed.";
+          const view = getViewLanguage();
+          const out = normalizeTranslateValue(getW("translate_output", NO_TRANSLATION));
+          if (out !== ENGLISH_PROMPT) setW("translate_output", ENGLISH_PROMPT);
+          translateBtn.textContent = "Language";
+          translateBtn.classList.toggle("on", view !== VIEW_DEFAULT);
+          translateBtn.title = "Language: " + view
+            + " · Output: " + outputLanguageLabel()
+            + ". Description fields may be translated; exact TEXT words stay as typed.";
           fitTopBarSoon();
         }
+        async function translateCaptionViaRoute(caption, target, source = "auto") {
+          const res = await api.fetchApi("/deno/ideogram_director/translate_caption", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ caption, source, target }),
+          });
+          if (!res || !res.ok) throw new Error("translation route failed");
+          const data = await res.json();
+          const translated = normalizeCaption(data.caption);
+          if (!translated) throw new Error("translation returned no caption");
+          return { caption: translated, data };
+        }
+        let viewTranslateSeq = 0;
+        async function translateBoardToViewLanguage(source = "auto") {
+          const target = getViewLanguage();
+          const seq = ++viewTranslateSeq;
+          const oldText = translateBtn.textContent;
+          translateBtn.textContent = "Translating...";
+          translateBtn.classList.add("on");
+          translateBtn.title = "Translating the editable view to " + target + "...";
+          try {
+            const translated = await translateCaptionViaRoute(assembleCaption(), target, source);
+            if (seq !== viewTranslateSeq) return false;
+            applyImportedCaption(translated.caption);
+            selectedId = null;
+            renderBoxes(); renderPalette(); renderElements(); layoutStage(); serialize();
+            paintTranslate();
+            translateBtn.title = "View translated to " + (translated.data.language || target) + ". Output stays English.";
+            return true;
+          } catch (err) {
+            console.error("[Director] view translation failed", err);
+            translateBtn.textContent = oldText || "View";
+            translateBtn.title = "View translation failed. The board was left unchanged.";
+            return false;
+          }
+        }
         function openTranslateDialog() {
-          const modal = el("div", "idd-modal"); modal.tabIndex = -1;
+          const modal = el("div", "idd-modal idd-gal-fs idd-lang-full"); modal.tabIndex = -1; stop(modal);
           const panel = el("div", "idd-modal-panel idd-lang-panel");
           const h = el("div", "idd-modal-h");
-          const ht = el("span", "t"); ht.textContent = "Translate to English"; h.append(ht);
+          const left = el("div", "idd-h-left"); const ht = el("span", "t"); ht.textContent = "Language"; left.append(ht);
+          const right = el("div", "idd-h-right");
+          const closeBtn = el("button", "idd-mbtn"); closeBtn.textContent = "Close";
+          right.append(closeBtn);
+          h.append(left, el("div", "idd-h-center"), right);
           const hint = el("div", "idd-ml");
-          hint.textContent = "Write the board in Korean or another language. When this is on, the node detects the input language and outputs an English prompt for the image model.";
-          const policy = el("div", "idd-langpolicy");
-          const policyTitle = el("div", "idd-langpolicy-title");
-          policyTitle.textContent = "What changes when translation is on";
-          const policyGrid = el("div", "idd-langpolicy-grid");
-          const translated = el("div", "change");
-          const translatedTitle = el("b");
-          translatedTitle.textContent = "Converted to English";
-          const translatedBody = el("span");
-          translatedBody.textContent = "Scene summary, background, style notes, object descriptions, and TEXT-box descriptions.";
-          translated.append(translatedTitle, translatedBody);
-          const kept = el("div", "keep");
-          const keptTitle = el("b");
-          keptTitle.textContent = "Kept exactly";
-          const keptBody = el("span");
-          keptBody.textContent = "The actual words inside TEXT boxes, box positions, box sizes, colors, and the board editor.";
-          kept.append(keptTitle, keptBody);
-          policyGrid.append(translated, kept);
-          const policyExample = el("div", "idd-langpolicy-example");
-          policyExample.textContent = 'Example: if a TEXT box says "SALE", it still renders as "SALE" even when descriptions are translated.';
-          policy.append(policyTitle, policyGrid, policyExample);
-          let selected = normalizeTranslateValue(getW("translate_output", NO_TRANSLATION));
-          if (!translateChoices().includes(selected)) selected = NO_TRANSLATION;
-          const toggle = el("button", "idd-translate-toggle"); toggle.type = "button";
-          const sw = el("span", "switch");
-          const copy = el("span", "copy");
-          const name = el("b");
-          const desc = el("span");
-          copy.append(name, desc);
-          toggle.append(sw, copy);
-          const note = el("div", "idd-translate-note");
-          const noteStrong = el("strong");
-          noteStrong.textContent = "Source language is automatic.";
-          note.append(noteStrong, " You do not need to choose Korean, Japanese, or English. Leave this off only when the prompt should stay exactly as written.");
-          function paintLocalToggle() {
-            const on = selected !== NO_TRANSLATION;
-            toggle.classList.toggle("on", on);
-            name.textContent = on ? "Translate final prompt to English: On" : "Translate final prompt to English: Off";
-            desc.textContent = on
-              ? "Descriptions become English for generation. TEXT words still render exactly as typed."
-              : "The final prompt is output exactly as the board is written.";
+          hint.textContent = "Pick the language you want to read and edit on the board. Output stays English for generation. Literal TEXT box words are kept exactly.";
+          const search = el("input", "idd-langsearch"); search.type = "text"; search.placeholder = "Search language...";
+          const status = el("div", "idd-langstatus");
+          status.textContent = "Descriptions are translated for the editor view. Box positions, colors, and TEXT words are not translated.";
+          const grid = el("div", "idd-langgrid"); stop(grid);
+          const recommended = ["English", "한국어", "日本語", "中文 (简体)", "中文 (繁體)", "Español", "Português", "Français", "Deutsch", "ไทย", "Tiếng Việt"];
+          const ordered = [];
+          const seen = new Set();
+          const add = (v) => { const n = normalizeViewLanguage(v); if (!seen.has(n)) { seen.add(n); ordered.push(n); } };
+          recommended.forEach(add);
+          viewLanguageChoices().forEach(add);
+          function cardSub(v) {
+            return COMMON_LANGUAGE_NAMES[v] || "Language";
           }
-          toggle.onclick = (e) => {
-            e.stopPropagation();
-            selected = selected === NO_TRANSLATION ? ENGLISH_PROMPT : NO_TRANSLATION;
-            paintLocalToggle();
-          };
-          const acts = el("div", "idd-modal-acts");
-          const cancel = el("button", "idd-mbtn"); cancel.textContent = "Cancel";
-          const apply = el("button", "idd-mbtn save"); apply.textContent = "Apply";
-          acts.append(el("span", "sp"), cancel, apply);
-          panel.append(h, hint, policy, toggle, note, acts);
-          modal.append(panel); wrap.appendChild(modal);
+          function renderCards() {
+            const q = (search.value || "").trim().toLowerCase();
+            grid.innerHTML = "";
+            for (const choice of ordered) {
+              const text = choice + " " + cardSub(choice);
+              if (q && !text.toLowerCase().includes(q)) continue;
+              const card = el("button", "idd-langcard"); card.type = "button";
+              card.classList.toggle("on", choice === getViewLanguage());
+              const name = el("b"); name.textContent = choice;
+              const sub = el("span"); sub.textContent = cardSub(choice);
+              card.append(name, sub);
+              card.onclick = async (e) => {
+                e.stopPropagation();
+                const prev = getViewLanguage();
+                setW("view_language", choice);
+                setW("translate_output", ENGLISH_PROMPT);
+                paintTranslate();
+                close();
+                if (choice !== prev) await translateBoardToViewLanguage(prev === VIEW_DEFAULT ? "auto" : prev);
+              };
+              grid.appendChild(card);
+            }
+          }
+          search.addEventListener("input", renderCards);
+          panel.append(h, hint, search, status, grid);
+          modal.append(panel); document.body.appendChild(modal);
           const close = () => { try { modal.remove(); } catch (e) {} };
-          const doApply = () => {
-            const v = translateChoices().includes(selected) ? selected : NO_TRANSLATION;
-            setW("translate_output", v); paintTranslate(); close();
-          };
+          closeBtn.onclick = (e) => { e.stopPropagation(); close(); };
           modal.addEventListener("keydown", (e) => {
             e.stopPropagation();
             if (e.key === "Escape") { e.preventDefault(); close(); }
-            if (e.key === "Enter") { e.preventDefault(); doApply(); }
           });
           modal.addEventListener("pointerdown", (e) => { if (e.target === modal) close(); });
-          cancel.onclick = (e) => { e.stopPropagation(); close(); };
-          apply.onclick = (e) => { e.stopPropagation(); doApply(); };
-          paintLocalToggle();
-          setTimeout(() => toggle.focus(), 0);
+          renderCards();
+          const active = Array.from(grid.children).find((x) => x.classList.contains("on"));
+          if (active) setTimeout(() => active.scrollIntoView({ block: "center", inline: "nearest" }), 0);
+          else setTimeout(() => search.focus(), 0);
         }
         translateBtn.onclick = (e) => { e.stopPropagation(); openTranslateDialog(); };
         paintTranslate();
@@ -2082,16 +2147,16 @@
               ev.stopPropagation();
               mp = +((w * h) / 1e6).toFixed(2);
               setRes(w, h, label, label); serialize();
-              sizeFly.style.display = "none"; resPop.style.display = "none";
+              closeResPopup();
             };
             sizeFlyList.append(sb);
           });
           sizeFly.classList.remove("flip-left");
           sizeFly.style.top = Math.max(0, anchorBtn.offsetTop - 2) + "px";
           sizeFly.style.display = "";
-          // flip to the left of the popup if it would spill past the node's right edge
+          // flip to the left of the popup if it would spill past the viewport edge
           const fr = sizeFly.getBoundingClientRect();
-          const edge = Math.min(window.innerWidth, wrap.getBoundingClientRect().right) - 6;
+          const edge = window.innerWidth - 8;
           if (fr.right > edge) sizeFly.classList.add("flip-left");
         }
         const presetBtns = RATIOS.map(([label, rw, rh]) => {
@@ -2137,23 +2202,74 @@
           const isPreset = RATIOS.some((r) => r[0] === pend.label);
           setRes(pend.w, pend.h, pend.label, isPreset ? pend.label : pend.w + ":" + pend.h);
           serialize();
-          resPop.style.display = "none";
+          closeResPopup();
         };
         const resActions = el("div", "idd-resactions");
         resActions.append(el("span", "idd-sp"), applyBtn);
         resCustom.append(wIn, xs, hIn, snapTag);
         resPop.append(resPrev, resInfo, mpRow, resGrid, resCustom, resActions, sizeFly);
-        resWrap.append(resBtn, resPop);
+        resWrap.append(resBtn);
+        let resPopupBound = false;
+        function resPopupOpen() { return resPop.isConnected && resPop.style.display !== "none"; }
+        function positionResPopup() {
+          if (!resPopupOpen()) return;
+          const margin = 8;
+          const br = resBtn.getBoundingClientRect();
+          const pw = Math.max(232, resPop.offsetWidth || 264);
+          const ph = Math.max(120, resPop.offsetHeight || 360);
+          let left = br.right - pw;
+          left = Math.max(margin, Math.min(left, window.innerWidth - pw - margin));
+          let top = br.bottom + 6;
+          if (top + ph > window.innerHeight - margin) top = Math.max(margin, br.top - ph - 6);
+          resPop.style.left = Math.round(left) + "px";
+          resPop.style.top = Math.round(top) + "px";
+        }
+        function bindResPopup() {
+          if (resPopupBound) return;
+          document.addEventListener("pointerdown", closeRes, true);
+          document.addEventListener("keydown", closeResKey, true);
+          window.addEventListener("resize", positionResPopup);
+          window.addEventListener("scroll", positionResPopup, true);
+          resPopupBound = true;
+        }
+        function unbindResPopup() {
+          if (!resPopupBound) return;
+          document.removeEventListener("pointerdown", closeRes, true);
+          document.removeEventListener("keydown", closeResKey, true);
+          window.removeEventListener("resize", positionResPopup);
+          window.removeEventListener("scroll", positionResPopup, true);
+          resPopupBound = false;
+        }
+        function closeResPopup() {
+          resPop.style.display = "none";
+          sizeFly.style.display = "none";
+          try { resPop.remove(); } catch (e) {}
+          unbindResPopup();
+        }
+        function openResPopup() {
+          syncPendFromState();                              // stage starts from the committed state
+          sizeFly.style.display = "none";                   // flyout starts closed each time
+          if (!resPop.isConnected) document.body.appendChild(resPop);
+          resPop.style.display = "";
+          positionResPopup();
+          setTimeout(positionResPopup, 0);
+          bindResPopup();
+        }
         resBtn.onclick = (e) => {
           e.stopPropagation();
-          const opening = resPop.style.display === "none";
-          resPop.style.display = opening ? "" : "none";
-          sizeFly.style.display = "none";                    // flyout starts closed each time
-          if (opening) syncPendFromState();                  // stage starts from the committed state
+          if (resPopupOpen()) closeResPopup();
+          else openResPopup();
         };
         resBtn.addEventListener("mousedown", (e) => e.stopPropagation());
-        const closeRes = (e) => { if (resPop.style.display !== "none" && !resWrap.contains(e.target)) resPop.style.display = "none"; };
-        document.addEventListener("pointerdown", closeRes);
+        function closeRes(e) {
+          if (!resPopupOpen()) return;
+          if (e.button === 1) return;                         // middle-click remains canvas pan
+          if (resPop.contains(e.target) || resBtn.contains(e.target)) return;
+          closeResPopup();
+        }
+        function closeResKey(e) {
+          if (e.key === "Escape" && resPopupOpen()) { e.stopPropagation(); closeResPopup(); }
+        }
         function paintPend(keepMpText) {                     // render the STAGED state (live preview)
           presetBtns.forEach((pb) => {
             const [w, h] = dimsFor(+pb.dataset.rw, +pb.dataset.rh, pend.mp);
@@ -3385,6 +3501,9 @@
             const col = boxColor(b, i); d.style.borderColor = col;
             d.style.setProperty("--bc", col);   // selection ring / handles / hover follow the box's own color
             const tag = el("span", "tag"); tag.textContent = String(i + 1).padStart(2, "0"); tag.style.background = col;
+            tag.dataset.role = "move-handle";
+            tag.title = "Drag this number to move the box";
+            tag.addEventListener("pointerdown", (e) => onBoxDown(e, i, "move"));
             const lab = el("span", "lab"); lab.textContent = b.type === "text" ? ('"' + (b.text || "") + '"') : (b.desc || "");
             d.append(tag, lab);
             for (const dir of ["nw", "n", "ne", "e", "se", "s", "sw", "w"]) {   // 8 resize handles
@@ -3749,14 +3868,20 @@
           cap.compositional_deconstruction = { background: bgArea.value || "", elements: els };
           return cap;
         }
-        copy.addEventListener("click", (e) => {
+        copy.addEventListener("click", async (e) => {
           e.stopPropagation();
           const done = (label) => {
             copy.textContent = label;
             setTimeout(() => { copy.textContent = "Copy JSON"; }, 900);
           };
           try {
-            const written = navigator.clipboard.writeText(JSON.stringify(assembleCaption()));
+            let cap = assembleCaption();
+            if (normalizeTranslateValue(getW("translate_output", NO_TRANSLATION)) === ENGLISH_PROMPT) {
+              copy.textContent = "Translating...";
+              const viewSource = getViewLanguage() === ENGLISH_PROMPT ? "auto" : getViewLanguage();
+              cap = (await translateCaptionViaRoute(cap, ENGLISH_PROMPT, viewSource)).caption;
+            }
+            const written = navigator.clipboard.writeText(JSON.stringify(cap));
             if (written && typeof written.then === "function") written.then(() => done("✓ Copied"), () => done("Copy failed"));
             else done("✓ Copied");
           } catch (x) { done("Copy failed"); }
@@ -3777,6 +3902,7 @@
             applyImportedCaption(normalized);            // official caption → boxes+summary+bg+style+size
             selectedId = null;
             renderBoxes(); renderPalette(); renderElements(); layoutStage(); serialize();
+            translateBoardToViewLanguage("auto");
             return true;
           }
           return false;
@@ -3944,6 +4070,9 @@
           const tv = normalizeTranslateValue(getW("translate_output", NO_TRANSLATION));
           if (!translateChoices().includes(tv)) setW("translate_output", NO_TRANSLATION);
           else if (tv !== getW("translate_output", NO_TRANSLATION)) setW("translate_output", tv);
+          const vv = normalizeViewLanguage(getW("view_language", VIEW_DEFAULT));
+          if (vv !== getW("view_language", VIEW_DEFAULT)) setW("view_language", vv);
+          if (normalizeTranslateValue(getW("translate_output", NO_TRANSLATION)) !== ENGLISH_PROMPT) setW("translate_output", ENGLISH_PROMPT);
           if (typeof getW("save_prefix", "") !== "string" || !getW("save_prefix", "")) setW("save_prefix", "Ideogram_Director");
           const ar = getW("aspect_ratio", "");
           if (typeof ar !== "string" || (ar && !/^\d+\s*:\s*\d+$/.test(ar))) setW("aspect_ratio", "");
@@ -4056,7 +4185,7 @@
           try { stageRO.disconnect(); } catch (e) {}
           for (const cleanup of iddResizeCleanups.splice(0)) { try { cleanup(); } catch (e) {} }
           try { document.removeEventListener("keydown", fsEsc); } catch (e) {}
-          try { document.removeEventListener("pointerdown", closeRes); } catch (e) {}
+          try { closeResPopup(); } catch (e) {}
           try { window.removeEventListener("pointermove", _onPanMove); window.removeEventListener("pointerup", _onPanUp); } catch (e) {}
           if (fsState) { try { wrap.remove(); } catch (e) {} fsState = null; }
         });

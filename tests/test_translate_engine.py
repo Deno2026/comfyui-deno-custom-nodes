@@ -12,6 +12,10 @@ import deno_translate_engine as engine
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _director_result(packet):
+    return packet["result"] if isinstance(packet, dict) else packet
+
+
 def test_language_display_contract():
     assert len(engine.LANGS) == 106
     assert engine.code_for_display("자동 감지") == "auto"
@@ -19,8 +23,135 @@ def test_language_display_contract():
     assert engine.code_for_display("한국어") == "ko"
     assert engine.code_for_display("Original") == ""
     assert engine.code_for_display("No translation (keep as written)") == ""
+    assert engine.code_for_display("Original (as written)") == ""
+    assert engine.should_skip_translation("un gato en la playa", "Español", "English") is False
+    assert engine.should_skip_translation("a cat on the beach", "auto", "English") is True
+    assert engine.should_skip_translation("a cat on the beach", "English", "English") is True
     assert engine.display_for_code("zh-CN") == "中文 (简体)"
     assert engine.DIRECTOR_OUTPUT_CHOICES == ("No translation (keep as written)", "English")
+    assert deno_ideogram_director.VIEW_LANGUAGE_DEFAULT == "English"
+    assert deno_ideogram_director._VIEW_LANGUAGE_CHOICES[0] == "English"
+    assert "Original (as written)" not in deno_ideogram_director._VIEW_LANGUAGE_CHOICES
+    assert "한국어" in deno_ideogram_director._VIEW_LANGUAGE_CHOICES
+
+
+def test_ideogram_director_view_language_helper_preserves_literal_text(monkeypatch):
+    calls = []
+
+    def fake_translate_caption(cap, src, tgt, opts=None):
+        calls.append((src, tgt, opts))
+        out = json.loads(json.dumps(cap))
+        out["high_level_description"] = "KO:" + out["high_level_description"]
+        out["compositional_deconstruction"]["background"] = (
+            "KO:" + out["compositional_deconstruction"]["background"]
+        )
+        out["compositional_deconstruction"]["elements"][0]["desc"] = "KO:large red sign"
+        return out, 3, 3
+
+    monkeypatch.setattr(deno_ideogram_director.translate_engine, "translate_caption", fake_translate_caption)
+    source = {
+        "high_level_description": "clean sale poster",
+        "compositional_deconstruction": {
+            "background": "bright store window",
+            "elements": [
+                {
+                    "type": "text",
+                    "bbox": [100, 100, 300, 700],
+                    "text": "SALE",
+                    "desc": "large red sign",
+                }
+            ],
+        },
+    }
+
+    translated, changed, sent, display = deno_ideogram_director._translate_caption_for_view(
+        source,
+        "auto",
+        "한국어",
+    )
+
+    assert calls == [("auto", "ko", {"translate_text_fields": False})]
+    assert translated["high_level_description"] == "KO:clean sale poster"
+    assert translated["compositional_deconstruction"]["elements"][0]["text"] == "SALE"
+    assert changed == sent == 3
+    assert display == "한국어"
+
+
+def test_ideogram_director_view_language_forces_english_output(monkeypatch):
+    calls = []
+
+    def fake_translate_caption(cap, src, tgt, opts=None):
+        calls.append((src, tgt, opts))
+        out = dict(cap)
+        out["high_level_description"] = "translated english prompt"
+        return out, 1, 1
+
+    monkeypatch.setattr(deno_ideogram_director.translate_engine, "translate_caption", fake_translate_caption)
+    node = deno_ideogram_director.DenoIdeogramDirector()
+
+    packet = node.build(
+        width=1024,
+        height=1024,
+        seed=3,
+        high_level_description="한국어 보드 설명",
+        view_language="한국어",
+        translate_output=engine.ORIGINAL_DISPLAY,
+    )
+
+    prompt = json.loads(packet["result"][0])
+    assert prompt["high_level_description"] == "translated english prompt"
+    assert calls == [("ko", "en", {"translate_text_fields": False})]
+
+
+def test_ideogram_director_view_language_translates_ascii_non_english_output(monkeypatch):
+    calls = []
+
+    def fake_request(text, src, tgt, timeout=10.0):
+        calls.append((text, src, tgt))
+        return [[["EN:" + text, None, None]]]
+
+    monkeypatch.setattr(engine, "_request_gtx", fake_request)
+    engine._CACHE.clear()
+    node = deno_ideogram_director.DenoIdeogramDirector()
+
+    packet = node.build(
+        width=1024,
+        height=1024,
+        seed=3,
+        high_level_description="un gato en la playa",
+        background="cielo azul con nubes suaves",
+        view_language="Español",
+        translate_output="English",
+    )
+
+    prompt = json.loads(_director_result(packet)[0])
+    assert prompt["high_level_description"] == "EN:un gato en la playa"
+    assert prompt["compositional_deconstruction"]["background"] == "EN:cielo azul con nubes suaves"
+    assert ("un gato en la playa", "es", "en") in calls
+    assert ("cielo azul con nubes suaves", "es", "en") in calls
+
+
+def test_ideogram_director_default_english_view_skips_ascii_english_network(monkeypatch):
+    def fail_request(text, src, tgt, timeout=10.0):
+        raise AssertionError("default English ASCII prompt should not call the translation service")
+
+    monkeypatch.setattr(engine, "_request_gtx", fail_request)
+    engine._CACHE.clear()
+    node = deno_ideogram_director.DenoIdeogramDirector()
+
+    packet = node.build(
+        width=1024,
+        height=1024,
+        seed=3,
+        high_level_description="a cat on the beach",
+        background="soft daylight",
+        view_language="English",
+        translate_output="English",
+    )
+
+    prompt = json.loads(_director_result(packet)[0])
+    assert prompt["high_level_description"] == "a cat on the beach"
+    assert prompt["compositional_deconstruction"]["background"] == "soft daylight"
 
 
 def test_loads_caption_accepts_fenced_json():
@@ -75,6 +206,25 @@ def test_translate_caption_preserves_structure_and_skips_literal_text(monkeypatc
     assert out["compositional_deconstruction"]["elements"][0]["bbox"] == [10, 20, 30, 40]
     assert changed == sent == 4
     assert len(calls) == 4
+
+
+def test_translate_caption_skips_explicit_same_english_source(monkeypatch):
+    def fail_request(text, src, tgt, timeout=10.0):
+        raise AssertionError("same-language English fields should not call the network")
+
+    monkeypatch.setattr(engine, "_request_gtx", fail_request)
+    cap = {
+        "high_level_description": "a cat on the beach",
+        "compositional_deconstruction": {
+            "background": "soft daylight",
+            "elements": [{"type": "obj", "bbox": [1, 2, 3, 4], "desc": "small puppy"}],
+        },
+    }
+
+    out, changed, sent = engine.translate_caption(cap, "English", "English")
+
+    assert out == cap
+    assert changed == sent == 0
 
 
 def test_ideogram_director_outputs_english_prompt_only(monkeypatch):
@@ -541,7 +691,7 @@ def test_ideogram_director_invalid_input_prompt_saved_sig_keeps_current_board():
         "importSig": deno_ideogram_director._import_sig(broken_json),
     }
 
-    prompt, _width, _height, _seed, bboxes = node.build(
+    prompt, _width, _height, _seed, bboxes = _director_result(node.build(
         width=1024,
         height=1024,
         seed=18,
@@ -549,7 +699,7 @@ def test_ideogram_director_invalid_input_prompt_saved_sig_keeps_current_board():
         caption_data=json.dumps(existing_board),
         import_json=broken_json,
         import_mode="Ask Before Replacing",
-    )
+    ))
 
     decoded = json.loads(prompt)
     assert decoded["high_level_description"] == "kept prompt"
@@ -566,7 +716,7 @@ def test_ideogram_director_invalid_input_prompt_never_falls_back_to_text():
         "importSig": deno_ideogram_director._import_sig(broken_json),
     }
 
-    prompt, _width, _height, _seed, bboxes = node.build(
+    prompt, _width, _height, _seed, bboxes = _director_result(node.build(
         width=1024,
         height=1024,
         seed=20,
@@ -575,7 +725,7 @@ def test_ideogram_director_invalid_input_prompt_never_falls_back_to_text():
         caption_data=json.dumps(accepted_board),
         import_json=broken_json,
         import_mode="Ask Before Replacing",
-    )
+    ))
 
     decoded = json.loads(prompt)
     assert decoded["high_level_description"] == "current manual prompt"
@@ -603,7 +753,7 @@ def test_ideogram_director_invalid_input_prompt_saved_sig_works_in_always_replac
         "importSig": deno_ideogram_director._import_sig(broken_json),
     }
 
-    prompt, _width, _height, _seed, _bboxes = node.build(
+    prompt, _width, _height, _seed, _bboxes = _director_result(node.build(
         width=1024,
         height=1024,
         seed=20,
@@ -611,7 +761,7 @@ def test_ideogram_director_invalid_input_prompt_saved_sig_works_in_always_replac
         caption_data=json.dumps(accepted_board),
         import_json=broken_json,
         import_mode="Always Replace",
-    )
+    ))
 
     decoded = json.loads(prompt)
     assert decoded["high_level_description"] == "current board prompt"
@@ -758,7 +908,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.16-recreate-size-j"' in script
+    assert 'const IDD_REV = "r2026.06.16-respop-body-m"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script
@@ -778,6 +928,45 @@ def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     assert "preserveCurrent ? iddSizeValue(current, 1) : 0" in script
     assert "iddSizeValue(configured, 1)" in script
     assert 'written.then(() => done("✓ Copied"), () => done("Copy failed"))' in script
+
+
+def test_ideogram_director_frontend_view_language_contract():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert 'const VIEW_DEFAULT = "English"' in script
+    assert 'const LEGACY_VIEW_ORIGINAL_VALUE = "Original (as written)"' in script
+    assert "function viewLanguageChoices()" in script
+    assert "function translateBoardToViewLanguage" in script
+    assert '"/deno/ideogram_director/translate_caption"' in script
+    assert "idd-lang-full" in script
+    assert "idd-langgrid" in script
+    assert "idd-langcard" in script
+    assert 'ht.textContent = "Language"' in script
+    assert 'translateBtn.textContent = "Language"' in script
+    assert 'const recommended = ["English", "한국어"' in script
+    assert 'name.textContent = choice;' in script
+    assert 'setW("view_language", choice)' in script
+    assert 'setW("translate_output", ENGLISH_PROMPT)' in script
+    assert 'translateBoardToViewLanguage("auto")' in script
+    assert 'const viewSource = getViewLanguage() === ENGLISH_PROMPT ? "auto" : getViewLanguage();' in script
+    assert "translateCaptionViaRoute(cap, ENGLISH_PROMPT, viewSource)" in script
+    assert 'name.textContent = choice === VIEW_ORIGINAL ? "Original" : choice' not in script
+    assert "No view translation" not in script
+    assert "View language" not in script
+
+
+def test_ideogram_director_resolution_popup_uses_body_overlay():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert ".idd-respop{position:fixed" in script
+    assert "function positionResPopup()" in script
+    assert "document.body.appendChild(resPop)" in script
+    assert 'window.addEventListener("resize", positionResPopup)' in script
+    assert 'window.addEventListener("scroll", positionResPopup, true)' in script
+    assert "resWrap.append(resBtn);" in script
+    assert "closeResPopup();" in script
+    assert "resWrap.append(resBtn, resPop)" not in script
+    assert "resWrap.contains(e.target)" not in script
 
 
 def test_ideogram_director_compute_size_guard_does_not_restore_stale_saved_size(tmp_path):
@@ -836,7 +1025,7 @@ def test_ideogram_director_rejects_non_english_output_language(monkeypatch):
     monkeypatch.setattr(engine, "_request_gtx", explode)
     node = deno_ideogram_director.DenoIdeogramDirector()
 
-    result = node.build(
+    packet = node.build(
         width=1024,
         height=1024,
         seed=9,
@@ -844,6 +1033,8 @@ def test_ideogram_director_rejects_non_english_output_language(monkeypatch):
         translate_output="한국어",
     )
 
-    assert not isinstance(result, dict)
+    if isinstance(packet, dict):
+        assert packet["ui"]["idd_translate"][0]["language"] == "English"
+    result = _director_result(packet)
     prompt = json.loads(result[0])
     assert prompt["high_level_description"] == "a cat in the sky"

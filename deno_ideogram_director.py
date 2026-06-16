@@ -34,6 +34,9 @@ except Exception:  # pragma: no cover - exercised only outside ComfyUI
     _HAS_COMFY = False
 
 _OUTPUT_LANGUAGE_CHOICES = list(translate_engine.DIRECTOR_OUTPUT_CHOICES)
+LEGACY_VIEW_ORIGINAL_DISPLAY = "Original (as written)"
+VIEW_LANGUAGE_DEFAULT = translate_engine.DIRECTOR_ENGLISH_DISPLAY
+_VIEW_LANGUAGE_CHOICES = list(translate_engine.TARGET_LANGUAGE_CHOICES)
 PENDING_EVENT = "deno-ideogram-director-pending"
 PENDING_MESSAGE = (
     "A new incoming JSON prompt is waiting. Choose Apply and Replace or Keep Current Board "
@@ -283,6 +286,33 @@ def _assemble_caption(aspect_ratio, include_aspect_ratio, background, high_level
         "elements": elements,
     }
     return caption
+
+
+def _normalize_view_language(view_language):
+    code = translate_engine.code_for_display(view_language)
+    if not code or code == "auto":
+        return VIEW_LANGUAGE_DEFAULT
+    display = translate_engine.display_for_code(code)
+    if display in _VIEW_LANGUAGE_CHOICES:
+        return display
+    return VIEW_LANGUAGE_DEFAULT
+
+
+def _translate_caption_for_view(caption, source_language="auto", view_language=VIEW_LANGUAGE_DEFAULT):
+    """Translate an Ideogram caption for the editor view.
+
+    This is display/editing translation only. Literal TEXT element values stay untouched so signs,
+    logos, poster words, and user-authored text do not change accidentally.
+    """
+    view_language = _normalize_view_language(view_language)
+    target_code = translate_engine.code_for_display(view_language) or "en"
+    translated, changed, sent = translate_engine.translate_caption(
+        caption,
+        source_language or "auto",
+        target_code,
+        {"translate_text_fields": False},
+    )
+    return translated, changed, sent, translate_engine.display_for_code(target_code)
 
 
 def _bbox_pixels(boxes, width, height):
@@ -595,7 +625,14 @@ class DenoIdeogramDirector:
                 # English Prompt mode. The board stays in the user's language; only the final
                 # prompt emitted by this node is converted to model-ready English when enabled.
                 "translate_output": (_OUTPUT_LANGUAGE_CHOICES, {
-                    "default": translate_engine.ORIGINAL_DISPLAY,
+                    "default": translate_engine.DIRECTOR_ENGLISH_DISPLAY,
+                    **SL,
+                }),
+                # Language translates the editable board text for the user's local reading/editing
+                # comfort. The final output stays model-ready English; literal TEXT element values
+                # are never translated by the helper.
+                "view_language": (_VIEW_LANGUAGE_CHOICES, {
+                    "default": VIEW_LANGUAGE_DEFAULT,
                     **SL,
                 }),
                 # forceInput: import_json is meant to be WIRED (upstream LLM / Prompt-Text caption JSON),
@@ -619,7 +656,7 @@ class DenoIdeogramDirector:
                    "regenerate in place. Wire 'prompt' into the positive CLIPTextEncode.")
 
     @classmethod
-    def VALIDATE_INPUTS(cls, import_mode=None, translate_output=None):
+    def VALIDATE_INPUTS(cls, import_mode=None, translate_output=None, view_language=None):
         # Listing import_mode here makes ComfyUI SKIP the strict combo-membership check for it.
         # Workflows saved across node updates can carry a stale/shifted value (e.g. "") in that slot;
         # rejecting the whole prompt for it ("Value not in list") bricks the node for those users.
@@ -631,11 +668,16 @@ class DenoIdeogramDirector:
               backdrop=None, import_json="", import_mode=IMPORT_REVIEW,
               caption_data="", seed_lock=True, auto_save=False, save_prefix="Ideogram_Director",
               aspect_ratio="1:1", include_aspect_ratio=False,
-              translate_output=translate_engine.ORIGINAL_DISPLAY, unique_id=None):
+              translate_output=translate_engine.DIRECTOR_ENGLISH_DISPLAY,
+              view_language=VIEW_LANGUAGE_DEFAULT, unique_id=None):
         # `backdrop` (optional IMAGE) is shown on the board only; it never enters the caption JSON.
         import_mode = _normalize_import_mode(import_mode)
         if translate_output not in _OUTPUT_LANGUAGE_CHOICES:
             translate_output = translate_engine.ORIGINAL_DISPLAY
+        view_language = _normalize_view_language(view_language)
+        view_language_code = translate_engine.code_for_display(view_language)
+        if view_language_code and translate_output == translate_engine.ORIGINAL_DISPLAY:
+            translate_output = translate_engine.DIRECTOR_ENGLISH_DISPLAY
         if not isinstance(caption_data, str):
             caption_data = ""
         if not isinstance(import_json, str):
@@ -666,12 +708,13 @@ class DenoIdeogramDirector:
         if target_code:
             prompt, out_width, out_height, out_seed, out_bboxes = result
             target_display = translate_engine.display_for_code(target_code)
+            source_code = view_language_code if view_language_code and view_language_code != target_code else "auto"
             try:
                 caption = translate_engine.loads_caption(prompt)
                 if caption is not None:
                     translated, changed, sent = translate_engine.translate_caption(
                         caption,
-                        "auto",
+                        source_code,
                         target_code,
                         {"translate_text_fields": False},
                     )
@@ -686,7 +729,7 @@ class DenoIdeogramDirector:
                         ),
                     }
                 else:
-                    prompt = translate_engine.translate_text(prompt, "auto", target_code)
+                    prompt = translate_engine.translate_text(prompt, source_code, target_code)
                     result = (prompt, out_width, out_height, out_seed, out_bboxes)
                     translation_payload = {
                         "ok": True,
@@ -731,6 +774,34 @@ class DenoIdeogramDirector:
 # --------------------------------------------------------------------------- #
 
 if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
+
+    @PromptServer.instance.routes.post("/deno/ideogram_director/translate_caption")
+    async def _deno_ideogram_director_translate_caption(request):  # pragma: no cover - needs ComfyUI
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json body"}, status=400)
+
+        caption = data.get("caption")
+        if not isinstance(caption, dict):
+            return web.json_response({"error": "caption must be an object"}, status=400)
+
+        target = data.get("target") or data.get("view_language") or VIEW_LANGUAGE_DEFAULT
+        source = data.get("source") or "auto"
+        try:
+            translated, changed, sent, display = _translate_caption_for_view(caption, source, target)
+        except Exception as exc:
+            return web.json_response({
+                "error": "translation failed",
+                "error_type": type(exc).__name__,
+            }, status=502)
+
+        return web.json_response({
+            "caption": translated,
+            "changed": changed,
+            "sent": sent,
+            "language": display,
+        })
 
     @PromptServer.instance.routes.post("/deno/ideogram_director/save")
     async def _deno_ideogram_director_save(request):  # pragma: no cover - needs ComfyUI

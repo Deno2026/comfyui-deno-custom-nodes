@@ -37,6 +37,7 @@ ORIGINAL_ALIASES = frozenset({
     "Off",
     "No translation",
     "No translation (keep as written)",
+    "Original (as written)",
 })
 
 LANG_DISPLAY = {
@@ -226,7 +227,7 @@ def should_skip_translation(text: str, src: str, tgt: str) -> bool:
         return True
     if src_code and src_code != "auto" and src_code == tgt_code:
         return True
-    if tgt_code == "en" and all(ord(ch) < 128 for ch in text):
+    if src_code == "auto" and tgt_code == "en" and all(ord(ch) < 128 for ch in text):
         return True
     return False
 
