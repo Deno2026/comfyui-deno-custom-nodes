@@ -8,9 +8,23 @@ For routing, read `docs/NODE_WORK_INDEX.md`.
 
 For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
 
+## 0. Product Contract Memory Gate
+
+- Treat the matching `docs/nodes/...` document as the node's Product Contract, not a background note.
+- The Product Contract must preserve the user's intent across context compaction: purpose, core values, required behaviors, UI labels, state transitions, rejection/fallback rules, and "do not break" items.
+- Before code or UI changes, read the Product Contract and implement against it. Do not rebuild behavior from memory or from the latest visible bug alone.
+- If the user clarifies how a node should behave in situation A/B, what a button should mean, what must never be silently changed, or what workflow value matters most, update the node document before or alongside the code.
+- If the user says the current direction is wrong and chooses another approach, treat that as a contract pivot. Update the node document first, then continue coding from the new philosophy/implementation point.
+- If the Product Contract is stale, missing, or conflicts with the current request, resolve that explicitly before changing implementation files.
+- A non-trivial node change is not finished if the code changed but the Product Contract still describes the old behavior.
+
 ## 1. Start From The User Outcome
 
 - Confirm what counts as success in ComfyUI, not just what code should exist.
+- Treat this document as a minimum safety net, not a closed checklist. After reading it, still reconstruct the user's exact action path and infer neighboring failure modes that are not written here.
+- For every real bug report, write or hold the path in your head as user actions, for example `change value -> save -> F5 -> reopen -> run`, then verify that path directly.
+- Before saying a fix is complete, check at least two plausible adjacent risks outside the written checklist when the change touches frontend state, widget order, saved workflows, runtime sync, release packaging, or user-visible data.
+- If this document or an old handoff says a behavior is already safe but the user's current runtime proves otherwise, the runtime wins. Investigate beyond the document and then update the document with the broader pattern.
 - Preserve existing behavior unless the user explicitly asks to remove it.
 - When the user says "add and make default", do not replace old options.
 - Confirm the finished node still matches the user's intended workflow, not only the implementation plan.
@@ -21,6 +35,12 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
 
 - Main source repo: `E:\DENO-Repos\comfyui-deno-custom-nodes`.
 - Active install: `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`.
+- ComfyUI Desktop is a separate runtime surface. Its app is usually
+  `C:\Users\aions\AppData\Local\Programs\ComfyUI\Comfy Desktop.exe`, but its base path comes from
+  `C:\Users\aions\AppData\Roaming\ComfyUI\config.json` and its DENO node folder may be named
+  `comfyui-deno-custom-nodes` instead of `deno-custom-nodes`.
+- Use `docs/COMFYUI_RUNTIME_MATRIX.md` and `tools/comfyui_runtime_matrix.ps1` before assuming which
+  runtime or custom-node folder is being tested.
 - Patch the source repo first.
 - Copy only changed files into the active install.
 - Compare file hashes before trusting ComfyUI runtime behavior.
@@ -33,15 +53,15 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
 - Do not rely on the canvas screenshot alone; check the backend contract too.
 - For ComfyUI UI/runtime verification, use the fixed API-first, browser-last route:
   1. Check source/runtime file hashes and copy only changed runtime-visible files.
-  2. Classify the runtime before restart: is port `8188` already owned by the intended Easy Install `ComfyUI\main.py`, are there duplicate `main.py` processes, and is a SageAttention BAT shell already open?
+  2. Classify the runtime before restart: is the target port already owned by the intended runtime `ComfyUI\main.py`, are there duplicate `main.py` processes, and is the matching visible launcher shell already open?
   3. For JS/static-only edits, prefer no backend restart: hash-match runtime file, fetch the served JS marker from the same URL/port, then hard-refresh/reopen the browser tab. Restart only if the served file is stale, the extension list needs reload, or the backend contract changed.
-  4. For backend/registration/dependency or `/object_info` changes, check `/queue`; if idle, stop only the identified active-runtime `main.py` and matching BAT shell, confirm port `8188` is released, then start once through the user's visible shortcut.
+  4. For backend/registration/dependency or `/object_info` changes, check `/queue`; if idle, stop only the identified active-runtime `main.py` and matching launcher shell, confirm the target port is released, then start once through the user's visible shortcut.
   5. Never start a new ComfyUI first and clean up afterward. Never use a broad kill that can take down unrelated test ports, Claude, Node, launchers, or other ComfyUI installs.
   6. Check `/object_info/<NodeName>` and served extension JS marker strings from the same URL/port the user is viewing.
   7. Verify behavior through tests, backend logs, `/prompt`, `/history`, and WebSocket/custom progress events before touching the browser.
   8. Use the browser only after those checks pass: refresh or reopen a disposable canvas, add/load the changed node, take one focused screenshot, check console errors, and interact only with controls that need visual proof.
   9. Do not spend time scraping `window.app`, LiteGraph node ids, or broad DOM state from the browser. If node ids or execution state matter, create a disposable API workflow with known ids or observe WebSocket events instead.
-  10. If the Codex in-app Browser / Chrome plugin control channel is closed, run `tools/comfyui_cdp_probe.ps1` before asking the user for help. It uses local Chrome DevTools with a temporary profile, needs no extra install, and returns a focused screenshot plus title/body state for `http://127.0.0.1:8188/`. Use `-Visible -KeepOpen` when a separate disposable Chrome window is better than touching the user's current tab.
+  10. If the Codex in-app Browser / Chrome plugin control channel is closed, run `tools/comfyui_cdp_probe.ps1` before asking the user for help. It uses local Chrome DevTools with a temporary profile, needs no extra install, and returns a focused screenshot plus title/body state for the target ComfyUI URL. Use `-Visible -KeepOpen` when a separate disposable Chrome window is better than touching the user's current tab.
   11. Ask the user for F5/Ctrl+R, close/reopen, or a visible side-panel setup only when the CDP fallback cannot prove the visual state or the task specifically needs hover/click interaction in the user's live browser. Do not keep looping on browser internals.
 
 ## 4. README And Visual Proof Are Part Of The Product
@@ -64,10 +84,26 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
 - Canvas-drawn tooltips are clipped by the node/widget draw region. If helper text must extend outside the node frame, mount a `position: fixed` DOM overlay on `document.body`, clamp it to the viewport, and hide it on hover leave.
 - Dynamic rows need both row-level behavior and node-level fallback context menus.
 - Node size can reset if `computeSize`, `setSize`, or custom draw logic fights the user's manual resize.
+- ComfyUI's node context menu `Recreate node` is its own restore path. For custom DOM nodes, test
+  right-click `Recreate node` with both `Keep widget values` and `Reset widget values` when geometry,
+  widget order, saved values, or generated controls changed; fresh-node and normal F5 tests can miss
+  this path.
+- Portable/Easy-Install and Desktop can disagree. Desktop uses a different frontend root,
+  Electron shell, default port, base path, window size, and sometimes a different custom-node folder
+  name. A geometry fix that passes in the browser can still collapse in Desktop. For custom DOM
+  nodes, run the same click/resize/F5 path in Desktop before claiming a public hotfix is safe.
 - Media preview nodes must not call `setSize` on every image/video load after the user has resized the node. Auto-fit only for a first useful default or an explicit fit command; otherwise contain/letterbox the media inside the user's chosen node box.
 - Expanding/collapsing one area must not accidentally resize unrelated text areas.
 - If a value should persist across workflow reloads, do not normalize it back to defaults during frontend setup.
-- Old/public saved workflows can carry a different widget serialization layout than the current node (removed display widgets, added/reordered fields), so the saved `widgets_values` array length or shape may not match. When it can differ, normalize it inside a `configure()` wrap *before* LiteGraph restores values, not only in `onConfigure`/setup, or saved values drift by position and real inputs are lost. Mirror `DenoLTX23PresetLoader.getNormalizedLtxSerializedValues` (`web/js/deno_extra_nodes.js`); `DenoLTXPromptGuide` uses the same pattern to migrate the public `v0.3.8` 7-value layout to the current 5-value layout. Always test both an old saved-layout fixture and a fresh node — public workflow fixtures live in `tests/fixtures/public_workflows/` and are guarded by `tests/test_public_workflow_migration.py`.
+- Old/public saved workflows can carry a different widget serialization layout than the current node (removed display widgets, added/reordered fields), so the saved `widgets_values` array length or shape may not match. When it can differ, normalize it inside a `configure()` wrap *before* LiteGraph restores values, not only in `onConfigure`/setup, or saved values drift by position and real inputs are lost. Mirror `DenoLTX23PresetLoader.getNormalizedLtxSerializedValues` (`web/js/deno_extra_nodes.js`). For `DenoLTXPromptGuide`, the saved canonical values are the real 5 controls, but runtime configure may need 7 slots because generated display widgets are already inserted; expand around generated widgets only for configure, then reapply by widget name. Always test both an old saved-layout fixture and a fresh node — public workflow fixtures live in `tests/fixtures/public_workflows/` and are guarded by `tests/test_public_workflow_migration.py`.
+- Any node that exposes editable text or model selections must pass a real save survival gate: change visible values, serialize through the actual ComfyUI graph/workflow save path, reload/F5 or `graph.configure()` that exact data, and confirm every value is still under the same visible label. A node that cannot preserve prompts, negative prompts, toggles, model paths, or numeric values across Save -> F5 -> reopen is a blocker, even if backend execution tests pass.
+- ComfyUI/LiteGraph combo restore can clamp a saved value to a default before custom setup runs when the saved value is not in the current option list, such as models from `extra_model_paths.yaml`. If the user-selected value must survive F5/reload, store the normalized saved `widgets_values` during `configure()` before LiteGraph mutates widgets, then reapply that saved array during setup before sanitizing. Do not rely on `node.widgets_values` after `configure()` as the source of truth.
+- Saved Local LLM model values must be preserved without pretending they are installed on another
+  PC. If a saved Ollama/LM Studio model is absent from the current detected provider list, show a
+  reversible unavailable value such as `Missing saved model: <model>`, preserve the original id
+  inside that display text, and reject Run/Stop/Unload before sending provider requests. If
+  `Refresh Models` later returns the exact model, restore the normal model label.
+- A node can pass code tests while the real canvas is visibly shifted by one row, such as a `gguf_unet` row showing a VAE file and each following row receiving the previous field's value. This is a hard verification failure. After touching widget order, hidden widgets, combo/default lists, mode tabs, or migration logic, verify the visible row-label to value-kind mapping in a fresh node and in a saved-node/migration case. Check that each row's label, displayed value, widget `name`, serialized `widgets_values` position, and backend input field still point to the same concept.
 
 ### Frontend Layout Guardrails
 
@@ -91,6 +127,11 @@ Use these before editing custom ComfyUI frontend JS. They are distilled from the
 - Never wipe saved selections just because the old frontend cache does not know the value yet.
 - Keep a safe fallback to existing widget options if the live refresh fails.
 - For streaming local-server calls, a clean HTTP status is not proof of a valid result. If a stream ends without a final message, do not return an empty successful output. Run a diagnostic non-stream request when available, surface provider errors such as context-length overflow, and add a regression test for that empty-stream path.
+- For local LLM provider options, "off" is not always a safe value to send. Some LM Studio models
+  reject unsupported configuration fields even when the value disables the feature. Optional
+  provider fields such as native `reasoning` should be capability-aware: send the disabled value only
+  when the model reports support for it, otherwise omit the field. Tests should assert
+  supported-disabled, unsupported-disabled, and enabled payloads.
 
 ## 7. Resize And Image Batch Rules
 
@@ -122,25 +163,31 @@ Use these before editing custom ComfyUI frontend JS. They are distilled from the
 Run this before saying a node is done:
 
 1. `git diff --stat` and inspect the changed files.
-2. Python compile for changed Python files.
-3. `node --check` for changed JS files.
-4. Existing tests, using inline test execution if `pytest` is unavailable.
-5. Sync source to active install.
-6. Compare hashes between source and active install.
-7. Restart ComfyUI only if required. For JS/static-only edits, prefer source/runtime hash + served JS marker + hard browser refresh. For backend/registration changes, replace the active runtime in order: inspect port/processes -> queue idle -> stop only the matching active-runtime `main.py` and BAT shell -> confirm old PID/port is gone -> launch once through the visible shortcut.
-8. Confirm `/object_info` for changed nodes.
-9. If frontend changed, confirm served JS contains the new behavior.
-10. For public node registration/display changes, confirm `node_list.json` matches the public `NODE_CLASS_MAPPINGS` IDs and display names, then run registry metadata tests. Hidden aliases, paused WIP nodes, and compatibility-only replacements must not appear in `node_list.json`.
-11. Before release, inspect ComfyUI Manager or its `extension-node-map.json`/Registry view for stale node counts and stale node IDs. If Manager still shows only `DenoResolutionSetup` or an old count, discovery is not complete.
-12. Before public release, run or obtain a separate GPT5.5 Xhigh reviewer report for the exact release scope. This is in addition to the implementing agent's own checks.
-13. The GPT5.5 Xhigh review must explicitly check frontend/backend contract sync: every backend feature has a real frontend path or an explicit compatibility-only migration/rejection path, every frontend control has a backend effect, added features work on both sides, and removed features are removed from both sides. Ghost features are release blockers.
-14. Hard gate for UI/frontend work: open a disposable blank workflow in the real ComfyUI frontend and add or load the changed node. Do not use the user's active workflow unless the user explicitly allows it.
-15. Actually interact with the node, not just inspect code: click every affected visible button, toggle, dropdown, popup, expander, refresh action, and More/Less control. Test resize grow and shrink when relevant.
-16. Check that wheel over the node still controls ComfyUI canvas zoom/scroll and middle-click / wheel-click drag still pans the canvas unless the pointer is inside a deliberate local scroll area.
-17. Run the frontend geometry gate in the screenshot: no clipped text, no overlapping widget Y positions, panels stay inside the node frame, toggles do not shift unrelated rows, resize grows and shrinks, F5/reopen does not duplicate widgets, lower blank space lets canvas wheel/middle-click work, and a short viewport or zoomed canvas still reads correctly.
-18. If backend inputs, widget order, hidden fields, or frontend migration changed, load or simulate an old saved-node case. Fresh-node testing alone is not enough.
-19. For complex multi-part nodes, test each major function and make sure one fix did not break another feature.
-20. Explain what was verified and what still requires browser-side user confirmation. If the real canvas UI gate was not completed, say so plainly and do not call the node done.
+2. State the exact user action path being fixed, and do not mark done until that path is directly verified or explicitly reported as unverified.
+3. Python compile for changed Python files.
+4. `node --check` for changed JS files.
+5. Existing tests, using inline test execution if `pytest` is unavailable.
+6. Sync source to active install.
+7. Compare hashes between source and active install.
+8. Run the runtime matrix when runtime behavior matters. For custom frontend/geometry/interaction
+   fixes, verify Easy-Install and ComfyUI Desktop separately when Desktop is installed. If one
+   runtime is unavailable, mark that gate `UNVERIFIED`.
+9. Restart ComfyUI only if required. For JS/static-only edits, prefer source/runtime hash + served JS marker + hard browser refresh. For backend/registration changes, replace the active runtime in order: inspect port/processes -> queue idle -> stop only the matching active-runtime `main.py` and BAT shell -> confirm old PID/port is gone -> launch once through the visible shortcut.
+10. Confirm `/object_info` for changed nodes.
+11. If frontend changed, confirm served JS contains the new behavior.
+12. For public node registration/display changes, confirm `node_list.json` matches the public `NODE_CLASS_MAPPINGS` IDs and display names, then run registry metadata tests. Hidden aliases, paused WIP nodes, and compatibility-only replacements must not appear in `node_list.json`. For new or unreleased nodes, align the internal ID with the final display name before release: keep the `Deno` prefix and make the words after it match the display name words as closely as possible. Do not rename already-public internal IDs just for Manager cosmetics.
+13. Before release, inspect ComfyUI Manager or its `extension-node-map.json`/Registry view for stale node counts and stale node IDs. If Manager still shows only `DenoResolutionSetup` or an old count, discovery is not complete.
+14. Before public release, run or obtain a separate GPT5.5 Xhigh reviewer report for the exact release scope. This is in addition to the implementing agent's own checks.
+15. The GPT5.5 Xhigh review must explicitly check frontend/backend contract sync: every backend feature has a real frontend path or an explicit compatibility-only migration/rejection path, every frontend control has a backend effect, added features work on both sides, and removed features are removed from both sides. Ghost features are release blockers.
+16. Hard gate for UI/frontend work: open a disposable blank workflow in the real ComfyUI frontend and add or load the changed node. Do not use the user's active workflow unless the user explicitly allows it.
+17. Actually interact with the node, not just inspect code: click every affected visible button, toggle, dropdown, popup, expander, refresh action, and More/Less control. Test resize grow and shrink when relevant.
+18. Check that wheel over the node still controls ComfyUI canvas zoom/scroll and middle-click / wheel-click drag still pans the canvas unless the pointer is inside a deliberate local scroll area.
+19. Run the frontend geometry gate in the screenshot: no clipped text, no overlapping widget Y positions, panels stay inside the node frame, toggles do not shift unrelated rows, resize grows and shrinks, F5/reopen does not duplicate widgets, lower blank space lets canvas wheel/middle-click work, and a short viewport or zoomed canvas still reads correctly.
+20. Hard row-mapping gate: if backend inputs, widget order, hidden fields, combo/default lists, mode tabs, or frontend migration changed, inspect the real canvas row by row. A fresh node and a saved-node/migration case must both show the correct value kind under the correct label; for example `.gguf` under GGUF, VAE files under VAE, text encoders under text encoder, and projections under text projection. Any one-slot shift is a blocker.
+21. If backend inputs, widget order, hidden fields, or frontend migration changed, load or simulate an old saved-node case. Fresh-node testing alone is not enough.
+22. For complex multi-part nodes, test each major function and make sure one fix did not break another feature.
+23. Name the adjacent risks that were checked beyond the written checklist, or say explicitly why none applied.
+24. Explain what was verified and what still requires browser-side user confirmation. If the real canvas UI gate was not completed, say so plainly and do not call the node done.
 
 ## 11. Saved Workflow Migration Gate
 
@@ -181,6 +228,7 @@ Run this before saying a node is done:
   - Optional node help markdown under the frontend `WEB_DIRECTORY/docs/` path when users need in-app documentation.
 - Include both exact technical names and beginner search phrases. Example: `bernini`, `bernini prompt guide`, `bernini conditioning`, `wan-2.2`, `wan2.2`, `reference video edit`, `system prompt`, `prompt guide`, `kj bernini`.
 - Only release-approved nodes belong in public discovery metadata. If a WIP node is registered locally for testing, keep it out of the public release branch's `NODE_CLASS_MAPPINGS`, `node_list.json`, pyproject, README, screenshots, and packaged assets until the user approves that node for release.
+- For new or unreleased nodes, treat internal node ID naming as part of discovery metadata. If the display name changes before first public release, rename the internal `Deno...` ID at the same time so Manager's Nodes tab does not permanently expose a stale development name.
 - Before release, run metadata tests and search the repo for the new feature keywords.
 - After publish, query Comfy Registry/Manager search for the important terms. GitHub topics can update immediately, but Registry/Manager metadata generally requires a new version publish.
 - For Manager node-list visibility, verify that the generated/served `extension-node-map.json` contains every public DENO node ID expected from `node_list.json`.

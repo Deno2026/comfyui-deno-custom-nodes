@@ -758,9 +758,11 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.16-rail-scroll-h"' in script
+    assert 'const IDD_REV = "r2026.06.16-recreate-size-j"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
+    assert "const fitTopBarSoon = () =>" in script
+    assert "const recreatedTooSmall = marked && (sw < IDD_MIN_W || sh < IDD_MIN_H)" in script
     assert "guardedComputeSize._denoIddComputeSizeGuard = true" in script
     assert "setTimeout(installIddComputeSizeGuard, 250)" in script
     assert "const iddSizeValue = (size, index, fallback = 0) => iddPositive(size && size[index], fallback)" in script

@@ -577,7 +577,7 @@ class DenoIdeogramDirector:
                 "backdrop":    ("IMAGE", {"tooltip": "Shown on the board as a layout backdrop to "
                                           "trace over — NOT used for generation (never enters the prompt)."}),
                 # UI-managed state — real (optional) widgets so their values serialize and reach build();
-                # socketless so they carry no left-edge connection dot. (NOT ComfyUI "hidden": that is server-
+                # socketless so they carry no left-edge socket. (NOT ComfyUI "hidden": that is server-
                 # injected UNIQUE_ID/PROMPT/... and would never carry the editor's box state to build.)
                 "import_mode":  (list(IMPORT_MODE_CHOICES), {"default": IMPORT_REVIEW, **SL}),
                 "caption_data": ("STRING", {"default": "", **SL}),

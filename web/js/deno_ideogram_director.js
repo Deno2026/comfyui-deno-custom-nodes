@@ -621,6 +621,10 @@
   background:#121614 !important;
   border:1px solid rgba(255,255,255,.09) !important;
   border-radius:8px !important;
+  width:100% !important;
+  min-width:0 !important;
+  max-width:100% !important;
+  align-self:stretch !important;
   color:var(--txt) !important;
   font:12px/1.45 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif !important;
   -webkit-font-smoothing:antialiased;
@@ -863,7 +867,21 @@
 
 /* ── control-ergonomics pass (r2026.06.11-n) ── */
 /* primary action: biggest target in the bar, terminal position */
-.idd-regen{padding:7px 22px !important;font-size:12.5px !important;}
+.idd-top{min-width:0 !important;overflow:hidden !important;}
+.idd-top > *{min-width:0;}
+.idd-sp{min-width:4px;}
+.idd-regen{padding:7px 0 !important;font-size:12.5px !important;flex:0 0 84px !important;
+  min-width:84px !important;max-width:84px !important;text-align:center;white-space:nowrap;overflow:hidden;}
+.idd-wrap.idd-topfit .idd-top{gap:6px !important;padding-left:7px !important;padding-right:7px !important;}
+.idd-wrap.idd-topfit .idd-btn.idd-toplay{padding-left:10px !important;padding-right:10px !important;max-width:124px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.idd-wrap.idd-topfit .idd-importbtn{min-width:82px;max-width:144px;}
+.idd-wrap.idd-topfit .idd-langbtn{min-width:78px;max-width:104px;}
+.idd-wrap.idd-topfit .idd-res{max-width:124px;overflow:hidden;text-overflow:ellipsis;}
+.idd-wrap.idd-topfit .idd-seedpill .idd-seedlbl{display:none;}
+.idd-wrap.idd-topfit .idd-seedpill .idd-seed{width:38px;}
+.idd-wrap.idd-topfit .idd-seedopt{padding-left:5px;padding-right:5px;}
+.idd-wrap.idd-topfit .idd-regen{flex-basis:78px !important;min-width:78px !important;max-width:78px !important;}
 /* seed pill: label + number + lock read as ONE control */
 .idd-seedpill{display:inline-flex;align-items:center;gap:0;flex:0 0 auto;border:1px solid rgba(255,255,255,.08);
   border-radius:6px;background:#0c100e;overflow:hidden;}
@@ -977,7 +995,7 @@
     s.textContent = `
       .idd-wrap{--g:#48ff84;--gdim:rgba(72,255,132,.30);--gfaint:rgba(72,255,132,.13);
         --txt:#dfffea;--acc:#9dffba;--dim:#6f9a80;--red:rgba(150,40,40,.95);
-        display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden;height:100%;
+        display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden;width:100%;min-width:0;max-width:100%;height:100%;align-self:stretch;
         background:rgba(3,10,7,.97);border:1px solid var(--gdim);border-radius:10px;
         color:var(--txt);font:12px 'Segoe UI',sans-serif;}
       /* fullscreen: break out to a viewport overlay. !important beats ComfyUI's per-frame inline styles. */
@@ -1077,8 +1095,8 @@
       .idd-rescustom input:focus{border-color:var(--gdim);} .idd-rescustom .x{color:var(--dim);}
       .idd-rescustom button{cursor:pointer;background:var(--g);color:#041208;border:none;border-radius:6px;
         font:bold 11px 'Segoe UI';padding:5px 11px;margin-left:auto;}
-      .idd-body{display:flex;flex:1 1 auto;min-height:0;}
-      .idd-board{position:relative;flex:1 1 auto;min-width:0;background:
+      .idd-body{display:flex;flex:1 1 auto;width:100%;min-width:0;min-height:0;}
+      .idd-board{position:relative;flex:1 1 320px;min-width:260px;background:
         radial-gradient(120% 100% at 50% 0%,#06120c 0%,#020403 70%);overflow:hidden;}
       .idd-board img{position:absolute;object-fit:fill;pointer-events:none;}
       .idd-bdrop{z-index:0;pointer-events:none;}
@@ -1447,17 +1465,37 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.16-rail-scroll-h";
+        const IDD_REV = "r2026.06.16-recreate-size-j";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
         const IDD_MIN_W = 760;
         const IDD_MIN_H = 560;
+        Object.assign(wrap.style, {
+          width: "100%",
+          minWidth: "0",
+          maxWidth: "100%",
+          height: "100%",
+          alignSelf: "stretch",
+        });
         wrap.dataset.iddRev = IDD_REV;
         try { console.log("[IdeogramDirector] frontend " + IDD_REV); } catch (e) {}
 
         // ── top bar ──
         const top = el("div", "idd-top");
+        let fitTopQueued = false;
+        const fitTopBarSoon = () => {
+          if (fitTopQueued) return;
+          fitTopQueued = true;
+          requestAnimationFrame(() => {
+            fitTopQueued = false;
+            wrap.classList.remove("idd-topfit");
+            if (!top.clientWidth) return;
+            const tooNarrow = (wrap.clientWidth || IDD_DEFAULT_W) < 830;
+            const overflows = top.scrollWidth > top.clientWidth + 1;
+            wrap.classList.toggle("idd-topfit", tooNarrow || overflows);
+          });
+        };
         // seed group: labeled pill [ Seed | number | lock ] — a bare number means nothing to a new
         // user; the mode buttons show Fixed (reuse this seed) / Random (roll a new one each run).
         const seedPill = el("span", "idd-seedpill"); stop(seedPill);
@@ -1491,7 +1529,10 @@
         // user hasn't generated anything yet — "re-" reads like someone else's verb).
         const regen = el("button", "idd-regen"); regen.textContent = "Generate";
         regen.title = "Run the graph with this caption · Ctrl+Enter";
-        const paintRegen = () => { regen.textContent = node._idd && node._idd._last ? "Regenerate" : "Generate"; };
+        const paintRegen = () => {
+          regen.textContent = node._idd && node._idd._last ? "Regenerate" : "Generate";
+          fitTopBarSoon();
+        };
         const info = el("div", "idd-i"); info.textContent = "i"; info.title = "Edit the JSON caption on the board, then Generate.";
         const fsBtn = el("div", "idd-i idd-fsbtn"); fsBtn.textContent = "⛶"; fsBtn.title = "Fullscreen (Esc to close)";
         // Layout presets gallery lives in the TOP bar (left cluster) for quick reach.
@@ -1560,6 +1601,7 @@
             : "Incoming JSON Prompt: fill an empty board automatically, then ask before replacing existing boxes.";
           importBtn.classList.toggle("on", mode === IMPORT_AUTO);
           importBtn.classList.remove("pending", "error");
+          fitTopBarSoon();
         }
         function paintPendingPrompt() {
           const hasPending = !!pendingImport;
@@ -1573,6 +1615,7 @@
           importBtn.title = pendingImport.invalid
             ? "The incoming JSON prompt is not valid JSON. Regenerate it, or keep the current board and run again."
             : "A new incoming JSON prompt is waiting. Applying it will replace the current boxes and board layout.";
+          fitTopBarSoon();
         }
         async function queueAfterIncomingPromptDecision() {
           try {
@@ -1854,6 +1897,7 @@
           translateBtn.title = val === NO_TRANSLATION
             ? "Turn on to output model-ready English. Source language is detected automatically."
             : "Descriptions output in English. Exact TEXT words stay as typed.";
+          fitTopBarSoon();
         }
         function openTranslateDialog() {
           const modal = el("div", "idd-modal"); modal.tabIndex = -1;
@@ -2137,6 +2181,7 @@
         function paintRes() {                                // committed state → the top-bar chip
           const cw = Math.max(64, Math.round(+getW("width", 1024))), ch = Math.max(64, Math.round(+getW("height", 1024)));
           resBtn.textContent = (arLabel ? arLabel + " · " : "") + cw + "×" + ch + " ▾";
+          fitTopBarSoon();
         }
         // display label (arLabel: "16:9" / "≈16:9" / "") and the MACHINE aspect_ratio widget value are
         // separate: the widget holds an exact "W:H" (a clean ratio or the pixel pair, as the official
@@ -2155,6 +2200,7 @@
         // low-frequency fullscreen joins the board's view cluster instead of crowding the corner.
         top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, seedPill, regen);
         paintRes();   // always populate the resolution chip on creation (not just on restore)
+        setTimeout(fitTopBarSoon, 0);
 
         // ── body: board + rail ──
         const body = el("div", "idd-body");
@@ -3302,7 +3348,8 @@
           const savedSize = Array.isArray(node._iddConfiguredSize) ? node._iddConfiguredSize : (node.size || []);
           const sw = Number(savedSize[0]) || IDD_DEFAULT_W;
           const sh = Number(savedSize[1]) || IDD_DEFAULT_H;
-          const next = marked
+          const recreatedTooSmall = marked && (sw < IDD_MIN_W || sh < IDD_MIN_H);
+          const next = marked && !recreatedTooSmall
             ? [Math.max(IDD_MIN_W, sw), Math.max(IDD_MIN_H, sh)]
             : [IDD_DEFAULT_W, IDD_DEFAULT_H];
           props.idd_size_rev = IDD_SIZE_REV;
@@ -3312,7 +3359,7 @@
           iddUseConfiguredSize = false;
           node._iddConfiguredSize = null;
           installIddComputeSizeGuard();
-          node.setDirtyCanvas(true, true); layoutStage();
+          node.setDirtyCanvas(true, true); layoutStage(); fitTopBarSoon();
         }, 0);
         setTimeout(installIddComputeSizeGuard, 250);
 

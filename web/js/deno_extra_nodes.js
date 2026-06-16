@@ -62,8 +62,23 @@ function patchMultiImageLoader(nodeType, options = {}) {
 function patchLtxPresetLoader(nodeType) {
     const configure = nodeType.prototype.configure;
     nodeType.prototype.configure = function (info) {
-        normalizeLtxLegacyWidgetValues(info);
-        return configure?.apply(this, arguments);
+        const normalized = normalizeLtxLegacyWidgetValues(info);
+        if (normalized) {
+            this.__denoLtxConfiguredWidgetValues = [...normalized];
+        }
+        const result = configure?.apply(this, arguments);
+        if (normalized) {
+            this.__denoLtxConfiguredWidgetValues = [...normalized];
+            queueMicrotask(() => {
+                if (!this.__denoLtxPresetReady) {
+                    return;
+                }
+                applyLtxSerializedValuesToWidgets(this, this.__denoLtxConfiguredWidgetValues);
+                sanitizeLtxWidgetValues(this);
+                this._denoUpdateLtxPresetVisibility?.();
+            });
+        }
+        return result;
     };
 
     const onNodeCreated = nodeType.prototype.onNodeCreated;
@@ -79,6 +94,7 @@ function normalizeLtxLegacyWidgetValues(info) {
     if (normalized) {
         info.widgets_values = normalized;
     }
+    return normalized;
 }
 
 function getNormalizedLtxSerializedValues(values) {
@@ -88,13 +104,58 @@ function getNormalizedLtxSerializedValues(values) {
     if (!LTX_MODE_NAMES.includes(values[0])) {
         return null;
     }
-    if (values.length >= LTX_SERIALIZED_WIDGET_COUNT + 1 && (values[1] === "" || values[1] == null)) {
-        return [values[0], ...values.slice(2, LTX_SERIALIZED_WIDGET_COUNT + 1)];
+    if (values.length >= LTX_SERIALIZED_WIDGET_COUNT + 1 && isEmptyLtxSerializedSlot(values[1])) {
+        const keepCandidate = values.slice(0, LTX_SERIALIZED_WIDGET_COUNT);
+        const dropPlaceholderCandidate = [values[0], ...values.slice(2, LTX_SERIALIZED_WIDGET_COUNT + 1)];
+        if (scoreLtxSerializedCandidate(dropPlaceholderCandidate) > scoreLtxSerializedCandidate(keepCandidate)) {
+            return dropPlaceholderCandidate;
+        }
+        return keepCandidate;
     }
     if (values.length >= LTX_SERIALIZED_WIDGET_COUNT) {
         return values.slice(0, LTX_SERIALIZED_WIDGET_COUNT);
     }
     return null;
+}
+
+function isEmptyLtxSerializedSlot(value) {
+    return value === "" || value == null;
+}
+
+function scoreLtxSerializedCandidate(values) {
+    if (!Array.isArray(values) || values.length < LTX_SERIALIZED_WIDGET_COUNT || !LTX_MODE_NAMES.includes(values[0])) {
+        return -100;
+    }
+
+    const mode = values[0];
+    let score = 0;
+    if (isLtxDeviceValue(values[8])) {
+        score += 1;
+    }
+    if (isNonNoneLtxValue(values[9])) {
+        score += 1;
+    }
+
+    if (mode === "GGUF Style") {
+        score += hasLtxExtension(values[3], ".gguf") ? 8 : 0;
+        score -= looksLikeLtxVaeValue(values[3]) ? 8 : 0;
+        score += looksLikeLtxVaeValue(values[4]) ? 3 : 0;
+        score += looksLikeLtxVaeValue(values[5]) ? 3 : 0;
+        score += hasLtxExtension(values[6], ".safetensors") ? 2 : 0;
+        score += hasLtxExtension(values[7], ".safetensors") ? 2 : 0;
+        score -= isLtxDeviceValue(values[7]) ? 4 : 0;
+    } else if (mode === "KJ Style") {
+        score += hasLtxExtension(values[2], ".safetensors") ? 4 : 0;
+        score += looksLikeLtxVaeValue(values[4]) ? 3 : 0;
+        score += looksLikeLtxVaeValue(values[5]) ? 3 : 0;
+        score += hasLtxExtension(values[6], ".safetensors") ? 2 : 0;
+        score += hasLtxExtension(values[7], ".safetensors") ? 2 : 0;
+    } else {
+        score += hasLtxExtension(values[1], ".safetensors") ? 4 : 0;
+        score += hasLtxExtension(values[6], ".safetensors") ? 2 : 0;
+    }
+
+    return score;
 }
 
 function applyLtxSerializedValuesToWidgets(node, values) {
@@ -180,8 +241,72 @@ function shouldPreserveStaleLtxModelValue(widgetName, currentValue) {
     return savedValue !== "" && savedValue !== LTX_NONE_VALUE;
 }
 
+function isNonNoneLtxValue(value) {
+    const text = String(value ?? "").trim();
+    return text !== "" && text !== LTX_NONE_VALUE;
+}
+
+function hasLtxExtension(value, extension) {
+    return String(value ?? "").trim().toLowerCase().endsWith(extension);
+}
+
+function looksLikeLtxVaeValue(value) {
+    const text = String(value ?? "").trim().toLowerCase();
+    return text.includes("vae") && text.endsWith(".safetensors");
+}
+
+function isLtxDeviceValue(value) {
+    const text = String(value ?? "").trim();
+    return text === "" || text === LTX_NONE_VALUE || text === "default" || text === "cpu";
+}
+
+function repairShiftedLtxGgufWidgetValues(node) {
+    const mode = getWidget(node, "pipeline_mode")?.value ?? node.properties?.pipeline_mode;
+    if (mode !== "GGUF Style") {
+        return false;
+    }
+
+    const ggufWidget = getWidget(node, "gguf_unet_name");
+    const videoVaeWidget = getWidget(node, "video_vae_name");
+    const audioVaeWidget = getWidget(node, "audio_vae_name");
+    const textEncoderWidget = getWidget(node, "text_encoder_name");
+    const textProjectionWidget = getWidget(node, "text_projection_name");
+    if (!ggufWidget || !videoVaeWidget || !audioVaeWidget || !textEncoderWidget || !textProjectionWidget) {
+        return false;
+    }
+
+    const ggufValue = ggufWidget.value;
+    const videoVaeValue = videoVaeWidget.value;
+    const audioVaeValue = audioVaeWidget.value;
+    const textEncoderValue = textEncoderWidget.value;
+    const textProjectionValue = textProjectionWidget.value;
+
+    const looksShifted =
+        !hasLtxExtension(ggufValue, ".gguf") &&
+        looksLikeLtxVaeValue(ggufValue) &&
+        looksLikeLtxVaeValue(videoVaeValue) &&
+        isNonNoneLtxValue(audioVaeValue) &&
+        isNonNoneLtxValue(textEncoderValue) &&
+        isLtxDeviceValue(textProjectionValue);
+    if (!looksShifted) {
+        return false;
+    }
+
+    const ggufOptions = getComboValues(ggufWidget);
+    const ggufFallback = ggufOptions.find((value) => hasLtxExtension(value, ".gguf")) ?? LTX_NONE_VALUE;
+    ggufWidget.value = ggufFallback;
+    videoVaeWidget.value = ggufValue;
+    audioVaeWidget.value = videoVaeValue;
+    textEncoderWidget.value = audioVaeValue;
+    textProjectionWidget.value = textEncoderValue;
+
+    node.properties = node.properties || {};
+    node.properties.__deno_ltx_shift_repair = "gguf-visible-values-v1";
+    return true;
+}
+
 function sanitizeLtxWidgetValues(node) {
-    let changed = false;
+    let changed = repairShiftedLtxGgufWidgetValues(node);
     for (const widgetName of LTX_SERIALIZED_WIDGET_NAMES) {
         const widget = getWidget(node, widgetName);
         const values = getComboValues(widget);
@@ -324,7 +449,7 @@ function setupLtxPresetLoader(node) {
         }
     }
     reorderWidgetSequence();
-    applyLtxSerializedValuesToWidgets(node, node.widgets_values);
+    applyLtxSerializedValuesToWidgets(node, node.__denoLtxConfiguredWidgetValues || node.widgets_values);
     sanitizeLtxWidgetValues(node);
 
     const migrateLegacyWeightWidget = () => {
@@ -522,8 +647,9 @@ function setupLtxPresetLoader(node) {
     }
 
     setTimeout(() => {
-        applyLtxSerializedValuesToWidgets(node, node.widgets_values);
+        applyLtxSerializedValuesToWidgets(node, node.__denoLtxConfiguredWidgetValues || node.widgets_values);
         sanitizeLtxWidgetValues(node);
+        delete node.__denoLtxConfiguredWidgetValues;
         migrateLegacyWeightWidget();
         applyCompactLabels();
         node._denoUpdateLtxPresetVisibility?.();

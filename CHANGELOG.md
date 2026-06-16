@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.36 - 2026-06-16
+
+- Fixed Ideogram Director's Desktop/Recreate-node sizing path so the editor recovers to a usable board instead of collapsing into a narrow rail or clipping Generate.
+- Fixed LTX Model Loader GGUF rows so saved and fresh nodes keep the correct model/VAE/text-encoder mapping and preserve external model paths across refresh.
+- Fixed LTX Prompt Guide so saved positive and negative prompt text survives Save, F5, and workflow reopen.
+- Fixed Local LLM Loader so missing saved Ollama/LM Studio models are shown as unavailable on other PCs, and LM Studio reasoning payloads now respect each model's supported options.
+
 ## 0.7.35 - 2026-06-16
 
 - Fixed Ideogram Director so a manually enlarged node can be shrunk again with the ComfyUI resize handle.

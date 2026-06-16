@@ -4,6 +4,8 @@ This file is the routing map for node work. Keep it short.
 
 Do not put per-node debugging history, provider quirks, UI experiments, or long verification transcripts in `AGENTS.md` or `SESSION_HANDOFF.md`. Put those details in the matching node document under `docs/nodes/`.
 
+Node documents are Product Contracts, not optional reading. They preserve the user's intent across context compaction: purpose, core values, required behaviors, UI wording, rejected paths, and "do not break" rules.
+
 ## Read Order
 
 For any new session in this repo:
@@ -25,8 +27,11 @@ Use this before opening implementation files:
 2. Identify the likely touched files.
 3. Read every document listed by the first matching row in the tables below.
 4. If more than one row matches, read the union of the listed documents, but do not read archive handoffs unless a row explicitly says so.
-5. If no row matches a new active node, add a short `docs/nodes/<node>.md` entry and route it here before implementation continues.
-6. At the end, put new lessons in the right place:
+5. Before code/UI edits, confirm the matching node document has a usable Product Contract. If it does not, add a concise one before the implementation grows beyond a tiny bugfix.
+6. If the user clarifies behavior during the session, update the Product Contract before or alongside the code so the intent survives handoff/context compaction.
+7. If the user changes direction mid-build, such as rejecting the current approach or changing the node's philosophy/implementation point, update the Product Contract first and then resume implementation from that new baseline.
+8. If no row matches a new active node, add a short `docs/nodes/<node>.md` entry and route it here before implementation continues.
+9. At the end, put new lessons in the right place:
    - cross-node mistake or checklist: `docs/DENO_NODE_RETROSPECTIVE.md`
    - visual/design pattern: `docs/DENO_NODE_VISUAL_IDENTITY.md`
    - node-specific contract or pitfall: that node's `docs/nodes/...` document
@@ -42,6 +47,7 @@ Use this before opening implementation files:
 | Substantial custom DOM frontend or repeated geometry/layout regression | above + optional `docs/CLAUDE_NODE_FRONTEND_GUIDE.md` |
 | Flagship/complex visual tool design or Ideogram-style UX pattern | above + optional `docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md` |
 | Runtime sync, active install, restart, served JS, `/object_info`, or canvas verification | `AGENTS.md`, `docs/DENO_NODE_RETROSPECTIVE.md`, matching node document |
+| Portable-vs-Desktop mismatch, Desktop-only bug, or cross-runtime UI verification | `docs/COMFYUI_RUNTIME_MATRIX.md`, `docs/DENO_NODE_RETROSPECTIVE.md`, matching node document |
 | Public workflow, saved workflow compatibility, widget order, old node IDs, migration, fixture JSON | `docs/DENO_NODE_RETROSPECTIVE.md`, matching node document, `tests/fixtures/public_workflows/` if present |
 | Release prep, Manager/Registry/package metadata, `node_list.json`, `pyproject.toml`, README/search terms/changelog/screenshots | `AGENTS.md`, `docs/DENO_NODE_RETROSPECTIVE.md`, release section in `SESSION_HANDOFF.md` |
 | Packaging scanner, `.comfyignore`, Registry flagged text | `docs/DENO_NODE_RETROSPECTIVE.md` registry/package sections |
@@ -62,6 +68,9 @@ Use this before opening implementation files:
 - Random Prompt Box:
   - `docs/nodes/RANDOM_PROMPT_BOX.md`
   - Read only if the user explicitly restarts that paused feature.
+- LTX Prompt Guide:
+  - `docs/nodes/LTX_PROMPT_GUIDE.md`
+  - Read when touching `deno_ltx_prompt_guide.py`, `web/js/deno_ltx_prompt_guide.js`, or saved prompt-guide workflow migration.
 
 ## File Trigger Table
 
@@ -79,6 +88,8 @@ Use this before opening implementation files:
 | `docs/nodes/CAPTION_TRANSLATE.md` | `docs/nodes/CAPTION_TRANSLATE.md` |
 | `deno_random_prompt_box.py` | `docs/nodes/RANDOM_PROMPT_BOX.md` only after explicit user restart |
 | `web/js/deno_random_prompt_box.js` | `docs/nodes/RANDOM_PROMPT_BOX.md` only after explicit user restart |
+| `deno_ltx_prompt_guide.py` | `docs/nodes/LTX_PROMPT_GUIDE.md` |
+| `web/js/deno_ltx_prompt_guide.js` | `docs/nodes/LTX_PROMPT_GUIDE.md` |
 | `node_list.json`, `pyproject.toml`, `README.md`, `docs/README.*.md`, `CHANGELOG.md` | release/metadata rows above |
 | `.comfyignore` | packaging scanner row above |
 | `tests/fixtures/public_workflows/`, `tests/test_public_workflow_migration.py` | public workflow migration row above |
@@ -103,6 +114,7 @@ Do not read these during normal startup. Use them only for substantial custom fr
 - `AGENTS.md`: repo-level routing, safety, runtime/release rules.
 - `SESSION_HANDOFF.md`: compact current state and links, not a work log.
 - `docs/DENO_NODE_RETROSPECTIVE.md`: reusable mistakes and pre-flight checklist shared by all nodes.
-- `docs/nodes/<node>.md`: current node contract, active WIP, node-specific pitfalls, verification matrix.
+- `docs/COMFYUI_RUNTIME_MATRIX.md`: Portable/Easy-Install/Desktop runtime discovery and dual-runtime verification gates.
+- `docs/nodes/<node>.md`: Product Contract, current node contract, active WIP, node-specific pitfalls, verification matrix.
 - `docs/handoff_archive/`: old history only. Do not read during normal startup.
 - `tmp/` or `scratch/`: temporary code/artifacts only. Do not keep durable docs there.

@@ -1,6 +1,7 @@
 # Local LLM Loader / Reviewer
 
-Status: push candidate as of 2026-06-13. Public release/version bump still needs explicit approval.
+Status: included in public 0.7.32 Active and pending 0.7.33. Future public version bumps,
+hotfixes, or registry/Manager changes still need explicit user approval.
 
 Read this document when working on:
 
@@ -52,6 +53,11 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 ## Current Important Fixes
 
 - LM Studio now uses native `POST /api/v1/chat` for thinking control.
+- LM Studio reasoning control is capability-aware. Some LM Studio models reject even
+  `reasoning: "off"` with HTTP 400 because they do not expose a reasoning configuration. When
+  `Thinking` is off, send `reasoning: "off"` only for models whose `/api/v1/models` capabilities
+  include `off`; otherwise omit the field. When `Thinking` is on, send `reasoning: "on"`, and keep
+  raw/debug metadata safe with a default `"off"` value.
 - LM Studio IMAGE input uses native parts:
   - `{"type":"text","content":...}`
   - `{"type":"image","data_url":...}`
@@ -68,6 +74,13 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 - `randomize` seed mode uses a fresh cache key for each run. Prompt/model/seed/image/memory/VRAM changes must still invalidate the cache and rerun the Loader.
 - Thinking-only responses with no final result are rejected with a clear error instead of passing an empty prompt downstream.
 - Saved LM Studio/Ollama model selections must survive workflow reload even when the live model list returns the default model first. Configure-time normalization moves the saved model value before default choices and strips old serialized button/control values so saved 12B-style selections do not fall back to e4b. First queue submit after reload must not require pressing `Refresh Models` to restore the saved provider/model/system prompt/seed/prompt slots.
+- Saved model preservation must not pretend the model exists on every PC. If a saved Ollama/LM
+  Studio model is not in the current detected model choices, the visible combo value should read
+  `Missing saved model: <model>` and the node preview should explain that the model is unavailable
+  on this PC. The original model id must stay recoverable from the display value so an old workflow
+  can move back to a PC where the model exists. `Refresh Models` should restore the normal model
+  name only after the local server reports that exact model. Run, Stop LLM, and Unload LLM must
+  reject the missing-display value before sending any Ollama/LM Studio request.
 - Local preview scrollbars support wheel and thumb drag, with modal wheel scrolling preserved.
 - Local preview wheel hit-testing must use the current event's real `clientX/clientY` first. Do not
   let stale LiteGraph `graph_mouse` / `last_mouse` coordinates scroll the Loader preview while the
@@ -248,4 +261,5 @@ Latest verified runtime path:
 
 - Revisit Reviewer button labels with the user before changing them.
 - Right-side ComfyUI Info panel still needs beginner-friendly per-input descriptions.
-- Public release scope is not approved. Do not package these nodes into release metadata until the user explicitly approves release prep.
+- For any future release, keep frontend/backend feature sync, saved workflow migration, provider matrix
+  verification, and Manager metadata checks as hard gates.

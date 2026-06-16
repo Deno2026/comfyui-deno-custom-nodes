@@ -128,7 +128,8 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 [{{ id: "google/gemma-4-e4b" }}, {{ id: "google/gemma-4-12b" }}],
                 "codex/missing-saved-lm-studio-model"
             );
-            assert(modelChoices[0] === "codex/missing-saved-lm-studio-model", "Model refresh must keep the saved missing model in the dropdown");
+            assert(modelChoices[0] === "Missing saved model: codex/missing-saved-lm-studio-model", "Model refresh must mark saved missing models instead of showing them as installed");
+            assert(api.hasUsableSavedModelValue(modelChoices[0]), "Missing saved model display must still preserve the original model id");
             const comboNode = {{
                 widgets: [
                     {{ name: "provider", options: {{ values: ["Ollama", "LM Studio"] }} }},
@@ -140,6 +141,11 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(
                 comboNode.widgets[2].options.values[0] === "codex/missing-saved-lm-studio-model",
                 "Loader configure must add saved missing LM Studio model before combo restore can replace it"
+            );
+            api.applyLocalLLMLoaderSavedWidgetValues(comboNode, normalizedLoaderValues);
+            assert(
+                comboNode.widgets[2].value === "Missing saved model: codex/missing-saved-lm-studio-model",
+                "After configure, the visible combo value must clearly say the saved model is missing on this PC"
             );
             const savedExistingComboNode = {{
                 widgets: [

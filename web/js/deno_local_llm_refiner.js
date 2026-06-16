@@ -92,6 +92,7 @@ const LOADER_SERIALIZED_WIDGET_NAMES = [
 ];
 const LOADER_GENERATED_BUTTON_VALUES = ["Refresh Models", "Stop LLM", "Unload LLM"];
 const LOADER_SYSTEM_PROMPT_BUTTON_VALUE = "System Prompt";
+const MISSING_SAVED_MODEL_PREFIX = "Missing saved model: ";
 const LEGACY_CONTROL_AFTER_GENERATE_VALUES = new Set(["fixed", "randomize", "increment", "decrement", "random"]);
 const SHIFTED_MODEL_WIDGET_VALUES = new Set([
     ...PROVIDER_VALUES,
@@ -607,8 +608,8 @@ function preserveLocalLLMLoaderSavedComboOptions(node, values) {
         return;
     }
     preserveWidgetOption(getWidget(node, "provider"), values[0]);
-    preserveWidgetOption(getWidget(node, "ollama_model"), values[1]);
-    preserveWidgetOption(getWidget(node, "lm_studio_model"), values[2]);
+    preserveSavedModelWidgetOption(getWidget(node, "ollama_model"), values[1]);
+    preserveSavedModelWidgetOption(getWidget(node, "lm_studio_model"), values[2]);
 }
 
 function preserveWidgetOption(widget, value) {
@@ -628,6 +629,66 @@ function preserveWidgetOption(widget, value) {
     return true;
 }
 
+function preserveSavedModelWidgetOption(widget, value) {
+    const original = originalModelValueFromDisplay(value);
+    if (!widget || !hasUsableSavedModelValue(original)) {
+        return false;
+    }
+    const existed = currentModelChoiceIds(widget, { includePreserved: true }).includes(original);
+    const ok = preserveWidgetOption(widget, original);
+    if (ok && !existed) {
+        widget.__denoLocalLLMPreservedSavedModels = new Set([
+            ...(widget.__denoLocalLLMPreservedSavedModels || []),
+            original,
+        ]);
+    }
+    return ok;
+}
+
+function isMissingSavedModelDisplayValue(value) {
+    return String(value ?? "").trim().startsWith(MISSING_SAVED_MODEL_PREFIX);
+}
+
+function originalModelValueFromDisplay(value) {
+    const text = String(value ?? "").trim();
+    if (text.startsWith(MISSING_SAVED_MODEL_PREFIX)) {
+        return text.slice(MISSING_SAVED_MODEL_PREFIX.length).trim();
+    }
+    return text;
+}
+
+function missingSavedModelDisplayValue(value) {
+    const original = originalModelValueFromDisplay(value);
+    return original ? `${MISSING_SAVED_MODEL_PREFIX}${original}` : "";
+}
+
+function currentModelChoiceIds(widget, { includePreserved = false } = {}) {
+    const options = widget?.options || {};
+    const values = Array.isArray(options.values)
+        ? options.values
+        : Array.isArray(options.list)
+          ? options.list
+          : [];
+    const preserved = widget?.__denoLocalLLMPreservedSavedModels || new Set();
+    return values
+        .filter((value) => includePreserved || !isMissingSavedModelDisplayValue(value))
+        .map((value) => originalModelValueFromDisplay(value))
+        .filter((value) => value && (includePreserved || !preserved.has(value)));
+}
+
+function displayModelValueForCurrentChoices(widget, value) {
+    const original = originalModelValueFromDisplay(value);
+    if (!hasUsableSavedModelValue(original)) {
+        return "";
+    }
+    if (currentModelChoiceIds(widget).includes(original)) {
+        return original;
+    }
+    const display = missingSavedModelDisplayValue(original);
+    preserveWidgetOption(widget, display);
+    return display;
+}
+
 function applyLocalLLMLoaderSavedWidgetValues(node, values) {
     if (!node || !Array.isArray(values)) {
         return false;
@@ -642,9 +703,15 @@ function applyLocalLLMLoaderSavedWidgetValues(node, values) {
         if (!widget) {
             continue;
         }
-        const value = values[index];
-        if (name === "provider" || name === "ollama_model" || name === "lm_studio_model") {
+        let value = values[index];
+        if (name === "provider") {
             preserveWidgetOption(widget, value);
+        }
+        if (name === "ollama_model" || name === "lm_studio_model") {
+            value = displayModelValueForCurrentChoices(widget, value);
+            if (value && !isMissingSavedModelDisplayValue(value)) {
+                preserveWidgetOption(widget, value);
+            }
         }
         if (widget.value !== value) {
             widget.value = value;
@@ -3556,7 +3623,11 @@ function repairSavedWidgetValues(node) {
     }
 
     for (const name of ["ollama_model", "lm_studio_model"]) {
-        repairModelWidgetValue(getWidget(node, name));
+        const widget = getWidget(node, name);
+        repairModelWidgetValue(widget);
+        if (widget) {
+            widget.value = displayModelValueForCurrentChoices(widget, widget.value);
+        }
     }
 
     const customServerWidget = getWidget(node, "custom_server_url");
@@ -3692,7 +3763,7 @@ function isShiftedCustomModelValue(value) {
 }
 
 function isShiftedModelWidgetValue(value) {
-    const text = String(value ?? "").trim();
+    const text = originalModelValueFromDisplay(value);
     if (!text) {
         return false;
     }
@@ -3706,6 +3777,10 @@ function isShiftedModelWidgetValue(value) {
         return true;
     }
     return /^-?\d+(\.\d+)?$/.test(text);
+}
+
+function isUnavailableModelWidgetValue(value) {
+    return isMissingSavedModelDisplayValue(value) || isShiftedModelWidgetValue(value);
 }
 
 function repairModelWidgetValue(widget) {
@@ -3878,13 +3953,29 @@ function setActiveProviderModelVisibility(node) {
     setWidgetHidden(getWidget(node, "prompt"), true);
     setWidgetHidden(getWidget(node, "model_memory"), false);
     setWidgetHidden(getWidget(node, "keep_minutes"), modelMemory !== "Keep for minutes");
-    repairModelWidgetValue(getWidget(node, "ollama_model"));
-    repairModelWidgetValue(getWidget(node, "lm_studio_model"));
+    for (const name of ["ollama_model", "lm_studio_model"]) {
+        const widget = getWidget(node, name);
+        repairModelWidgetValue(widget);
+        if (widget) {
+            widget.value = displayModelValueForCurrentChoices(widget, widget.value);
+        }
+    }
+    const activeValue = String(activeModelWidget(node)?.value || "").trim();
     node.__denoLocalLLMState = {
         ...(node.__denoLocalLLMState || {}),
         provider,
-        model: String(activeModelWidget(node)?.value || ""),
+        model: activeValue,
     };
+    if (isMissingSavedModelDisplayValue(activeValue) && !isLocalLLMBusyState(node)) {
+        node.__denoLocalLLMState = {
+            ...(node.__denoLocalLLMState || {}),
+            status: "saved model not found",
+            provider,
+            model: activeValue,
+            answer: "",
+            thinking: `Saved ${provider} model "${originalModelValueFromDisplay(activeValue)}" is not available on this PC. Start the local server and press Refresh Models, or choose another model.`,
+        };
+    }
 }
 
 function wrapModelMemoryCallback(node) {
@@ -3913,11 +4004,16 @@ function wrapModelCallback(node) {
         modelWidget.callback = function () {
             const result = original?.apply(this, arguments);
             repairModelWidgetValue(modelWidget);
+            modelWidget.value = displayModelValueForCurrentChoices(modelWidget, modelWidget.value);
             if (name === activeModelNameForProvider(currentProvider(node))) {
+                const value = String(modelWidget.value || "");
                 node.__denoLocalLLMState = {
                     ...(node.__denoLocalLLMState || {}),
-                    model: String(modelWidget.value || ""),
-                    status: "ready",
+                    model: value,
+                    status: isMissingSavedModelDisplayValue(value) ? "saved model not found" : "ready",
+                    thinking: isMissingSavedModelDisplayValue(value)
+                        ? `Saved ${currentProvider(node)} model "${originalModelValueFromDisplay(value)}" is not available on this PC. Press Refresh Models after installing or loading it.`
+                        : "Model selection is ready.",
                 };
                 refreshNode(node);
             }
@@ -4159,21 +4255,21 @@ async function stopLocalModel(node) {
     const modelWidget = activeModelWidget(node);
     repairModelWidgetValue(modelWidget);
     const model = String(modelWidget?.value || "").trim();
-    const invalidModel = !model || isShiftedModelWidgetValue(model);
+    const invalidModel = !model || isUnavailableModelWidgetValue(model);
     node.__denoLocalLLMState = {
         ...(node.__denoLocalLLMState || {}),
         status: "stop requested",
         provider,
         model,
         answer: "",
-        thinking: invalidModel ? "Refresh models and select a real local LLM model before stopping." : "Asking the local LLM request to stop.",
+        thinking: invalidModel ? "Refresh Models and select an installed local LLM model before stopping." : "Asking the local LLM request to stop.",
     };
     refreshNode(node);
     if (invalidModel) {
         node.__denoLocalLLMState = {
             ...(node.__denoLocalLLMState || {}),
             status: "stop skipped",
-            thinking: "Refresh models and select a real local LLM model before stopping.",
+            thinking: "Refresh Models and select an installed local LLM model before stopping.",
         };
         refreshNode(node);
         return;
@@ -4215,7 +4311,7 @@ async function unloadLocalModel(node) {
     const modelWidget = activeModelWidget(node);
     repairModelWidgetValue(modelWidget);
     const model = String(modelWidget?.value || "").trim();
-    const invalidModel = !model || isShiftedModelWidgetValue(model);
+    const invalidModel = !model || isUnavailableModelWidgetValue(model);
     if (isLocalLLMBusyState(node)) {
         node.__denoLocalLLMState = {
             ...(node.__denoLocalLLMState || {}),
@@ -4234,14 +4330,14 @@ async function unloadLocalModel(node) {
         provider,
         model,
         answer: "",
-        thinking: invalidModel ? "Refresh models and select a real local LLM model before unloading." : "Requesting unload from the local LLM server.",
+        thinking: invalidModel ? "Refresh Models and select an installed local LLM model before unloading." : "Requesting unload from the local LLM server.",
     };
     refreshNode(node);
     if (invalidModel) {
         node.__denoLocalLLMState = {
             ...(node.__denoLocalLLMState || {}),
             status: "unload skipped",
-            thinking: "Refresh models and select a real local LLM model before unloading.",
+            thinking: "Refresh Models and select an installed local LLM model before unloading.",
         };
         refreshNode(node);
         return;
@@ -4281,7 +4377,7 @@ async function refreshModels(node) {
     const provider = currentProvider(node);
     const serverUrl = defaultServerForProvider(provider, node);
     const modelWidget = activeModelWidget(node);
-    const savedModel = String(modelWidget?.value || "").trim();
+    const savedModel = originalModelValueFromDisplay(modelWidget?.value);
     node.__denoLocalLLMState = {
         ...(node.__denoLocalLLMState || {}),
         status: "loading models",
@@ -4303,14 +4399,16 @@ async function refreshModels(node) {
         const savedModelStillExists = choices.some((choice) => choice.id === savedModel);
         updateModelChoices(node, provider, choices);
         const current = String(modelWidget?.value || "").trim();
-        if (modelWidget && choices[0]?.id && (!current || isShiftedModelWidgetValue(current))) {
+        if (modelWidget && savedModelStillExists) {
+            modelWidget.value = savedModel;
+        } else if (modelWidget && choices[0]?.id && (!current || isShiftedModelWidgetValue(current))) {
             modelWidget.value = choices[0].id;
         }
         const savedModelMissing =
             hasUsableSavedModelValue(savedModel) &&
             choices.length > 0 &&
             !savedModelStillExists &&
-            String(modelWidget?.value || "").trim() === savedModel;
+            isMissingSavedModelDisplayValue(modelWidget?.value);
         node.__denoLocalLLMState = {
             ...(node.__denoLocalLLMState || {}),
             status: savedModelMissing ? "saved model not found" : choices.length ? `${choices.length} models found` : "no models found",
@@ -4325,13 +4423,18 @@ async function refreshModels(node) {
         };
     } catch (error) {
         updateModelChoices(node, provider, []);
+        if (modelWidget && hasUsableSavedModelValue(savedModel)) {
+            modelWidget.value = missingSavedModelDisplayValue(savedModel);
+        }
         node.__denoLocalLLMState = {
             ...(node.__denoLocalLLMState || {}),
-            status: "model refresh failed",
+            status: hasUsableSavedModelValue(savedModel) ? "saved model not found" : "model refresh failed",
             provider,
             model: String(modelWidget?.value || ""),
             answer: "",
-            thinking: String(error?.message || error),
+            thinking: hasUsableSavedModelValue(savedModel)
+                ? `Saved ${provider} model "${savedModel}" could not be verified on this PC. ${String(error?.message || error)}`
+                : String(error?.message || error),
         };
     }
     refreshNode(node);
@@ -4363,6 +4466,9 @@ function updateModelChoices(node, provider, choices) {
         [providerKey]: Array.isArray(choices) ? choices : [],
     };
     const widget = getWidget(node, activeModelNameForProvider(providerKey));
+    if (widget) {
+        widget.__denoLocalLLMPreservedSavedModels = new Set();
+    }
     if (widget && Array.isArray(choices) && choices.length) {
         const savedValue = String(widget.value || "").trim();
         const values = modelChoiceValuesWithSavedValue(choices, savedValue);
@@ -4372,16 +4478,24 @@ function updateModelChoices(node, provider, choices) {
         if (!hasUsableSavedModelValue(widget.value)) {
             widget.value = firstValidWidgetChoice(widget);
         }
+    } else if (widget && hasUsableSavedModelValue(widget.value)) {
+        const display = missingSavedModelDisplayValue(widget.value);
+        widget.options = widget.options || {};
+        widget.options.values = [display];
+        widget.options.list = [display];
+        widget.value = display;
     }
 }
 
 function modelChoiceValuesWithSavedValue(choices, savedValue) {
     const seen = new Set();
     const values = [];
-    const current = String(savedValue || "").trim();
+    const current = originalModelValueFromDisplay(savedValue);
+    const choiceIds = new Set((choices || []).map((choice) => String(choice?.id || "").trim()).filter(Boolean));
     if (hasUsableSavedModelValue(current)) {
-        seen.add(current);
-        values.push(current);
+        const display = choiceIds.has(current) ? current : missingSavedModelDisplayValue(current);
+        seen.add(display);
+        values.push(display);
     }
     for (const choice of choices || []) {
         const id = String(choice?.id || "").trim();
@@ -4395,7 +4509,7 @@ function modelChoiceValuesWithSavedValue(choices, savedValue) {
 }
 
 function hasUsableSavedModelValue(value) {
-    const text = String(value || "").trim();
+    const text = originalModelValueFromDisplay(value);
     return Boolean(text && !isShiftedModelWidgetValue(text));
 }
 

@@ -21,6 +21,7 @@ AGENTS.md
 docs/DENO_NODE_RETROSPECTIVE.md
 docs/DENO_NODE_VISUAL_IDENTITY.md
 docs/NODE_WORK_INDEX.md
+docs/COMFYUI_RUNTIME_MATRIX.md
 docs/TRANSLATOR_REFACTOR_SPEC.md
 docs/CLAUDE_NODE_FRONTEND_GUIDE.md
 docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md
@@ -42,6 +43,7 @@ tools/install_rtx_vfx.bat
 tools/install_rtx_vfx_bat.zip
 tools/test_portable_baseline.ps1
 tools/comfyui_cdp_probe.ps1
+tools/comfyui_runtime_matrix.ps1
 tools/rtx_vfx_env_report_*.json
 tools/DENO_RTX_VFX_install_log.txt
 tools/DENO_RTX_VFX_runtime_path.txt

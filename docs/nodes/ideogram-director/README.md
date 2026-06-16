@@ -1,6 +1,8 @@
 # Ideogram Director
 
-Status: public release candidate for 0.7.33. State as of 2026-06-15.
+Status: public 0.7.33 release candidate. Registry propagation is still pending as of the
+2026-06-15 cleanup; do not call the public rollout complete until Comfy Registry marks
+0.7.33 Active and ComfyUI Manager discovery includes `DenoIdeogramDirector`.
 
 Read this folder only when the task is about Ideogram 4 JSON captions, bbox composition, KJ Prompt Builder analysis, or the proposed `(Deno) Ideogram Director`.
 
@@ -9,7 +11,7 @@ Read this folder only when the task is about Ideogram 4 JSON captions, bbox comp
 - `SPEC.md`: current clean-room DENO build spec and intended contract.
 - `KJ_BUILDER_UX_RESEARCH.md`: KJ Prompt Builder research and UX analysis. Do not copy KJ GPL code into this repo.
 - `FEATURE_DRAFT.md`: active feature sketch and next implementation direction.
-- `style_presets.json`: planned style preset data. The preset gallery still needs UI wiring.
+- `style_presets.json`: style preset data for the integrated preset gallery.
 
 ## Boundary
 
@@ -20,27 +22,49 @@ Current local implementation files:
 - `deno_ideogram_director.py`
 - `web/js/deno_ideogram_director.js`
 
-Release scope note: Ideogram Director is intended for the 0.7.33 public release. Keep standalone
-Translator and Random Prompt Box out of the public release surface unless the user explicitly
-restarts and approves those nodes separately.
+Ideogram Director is in the 0.7.33 public release candidate scope. Keep standalone Translator
+and Random Prompt Box out of the public release surface unless the user explicitly restarts and
+approves those nodes separately.
 
 ## Current State (2026-06-16)
 
-- JS rev marker: `IDD_REV = "r2026.06.16-rail-scroll-h"` in `web/js/deno_ideogram_director.js` (check the served
+- JS rev marker: `IDD_REV = "r2026.06.16-recreate-size-j"` in `web/js/deno_ideogram_director.js` (check the served
   JS for this string after a sync; the user needs Ctrl+Shift+R to pick up a new rev).
+- Desktop regression report (2026-06-16): user reproduced a `0.7.35` Desktop-only collapse where
+  clicking the wrong region can leave the Director with only the narrow right rail visible and a
+  huge blank body. Portable/Easy-Install verification is not enough for this class of bug. Before
+  the next Director hotfix, reproduce on ComfyUI Desktop (`127.0.0.1:8000`, Desktop frontend root)
+  and rerun the full Desktop gate in `docs/COMFYUI_RUNTIME_MATRIX.md`.
+- Desktop width hardening (2026-06-16, local, not public-released yet): rev
+  `desktop-width-i` keeps `.idd-wrap` at `width:100%` / `max-width:100%`, applies the same sizing
+  inline during DOM creation, and gives `.idd-board` a `320px` flex basis with `260px` min-width.
+  This prevents Desktop/Electron DOM widget layout from shrinking the board to a rail-only strip.
+  During verification, ensure old backup copies are not left inside Desktop `custom_nodes`; ComfyUI
+  imports folders such as `*.disabled-codex-*`.
+- Context-menu Recreate hardening (2026-06-16, local, not public-released yet): the trigger is
+  ComfyUI's node right-click menu `Recreate node` (`Keep widget values` / `Reset widget values`),
+  not the Director's own Generate/Regenerate button. Desktop can rebuild the node with a tiny
+  temporary `node.size` while the Director's current `idd_size_rev` property is still present. Rev
+  `recreate-size-j` treats a marked size below the Director minimum as invalid and restores the
+  user-approved default `850x1000`, then runs the top-bar fit pass so `Generate` / `Regenerate`
+  stays visible instead of clipping at the right edge.
 - Sizing hotfix (2026-06-16): a user report that Ideogram Director can shrink to about half height
-  after interaction was confirmed as a real `computeSize()` contract risk. The guard makes
-  `computeSize()` preserve the current/saved node box for automatic fit paths.
-- Resize-shrink follow-up (2026-06-16): the first sizing guard also made LiteGraph treat the user's
-  enlarged node box as the resize minimum, so mouse-dragging the bottom-right handle could grow the
-  Director but not shrink it again. Rev `rail-scroll-h` separates automatic fit protection from
-  active user resizing: while the resize handle is being dragged, `computeSize()` no longer uses the
-  current enlarged box as the minimum; after the drag ends, automatic fit paths still preserve the
-  user's chosen size.
-- Right rail wheel follow-up (2026-06-16): the board/photo/bbox surface remains canvas-first for
-  wheel zoom and middle-click pan, but the right rail is an intentional local scroll area. Wheel over
-  `.idd-rail` scrolls the prompt/style/elements panel when many bbox rows or fields overflow,
-  without changing the graph zoom behind it.
+  after interaction was confirmed as a real `computeSize()` contract risk. Normal synthetic clicks
+  stayed stable, but a Comfy/LiteGraph fit path equivalent to
+  `node.setSize([node.size[0], node.computeSize()[1]])` reproduced the collapse. The current guard
+  makes `computeSize()` preserve the current/saved node box, including LiteGraph's array-like
+  `node.size`. The saved configured size participates only during initial restore, then clears so
+  user-chosen smaller/larger sizes continue to win after resize.
+- Resize-shrink follow-up (2026-06-16, local, not public-released yet): the first sizing guard also
+  made LiteGraph treat the user's enlarged node box as the resize minimum, so mouse-dragging the
+  bottom-right handle could grow the Director but not shrink it again. Rev
+  `resize-shrink-preserve-g` separates the automatic fit protection from active user resizing: while
+  the resize handle is being dragged, `computeSize()` no longer uses the current enlarged box as the
+  minimum; after the drag ends, automatic fit paths still preserve the user's chosen size.
+- Right rail wheel follow-up (2026-06-16, local, not public-released yet): the board/photo/bbox
+  surface remains canvas-first for wheel zoom and middle-click pan, but the right rail is now an
+  intentional local scroll area. Wheel over `.idd-rail` scrolls the prompt/style/elements panel when
+  many bbox rows or fields overflow, without changing the graph zoom behind it.
 - Galleries open **full-screen** (wave 4, 2026-06-13): the "Presets…" / "Layout presets…" buttons
   mount the gallery as a body overlay (`idd-gal-fs`, fixed inset:0, 8-col style / 6-col layout grid;
   Escape / outside-click / Close to dismiss). Wheel over the open gallery scrolls the gallery and
@@ -200,7 +224,10 @@ restarts and approves those nodes separately.
   queueing, invalid-input keep-current verification, and the regression where clicking the real
   `.idd-regen` button and the global `app.queuePrompt()` path after an upstream JSON change must show
   Apply/Keep without queueing or overwriting the current board/style first. Real-canvas use throughout
-  the session. Note
+  the session. `tmp/ideogram-director/repro_shrink_interactions.cjs` is the 2026-06-16 sizing
+  regression proof: it clicks/opens/draws through the Director, forces the old compute-size fit
+  collapse path, and verifies `shrinks: []`; manual 850x720 shrink and 900x1100 grow are preserved.
+  Note
   `tmp/` is disposable by repo policy — promote any suite worth keeping before cleanup.
 
 ## Next Reminders

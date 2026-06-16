@@ -116,6 +116,7 @@ SHIFTED_MODEL_WIDGET_VALUES = {
     "Custom Server URL",
     *COMFY_VRAM_POLICY_ALIASES,
 }
+MISSING_SAVED_MODEL_PREFIX = "Missing saved model: "
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 PROGRESS_EVENT = "deno-local-llm-progress"
@@ -177,8 +178,19 @@ def _looks_like_url(value: Any) -> bool:
     return text.startswith(("http://", "https://"))
 
 
-def _looks_like_shifted_model_value(value: Any) -> bool:
+def _is_missing_saved_model_display(value: Any) -> bool:
+    return str(value or "").strip().startswith(MISSING_SAVED_MODEL_PREFIX)
+
+
+def _original_model_value_from_display(value: Any) -> str:
     text = str(value or "").strip()
+    if text.startswith(MISSING_SAVED_MODEL_PREFIX):
+        return text[len(MISSING_SAVED_MODEL_PREFIX):].strip()
+    return text
+
+
+def _looks_like_shifted_model_value(value: Any) -> bool:
+    text = _original_model_value_from_display(value)
     if not text:
         return False
     if _looks_like_url(text) or text in SHIFTED_MODEL_WIDGET_VALUES:
@@ -186,6 +198,14 @@ def _looks_like_shifted_model_value(value: Any) -> bool:
     if text.lower() in {"true", "false"}:
         return True
     return bool(re.fullmatch(r"-?\d+(?:\.\d+)?", text))
+
+
+def _missing_saved_model_error(provider: str, model: Any) -> str:
+    model_value = _original_model_value_from_display(model)
+    return (
+        f"Saved {provider} model is not available on this PC: {model_value}. "
+        "Start the local LLM server and press Refresh Models, install/load that model, or choose another installed model."
+    )
 
 
 def _shifted_model_error(action: str, model: str) -> str:
@@ -1417,15 +1437,45 @@ def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]
             continue
         label = str(item.get("display_name") or model_id)
         loaded_instances = item.get("loaded_instances") or []
+        capabilities = item.get("capabilities") if isinstance(item, dict) else {}
+        reasoning = capabilities.get("reasoning") if isinstance(capabilities, dict) else None
+        reasoning_options = []
+        if isinstance(reasoning, dict):
+            raw_options = reasoning.get("allowed_options") or []
+            if isinstance(raw_options, list):
+                reasoning_options = [str(option) for option in raw_options if str(option or "").strip()]
         result.append(
             {
                 "id": model_id,
                 "label": label,
                 "loaded": bool(loaded_instances),
                 "instance_id": str(loaded_instances[0].get("id")) if loaded_instances else "",
+                "variants": [str(value) for value in (item.get("variants") or []) if str(value or "").strip()],
+                "reasoning_options": reasoning_options,
             }
         )
     return result
+
+
+def _lm_studio_reasoning_options(server_url: str, model: str) -> Optional[Set[str]]:
+    model = str(model or "").strip()
+    if not model:
+        return None
+    try:
+        models = list_local_llm_models(PROVIDER_LM_STUDIO, server_url)
+    except Exception:
+        return None
+    for item in models:
+        item_id = str(item.get("id") or "").strip()
+        instance_id = str(item.get("instance_id") or "").strip()
+        variants = [str(value).strip() for value in (item.get("variants") or [])]
+        if model not in {item_id, instance_id, *variants}:
+            continue
+        options = item.get("reasoning_options")
+        if not isinstance(options, list):
+            return set()
+        return {str(option).strip().lower() for option in options if str(option or "").strip()}
+    return None
 
 
 def list_detected_model_ids(provider: str, server_url: str) -> List[str]:
@@ -1676,6 +1726,10 @@ class DenoLocalLLMRefiner:
         ollama_value = str(_extract_scalar(ollama_model, "") or "").strip()
         lm_studio_value = str(_extract_scalar(lm_studio_model, "") or "").strip()
 
+        if provider_value == PROVIDER_OLLAMA and _is_missing_saved_model_display(ollama_value):
+            return _missing_saved_model_error(PROVIDER_OLLAMA, ollama_value)
+        if provider_value == PROVIDER_LM_STUDIO and _is_missing_saved_model_display(lm_studio_value):
+            return _missing_saved_model_error(PROVIDER_LM_STUDIO, lm_studio_value)
         if provider_value == PROVIDER_OLLAMA and (not ollama_value or _looks_like_shifted_model_value(ollama_value)):
             return "Ollama Model must be a real model name. Refresh models if the value looks shifted."
         if provider_value == PROVIDER_LM_STUDIO and (not lm_studio_value or _looks_like_shifted_model_value(lm_studio_value)):
@@ -1703,6 +1757,11 @@ class DenoLocalLLMRefiner:
         provider_value = _normalize_provider(str(_extract_scalar(provider, PROVIDER_OLLAMA)))
         ollama_model_value = str(_extract_scalar(ollama_model, "")).strip()
         lm_studio_model_value = str(_extract_scalar(lm_studio_model, "")).strip()
+
+        if provider_value == PROVIDER_OLLAMA and _is_missing_saved_model_display(ollama_model_value):
+            raise RuntimeError(_missing_saved_model_error(PROVIDER_OLLAMA, ollama_model_value))
+        if provider_value == PROVIDER_LM_STUDIO and _is_missing_saved_model_display(lm_studio_model_value):
+            raise RuntimeError(_missing_saved_model_error(PROVIDER_LM_STUDIO, lm_studio_model_value))
 
         # Migration guard for old saved nodes where the removed server_url/model widgets
         # could be restored by widget order before the node is recreated.
@@ -2014,10 +2073,15 @@ class DenoLocalLLMRefiner:
         payload: Dict[str, Any] = {
             "model": model,
             "stream": True,
-            "reasoning": "on" if thinking else "off",
             "input": _lm_native_input(prompt, image_attachment),
             "store": False,
         }
+        if thinking:
+            payload["reasoning"] = "on"
+        else:
+            reasoning_options = _lm_studio_reasoning_options(native_base, model)
+            if reasoning_options and "off" in reasoning_options:
+                payload["reasoning"] = "off"
         if system_prompt.strip():
             payload["system_prompt"] = system_prompt
 
@@ -2084,7 +2148,7 @@ class DenoLocalLLMRefiner:
             "seed": seed,
             "model_memory": memory_value,
             "keep_minutes": keep_minutes_value,
-            "reasoning": payload["reasoning"],
+            "reasoning": payload.get("reasoning", "off"),
             "api": "LM Studio /api/v1/chat",
             "meta": final_meta,
         }

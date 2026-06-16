@@ -198,6 +198,7 @@ def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
     assert "SESSION_HANDOFF.md" in comfyignore
     assert "AGENTS.md" in comfyignore
     assert "docs/NODE_WORK_INDEX.md" in comfyignore
+    assert "docs/COMFYUI_RUNTIME_MATRIX.md" in comfyignore
     assert "docs/DENO_NODE_RETROSPECTIVE.md" in comfyignore
     assert "docs/DENO_NODE_VISUAL_IDENTITY.md" in comfyignore
     assert "docs/CLAUDE_NODE_FRONTEND_GUIDE.md" in comfyignore
@@ -206,6 +207,7 @@ def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
     assert "docs/nodes/RANDOM_PROMPT_BOX.md" in comfyignore
     assert "docs/handoff_archive/" in comfyignore
     assert "tmp/" in comfyignore
+    assert "tools/comfyui_runtime_matrix.ps1" in comfyignore
 
 
 def test_visual_fold_frontend_is_visual_only():

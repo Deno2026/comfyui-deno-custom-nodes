@@ -36,6 +36,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INIT_PATH = REPO_ROOT / "__init__.py"
 JS_PATH = REPO_ROOT / "web" / "js" / "deno_ltx_prompt_guide.js"
+EXTRA_JS_PATH = REPO_ROOT / "web" / "js" / "deno_extra_nodes.js"
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "public_workflows"
 FIXTURES = sorted(FIXTURE_DIR.glob("*.json"))
 
@@ -156,14 +157,35 @@ def test_prompt_guide_js_has_legacy_configure_migration():
 
     assert "function getNormalizedLtxPromptGuideSerializedValues" in src
     assert "function normalizeLtxPromptGuideLegacyWidgetValues" in src
+    assert "function getLtxPromptGuideConfigureWidgetValues" in src
+    assert "function applyLtxPromptGuideSerializedValuesToWidgets" in src
+    assert "ltx-prompt-guide-save-reload-v1" in src
     # Normalization must run inside configure(), before LiteGraph restores
     # widget values (not only in the post-restore onConfigure callback).
     assert "nodeType.prototype.configure = function" in src
     assert "normalizeLtxPromptGuideLegacyWidgetValues(info)" in src
+    assert "this.__denoLtxPromptGuideConfiguredWidgetValues = [...normalized]" in src
+    assert "info.widgets_values = getLtxPromptGuideConfigureWidgetValues(this, normalized)" in src
+    assert "delete this.__denoLtxPromptGuideConfiguredWidgetValues" in src
     # Display widgets must stay non-serializing, and the existing post-restore
     # setup path must remain intact.
     assert "serialize: false" in src
-    assert "queueMicrotask(() => setupNode(this))" in src
+    assert "queueMicrotask(() => {" in src
+    assert "setupNode(this);" in src
+
+
+def test_ltx_model_loader_has_shift_repair_gate():
+    src = EXTRA_JS_PATH.read_text(encoding="utf-8")
+
+    assert "function repairShiftedLtxGgufWidgetValues" in src
+    assert 'node.properties.__deno_ltx_shift_repair = "gguf-visible-values-v1"' in src
+    assert "let changed = repairShiftedLtxGgufWidgetValues(node)" in src
+    # Configure-time combo restore can clamp an external extra_model_paths value
+    # before setup runs. Keep the normalized saved array and reapply it after
+    # setup so F5/reload preserves user-selected model paths.
+    assert "this.__denoLtxConfiguredWidgetValues = [...normalized]" in src
+    assert "node.__denoLtxConfiguredWidgetValues || node.widgets_values" in src
+    assert "delete node.__denoLtxConfiguredWidgetValues" in src
 
 
 # --------------------------------------------------------------------------
@@ -192,6 +214,13 @@ def _extract_js_const_line(src, name):
         if stripped.startswith(f"const {name}") and stripped.endswith(";"):
             return stripped
     raise AssertionError(f"const {name} not found")
+
+
+def _extract_js_declaration(src, name):
+    marker = f"const {name}"
+    start = src.index(marker)
+    end = src.index(";", start)
+    return src[start:end + 1]
 
 
 def test_prompt_guide_normalizer_behaviour_in_node(tmp_path):
@@ -240,6 +269,264 @@ console.log("OK");
 """
 
     harness_path = tmp_path / "ltx_prompt_guide_migration.mjs"
+    harness_path.write_text(harness, encoding="utf-8")
+
+    result = subprocess.run(
+        [node_bin, str(harness_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
+    assert "OK" in result.stdout
+
+
+def test_prompt_guide_configure_expands_saved_values_around_generated_widgets(tmp_path):
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node runtime not available")
+
+    src = JS_PATH.read_text(encoding="utf-8")
+    snippets = [
+        _extract_js_const_line(src, "GENERATED_PREFIX"),
+        _extract_js_const_line(src, "LTX_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT"),
+        _extract_js_function(src, "getNormalizedLtxPromptGuideSerializedValues"),
+        _extract_js_function(src, "hasGeneratedPromptGuideWidgets"),
+        _extract_js_function(src, "getLtxPromptGuideConfigureWidgetValues"),
+        _extract_js_function(src, "getWidget"),
+        _extract_js_function(src, "applyLtxPromptGuideSerializedValuesToWidgets"),
+    ]
+
+    harness = "\n".join(snippets) + r"""
+function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function check(cond, msg) { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } }
+
+const core = ["POSITIVE SAVE", "Korean", 24, true, "NEGATIVE SAVE"];
+const legacy = ["", "POSITIVE SAVE", "Korean", 24, "", true, "NEGATIVE SAVE"];
+const nodeWithGenerated = {
+    widgets: [
+        { name: GENERATED_PREFIX + "dialogue_summary", value: "" },
+        { name: "positive_prompt", value: "" },
+        { name: "language", value: "Auto" },
+        { name: "frame_rate", value: 25 },
+        { name: GENERATED_PREFIX + "negative_toggle", value: "" },
+        { name: "show_negative_prompt", value: false },
+        { name: "negative_prompt", value: "" },
+    ],
+};
+const nodeWithoutGenerated = {
+    widgets: [
+        { name: "positive_prompt", value: "" },
+        { name: "language", value: "Auto" },
+        { name: "frame_rate", value: 25 },
+        { name: "show_negative_prompt", value: false },
+        { name: "negative_prompt", value: "" },
+    ],
+};
+
+check(eq(getNormalizedLtxPromptGuideSerializedValues(legacy), core), "legacy normalizes to core");
+check(eq(getLtxPromptGuideConfigureWidgetValues(nodeWithGenerated, core), legacy), "core expands around generated widgets");
+check(eq(getLtxPromptGuideConfigureWidgetValues(nodeWithoutGenerated, core), core), "core stays compact without generated widgets");
+
+applyLtxPromptGuideSerializedValuesToWidgets(nodeWithGenerated, core);
+check(nodeWithGenerated.widgets[1].value === "POSITIVE SAVE", "positive applied by name");
+check(nodeWithGenerated.widgets[2].value === "Korean", "language applied by name");
+check(nodeWithGenerated.widgets[3].value === 24, "frame rate applied by name");
+check(nodeWithGenerated.widgets[5].value === true, "show negative applied by name");
+check(nodeWithGenerated.widgets[6].value === "NEGATIVE SAVE", "negative applied by name");
+
+console.log("OK");
+"""
+
+    harness_path = tmp_path / "ltx_prompt_guide_configure_expand.mjs"
+    harness_path.write_text(harness, encoding="utf-8")
+
+    result = subprocess.run(
+        [node_bin, str(harness_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
+    assert "OK" in result.stdout
+
+
+def test_ltx_model_loader_normalizer_keeps_current_gguf_extra_widget_layout(tmp_path):
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node runtime not available")
+
+    src = EXTRA_JS_PATH.read_text(encoding="utf-8")
+    snippets = [
+        _extract_js_declaration(src, "LTX_MODE_NAMES"),
+        _extract_js_const_line(src, "LTX_SERIALIZED_WIDGET_COUNT"),
+        _extract_js_declaration(src, "LTX_NONE_VALUE"),
+        _extract_js_function(src, "getNormalizedLtxSerializedValues"),
+        _extract_js_function(src, "isEmptyLtxSerializedSlot"),
+        _extract_js_function(src, "scoreLtxSerializedCandidate"),
+        _extract_js_function(src, "isNonNoneLtxValue"),
+        _extract_js_function(src, "hasLtxExtension"),
+        _extract_js_function(src, "looksLikeLtxVaeValue"),
+        _extract_js_function(src, "isLtxDeviceValue"),
+    ]
+
+    harness = "\n".join(snippets) + r"""
+function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function check(cond, msg) { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } }
+
+const legacyPlaceholder = [
+    "GGUF Style",
+    "",
+    "ltx-2.3-22b-dev-fp8.safetensors",
+    "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors",
+    "OtherDrive/LTX/custom-model-Q4_K_M.gguf",
+    "LTX23_video_vae_bf16.safetensors",
+    "LTX23_audio_vae_bf16.safetensors",
+    "gemma_3_12B_it_fp8_scaled.safetensors",
+    "ltx-2.3_text_projection_bf16.safetensors",
+    "default",
+    "default",
+];
+check(eq(
+    getNormalizedLtxSerializedValues(legacyPlaceholder),
+    [
+        "GGUF Style",
+        "ltx-2.3-22b-dev-fp8.safetensors",
+        "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors",
+        "OtherDrive/LTX/custom-model-Q4_K_M.gguf",
+        "LTX23_video_vae_bf16.safetensors",
+        "LTX23_audio_vae_bf16.safetensors",
+        "gemma_3_12B_it_fp8_scaled.safetensors",
+        "ltx-2.3_text_projection_bf16.safetensors",
+        "default",
+        "default",
+    ]
+), "legacy placeholder should be dropped");
+
+const currentExtraWidget = [
+    "GGUF Style",
+    "",
+    "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors",
+    "OtherDrive/LTX/custom-model-Q4_K_M.gguf",
+    "LTX23_video_vae_bf16.safetensors",
+    "LTX23_audio_vae_bf16.safetensors",
+    "gemma_3_12B_it_fp8_scaled.safetensors",
+    "ltx-2.3_text_projection_bf16.safetensors",
+    "default",
+    "default",
+    "default",
+];
+check(eq(
+    getNormalizedLtxSerializedValues(currentExtraWidget),
+    currentExtraWidget.slice(0, 10)
+), "current 11-value layout with empty hidden checkpoint should keep gguf row");
+check(
+    getNormalizedLtxSerializedValues(currentExtraWidget)[3] === "OtherDrive/LTX/custom-model-Q4_K_M.gguf",
+    "custom external gguf must stay on gguf row"
+);
+
+console.log("OK");
+"""
+
+    harness_path = tmp_path / "ltx_model_loader_normalizer.mjs"
+    harness_path.write_text(harness, encoding="utf-8")
+
+    result = subprocess.run(
+        [node_bin, str(harness_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
+    assert "OK" in result.stdout
+
+
+def test_ltx_model_loader_repairs_shifted_gguf_rows_in_node(tmp_path):
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node runtime not available")
+
+    src = EXTRA_JS_PATH.read_text(encoding="utf-8")
+    snippets = [
+        _extract_js_declaration(src, "LTX_MODE_NAMES"),
+        _extract_js_declaration(src, "LTX_SERIALIZED_WIDGET_NAMES"),
+        _extract_js_declaration(src, "LTX_NONE_VALUE"),
+        _extract_js_declaration(src, "LTX_MODEL_WIDGET_NAMES"),
+        "function getWidget(node, name) { return (node.widgets || []).find((widget) => widget.name === name); }",
+        _extract_js_function(src, "getComboValues"),
+        _extract_js_function(src, "chooseLtxFallbackValue"),
+        _extract_js_function(src, "shouldPreserveStaleLtxModelValue"),
+        _extract_js_function(src, "isNonNoneLtxValue"),
+        _extract_js_function(src, "hasLtxExtension"),
+        _extract_js_function(src, "looksLikeLtxVaeValue"),
+        _extract_js_function(src, "isLtxDeviceValue"),
+        _extract_js_function(src, "repairShiftedLtxGgufWidgetValues"),
+        _extract_js_function(src, "sanitizeLtxWidgetValues"),
+    ]
+
+    harness = "\n".join(snippets) + r"""
+function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function check(cond, msg) { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } }
+function combo(name, value, values) {
+    return { name, value, options: { values } };
+}
+
+const node = {
+    properties: {},
+    widgets: [
+        combo("pipeline_mode", "GGUF Style", ["Checkpoint Style", "KJ Style", "GGUF Style"]),
+        combo("checkpoint_name", "ltx-2.3-22b-dev-fp8.safetensors", ["ltx-2.3-22b-dev-fp8.safetensors"]),
+        combo("diffusion_model_name", "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors", ["ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors"]),
+        combo("gguf_unet_name", "LTX23_video_vae_bf16.safetensors", ["__none__", "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf"]),
+        combo("video_vae_name", "LTX23_audio_vae_bf16.safetensors", ["__none__", "LTX23_video_vae_bf16.safetensors", "LTX23_audio_vae_bf16.safetensors"]),
+        combo("audio_vae_name", "gemma_3_12B_it_fp8_scaled.safetensors", ["__none__", "LTX23_video_vae_bf16.safetensors", "LTX23_audio_vae_bf16.safetensors"]),
+        combo("text_encoder_name", "ltx-2.3_text_projection_bf16.safetensors", ["__none__", "gemma_3_12B_it_fp8_scaled.safetensors"]),
+        combo("text_projection_name", "default", ["__none__", "ltx-2.3_text_projection_bf16.safetensors"]),
+        combo("clip_device", "default", ["default", "cpu"]),
+        combo("weight_dtype", "default", ["default", "fp16", "bf16"]),
+    ],
+};
+
+check(sanitizeLtxWidgetValues(node) === true, "shifted node should be changed");
+const byName = Object.fromEntries(node.widgets.map((widget) => [widget.name, widget.value]));
+check(byName.gguf_unet_name === "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf", "gguf repaired");
+check(byName.video_vae_name === "LTX23_video_vae_bf16.safetensors", "video vae repaired");
+check(byName.audio_vae_name === "LTX23_audio_vae_bf16.safetensors", "audio vae repaired");
+check(byName.text_encoder_name === "gemma_3_12B_it_fp8_scaled.safetensors", "text encoder repaired");
+check(byName.text_projection_name === "ltx-2.3_text_projection_bf16.safetensors", "text projection repaired");
+check(node.properties.__deno_ltx_shift_repair === "gguf-visible-values-v1", "repair marker set");
+check(eq(node.widgets_values, [
+    "GGUF Style",
+    "ltx-2.3-22b-dev-fp8.safetensors",
+    "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors",
+    "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf",
+    "LTX23_video_vae_bf16.safetensors",
+    "LTX23_audio_vae_bf16.safetensors",
+    "gemma_3_12B_it_fp8_scaled.safetensors",
+    "ltx-2.3_text_projection_bf16.safetensors",
+    "default",
+    "default",
+]), "serialized values repaired");
+
+const cleanNode = {
+    properties: {},
+    widgets: [
+        combo("pipeline_mode", "GGUF Style", ["Checkpoint Style", "KJ Style", "GGUF Style"]),
+        combo("checkpoint_name", "ltx-2.3-22b-dev-fp8.safetensors", ["ltx-2.3-22b-dev-fp8.safetensors"]),
+        combo("diffusion_model_name", "ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors", ["ltx-2.3-22b-dev_transformer_only_fp8_scaled.safetensors"]),
+        combo("gguf_unet_name", "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf", ["__none__", "LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf"]),
+        combo("video_vae_name", "LTX23_video_vae_bf16.safetensors", ["__none__", "LTX23_video_vae_bf16.safetensors", "LTX23_audio_vae_bf16.safetensors"]),
+        combo("audio_vae_name", "LTX23_audio_vae_bf16.safetensors", ["__none__", "LTX23_video_vae_bf16.safetensors", "LTX23_audio_vae_bf16.safetensors"]),
+        combo("text_encoder_name", "gemma_3_12B_it_fp8_scaled.safetensors", ["__none__", "gemma_3_12B_it_fp8_scaled.safetensors"]),
+        combo("text_projection_name", "ltx-2.3_text_projection_bf16.safetensors", ["__none__", "ltx-2.3_text_projection_bf16.safetensors"]),
+        combo("clip_device", "default", ["default", "cpu"]),
+        combo("weight_dtype", "default", ["default", "fp16", "bf16"]),
+    ],
+};
+check(sanitizeLtxWidgetValues(cleanNode) === false, "clean node should not be changed");
+check(!cleanNode.properties.__deno_ltx_shift_repair, "clean node should not get marker");
+
+console.log("OK");
+"""
+
+    harness_path = tmp_path / "ltx_model_loader_shift_repair.mjs"
     harness_path.write_text(harness, encoding="utf-8")
 
     result = subprocess.run(

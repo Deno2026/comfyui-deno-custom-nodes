@@ -336,7 +336,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.16-rail-scroll-h"' in script
+    assert 'IDD_REV = "r2026.06.16-recreate-size-j"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
@@ -346,6 +346,29 @@ def test_ideogram_director_compute_size_guard_allows_user_shrink():
     assert 'window.addEventListener("pointerup", end, true);' in script
     assert 'window.addEventListener("pointercancel", end, true);' in script
     assert 'window.removeEventListener("pointercancel", end, true)' in script
+
+
+def test_ideogram_director_recreate_node_restores_default_size_when_small():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert "const IDD_DEFAULT_W = 850;" in script
+    assert "const IDD_DEFAULT_H = 1000;" in script
+    assert "const IDD_MIN_W = 760;" in script
+    assert "const recreatedTooSmall = marked && (sw < IDD_MIN_W || sh < IDD_MIN_H);" in script
+    assert "marked && !recreatedTooSmall" in script
+    assert ": [IDD_DEFAULT_W, IDD_DEFAULT_H];" in script
+    assert "layoutStage(); fitTopBarSoon();" in script
+
+
+def test_ideogram_director_dom_widget_keeps_full_width_in_desktop():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert "width:100%;min-width:0;max-width:100%;height:100%;align-self:stretch" in script
+    assert 'width: "100%"' in script
+    assert 'maxWidth: "100%"' in script
+    assert 'alignSelf: "stretch"' in script
+    assert ".idd-body{display:flex;flex:1 1 auto;width:100%;min-width:0;min-height:0;}" in script
+    assert ".idd-board{position:relative;flex:1 1 320px;min-width:260px;" in script
 
 
 def test_ideogram_director_right_rail_keeps_local_wheel_scroll():
@@ -2165,7 +2188,10 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "SHIFTED_MODEL_WIDGET_VALUES" in script
     assert "isShiftedModelWidgetValue" in script
     assert "repairModelWidgetValue" in script
-    assert "Refresh models and select a real local LLM model before unloading." in script
+    assert "Missing saved model:" in script
+    assert "displayModelValueForCurrentChoices" in script
+    assert "isUnavailableModelWidgetValue" in script
+    assert "Refresh Models and select an installed local LLM model before unloading." in script
     assert "inferWidgetType" in script
     assert "denoLocalLLMModelChoicesByProvider" in script
     assert "Ollama Model" in script
@@ -2541,6 +2567,7 @@ def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
     unload_calls = []
 
     original_stream = module._http_stream_sse
+    original_list_models = module.list_local_llm_models
     original_unload = node._lm_unload_best_effort
 
     def fake_stream(url, payload, **_kwargs):
@@ -2558,6 +2585,7 @@ def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
 
     node._lm_unload_best_effort = lambda native_base, model: unload_calls.append((native_base, model))
     module._http_stream_sse = fake_stream
+    module.list_local_llm_models = lambda _provider, _server_url: []
     try:
         answer, thought, raw = node._run_lm_studio(
             server_url="http://127.0.0.1:1234/v1",
@@ -2576,20 +2604,106 @@ def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
         )
     finally:
         module._http_stream_sse = original_stream
+        module.list_local_llm_models = original_list_models
         node._lm_unload_best_effort = original_unload
 
     assert answer == "kept"
     assert thought == ""
     assert stream_payloads[0]["url"] == "http://127.0.0.1:1234/api/v1/chat"
-    assert stream_payloads[0]["payload"]["reasoning"] == "off"
+    assert "reasoning" not in stream_payloads[0]["payload"]
     assert stream_payloads[0]["payload"]["input"] == "hello"
     assert stream_payloads[0]["payload"]["store"] is False
     assert "ttl" not in stream_payloads[0]["payload"]
     assert "seed" not in stream_payloads[0]["payload"]
+    assert raw["reasoning"] == "off"
     assert raw["model_memory"] == "Keep for minutes"
     assert raw["keep_minutes"] == 3
     assert raw["api"] == "LM Studio /api/v1/chat"
     assert unload_calls == []
+
+
+def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+
+    original_stream = module._http_stream_sse
+    original_list_models = module.list_local_llm_models
+
+    def fake_stream(url, payload, **_kwargs):
+        stream_payloads.append({"url": url, "payload": dict(payload)})
+        yield "message.delta", {"type": "message.delta", "content": "kept"}
+        yield "chat.end", {"type": "chat.end", "result": {"output": [{"type": "message", "content": "kept"}]}}
+
+    module._http_stream_sse = fake_stream
+    module.list_local_llm_models = lambda _provider, _server_url: [
+        {"id": "google/gemma-4-12b", "reasoning_options": ["off", "on"]}
+    ]
+    try:
+        answer, thought, raw = node._run_lm_studio(
+            server_url="http://127.0.0.1:1234/v1",
+            model="google/gemma-4-12b",
+            system_prompt="",
+            prompt="hello",
+            thinking=False,
+            seed=7,
+            model_memory="Keep for minutes",
+            keep_minutes=3,
+            image_attachment=None,
+            is_last=True,
+            node_id="99",
+            index=1,
+            total=1,
+        )
+    finally:
+        module._http_stream_sse = original_stream
+        module.list_local_llm_models = original_list_models
+
+    assert answer == "kept"
+    assert thought == ""
+    assert stream_payloads[0]["payload"]["reasoning"] == "off"
+    assert raw["reasoning"] == "off"
+
+
+def test_local_llm_refiner_lm_studio_sends_reasoning_only_when_thinking_enabled():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+
+    original_stream = module._http_stream_sse
+
+    def fake_stream(url, payload, **_kwargs):
+        stream_payloads.append({"url": url, "payload": dict(payload)})
+        yield "reasoning.delta", {"type": "reasoning.delta", "content": "visible thought"}
+        yield "message.delta", {"type": "message.delta", "content": "answer"}
+        yield "chat.end", {"type": "chat.end", "result": {"output": [{"type": "message", "content": "answer"}]}}
+
+    module._http_stream_sse = fake_stream
+    try:
+        answer, thought, raw = node._run_lm_studio(
+            server_url="http://127.0.0.1:1234/v1",
+            model="google/gemma-4-12b",
+            system_prompt="",
+            prompt="hello",
+            thinking=True,
+            seed=7,
+            model_memory="Unload after run",
+            keep_minutes=3,
+            image_attachment=None,
+            is_last=False,
+            node_id="99",
+            index=1,
+            total=1,
+        )
+    finally:
+        module._http_stream_sse = original_stream
+
+    assert answer == "answer"
+    assert thought == "visible thought"
+    assert stream_payloads[0]["payload"]["reasoning"] == "on"
+    assert raw["reasoning"] == "on"
 
 
 def test_local_llm_refiner_lm_studio_native_extracts_top_level_output():
@@ -2619,12 +2733,15 @@ def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
 
     original_stream = module._http_stream_sse
     original_http_json = module._http_json
+    original_list_models = module.list_local_llm_models
     original_unload = node._lm_unload_best_effort
+    diagnostic_payloads = []
 
     def fake_stream(_url, _payload, **_kwargs):
         yield "chat.start", {"type": "chat.start", "model_instance_id": "google/gemma-4-12b"}
 
     def fake_http_json(_url, _payload=None, method="GET", timeout=20.0):
+        diagnostic_payloads.append(dict(_payload or {}))
         raise RuntimeError(
             "Local LLM server returned HTTP 500: "
             "The number of tokens to keep from the initial prompt is greater than the context length "
@@ -2633,6 +2750,7 @@ def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
 
     module._http_stream_sse = fake_stream
     module._http_json = fake_http_json
+    module.list_local_llm_models = lambda _provider, _server_url: []
     node._lm_unload_best_effort = lambda native_base, model: unload_calls.append((native_base, model))
     try:
         with pytest.raises(RuntimeError, match="longer than the loaded model context"):
@@ -2654,8 +2772,12 @@ def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
     finally:
         module._http_stream_sse = original_stream
         module._http_json = original_http_json
+        module.list_local_llm_models = original_list_models
         node._lm_unload_best_effort = original_unload
 
+    assert diagnostic_payloads
+    assert diagnostic_payloads[0]["stream"] is False
+    assert "reasoning" not in diagnostic_payloads[0]
     assert unload_calls == [("http://127.0.0.1:1234", "google/gemma-4-12b")]
 
 
@@ -3518,6 +3640,49 @@ def test_local_llm_refiner_validation_accepts_only_ollama_and_lm_studio_models()
     )
     assert "LM Studio Model" in shifted_label_result
     assert "shifted" in shifted_label_result
+
+    missing_saved_result = node_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="Missing saved model: qwen3.6:35b-a3b",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="",
+    )
+    assert "Saved Ollama model is not available on this PC" in missing_saved_result
+    assert "qwen3.6:35b-a3b" in missing_saved_result
+
+
+def test_local_llm_refiner_missing_saved_display_does_not_execute():
+    package = load_package()
+    node = package.DenoLocalLLMRefiner()
+    calls = []
+
+    def fake_run_single(**kwargs):
+        calls.append(kwargs)
+        return "answer", "", {}
+
+    node._run_single = fake_run_single
+
+    with pytest.raises(RuntimeError) as exc:
+        node.refine(
+            provider=["Ollama"],
+            ollama_model=["Missing saved model: qwen3.6:35b-a3b"],
+            lm_studio_model=["google/gemma-4-12b"],
+            custom_server_url=["http://127.0.0.1:8000/v1"],
+            custom_model=[""],
+            system_prompt=[""],
+            prompt=["one prompt"],
+            thinking=[False],
+            seed=[1],
+            seed_mode=["fixed"],
+            model_memory=["Unload after run"],
+            keep_minutes=[5],
+            comfy_vram_policy=["Auto: unload only before first LLM call"],
+            unique_id=[123],
+        )
+
+    assert not calls
+    assert "Saved Ollama model is not available on this PC" in str(exc.value)
+    assert "qwen3.6:35b-a3b" in str(exc.value)
 
 
 def test_local_llm_refiner_missing_saved_model_error_is_clear():
