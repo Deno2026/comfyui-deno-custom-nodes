@@ -40,30 +40,33 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.33`.
+Current public release attempt: `0.7.35`.
 
 Release artifacts created:
 
-- GitHub release/tag: `v0.7.33`
-- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.33`
-- Release commit/tag target: `b333f4a`
-- Current `main` also contains CI-only follow-up commits after the release tag.
+- GitHub release/tag: `v0.7.35`
+- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.35`
+- Release commit/tag target: `627b8123c6dc9a05cb304faec77b7c283358084e`
+- Release scope: Ideogram Director interaction hotfix only.
 
-Propagation state at last update:
+Propagation state at last update on 2026-06-16:
 
-- GitHub Actions: latest `main` CI and Pages are green.
-- Comfy Registry: `0.7.33` is `NodeVersionStatusPending` with empty `status_reason`.
-- Install endpoint: points to `0.7.33` while it is pending.
-- CDN package: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.33/node.zip` returns 200.
-- ComfyUI Manager map PR: `https://github.com/Comfy-Org/ComfyUI-Manager/pull/2987`
-  - PR branch updated to include 19 DENO public nodes including `DenoIdeogramDirector`.
-  - Main Manager map may remain stale until PR merge and cache refresh.
+- GitHub Actions for commit `627b8123`: CI success, Publish to Comfy registry success, Pages success.
+- Comfy Registry previous latest `0.7.34` is `NodeVersionStatusActive`.
+- Comfy Registry `0.7.35` package was published and install endpoint points to `0.7.35`, but
+  Registry still reports `NodeVersionStatusPending` with empty `status_reason`.
+- Top-level Registry latest remains `0.7.34` Active until `0.7.35` activation completes.
+- CDN package: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.35/node.zip` returns 200.
+- ComfyUI Manager map still needs the existing Ideogram Director node-list propagation path; this
+  patch did not change public node IDs or node count.
 
-0.7.33 release scope:
+0.7.35 release scope:
 
-- Include `(Deno) Ideogram Director`.
-- Include Local LLM Loader / Reviewer fixes already in this branch.
-- Include LTX Prompt Guide saved-workflow migration.
+- Fix `(Deno) Ideogram Director` so a manually enlarged node can shrink again with the LiteGraph
+  resize handle.
+- Fix `(Deno) Ideogram Director` right rail wheel behavior so prompt/style/elements can scroll
+  locally while the board/photo/bbox surface remains canvas-first.
+- No backend input/output/socket/widget order changes.
 - Exclude standalone `(Deno) Translator`.
 - Exclude `(Deno) Random Prompt Box`.
 
@@ -77,11 +80,14 @@ Important packaging boundary:
 
 ### Ideogram Director
 
-Status: public release candidate for 0.7.33.
+Status: public `0.7.35` patch release submitted. Registry activation is pending.
 
 Key behavior:
 
 - Visual Ideogram 4 JSON/bbox prompt builder.
+- 0.7.35 fixes:
+  - user-enlarged nodes can be shrunk again with the resize handle
+  - right rail wheel scroll works when prompt/style/elements overflow
 - Incoming JSON Prompt modes:
   - `Ask Before Replacing`: empty board fills automatically; existing board asks before replacement.
   - `Always Replace`: new valid JSON replaces the board automatically.
@@ -123,41 +129,39 @@ Do not register, advertise, or package it until the user explicitly restarts it.
 
 ## Verification Snapshot
 
-0.7.33 release worktree:
+0.7.35 release worktree:
 
 `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.33-release`
 
-Verified in release prep:
+Verified in 0.7.35 release prep:
 
 - `node --check web/js/deno_ideogram_director.js`
-- `node --check web/js/deno_local_llm_refiner.js`
-- `node --check` on an `.mjs` copy of `web/js/deno_ltx_prompt_guide.js`
-- `py -m pytest tests -q` -> 159 passed
-- GitHub CI follow-up fixed pytest collection without installing torch:
-  - `c532a03` runs pytest through the suite.
-  - `cdcaa04` adds test-only torch stubs for CI collection.
-  - Latest GitHub CI after `cdcaa04` passed.
+- `py -m pytest tests -q` -> 163 passed
+- `py -m pytest tests/test_registry_metadata.py -q` -> 13 passed
+- `py -m pytest tests/test_public_workflow_migration.py -q` -> 22 passed
 - `git diff --check` -> no whitespace errors; CRLF warnings only
-- package surface scan:
-  - includes Ideogram Director files, `deno_translate_engine.py`, `node_list.json`, and public screenshot
-  - excludes standalone Translator, Random Prompt Box, tests, tmp, and internal node docs
-  - no `urlopen`, `.connect(`, `subprocess`, `os.system`, `powershell`, `curl`, or `wget` scanner-risk strings in packaged text files
+- Source release worktree, dirty source checkout, and active runtime JS hash:
+  `9FD48501890FC2DDEF2E03C9F578F1D3F7BD7CF0217158C2D5EF72DCB3A749AF`.
+- Served active runtime JS contained `r2026.06.16-rail-scroll-h`, the right-rail wheel exception,
+  and `const preserveCurrent = !iddUserResizing`.
+- Real Chrome/ComfyUI proof before release: right rail wheel scrolled `scrollTop 0 -> 32` without
+  canvas zoom; board wheel still zoomed canvas `1 -> 0.9090909090909091`.
+- CDN package check after publish:
+  - pyproject version `0.7.35`
+  - JS rev `r2026.06.16-rail-scroll-h`
+  - includes right-rail wheel fix and resize-shrink guard
+  - excludes `tests/`, `tmp/`, standalone Translator, and Random Prompt Box
 
 Mandatory GPT-5.5 xhigh release reviewer was attached for frontend/backend sync, ghost-feature, metadata, migration, and package-surface review.
 
 Final reviewer result: PASS.
 
-CDN package check after publish:
-
-- `node_list.json` has 19 public nodes.
-- Includes `DenoIdeogramDirector`, `DenoLocalLLMRefiner`, and `DenoAIReviewGate`.
-- Excludes standalone Translator and Random Prompt Box.
-- Excludes `tests/` from the Registry package.
-
 ## Next Session Checklist
 
 1. Run `git status --short` first.
 2. If continuing propagation checks, use the clean release worktree above, not the dirty source tree.
-3. Keep watching Comfy Registry until `0.7.33` becomes active or flagged.
-4. Keep watching Manager PR #2987 until it merges and the public map lists 19 DENO nodes.
-5. After Registry becomes active, verify install/update through ComfyUI Manager or a disposable runtime when practical.
+3. Keep watching Comfy Registry until `0.7.35` becomes active or flagged. Do not call public
+   propagation fully complete while it is pending.
+4. After Registry becomes active, verify install/update through ComfyUI Manager or a disposable runtime when practical.
+5. Keep watching the existing Manager node-list propagation until the public map lists
+   `DenoIdeogramDirector`; this 0.7.35 patch did not change node IDs or node count.
