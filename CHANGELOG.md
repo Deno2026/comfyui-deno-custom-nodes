@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.37 - 2026-06-16
+
+- Fixed Local LLM Loader `Seed Mode` so `increment`, `decrement`, and `randomize` update the visible seed after each queued run without shifting saved workflow widget values.
+
 ## 0.7.36 - 2026-06-16
 
 - Fixed Ideogram Director's Desktop/Recreate-node sizing path so the editor recovers to a usable board instead of collapsing into a narrow rail or clipping Generate.

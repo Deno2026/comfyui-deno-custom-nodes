@@ -574,6 +574,8 @@ def _normalize_comfy_vram_policy(value: Any) -> str:
 
 def _normalize_seed_mode(value: Any) -> str:
     text = str(_extract_scalar(value, SEED_MODE_FIXED) or SEED_MODE_FIXED).strip()
+    if text == "random":
+        return SEED_MODE_RANDOMIZE
     return text if text in SEED_MODE_OPTIONS else SEED_MODE_FIXED
 
 

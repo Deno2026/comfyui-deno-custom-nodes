@@ -72,6 +72,7 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 - LM Studio native streaming can return HTTP 200 with only `chat.start` and no final text when the prompt exceeds the loaded model context. Do not treat that as success. The Loader must run a non-stream diagnostic request and raise a clear context-length error instead of returning an empty result.
 - Fixed / increment / decrement seed modes use a stable ComfyUI cache key. If provider, model, prompts, seed, image, memory policy, and VRAM policy are unchanged, the Loader should not call the local LLM again.
 - `randomize` seed mode uses a fresh cache key for each run. Prompt/model/seed/image/memory/VRAM changes must still invalidate the cache and rerun the Loader.
+- Loader `Seed Mode` must also behave like ComfyUI's after-generate seed control. On queue submit, `increment`, `decrement`, and `randomize` update the visible Loader `Seed` widget for the next queued run without adding a separate serialized `control_after_generate` widget or shifting the 13 saved Loader widget slots. Backend `_seed_for_index` still offsets batched prompt-list items inside one execution.
 - Thinking-only responses with no final result are rejected with a clear error instead of passing an empty prompt downstream.
 - Saved LM Studio/Ollama model selections must survive workflow reload even when the live model list returns the default model first. Configure-time normalization moves the saved model value before default choices and strips old serialized button/control values so saved 12B-style selections do not fall back to e4b. First queue submit after reload must not require pressing `Refresh Models` to restore the saved provider/model/system prompt/seed/prompt slots.
 - Saved model preservation must not pretend the model exists on every PC. If a saved Ollama/LM
@@ -124,6 +125,8 @@ Before calling this node done after a behavior change, cover the affected cells:
   - Fixed seed with unchanged inputs should reuse the cached output instead of calling the local LLM again.
   - Changing prompt/model/seed/image/memory policy/VRAM policy should rerun.
   - Randomize seed mode should rerun even if visible text is unchanged.
+  - Seed Mode `increment` should change the visible Loader seed by `+1` after a real queue submit, and the next queue should use the changed seed/cache key.
+  - Seed Mode changes must not create a visible or serialized extra `control_after_generate` widget, duplicate `seed_mode`, or shift saved provider/model/system prompt/seed/prompt values by one slot.
 - Old saved-node/widget-shift simulation when widget order or hidden fields change.
 - Reviewer auto-rerun:
   - Off by default.

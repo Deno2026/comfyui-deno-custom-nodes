@@ -2205,6 +2205,9 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "isShiftedCustomModelValue" in script
     assert "function safeAppGraph" in script
     assert "installReviewerGraphToPromptHook" in script
+    assert "function applyLocalLLMAfterGenerateSeedModes(output)" in script
+    assert "applyLocalLLMAfterGenerateSeedModes(result?.output)" in script
+    assert "function nextLocalLLMSeedValue(seed, mode)" in script
     assert "collectReviewerAncestors" in script
     assert "collectPromptLinkAncestors" in script
     assert "pruneUnreferencedPromptAncestors" in script
@@ -3896,6 +3899,7 @@ def test_local_llm_refiner_normalizes_prompts_seed_modes_and_local_urls():
     assert module._seed_for_index(7, "fixed", 2) == 7
     assert module._seed_for_index(7, "increment", 2) == 9
     assert module._seed_for_index(7, "decrement", 9) == 0
+    assert module._normalize_seed_mode("random") == "randomize"
     assert module._normalize_lm_openai_url("http://127.0.0.1:1234") == "http://127.0.0.1:1234/v1"
     assert module._normalize_comfy_vram_policy("Auto") == "Auto: unload only before first LLM call"
     assert module._normalize_comfy_vram_policy("Always free") == "Always unload before each LLM call"

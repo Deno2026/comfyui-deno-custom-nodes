@@ -235,6 +235,34 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(staleFirstRunNode.widgets[5].value === "System Prompt text", "Loader first-run repair must clear shifted seed-mode text from system prompt");
             assert(staleFirstRunNode.widgets[7].value === 2, "Loader first-run repair must restore saved seed before queue submit");
             assert(staleFirstRunNode.widgets[12].value === "Prompt text", "Loader first-run repair must restore saved prompt textarea before queue submit");
+            const seedModeNode = {{
+                id: 77,
+                type: "DenoLocalLLMRefiner",
+                graph,
+                widgets: [
+                    {{ name: "seed", value: 10 }},
+                    {{ name: "seed_mode", value: "increment" }},
+                ],
+            }};
+            graph._nodes = [seedModeNode];
+            const seedOutput = {{
+                "77": {{
+                    class_type: "DenoLocalLLMRefiner",
+                    inputs: {{ seed: 10, seed_mode: "increment" }},
+                }},
+            }};
+            assert(api.applyLocalLLMAfterGenerateSeedModes(seedOutput) === true, "Loader Seed Mode increment must update the visible seed after queue submit");
+            assert(seedModeNode.widgets[0].value === 11, "Loader Seed Mode increment must add one for the next queued run");
+            seedModeNode.widgets[1].value = "decrement";
+            assert(api.applyLocalLLMAfterGenerateSeedModes(seedOutput) === true, "Loader Seed Mode decrement must update the visible seed after queue submit");
+            assert(seedModeNode.widgets[0].value === 10, "Loader Seed Mode decrement must subtract one for the next queued run");
+            seedModeNode.widgets[1].value = "fixed";
+            assert(api.applyLocalLLMAfterGenerateSeedModes(seedOutput) === false, "Loader Seed Mode fixed must not mutate the visible seed");
+            assert(seedModeNode.widgets[0].value === 10, "Loader Seed Mode fixed must preserve the seed");
+            seedModeNode.widgets[1].value = "randomize";
+            assert(api.applyLocalLLMAfterGenerateSeedModes(seedOutput) === true, "Loader Seed Mode randomize must update the visible seed after queue submit");
+            assert(seedModeNode.widgets[0].value >= 0 && seedModeNode.widgets[0].value <= 0xFFFFFFFF, "Loader Seed Mode randomize must stay within the backend seed range");
+            graph._nodes = [];
             assert(
                 api.localLLMExecutionErrorMessage({{
                     node_id: 2,

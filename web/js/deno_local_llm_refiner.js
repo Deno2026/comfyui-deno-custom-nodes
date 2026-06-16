@@ -741,8 +741,60 @@ function installReviewerGraphToPromptHook() {
         const result = await originalGraphToPrompt.apply(this, args);
         migrateLocalLLMPromptInputNames(result?.output);
         applyReviewerSubmitModes(result?.output);
+        applyLocalLLMAfterGenerateSeedModes(result?.output);
         return result;
     };
+}
+
+function normalizeLocalLLMSeedMode(value) {
+    const text = String(value ?? "").trim();
+    if (text === "random") {
+        return "randomize";
+    }
+    return SEED_MODE_VALUES.includes(text) ? text : "fixed";
+}
+
+function nextLocalLLMSeedValue(seed, mode) {
+    const current = Math.max(0, Math.floor(Number(seed) || 0));
+    const normalizedMode = normalizeLocalLLMSeedMode(mode);
+    if (normalizedMode === "increment") {
+        return Math.min(0xFFFFFFFF, current + 1);
+    }
+    if (normalizedMode === "decrement") {
+        return Math.max(0, current - 1);
+    }
+    if (normalizedMode === "randomize") {
+        return Math.floor(Math.random() * 0x100000000);
+    }
+    return current;
+}
+
+function applyLocalLLMAfterGenerateSeedModes(output) {
+    let changed = false;
+    for (const [id, entry] of Object.entries(output || {})) {
+        if (entry?.class_type !== NODE_NAME) {
+            continue;
+        }
+        const node = localLLMNodeById(id, { allowSingleFallback: false });
+        const seedWidget = getWidget(node, "seed");
+        const modeWidget = getWidget(node, "seed_mode");
+        if (!seedWidget || !modeWidget) {
+            continue;
+        }
+        const mode = normalizeLocalLLMSeedMode(modeWidget.value ?? entry?.inputs?.seed_mode);
+        if (mode === "fixed") {
+            continue;
+        }
+        const nextSeed = nextLocalLLMSeedValue(seedWidget.value, mode);
+        if (Number(seedWidget.value) !== nextSeed) {
+            seedWidget.value = nextSeed;
+            changed = true;
+        }
+    }
+    if (changed) {
+        safeAppGraph()?.setDirtyCanvas?.(true, true);
+    }
+    return changed;
 }
 
 function migrateLocalLLMPromptInputNames(output) {
@@ -1265,8 +1317,10 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         applyReviewerPassMode,
         applyReviewerRegenerateMode,
         applyReviewerSubmitModes,
+        applyLocalLLMAfterGenerateSeedModes,
         isLocalLLMOwnExecutionError,
         localLLMExecutionErrorMessage,
+        nextLocalLLMSeedValue,
         normalizeLocalLLMLoaderSerializedValues,
         normalizeLocalLLMLoaderWidgetValues,
         applyLocalLLMLoaderSavedWidgetValues,
@@ -3645,6 +3699,9 @@ function repairSavedWidgetValues(node) {
     const seedModeWidget = getWidget(node, "seed_mode");
     const memoryWidget = getWidget(node, "model_memory");
     const keepWidget = getWidget(node, "keep_minutes");
+    if (seedModeWidget && String(seedModeWidget.value || "").trim() === "random") {
+        seedModeWidget.value = "randomize";
+    }
     if (seedModeWidget && !SEED_MODE_VALUES.includes(String(seedModeWidget.value || ""))) {
         const shiftedMemory = normalizeModelMemoryValue(seedModeWidget.value);
         const shiftedKeep = Number(memoryWidget?.value);
