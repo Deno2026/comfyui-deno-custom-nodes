@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import tomllib
 import types
 import urllib.error
 from pathlib import Path
@@ -237,6 +238,65 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoCompare"] == "(Deno) Video Compare"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoPreview"] == "(Deno) Video Preview"
     assert package.WEB_DIRECTORY == "./web/js"
+
+
+def test_public_nodes_expose_complete_object_info_metadata():
+    package = load_package()
+    public_nodes = json.loads((REPO_ROOT / "node_list.json").read_text(encoding="utf-8"))
+    version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    failures = []
+
+    for node_id in public_nodes:
+        node_cls = package.NODE_CLASS_MAPPINGS[node_id]
+        input_types = node_cls.INPUT_TYPES()
+        description = getattr(node_cls, "DESCRIPTION", "")
+        if not isinstance(description, str) or not description.strip():
+            failures.append(f"{node_id}: DESCRIPTION is empty")
+        if f"DENO Custom Nodes v{version}" not in str(description):
+            failures.append(f"{node_id}: DESCRIPTION missing DENO Custom Nodes v{version}")
+
+        for section in ("required", "optional"):
+            for input_name, spec in input_types.get(section, {}).items():
+                metadata = (
+                    spec[1]
+                    if isinstance(spec, (tuple, list)) and len(spec) > 1 and isinstance(spec[1], dict)
+                    else {}
+                )
+                tooltip = metadata.get("tooltip")
+                if not isinstance(tooltip, str) or not tooltip.strip():
+                    failures.append(f"{node_id}: {section}.{input_name} missing tooltip")
+
+        output_types = tuple(getattr(node_cls, "RETURN_TYPES", ()))
+        output_names = tuple(getattr(node_cls, "RETURN_NAMES", output_types))
+        output_tooltips = tuple(getattr(node_cls, "OUTPUT_TOOLTIPS", ()))
+        if output_types:
+            if len(output_names) != len(output_types):
+                failures.append(f"{node_id}: RETURN_NAMES length does not match RETURN_TYPES")
+            if len(output_tooltips) != len(output_types):
+                failures.append(f"{node_id}: OUTPUT_TOOLTIPS length does not match RETURN_TYPES")
+            for index, tooltip in enumerate(output_tooltips):
+                if not isinstance(tooltip, str) or not tooltip.strip():
+                    failures.append(f"{node_id}: output[{index}] missing tooltip")
+        elif output_tooltips:
+            failures.append(f"{node_id}: zero-output node has OUTPUT_TOOLTIPS")
+
+    assert not failures, "\n".join(failures)
+
+
+def test_deno_version_metadata_stays_scanner_safe():
+    metadata_source = (REPO_ROOT / "deno_node_metadata.py").read_text(encoding="utf-8")
+    assert "urllib.request" not in metadata_source
+    assert "urlopen" not in metadata_source
+    assert "api.comfy.org" not in metadata_source
+
+
+def test_deno_node_help_update_state_has_badge():
+    script = (REPO_ROOT / "web" / "js" / "deno_node_help.js").read_text(encoding="utf-8")
+
+    assert 'badgeLabel: "!"' in script
+    assert "deno-node-update-available::after" in script
+    assert "UPDATE_BADGE_RADIUS" in script
+    assert "Update available:" in script
 
 
 def test_public_ltx23_8gb_workflow_keeps_deno_node_contracts():

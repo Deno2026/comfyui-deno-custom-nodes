@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.41 - 2026-06-17
+
+- Added pack-wide ComfyUI Info panel descriptions for all public Deno nodes, including input and output explanations.
+- Improved the Deno node info button so it shows the installed pack version, checks Comfy Registry, and marks available updates with a yellow `i` plus a small `!` badge.
+
 ## 0.7.40 - 2026-06-17
 
 - Improved Ideogram Director Elements ordering: the right-side list now reads visually front-to-back, shows a green insertion line while reordering, and keeps each box's editor color attached to that box after reordering.

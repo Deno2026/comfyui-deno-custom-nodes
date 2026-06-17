@@ -9,7 +9,7 @@
 Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
-Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas.
+Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
 The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, the no-install **Video Compare** page, and the **Video to GIF/WebP** converter page.
 
 ## Release Notes

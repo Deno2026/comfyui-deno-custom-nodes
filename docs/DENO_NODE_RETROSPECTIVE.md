@@ -50,6 +50,10 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
 - Verify `INPUT_TYPES`, `RETURN_TYPES`, `RETURN_NAMES`, `FUNCTION`, and `CATEGORY`.
 - If a node has a frontend widget, update both Python inputs and JS visibility/state logic.
 - Check `/object_info/<NodeName>` after restart to confirm ComfyUI sees the expected contract.
+- Public nodes must not ship with blank Info-panel rows. Each public node needs a useful
+  `DESCRIPTION`, each required/optional input needs a `tooltip`, and each returned output needs a
+  matching `OUTPUT_TOOLTIPS` entry. Add or update the pack-wide metadata guard test whenever a new
+  public node or input/output is added.
 - Do not rely on the canvas screenshot alone; check the backend contract too.
 - For ComfyUI UI/runtime verification, use the fixed API-first, browser-last route:
   1. Check source/runtime file hashes and copy only changed runtime-visible files.

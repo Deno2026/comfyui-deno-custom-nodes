@@ -6,7 +6,7 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-Deno Custom Nodes é um conjunto de nós personalizados para ComfyUI, criado para tornar workflows reais de imagem, vídeo, LTX, RTX e preparação de modelos mais rápidos, claros e práticos no dia a dia. A maioria dos nós Deno inclui um pequeno botão verde `i` para consultar ajuda rápida sem sair do canvas do ComfyUI.
+Deno Custom Nodes é um conjunto de nós personalizados para ComfyUI, criado para tornar workflows reais de imagem, vídeo, LTX, RTX e preparação de modelos mais rápidos, claros e práticos no dia a dia. A maioria dos nós Deno inclui um pequeno botão verde `i` para consultar ajuda rápida sem sair do canvas do ComfyUI. Se existir uma nova versão do Deno Custom Nodes, o botão fica amarelo e mostra um pequeno emblema `!`.
 
 ## Release Notes
 

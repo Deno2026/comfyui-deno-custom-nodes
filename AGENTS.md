@@ -99,6 +99,10 @@ Common requirements:
 - Avoid developer/internal labels in user-facing UI.
 - Reuse the established DENO visual lineage and `docs/DENO_NODE_VISUAL_IDENTITY.md` for visual work.
 - For frontend changes, `/object_info`, served JS, and unit tests are not enough. Verify in the real ComfyUI canvas.
+- Hard gate for public node Info metadata: every public node in `node_list.json` must expose a useful
+  node `DESCRIPTION`, every required/optional input must have a ComfyUI `tooltip`, and every output
+  in `RETURN_TYPES` must have matching `OUTPUT_TOOLTIPS`. The shared DENO version/update notice must
+  be visible through the DENO info button path. Missing Info-panel descriptions are a release blocker.
 - Use API-first, browser-last verification for ComfyUI UI work. First verify source/runtime hashes, `/queue`, `/object_info`, served JS markers, backend logs, and `/prompt` or WebSocket events. Use the browser only for final fresh-canvas visual/interaction proof, screenshot, and console errors. Do not waste time scraping LiteGraph internals from the browser when the same fact can be checked through ComfyUI APIs or tests.
 - During Codex UI verification, treat the current ComfyUI browser canvas as disposable when the user has saved anything important and `/queue` is idle. Codex may reload, close/reopen, or clear/recreate a test canvas to force fresh frontend JS and clean node state. This never means deleting saved workflow files.
 - If the Codex in-app Browser / Chrome plugin control channel is closed, do not stop at "browser unavailable" or repeatedly ask the user to refresh. First use the local Chrome DevTools fallback `tools/comfyui_cdp_probe.ps1` for a headless ComfyUI screenshot and DOM/title check. If a separate disposable browser is useful, run the same helper with `-Visible -KeepOpen` to open an isolated Chrome window instead of touching the user's current tab. Ask the user to open or refresh the in-app browser only when real hover/click checks must happen in the user's live side panel.

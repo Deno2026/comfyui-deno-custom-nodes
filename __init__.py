@@ -20,6 +20,11 @@ try:
 except ImportError:
     from deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
 
+try:
+    from .deno_node_metadata import decorate_node_classes
+except ImportError:
+    from deno_node_metadata import decorate_node_classes
+
 INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
 
 
@@ -403,6 +408,8 @@ for _module_name, _class_name, _display_name in _OPTIONAL_NODES:
     # Keep the class importable as a package attribute (back-compat: this
     # was the case while these were eager `from .x import Y` imports).
     globals()[_class_name] = _node_class
+
+decorate_node_classes(NODE_CLASS_MAPPINGS)
 
 DENO_NODE_REPLACEMENTS = (
     {

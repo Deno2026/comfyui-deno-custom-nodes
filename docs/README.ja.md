@@ -6,7 +6,7 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-Deno Custom Nodes は、ComfyUI の実制作でよく繰り返す画像、動画、LTX、RTX、モデル準備の作業を、より速く、分かりやすく、日常的に使いやすくするためのカスタムノード集です。多くの Deno ノードには、キャンバスを離れずに説明を確認できる小さな緑色の `i` ボタンがあります。
+Deno Custom Nodes は、ComfyUI の実制作でよく繰り返す画像、動画、LTX、RTX、モデル準備の作業を、より速く、分かりやすく、日常的に使いやすくするためのカスタムノード集です。多くの Deno ノードには、キャンバスを離れずに説明を確認できる小さな緑色の `i` ボタンがあります。新しい Deno Custom Nodes バージョンがある場合、このボタンは黄色になり、小さな `!` バッジを表示します。
 
 ## Release Notes
 
