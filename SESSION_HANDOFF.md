@@ -49,7 +49,12 @@ Current public release attempt: `0.7.43`.
 
 - `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.43-release`
 - Branch: `Codex/deno-0.7.43-release`
-- Status at this handoff update: local verification passed; public push/tag/release still pending.
+- Release commit: `ea23875784f30e767b893571f8083daa1ef4861d`
+- GitHub release/tag: `v0.7.43`
+- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.43`
+- Status at this handoff update: public push/tag/release complete; GitHub Actions CI, Pages, and
+  Publish to Comfy Registry succeeded. Comfy Registry is still `NodeVersionStatusPending` with empty
+  `status_reason`; install endpoint already resolves to `0.7.43`.
 
 0.7.43 release scope:
 
@@ -83,12 +88,14 @@ Current public release attempt: `0.7.43`.
 
 After public release:
 
-- Verify GitHub commit/tag/release and GitHub Actions.
-- Verify CDN zip contains pyproject `0.7.43` and excludes `tests/`, `tmp/`, `SESSION_HANDOFF.md`,
-  `AGENTS.md`, and internal docs.
-- Monitor Comfy Registry until `0.7.43` is Active and the install endpoint resolves to `0.7.43`.
-- Verify ComfyUI Manager map still lists this repo with `DenoIdeogramDirector` and
-  `DenoLocalLLMRefiner`.
+- Done: GitHub commit/tag/release and Actions were verified.
+- Done: CDN zip contains pyproject `0.7.43`, Ideogram `r2026.06.18-resolution-import-a`, Visual Fold
+  drag-suppression markers, Multi LoRA/LTX Multi LoRA legacy saved-value markers, and excludes
+  `tests/`, `tmp/`, `SESSION_HANDOFF.md`, `AGENTS.md`, and internal docs.
+- Pending: monitor Comfy Registry until `0.7.43` is Active and the install endpoint continues to
+  resolve to `0.7.43`.
+- Done: ComfyUI Manager map lists this repo with `DenoIdeogramDirector` and `DenoLocalLLMRefiner`.
+- Active monitor: `deno-0-7-43-registry-monitor`, heartbeat every 30 minutes in this thread.
 
 Previous public release context: `0.7.42`.
 
@@ -374,10 +381,11 @@ Post-0.7.37 local Ideogram WIP verification:
 ## Next Session Checklist
 
 1. Run `git status --short` first.
-2. If continuing propagation checks, use the clean release worktree above, not the dirty source tree.
-3. Keep watching Comfy Registry until `0.7.38` becomes active or flagged. Do not call public
+2. If continuing propagation checks, use the clean release worktree above or the source repo, but
+   verify which branch/path is active before editing.
+3. Keep watching Comfy Registry until `0.7.43` becomes active or flagged. Do not call public
    propagation fully complete while it is pending.
 4. After Registry becomes active, verify install/update through ComfyUI Manager or a disposable runtime when practical.
 5. Manager map already lists `DenoIdeogramDirector` and `DenoLocalLLMRefiner`; when Registry
-   `0.7.38` becomes Active and the install endpoint still resolves to `0.7.38`, the 30-minute
+   `0.7.43` becomes Active and the install endpoint still resolves to `0.7.43`, the 30-minute
    monitor can stop.
