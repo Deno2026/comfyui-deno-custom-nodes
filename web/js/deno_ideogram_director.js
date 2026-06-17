@@ -1,4 +1,3 @@
-// (Deno) Ideogram Director — frontend
 // Image-hero board on the ComfyUI canvas (DENO green-black). The board edits are BOUND to the
 // node's real (hidden) widgets so they actually reach the backend:
 //   boxes + style palette  -> caption_data (JSON, §5)      summary -> high_level_description
@@ -1437,7 +1436,7 @@
         }
 
         // ── serialize editor state → caption_data widget (§5) ──
-        let paintHistory = () => {};
+        let paintHistory = () => { };
         function serialize() {
           acknowledgeInvalidPromptIfBoardChanged();
           ensureBoxUiColors();
@@ -1497,7 +1496,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.18-resolution-import-a";
+        const IDD_REV = "r2026.06.17-drag-and-drop-j";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -2340,8 +2339,8 @@
         // why output was stuck at the 1024² default. ──
         // same ratio family as our (Deno) Resize Box node — one philosophy across the node pack
         const RATIOS = [["1:1", 1, 1], ["4:5", 4, 5], ["5:4", 5, 4], ["3:4", 3, 4], ["4:3", 4, 3],
-          ["2:3", 2, 3], ["3:2", 3, 2], ["16:9", 16, 9], ["9:16", 9, 16], ["16:10", 16, 10],
-          ["10:16", 10, 16], ["21:9", 21, 9], ["9:21", 9, 21]];
+        ["2:3", 2, 3], ["3:2", 3, 2], ["16:9", 16, 9], ["9:16", 9, 16], ["16:10", 16, 10],
+        ["10:16", 10, 16], ["21:9", 21, 9], ["9:21", 9, 21]];
         const MPS = [0.5, 1, 1.5, 2];
         const PREFERRED_DIMS = [512, 720, 768, 1024, 1088, 1536, 1920];   // dims models love (Resize Box)
         // Friendly ratio for DISPLAY: snap to the nearest ratio people actually use ("≈16:9"), or
@@ -2951,7 +2950,7 @@
               const src = link && node.graph.getNodeById(link.origin_id);
               if (src) {
                 const iw = (src.widgets || []).find((w) => w.name === "image" && typeof w.value === "string")
-                        || (src.widgets || []).find((w) => typeof w.value === "string" && /\.(png|jpe?g|webp|gif|bmp)$/i.test(w.value));
+                  || (src.widgets || []).find((w) => typeof w.value === "string" && /\.(png|jpe?g|webp|gif|bmp)$/i.test(w.value));
                 if (iw && iw.value) {
                   const v = String(iw.value), parts = v.split("/"), filename = parts.pop(), subfolder = parts.join("/");
                   return "/view?" + new URLSearchParams({ filename, subfolder, type: "input" }).toString();
@@ -3531,7 +3530,7 @@
             const mv = (e) => {
               const r = elx.getBoundingClientRect();
               fn(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
-                 Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)));
+                Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)));
               paint();
             };
             elx.addEventListener("pointerdown", (e) => {
@@ -3898,8 +3897,21 @@
         // markSel only toggles .sel (does NOT recreate box divs) so native dblclick-to-edit stays intact.
         function setSel(id) { selectedId = id; markSel(); renderElements(); }
         let drag = null;
+        // Manual double-click detection: setPointerCapture redirects events to ov, so the native
+        // dblclick on box divs never fires. Track last tap time+position to detect double-click.
+        let _lastTap = null;
         function onBoxDown(e, i, mode, dir) {
           if (e.button !== 0) return; e.stopPropagation();
+          // detect double-click manually (pointer capture blocks native dblclick on box divs)
+          const now = e.timeStamp;
+          if (_lastTap && now - _lastTap.t < 400 && _lastTap.i === i &&
+            Math.abs(e.clientX - _lastTap.x) + Math.abs(e.clientY - _lastTap.y) < 10) {
+            _lastTap = null;
+            openElementEditor(i);
+            return;
+          }
+          _lastTap = { t: now, i, x: e.clientX, y: e.clientY };
+          try { ov.setPointerCapture(e.pointerId); } catch (x) { }   // capture so events stay routed here even if cursor leaves
           // Ctrl(⌘)+drag on a box = drag a COPY (the original stays put)
           if (mode === "move" && (e.ctrlKey || e.metaKey)) {
             const src = boxes[i];
@@ -3908,22 +3920,26 @@
             renderBoxes(); renderElements();
           }
           setSel(boxes[i].id);
-          try { wrap.focus({ preventScroll: true }); } catch (x) {}   // make the board keyboard-active (arrows/Tab/Del)
+          try { wrap.focus({ preventScroll: true }); } catch (x) { }   // make the board keyboard-active (arrows/Tab/Del)
           const p = rel(e), b = boxes[i];
-          drag = { i, mode, dir, ox: p.x - b.x, oy: p.y - b.y, sx: e.clientX, sy: e.clientY,
-                   bx: b.x, by: b.y, moved: false };
-          window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
+          drag = {
+            i, mode, dir, ox: p.x - b.x, oy: p.y - b.y, sx: e.clientX, sy: e.clientY,
+            bx: b.x, by: b.y, moved: false
+          };
+          ov.addEventListener("pointermove", onMove); ov.addEventListener("pointerup", onUp); ov.addEventListener("pointercancel", onUp);
         }
         ov.addEventListener("pointerdown", (e) => {
           if (e.button !== 0 || e.target !== ov) return; e.stopPropagation();
+          try { ov.setPointerCapture(e.pointerId); } catch (x) { }   // capture so events stay routed here even if cursor leaves
           const p = rel(e);
           const b = { id: _bid++, x: p.x, y: p.y, w: 0, h: 0, type: "obj", text: "", desc: "", palette: [], uiColor: uiColorForIndex(boxes.length) };
           boxes.push(b); selectedId = b.id;
           drag = { i: boxes.length - 1, mode: "draw", ox: p.x, oy: p.y, sx: e.clientX, sy: e.clientY, moved: false };
-          window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
+          ov.addEventListener("pointermove", onMove); ov.addEventListener("pointerup", onUp); ov.addEventListener("pointercancel", onUp);
         });
         function onMove(e) {
           if (!drag) return;
+          e.preventDefault();   // suppress text-selection / browser default drag once a real drag starts
           // jitter guard ONLY for move/resize of an existing box (so a click doesn't recreate divs &
           // break dblclick). A draw is always intentional; tiny draws are dropped by the w<0.02 check.
           if (drag.mode !== "draw" && !drag.moved && Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) < 4) return;
@@ -3943,8 +3959,9 @@
           else { b.x = Math.min(drag.ox, p.x); b.y = Math.min(drag.oy, p.y); b.w = Math.abs(p.x - drag.ox); b.h = Math.abs(p.y - drag.oy); }
           showDimTip(b, e); renderBoxes();
         }
-        function onUp() {
-          window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp);
+        function onUp(e) {
+          ov.removeEventListener("pointermove", onMove); ov.removeEventListener("pointerup", onUp); ov.removeEventListener("pointercancel", onUp);
+          try { ov.releasePointerCapture(e.pointerId); } catch (x) { }
           dimTip.style.display = "none";
           const wasDraw = !!drag && drag.mode === "draw";
           if (wasDraw) { const b = boxes[drag.i]; if (!b || b.w < 0.02 || b.h < 0.02) { boxes.splice(drag.i, 1); selectedId = null; } }
@@ -4375,7 +4392,7 @@
               if (src && isStaticImportJsonSource(src)) {
                 const ws = src.widgets || [];
                 const tw = ws.find((w) => /text|string|json|prompt/i.test(w.name) && typeof w.value === "string")
-                        || ws.find((w) => typeof w.value === "string");
+                  || ws.find((w) => typeof w.value === "string");
                 if (tw && tw.value && String(tw.value).trim()) return tw.value;
               }
             }
@@ -4446,18 +4463,15 @@
           if (Array.isArray(cd.elements) || ib.length) { boxes = ib; selectedId = null; }
           summary.value = cap.high_level_description || ""; setW("high_level_description", summary.value);
           bgArea.value = cd.background || ""; setW("background", bgArea.value);
-          // aspect_ratio "W:H" → resolution control. The official template may echo the TARGET pixel
-          // size verbatim (e.g. "1344:736"), but image-analysis LLMs can also echo arbitrary source
-          // image sizes. Large pairs are adopted only when they map to a common generation ratio;
-          // otherwise the current user-selected resolution stays in place.
+          // aspect_ratio "W:H" → resolution control. The official template echoes the TARGET pixel
+          // size verbatim (e.g. "1344:736"), so large pairs are adopted as EXACT pixels (snapped to
+          // 16 like the workflow's math nodes); small pairs ("16:9") are clean ratios → compute the
+          // pixel size from the megapixel budget.
           if (typeof cap.aspect_ratio === "string" && /^\d+:\d+$/.test(cap.aspect_ratio.trim())) {
             const pr = cap.aspect_ratio.trim().split(":").map(Number);
             if (pr[0] >= 256 && pr[1] >= 256) {
               const sn = (v) => Math.max(256, Math.min(4096, Math.round(v / 16) * 16));
-              const w = sn(pr[0]), h = sn(pr[1]);
-              const label = friendlyRatio(w, h);
-              if (label) setRes(w, h, label, pr[0] + ":" + pr[1]);
-              else console.warn("[Director] ignored imported arbitrary aspect_ratio", cap.aspect_ratio);
+              setRes(sn(pr[0]), sn(pr[1]), friendlyRatio(pr[0], pr[1]), pr[0] + ":" + pr[1]);
             } else if (pr[0] > 0 && pr[1] > 0) {
               const ar = pr[0] + ":" + pr[1];
               const dm = dimsFor(pr[0], pr[1], mp); setRes(dm[0], dm[1], ar, ar);
@@ -4519,8 +4533,6 @@
             const machine = (getW("aspect_ratio", "") || "").trim();
             const cw = Math.max(64, +getW("width", 1024)), ch = Math.max(64, +getW("height", 1024));
             arLabel = RATIOS.some((r) => r[0] === machine) ? machine : friendlyRatio(cw, ch);
-            const actualMp = resolutionMegapixels(cw, ch);
-            if (Math.abs(actualMp - mp) > 0.03) mp = actualMp;
           }
           paintRes();
 
