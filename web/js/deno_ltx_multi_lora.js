@@ -7,6 +7,7 @@ const MAX_SLOTS = 8;
 const MIN_WIDTH = 450;
 const NONE_VALUE = "__none__";
 const GENERATED_PREFIX = "deno_ltx_multi_lora_";
+const SAVE_RESTORE_REV = "ltx-multi-lora-save-reload-v1";
 const MARGIN = 10;
 const ROW_HORIZONTAL_INSET = 15;
 const INNER_MARGIN = MARGIN * 0.33;
@@ -26,6 +27,22 @@ app.registerExtension({
             return;
         }
 
+        const configure = nodeType.prototype.configure;
+        nodeType.prototype.configure = function (info) {
+            const savedValues = captureLtxMultiLoraSerializedWidgetValues(info);
+            if (savedValues) {
+                this.__denoLtxMultiLoraConfiguredWidgetValues = savedValues;
+            }
+            const result = configure?.apply(this, arguments);
+            if (savedValues) {
+                applyLtxMultiLoraSerializedValuesToWidgets(this, savedValues);
+                syncLtxMultiLoraSerializedWidgetValues(this);
+                this.properties = this.properties || {};
+                this.properties.__deno_ltx_multi_lora_save_restore = SAVE_RESTORE_REV;
+            }
+            return result;
+        };
+
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             const result = onNodeCreated?.apply(this, arguments);
@@ -36,11 +53,85 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             const result = onConfigure?.apply(this, arguments);
-            queueMicrotask(() => setupNode(this));
+            queueMicrotask(() => {
+                setupNode(this);
+                if (this.__denoLtxMultiLoraConfiguredWidgetValues) {
+                    applyLtxMultiLoraSerializedValuesToWidgets(this, this.__denoLtxMultiLoraConfiguredWidgetValues);
+                    normalizeBackendValues(this);
+                    syncLtxMultiLoraSerializedWidgetValues(this);
+                    rebuildUi(this);
+                    delete this.__denoLtxMultiLoraConfiguredWidgetValues;
+                }
+            });
             return result;
         };
     },
 });
+
+function ltxMultiLoraSerializedWidgetNames() {
+    const names = ["active_loras"];
+    for (let index = 1; index <= MAX_SLOTS; index += 1) {
+        names.push(`enabled_${index}`, `lora_${index}`, `strength_${index}`, `audio_${index}`, `video_${index}`);
+    }
+    for (let index = 1; index <= MAX_SLOTS; index += 1) {
+        names.push(`trigger_${index}`, `description_${index}`);
+    }
+    return names;
+}
+
+function ltxMultiLoraLegacySerializedWidgetNames() {
+    const names = ["active_loras"];
+    for (let index = 1; index <= MAX_SLOTS; index += 1) {
+        names.push(`enabled_${index}`, `lora_${index}`, `strength_${index}`, `audio_${index}`, `video_${index}`);
+    }
+    return names;
+}
+
+function captureLtxMultiLoraSerializedWidgetValues(info) {
+    const values = info?.widgets_values;
+    if (!Array.isArray(values)) {
+        return null;
+    }
+    const names = ltxMultiLoraSerializedWidgetNames();
+    if (values.length >= names.length) {
+        return Object.fromEntries(names.map((name, index) => [name, values[index]]));
+    }
+    const legacyNames = ltxMultiLoraLegacySerializedWidgetNames();
+    if (values.length >= legacyNames.length) {
+        return Object.fromEntries(legacyNames.map((name, index) => [name, values[index]]));
+    }
+    return null;
+}
+
+function applyLtxMultiLoraSerializedValuesToWidgets(node, savedValues) {
+    if (!node || !savedValues) {
+        return;
+    }
+    for (const name of ltxMultiLoraSerializedWidgetNames()) {
+        if (!Object.prototype.hasOwnProperty.call(savedValues, name)) {
+            continue;
+        }
+        const widget = getWidget(node, name);
+        if (!widget) {
+            continue;
+        }
+        if (name.startsWith("lora_")) {
+            preserveLoraComboValue(widget, savedValues[name]);
+        }
+        widget.value = savedValues[name];
+    }
+    updateBackendLoraWidgets(node, loraOptionsSync(node));
+}
+
+function syncLtxMultiLoraSerializedWidgetValues(node) {
+    if (!node) {
+        return;
+    }
+    const values = ltxMultiLoraSerializedWidgetNames().map((name) => getValue(node, name, defaultSerializedValue(name)));
+    if (values.every((value) => value !== undefined)) {
+        node.widgets_values = values;
+    }
+}
 
 function setupNode(node) {
     if (!node || node.type !== NODE_NAME || node.__denoLtxMultiLoraSettingUp) {
@@ -759,6 +850,14 @@ function defaultSlotValue(prefix) {
     return 1.0;
 }
 
+function defaultSerializedValue(name) {
+    if (name === "active_loras") {
+        return 1;
+    }
+    const match = String(name || "").match(/^(.+)_\d+$/);
+    return match ? defaultSlotValue(match[1]) : undefined;
+}
+
 function hideBackendWidgets(node) {
     hideWidget(getWidget(node, "active_loras"));
     for (let index = 1; index <= MAX_SLOTS; index += 1) {
@@ -850,8 +949,9 @@ async function fetchLatestLoraOptions(node) {
         const values = extractLoraOptions(info);
         if (values.length > 1) {
             cachedLoraOptions = values;
-            updateBackendLoraWidgets(node, values);
-            return values;
+            const nextValues = preserveLoraOptionValues(values, currentLoraValues(node));
+            updateBackendLoraWidgets(node, nextValues);
+            return nextValues;
         }
     } catch (error) {
         console.warn("[DenoLTXMultiLora] Failed to refresh LoRA list, using cached widget options.", error);
@@ -869,26 +969,38 @@ function extractLoraOptions(info) {
 }
 
 function updateBackendLoraWidgets(node, values) {
+    const nextValues = preserveLoraOptionValues(values, currentLoraValues(node));
     for (let index = 1; index <= MAX_SLOTS; index += 1) {
         const widget = getWidget(node, `lora_${index}`);
         if (!widget) {
             continue;
         }
         widget.options = widget.options || {};
-        widget.options.values = values;
-        widget.options.list = values;
-        widget.values = values;
+        widget.options.values = nextValues;
+        widget.options.list = nextValues;
+        widget.values = nextValues;
     }
 }
 
 function loraOptionsSync(node) {
     if (Array.isArray(cachedLoraOptions) && cachedLoraOptions.length) {
-        return cachedLoraOptions;
+        return preserveLoraOptionValues(cachedLoraOptions, currentLoraValues(node));
     }
     const widget = getWidget(node, "lora_1");
     const raw = widget?.options?.values || widget?.options?.list || widget?.values || [NONE_VALUE];
     const values = Array.isArray(raw) ? raw : [NONE_VALUE];
-    return values.includes(NONE_VALUE) ? values : [NONE_VALUE, ...values];
+    return preserveLoraOptionValues(values.includes(NONE_VALUE) ? values : [NONE_VALUE, ...values], currentLoraValues(node));
+}
+
+function currentLoraValues(node) {
+    const values = [];
+    for (let index = 1; index <= MAX_SLOTS; index += 1) {
+        const value = getWidget(node, `lora_${index}`)?.value;
+        if (isRealLoraValue(value) && !values.includes(value)) {
+            values.push(value);
+        }
+    }
+    return values;
 }
 
 function getWidget(node, name) {
@@ -905,7 +1017,40 @@ function setValue(node, key, value) {
     if (!widget || widget.value === value) {
         return;
     }
+    if (key.startsWith("lora_")) {
+        preserveLoraComboValue(widget, value);
+    }
     widget.value = value;
+}
+
+function isRealLoraValue(value) {
+    const text = String(value ?? "").trim();
+    return Boolean(text && text !== NONE_VALUE);
+}
+
+function preserveLoraOptionValues(values, currentValue) {
+    const list = Array.isArray(values) ? [...values] : [NONE_VALUE];
+    if (!list.includes(NONE_VALUE)) {
+        list.unshift(NONE_VALUE);
+    }
+    const preservedValues = Array.isArray(currentValue) ? currentValue : [currentValue];
+    for (const value of preservedValues) {
+        if (isRealLoraValue(value) && !list.includes(value)) {
+            const insertAt = Math.max(1, list.indexOf(NONE_VALUE) + 1);
+            list.splice(insertAt, 0, value);
+        }
+    }
+    return list;
+}
+
+function preserveLoraComboValue(widget, value) {
+    if (!widget || !isRealLoraValue(value)) {
+        return;
+    }
+    widget.options = widget.options || {};
+    widget.options.values = preserveLoraOptionValues(widget.options.values || widget.options.list || widget.values || [NONE_VALUE], value);
+    widget.options.list = preserveLoraOptionValues(widget.options.list || widget.options.values || widget.values || [NONE_VALUE], value);
+    widget.values = preserveLoraOptionValues(widget.values || widget.options.values || widget.options.list || [NONE_VALUE], value);
 }
 
 function displayLora(value) {

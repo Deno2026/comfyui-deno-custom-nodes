@@ -396,7 +396,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.17-refresh-reflow-c"' in script
+    assert 'IDD_REV = "r2026.06.18-resolution-import-a"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
@@ -578,6 +578,8 @@ def test_rtx_vfx_frontend_panel_keeps_readable_minimum_width():
     assert "node.__denoRtxVfxComputeWrapped" in script
     assert "root.style.width = `${width}px`;" in script
     assert "ui.height() + PANEL_BOTTOM_GAP" in script
+    assert "clampNumberWidget(node, deviceWidget, BACKEND_DEFAULTS.device);" in script
+    assert "setWidgetValue(node, deviceWidget, BACKEND_DEFAULTS.device, false);" not in script
     assert "installCanvasWheelForwarding(root);" in script
     assert 'root.addEventListener("wheel"' in script
     assert 'root.addEventListener("pointerdown"' in script
@@ -1932,6 +1934,32 @@ def test_ltx_multi_lora_frontend_supports_power_lora_style_row_order_menu():
     assert "swapSlotValues(node, fromIndex, toIndex)" in script
 
 
+def test_ltx_multi_lora_frontend_preserves_saved_missing_lora_values():
+    script = (REPO_ROOT / "web" / "js" / "deno_ltx_multi_lora.js").read_text(encoding="utf-8")
+
+    assert "captureLtxMultiLoraSerializedWidgetValues(info)" in script
+    assert "function ltxMultiLoraLegacySerializedWidgetNames()" in script
+    assert "if (values.length >= legacyNames.length)" in script
+    assert "__denoLtxMultiLoraConfiguredWidgetValues" in script
+    assert "applyLtxMultiLoraSerializedValuesToWidgets(this, savedValues)" in script
+    assert "preserveLoraComboValue(widget, savedValues[name])" in script
+    assert "currentLoraValues(node)" in script
+    assert "preserveLoraOptionValues(values, currentLoraValues(node))" in script
+    assert "updateBackendLoraWidgets(node, loraOptionsSync(node))" in script
+    assert "syncLtxMultiLoraSerializedWidgetValues(this)" in script
+
+
+def test_ltx_multi_lora_frontend_covers_legacy_45_value_public_fixture():
+    script = (REPO_ROOT / "web" / "js" / "deno_ltx_multi_lora.js").read_text(encoding="utf-8")
+    workflow = json.loads((REPO_ROOT / "tests" / "fixtures" / "public_workflows" / "ltx23_8gb_vram.json").read_text(encoding="utf-8"))
+    ltx_nodes = [node for node in workflow["nodes"] if node.get("type") == "DenoLTXMultiLoraLoader"]
+
+    assert ltx_nodes
+    assert len(ltx_nodes[0]["widgets_values"]) == 45
+    assert "function ltxMultiLoraLegacySerializedWidgetNames()" in script
+    assert "return Object.fromEntries(legacyNames.map((name, index) => [name, values[index]]));" in script
+
+
 def test_multi_lora_frontend_uses_generic_model_clip_columns():
     script = (REPO_ROOT / "web" / "js" / "deno_multi_lora.js").read_text(encoding="utf-8")
 
@@ -1945,6 +1973,21 @@ def test_multi_lora_frontend_uses_generic_model_clip_columns():
     assert "/object_info/DenoMultiLoraLoader" in script
     assert "function moveLoraSlot" in script
     assert "function swapSlotValues" in script
+
+
+def test_multi_lora_frontend_preserves_saved_missing_lora_values():
+    script = (REPO_ROOT / "web" / "js" / "deno_multi_lora.js").read_text(encoding="utf-8")
+
+    assert "captureMultiLoraSerializedWidgetValues(info)" in script
+    assert "function multiLoraLegacySerializedWidgetNames()" in script
+    assert "if (values.length >= legacyNames.length)" in script
+    assert "__denoMultiLoraConfiguredWidgetValues" in script
+    assert "applyMultiLoraSerializedValuesToWidgets(this, savedValues)" in script
+    assert "preserveLoraComboValue(widget, savedValues[name])" in script
+    assert "currentLoraValues(node)" in script
+    assert "preserveLoraOptionValues(values, currentLoraValues(node))" in script
+    assert "updateBackendLoraWidgets(node, loraOptionsSync(node))" in script
+    assert "syncMultiLoraSerializedWidgetValues(this)" in script
 
 
 def test_ltx_multi_lora_metadata_fields_do_not_affect_loading():
@@ -2485,6 +2528,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "syncReviewerInputSlots" in script
     assert "syncReviewerOutputSlots" in script
     assert 'getWidget(node, "reviewer_state")' in script
+    assert 'reviewerStateWidget.value = ""' not in script
     assert 'name: "image"' in script
     assert 'name: "audio"' in script
     assert "updateInputLinkSlots" in script

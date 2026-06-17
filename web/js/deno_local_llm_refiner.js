@@ -2120,7 +2120,6 @@ function ensureReviewerControlWidgets(node) {
     }
     const reviewerStateWidget = getWidget(node, "reviewer_state");
     if (reviewerStateWidget) {
-        reviewerStateWidget.value = "";
         setWidgetHidden(reviewerStateWidget, true);
     }
 }

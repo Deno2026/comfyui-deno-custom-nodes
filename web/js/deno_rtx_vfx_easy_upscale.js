@@ -711,10 +711,6 @@ function sanitizeBackendWidgetValues(node) {
     if (resizeMethodWidget && !RESIZE_METHODS.includes(String(resizeMethodWidget.value))) {
         setWidgetValue(node, resizeMethodWidget, BACKEND_DEFAULTS.resize_method, false);
     }
-    if (deviceWidget) {
-        setWidgetValue(node, deviceWidget, BACKEND_DEFAULTS.device, false);
-    }
-
     const mode = parseMode(modeWidget?.value);
     const sameSizeOnly = SAME_SIZE_EFFECTS.has(mode.effect);
     if (sameSizeOnly && resizeWidget?.value !== "Same Size") {

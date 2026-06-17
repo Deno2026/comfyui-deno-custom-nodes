@@ -32,6 +32,8 @@ let renameDialogEl = null;
 let overlayTimer = null;
 let visualStyleInstalled = false;
 let lastCanvasPointerEvent = null;
+let canvasPointerActive = false;
+let suppressSelectionUiUntil = 0;
 
 function appGraph() {
   return app.canvas?.graph || null;
@@ -965,6 +967,37 @@ function handleCanvasMove(event) {
 
 function rememberCanvasPointer(event) {
   lastCanvasPointerEvent = event;
+  if (event?.type !== "pointerdown") {
+    return;
+  }
+  canvasPointerActive = true;
+  suppressSelectionUiUntil = Date.now() + 180;
+}
+
+function releaseCanvasPointer() {
+  canvasPointerActive = false;
+  suppressSelectionUiUntil = Date.now() + 120;
+}
+
+function selectionActionsSuppressed() {
+  const canvas = app.canvas;
+  if (canvasPointerActive || Date.now() < suppressSelectionUiUntil) {
+    return true;
+  }
+  return Boolean(
+    canvas?.node_dragged
+    || canvas?.dragging_canvas
+    || canvas?.dragging_group
+    || canvas?.group_dragged
+    || canvas?.selected_group_dragged
+    || canvas?.dragging
+  );
+}
+
+function detachSelectionActionButtons() {
+  detachFoldButton();
+  detachRenameButton();
+  detachAlignButton();
 }
 
 function setupMouseTracking() {
@@ -977,6 +1010,15 @@ function setupMouseTracking() {
   element.addEventListener("contextmenu", rememberCanvasPointer, { passive: true });
   element.addEventListener("mouseleave", hideTooltip, { passive: true });
   element.__denoVisualFoldMouseBound = true;
+
+  if (typeof document !== "undefined" && !document.__denoVisualFoldPointerReleaseBound) {
+    document.addEventListener("pointerup", releaseCanvasPointer, { capture: true, passive: true });
+    document.addEventListener("pointercancel", releaseCanvasPointer, { capture: true, passive: true });
+    if (typeof window !== "undefined") {
+      window.addEventListener("blur", releaseCanvasPointer, { passive: true });
+    }
+    document.__denoVisualFoldPointerReleaseBound = true;
+  }
 }
 
 function ensureFoldButton() {
@@ -1468,6 +1510,11 @@ function updateFoldButton() {
   const button = ensureFoldButton();
   if (!button) return;
 
+  if (selectionActionsSuppressed()) {
+    detachSelectionActionButtons();
+    return;
+  }
+
   const selected = selectedNodes();
   const folded = selected.find((node) => foldMeta(node));
   const groups = selectedGroups();
@@ -1496,6 +1543,11 @@ function updateRenameButton() {
   const button = ensureRenameButton();
   if (!button) return;
 
+  if (selectionActionsSuppressed()) {
+    detachRenameButton();
+    return;
+  }
+
   const folded = selectedNodes().find((node) => foldMeta(node));
   const actionBounds = folded ? selectedBounds([folded]) : null;
   if (!folded || !actionBounds || !attachRenameButtonToToolbar(button, actionBounds)) {
@@ -1510,6 +1562,11 @@ function updateRenameButton() {
 function updateAlignButton() {
   const button = ensureAlignButton();
   if (!button) return;
+
+  if (selectionActionsSuppressed()) {
+    detachAlignButton();
+    return;
+  }
 
   const groups = selectedAlignGroups();
   if (groups.length >= 2) {

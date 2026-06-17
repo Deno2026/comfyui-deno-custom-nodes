@@ -64,6 +64,8 @@ For any Visual Fold UI change, check at least:
 - Folded chip selected: Unfold and Rename are available.
 - Multi-node selection: Align button/menu appears.
 - ComfyUI group selection: Fold Group and group align paths appear.
+- ComfyUI group drag: Fold/Fold Group/Align floating controls stay hidden while the pointer is
+  actively dragging the group, then return after the drag ends if the selection is still valid.
 - Selection toolbar hidden or unavailable: fallback DENO Fold bar appears and does not block canvas
   pan/zoom outside the bar.
 - One normal node selected: floating Fold button does not appear.

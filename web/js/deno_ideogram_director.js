@@ -1497,7 +1497,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.17-refresh-reflow-c";
+        const IDD_REV = "r2026.06.18-resolution-import-a";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -2384,6 +2384,9 @@
           return best || [1024, 1024];
         }
         function clampRes(v) { v = Math.round((+v || 1024) / 16) * 16; return Math.max(256, Math.min(4096, v)); }
+        function resolutionMegapixels(w, h) {
+          return Math.max(0.05, Math.min(10, +(((+w || 1024) * (+h || 1024)) / 1e6).toFixed(2)));
+        }
         const resWrap = el("div", "idd-reswrap");
         const resBtn = el("button", "idd-res"); resBtn.title = "Output size — aspect ratio × megapixels";
         const resPop = el("div", "idd-respop"); resPop.style.display = "none"; stop(resPop);
@@ -2595,6 +2598,7 @@
         // template does) — never the "≈" display string.
         function setRes(w, h, label, machine) {
           setW("width", w); setW("height", h);
+          mp = resolutionMegapixels(w, h);
           arLabel = (label !== undefined && label !== null) ? label : friendlyRatio(w, h);
           setW("aspect_ratio", machine || (RATIOS.some((r) => r[0] === arLabel) ? arLabel : w + ":" + h));
           paintRes(); layoutStage();
@@ -4442,15 +4446,18 @@
           if (Array.isArray(cd.elements) || ib.length) { boxes = ib; selectedId = null; }
           summary.value = cap.high_level_description || ""; setW("high_level_description", summary.value);
           bgArea.value = cd.background || ""; setW("background", bgArea.value);
-          // aspect_ratio "W:H" → resolution control. The official template echoes the TARGET pixel
-          // size verbatim (e.g. "1344:736"), so large pairs are adopted as EXACT pixels (snapped to
-          // 16 like the workflow's math nodes); small pairs ("16:9") are clean ratios → compute the
-          // pixel size from the megapixel budget.
+          // aspect_ratio "W:H" → resolution control. The official template may echo the TARGET pixel
+          // size verbatim (e.g. "1344:736"), but image-analysis LLMs can also echo arbitrary source
+          // image sizes. Large pairs are adopted only when they map to a common generation ratio;
+          // otherwise the current user-selected resolution stays in place.
           if (typeof cap.aspect_ratio === "string" && /^\d+:\d+$/.test(cap.aspect_ratio.trim())) {
             const pr = cap.aspect_ratio.trim().split(":").map(Number);
             if (pr[0] >= 256 && pr[1] >= 256) {
               const sn = (v) => Math.max(256, Math.min(4096, Math.round(v / 16) * 16));
-              setRes(sn(pr[0]), sn(pr[1]), friendlyRatio(pr[0], pr[1]), pr[0] + ":" + pr[1]);
+              const w = sn(pr[0]), h = sn(pr[1]);
+              const label = friendlyRatio(w, h);
+              if (label) setRes(w, h, label, pr[0] + ":" + pr[1]);
+              else console.warn("[Director] ignored imported arbitrary aspect_ratio", cap.aspect_ratio);
             } else if (pr[0] > 0 && pr[1] > 0) {
               const ar = pr[0] + ":" + pr[1];
               const dm = dimsFor(pr[0], pr[1], mp); setRes(dm[0], dm[1], ar, ar);
@@ -4512,6 +4519,8 @@
             const machine = (getW("aspect_ratio", "") || "").trim();
             const cw = Math.max(64, +getW("width", 1024)), ch = Math.max(64, +getW("height", 1024));
             arLabel = RATIOS.some((r) => r[0] === machine) ? machine : friendlyRatio(cw, ch);
+            const actualMp = resolutionMegapixels(cw, ch);
+            if (Math.abs(actualMp - mp) > 0.03) mp = actualMp;
           }
           paintRes();
 

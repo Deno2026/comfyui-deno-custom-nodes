@@ -28,13 +28,20 @@ approves those nodes separately.
 
 ## Current State (2026-06-16)
 
-- JS rev marker: `IDD_REV = "r2026.06.17-elements-history-refresh-a"` in `web/js/deno_ideogram_director.js` (check the served
+- JS rev marker: `IDD_REV = "r2026.06.18-resolution-import-a"` in `web/js/deno_ideogram_director.js` (check the served
   JS for this string after a sync; the user needs Ctrl+Shift+R to pick up a new rev).
 - Resolution popup hardening (0.7.38, 2026-06-16): the resolution control
   popup is a `document.body` fixed overlay anchored to the top-bar size button. Do not mount it back
   inside `resWrap` or the node/board DOM, because Desktop/Easy-Install can clip or swallow it inside
   the custom node canvas area. Escape/outside click closes it; node removal removes the body popup
   and viewport listeners.
+- Resolution import hardening (0.7.43, 2026-06-18): imported `aspect_ratio` values that are large
+  pixel pairs are treated as exact target sizes only when they map to a common generation ratio such
+  as `4:5`, `16:9`, or `≈16:9`. Arbitrary source-image sizes from image-analysis LLMs, for example
+  `1712:880`, must not silently overwrite the user's current resolution. When a resolution is
+  accepted, the saved megapixel budget must be refreshed from the committed `width × height` so the
+  first popup open shows a consistent preview, MP field, and preset grid. Existing saved workflows
+  with mismatched `caption_data.mp` are also normalized from their saved `width × height` on hydrate.
 - Language follow-up (0.7.38, 2026-06-16): the top-bar button is simply
   `Language` and opens a fullscreen grid selector instead of a long dropdown. English is the default
   baseline and `Original` is not shown as a choice. Legacy `Original (as written)` saved values are

@@ -1160,7 +1160,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.17-refresh-reflow-c"' in script
+    assert 'const IDD_REV = "r2026.06.18-resolution-import-a"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script
@@ -1180,6 +1180,19 @@ def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     assert "preserveCurrent ? iddSizeValue(current, 1) : 0" in script
     assert "iddSizeValue(configured, 1)" in script
     assert 'written.then(() => done("✓ Copied"), () => done("Copy failed"))' in script
+
+
+def test_ideogram_director_frontend_resolution_popup_ignores_arbitrary_import_sizes():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert "function resolutionMegapixels(w, h)" in script
+    assert "mp = resolutionMegapixels(w, h);" in script
+    assert "const actualMp = resolutionMegapixels(cw, ch);" in script
+    assert "if (Math.abs(actualMp - mp) > 0.03) mp = actualMp;" in script
+    assert "Large pairs are adopted only when they map to a common generation ratio" in script
+    assert "const label = friendlyRatio(w, h);" in script
+    assert "if (label) setRes(w, h, label, pr[0] + \":\" + pr[1]);" in script
+    assert 'console.warn("[Director] ignored imported arbitrary aspect_ratio", cap.aspect_ratio)' in script
 
 
 def test_ideogram_director_frontend_view_language_contract():

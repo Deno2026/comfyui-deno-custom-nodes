@@ -43,7 +43,54 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.42`.
+Current public release attempt: `0.7.43`.
+
+0.7.43 release worktree:
+
+- `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.43-release`
+- Branch: `Codex/deno-0.7.43-release`
+- Status at this handoff update: local verification passed; public push/tag/release still pending.
+
+0.7.43 release scope:
+
+- Multi LoRA and LTX Multi LoRA preserve saved LoRA selections when the saved LoRA is not present in
+  the current dropdown list. Legacy public LTX 45-value saves and current 57-value saves are covered.
+- RTX VFX Easy Upscale preserves saved `device` instead of resetting it during frontend setup.
+- Local LLM Reviewer / AI Review Gate preserves hidden `reviewer_state` for approve-once snapshots.
+- Visual Fold hides Fold/Fold Group/Align floating controls while nodes or groups are actively dragged.
+- Ideogram Director ignores arbitrary image-analysis pixel pairs such as `1712:880` as output-size
+  imports, while existing saved custom sizes normalize their megapixel display on first popup open.
+
+0.7.43 verification evidence:
+
+- Static checks: changed frontend JS files passed `node --check`.
+- Test suite: `python -m pytest -q -p no:cacheprovider tests/test_registry_metadata.py tests/test_public_workflow_migration.py tests/test_image_resize_node.py tests/test_local_llm_reviewer_graph_transform.py tests/test_translate_engine.py` -> `197 passed`.
+- Runtime sync: changed JS copied to Easy-Install `8188` and Desktop `8000`; served JS markers checked
+  from `/extensions/deno-custom-nodes/<file>.js` on both runtimes.
+- Runtime LoRA saved-value gate: on both `8188` and `8000`, `DenoLTXMultiLoraLoader` legacy 45-value
+  save restored `Missing/LTX_legacy_saved.safetensors`, expanded to 57 values, and kept the missing
+  option in the combo. `DenoMultiLoraLoader` legacy 33-value save restored
+  `Missing/Generic_legacy_saved.safetensors`, expanded to 49 values, and kept the missing option.
+- Runtime Ideogram resolution gate: on both `8188` and `8000`, saved `1712×880` with stale
+  `caption_data.mp=1` opened the size popup as `1712 × 880 | custom | 1.51 MP | ÷16`; importing
+  arbitrary `aspect_ratio: "1712:880"` into a fresh node left the current `1024×1024` output size.
+- Runtime Visual Fold gate: on both `8188` and `8000`, two selected nodes showed Fold/Align before
+  drag, hid the controls during synthetic active drag, and restored controls after pointer release.
+- Runtime RTX/Reviewer gate: on both `8188` and `8000`, RTX `device=3` survived setup, and
+  `DenoAIReviewGate` hidden `reviewer_state` survived setup as a hidden/converted widget.
+- Independent release reviewer `019ed6d2-4029-7cc0-b0cc-c059aefa1bc5` initially blocked on missing
+  runtime proof; the listed runtime gates above were added afterward and the agent was closed.
+
+After public release:
+
+- Verify GitHub commit/tag/release and GitHub Actions.
+- Verify CDN zip contains pyproject `0.7.43` and excludes `tests/`, `tmp/`, `SESSION_HANDOFF.md`,
+  `AGENTS.md`, and internal docs.
+- Monitor Comfy Registry until `0.7.43` is Active and the install endpoint resolves to `0.7.43`.
+- Verify ComfyUI Manager map still lists this repo with `DenoIdeogramDirector` and
+  `DenoLocalLLMRefiner`.
+
+Previous public release context: `0.7.42`.
 
 Release artifacts created:
 

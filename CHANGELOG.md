@@ -6,6 +6,14 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.43 - 2026-06-18
+
+- Preserved saved LoRA selections in Multi LoRA and LTX Multi LoRA workflows even when a saved LoRA file is missing from the current PC's dropdown list.
+- Preserved saved RTX VFX Easy Upscale device selection instead of resetting it during frontend setup.
+- Preserved Local LLM Reviewer approve-once review state across Save, F5, and reopen.
+- Hid Visual Fold floating controls while nodes or groups are actively being dragged, so the Fold button no longer appears mid-drag.
+- Hardened Ideogram Director resolution handling so arbitrary image-analysis sizes such as `1712:880` do not silently replace the user's current output size, and restored saved custom sizes show a consistent megapixel value when the size popup opens.
+
 ## 0.7.42 - 2026-06-17
 
 - Fixed Visual Fold selection handling so stale ComfyUI selection flags no longer leave Fold controls floating after a blank-canvas click or a one-node selection.

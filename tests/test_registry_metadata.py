@@ -253,6 +253,12 @@ def test_visual_fold_frontend_is_visual_only():
     assert 'data-testid="selection-toolbox"' in script
     assert "deno-visual-fold-fallback-bar" in script
     assert "function attachButtonToSelectionSurface" in script
+    assert "function selectionActionsSuppressed" in script
+    assert "canvasPointerActive" in script
+    assert "document.addEventListener(\"pointerup\", releaseCanvasPointer, { capture: true, passive: true })" in script
+    assert "document.addEventListener(\"pointercancel\", releaseCanvasPointer, { capture: true, passive: true })" in script
+    assert "canvas?.node_dragged" in script
+    assert "canvas?.dragging_group" in script
     assert "window.prompt" not in script
     assert "__denoVisualFold" in script
     assert "function appGraph()" in script
