@@ -42,44 +42,47 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.38`.
+Current public release attempt: `0.7.41`.
 
 Release artifacts created:
 
-- GitHub release/tag: `v0.7.38`
-- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.38`
-- Release commit/tag target: `0ca8daca6012c5662348909c4f69c450a0be9364`
-- Release worktree: `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.37-release`
+- GitHub release/tag: `v0.7.41`
+- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.41`
+- Release commit/tag target: `6da6f2d`
+- Release worktree: `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.39-release-main`
 
-Propagation state at last update on 2026-06-16:
+Propagation state at last update on 2026-06-17:
 
-- GitHub Actions for commit `0ca8dac`: CI success, Publish to Comfy registry success, Pages success.
-- GitHub Release `v0.7.38` is public.
-- Comfy Registry version `0.7.38` exists and the install endpoint points to `0.7.38`, but Registry
+- GitHub Actions for commit `6da6f2d`: CI success, Publish to Comfy registry success, Pages success.
+- Comfy Registry version `0.7.41` exists and the install endpoint points to `0.7.41`, but Registry
   still reports `NodeVersionStatusPending` with empty `status_reason`.
-- CDN package: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.38/node.zip` returns 200.
-- CDN package check passed: pyproject `0.7.38`, `Banner` metadata, `docs/images/deno-custom-nodes-banner.jpg`,
-  Ideogram JS rev `r2026.06.16-respop-body-m`, bbox number move-handle, body-mounted resolution popup,
-  Copy JSON `viewSource`, and excludes `tests/`, `tmp/`, `SESSION_HANDOFF.md`, and internal node docs.
-- ComfyUI Manager `extension-node-map.json` already lists this repo with `DenoIdeogramDirector` and
+- CDN package: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.41/node.zip` returns 200.
+- CDN package check passed: pyproject `0.7.41`, `deno_node_metadata.py`,
+  update-badge `deno_node_help.js` markers, and excludes `tests/`, `tmp/`, `SESSION_HANDOFF.md`,
+  `AGENTS.md`, and internal node docs.
+- ComfyUI Manager `extension-node-map.json` lists this repo with `DenoIdeogramDirector` and
   `DenoLocalLLMRefiner`.
-- Heartbeat monitor `deno-0-7-38-registry-monitor` is active every 30 minutes for 0.7.38 until Registry
-  becomes Active and the install endpoint/Manager map remain correct.
+- Heartbeat monitor `deno-0-7-41-registry-monitor` should run every 30 minutes until Registry becomes
+  Active and the install endpoint/Manager map remain correct.
 
-0.7.38 release scope:
+0.7.41 release scope:
 
-1. `(Deno) Ideogram Director`: `Language` view lets users read/edit board descriptions in another
-   language while final output stays model-ready English. Literal TEXT box values remain exact.
-2. `(Deno) Ideogram Director`: tiny or overlapping bbox regions can be moved by dragging the top-left
-   number badge.
-3. `(Deno) Ideogram Director`: the resolution popup is a `document.body` fixed overlay so it is not
-   clipped inside the node or ComfyUI Desktop canvas.
-4. Registry/Manager/GitHub README: Deno Custom Nodes now ships a 21:9 banner image and `[tool.comfy]`
-   `Banner` metadata.
+1. All public DENO nodes now expose useful ComfyUI Info panel metadata via `deno_node_metadata.py`:
+   node descriptions, input tooltips, and output tooltips.
+2. The DENO info button checks the Comfy Registry install endpoint from the frontend, caches the
+   status locally, shows green/latest when current, and shows a yellow `i` plus small `!` badge when
+   an update is available.
+3. README, localized README notes, changelog, and release safety docs mention the new info/update
+   behavior.
 
-0.7.37 remains the prior hotfix for Local LLM Loader `Seed Mode`.
-0.7.36 remains the prior hotfix for Ideogram Director sizing/recreate, LTX Model Loader, LTX Prompt Guide,
-and Local LLM missing saved-model / LM Studio reasoning payload behavior.
+Runtime verification:
+
+- Easy-Install `8188`: synced and verified `0.7.41` `/object_info`, `width` tooltip, queue idle, and
+  served `deno_node_help.js` update-badge markers.
+- Desktop `8000`: synced and served `0.7.41` `/object_info`, `width` tooltip, and update-badge JS
+  markers during the Desktop backend verification window. The Desktop app did not keep the backend
+  persistently running after direct launch in this session; treat Electron-card stable relaunch as
+  user-final-check unless the Desktop app is manually opened from its card.
 
 Important packaging boundary:
 
