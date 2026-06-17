@@ -6,6 +6,12 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.39 - 2026-06-17
+
+- Improved Ideogram Director language translation recovery: if Google is blocked or unreachable, the node now explains the network/region issue, lets users switch to MyMemory, LibreTranslate, or a custom LibreTranslate server, and stops Generate/Copy JSON instead of silently passing a non-English prompt downstream.
+- Kept Ideogram Director TEXT box words protected during translated editing and final English output conversion.
+- Shortened the Ideogram Director top-bar layout button to `Layouts` so it stays readable at normal node widths.
+
 ## 0.7.38 - 2026-06-16
 
 - Added a Deno Custom Nodes banner for the ComfyUI Manager and Registry listing.

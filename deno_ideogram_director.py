@@ -37,6 +37,7 @@ _OUTPUT_LANGUAGE_CHOICES = list(translate_engine.DIRECTOR_OUTPUT_CHOICES)
 LEGACY_VIEW_ORIGINAL_DISPLAY = "Original (as written)"
 VIEW_LANGUAGE_DEFAULT = translate_engine.DIRECTOR_ENGLISH_DISPLAY
 _VIEW_LANGUAGE_CHOICES = list(translate_engine.TARGET_LANGUAGE_CHOICES)
+_TRANSLATION_ENGINE_CHOICES = list(translate_engine.TRANSLATION_ENGINE_CHOICES)
 PENDING_EVENT = "deno-ideogram-director-pending"
 PENDING_MESSAGE = (
     "A new incoming JSON prompt is waiting. Choose Apply and Replace or Keep Current Board "
@@ -298,7 +299,21 @@ def _normalize_view_language(view_language):
     return VIEW_LANGUAGE_DEFAULT
 
 
-def _translate_caption_for_view(caption, source_language="auto", view_language=VIEW_LANGUAGE_DEFAULT):
+def _translation_opts(translation_engine=None, libretranslate_url=""):
+    return {
+        "translate_text_fields": False,
+        "engine": translate_engine.normalize_translation_engine(translation_engine),
+        "libretranslate_url": libretranslate_url if isinstance(libretranslate_url, str) else "",
+    }
+
+
+def _translate_caption_for_view(
+    caption,
+    source_language="auto",
+    view_language=VIEW_LANGUAGE_DEFAULT,
+    translation_engine=translate_engine.TRANSLATION_ENGINE_DEFAULT,
+    libretranslate_url="",
+):
     """Translate an Ideogram caption for the editor view.
 
     This is display/editing translation only. Literal TEXT element values stay untouched so signs,
@@ -310,7 +325,7 @@ def _translate_caption_for_view(caption, source_language="auto", view_language=V
         caption,
         source_language or "auto",
         target_code,
-        {"translate_text_fields": False},
+        _translation_opts(translation_engine, libretranslate_url),
     )
     return translated, changed, sent, translate_engine.display_for_code(target_code)
 
@@ -635,6 +650,14 @@ class DenoIdeogramDirector:
                     "default": VIEW_LANGUAGE_DEFAULT,
                     **SL,
                 }),
+                # Online translation engine used by both the Language view helper and the final
+                # English output conversion. Google remains the default; the frontend exposes the
+                # alternatives only when Google is unreachable or blocked for the user's network.
+                "translation_engine": (_TRANSLATION_ENGINE_CHOICES, {
+                    "default": translate_engine.TRANSLATION_ENGINE_DEFAULT,
+                    **SL,
+                }),
+                "libretranslate_url": ("STRING", {"default": "", **SL}),
                 # forceInput: import_json is meant to be WIRED (upstream LLM / Prompt-Text caption JSON),
                 # so it is a real top input socket rather than a hidden widget. Declared LAST so NO widget
                 # is serialized after it — a forceInput interleaved before widgets shifts their widgets_values
@@ -656,7 +679,14 @@ class DenoIdeogramDirector:
                    "regenerate in place. Wire 'prompt' into the positive CLIPTextEncode.")
 
     @classmethod
-    def VALIDATE_INPUTS(cls, import_mode=None, translate_output=None, view_language=None):
+    def VALIDATE_INPUTS(
+        cls,
+        import_mode=None,
+        translate_output=None,
+        view_language=None,
+        translation_engine=None,
+        libretranslate_url=None,
+    ):
         # Listing import_mode here makes ComfyUI SKIP the strict combo-membership check for it.
         # Workflows saved across node updates can carry a stale/shifted value (e.g. "") in that slot;
         # rejecting the whole prompt for it ("Value not in list") bricks the node for those users.
@@ -669,13 +699,19 @@ class DenoIdeogramDirector:
               caption_data="", seed_lock=True, auto_save=False, save_prefix="Ideogram_Director",
               aspect_ratio="1:1", include_aspect_ratio=False,
               translate_output=translate_engine.DIRECTOR_ENGLISH_DISPLAY,
-              view_language=VIEW_LANGUAGE_DEFAULT, unique_id=None):
+              view_language=VIEW_LANGUAGE_DEFAULT,
+              translation_engine=translate_engine.TRANSLATION_ENGINE_DEFAULT,
+              libretranslate_url="",
+              unique_id=None):
         # `backdrop` (optional IMAGE) is shown on the board only; it never enters the caption JSON.
         import_mode = _normalize_import_mode(import_mode)
         if translate_output not in _OUTPUT_LANGUAGE_CHOICES:
             translate_output = translate_engine.ORIGINAL_DISPLAY
         view_language = _normalize_view_language(view_language)
         view_language_code = translate_engine.code_for_display(view_language)
+        translation_engine = translate_engine.normalize_translation_engine(translation_engine)
+        if not isinstance(libretranslate_url, str):
+            libretranslate_url = ""
         if view_language_code and translate_output == translate_engine.ORIGINAL_DISPLAY:
             translate_output = translate_engine.DIRECTOR_ENGLISH_DISPLAY
         if not isinstance(caption_data, str):
@@ -709,6 +745,7 @@ class DenoIdeogramDirector:
             prompt, out_width, out_height, out_seed, out_bboxes = result
             target_display = translate_engine.display_for_code(target_code)
             source_code = view_language_code if view_language_code and view_language_code != target_code else "auto"
+            translate_opts = _translation_opts(translation_engine, libretranslate_url)
             try:
                 caption = translate_engine.loads_caption(prompt)
                 if caption is not None:
@@ -716,35 +753,48 @@ class DenoIdeogramDirector:
                         caption,
                         source_code,
                         target_code,
-                        {"translate_text_fields": False},
+                        translate_opts,
                     )
                     prompt = json.dumps(translated, ensure_ascii=False, separators=(",", ":"))
                     result = (prompt, out_width, out_height, out_seed, out_bboxes)
                     translation_payload = {
                         "ok": True,
                         "language": target_display,
+                        "engine": translation_engine,
                         "status": (
                             "English prompt ready (%d field(s) sent). Box TEXT stayed exactly as typed."
                             % sent
                         ),
                     }
                 else:
-                    prompt = translate_engine.translate_text(prompt, source_code, target_code)
+                    prompt = translate_engine.translate_text(
+                        prompt,
+                        source_code,
+                        target_code,
+                        engine=translation_engine,
+                        libretranslate_url=libretranslate_url,
+                    )
                     result = (prompt, out_width, out_height, out_seed, out_bboxes)
                     translation_payload = {
                         "ok": True,
                         "language": target_display,
+                        "engine": translation_engine,
                         "status": "English prompt ready. Box TEXT stayed exactly as typed.",
                     }
             except Exception as exc:
+                reason = translate_engine.translation_failure_reason(translation_engine, exc)
                 translation_payload = {
                     "ok": False,
                     "language": target_display,
+                    "engine": translation_engine,
+                    "reason": reason,
+                    "error_type": type(exc).__name__,
                     "status": (
-                        "English prompt conversion unavailable (%s). Original prompt was used."
-                        % type(exc).__name__
+                        "English prompt conversion unavailable (%s). %s Generation was stopped before using a non-English prompt."
+                        % (type(exc).__name__, reason)
                     ),
                 }
+                raise RuntimeError(translation_payload["status"]) from exc
         # Live sync to the board: when a caption arrived on the import_json wire (e.g. a fresh LLM
         # result, which the frontend can never read off the wire by itself), echo it back through the
         # "executed" ui event. `used` describes this backend run's output path; the frontend still
@@ -788,12 +838,27 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
 
         target = data.get("target") or data.get("view_language") or VIEW_LANGUAGE_DEFAULT
         source = data.get("source") or "auto"
+        translation_engine = translate_engine.normalize_translation_engine(
+            data.get("engine") or data.get("translation_engine")
+        )
+        libretranslate_url = data.get("libretranslate_url") or ""
+        if not isinstance(libretranslate_url, str):
+            libretranslate_url = ""
         try:
-            translated, changed, sent, display = _translate_caption_for_view(caption, source, target)
+            translated, changed, sent, display = _translate_caption_for_view(
+                caption,
+                source,
+                target,
+                translation_engine,
+                libretranslate_url,
+            )
         except Exception as exc:
             return web.json_response({
                 "error": "translation failed",
                 "error_type": type(exc).__name__,
+                "engine": translation_engine,
+                "reason": translate_engine.translation_failure_reason(translation_engine, exc),
+                "message": translate_engine.short_exception_message(exc),
             }, status=502)
 
         return web.json_response({
@@ -801,6 +866,7 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
             "changed": changed,
             "sent": sent,
             "language": display,
+            "engine": translation_engine,
         })
 
     @PromptServer.instance.routes.post("/deno/ideogram_director/save")

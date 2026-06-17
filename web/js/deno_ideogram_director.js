@@ -98,9 +98,16 @@
     const wrapped = async function (...args) {
       for (const node of Array.from(directorNodes)) {
         const guard = node?._idd?.preflightIncomingPromptBeforeQueue;
-        if (typeof guard === "function" && guard()) {
+        if (typeof guard !== "function") continue;
+        let shouldStop = false;
+        try { shouldStop = await guard(); }
+        catch (err) {
+          console.error("[Director] queue preflight failed", err);
+          shouldStop = true;
+        }
+        if (shouldStop) {
           try { app?.canvas?.setDirty?.(true, true); } catch (e) {}
-          return { prompt_id: null, deno_ideogram_director: "incoming_prompt_waiting" };
+          return { prompt_id: null, deno_ideogram_director: "preflight_waiting" };
         }
       }
       return await original.apply(this, args);
@@ -671,6 +678,17 @@
 .idd-langcard b{display:block;color:#e4e8e5;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .idd-langcard.on b{color:#a8f7c7;}
 .idd-langcard span{display:block;color:#8d978f;font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.idd-engine-panel{width:560px;max-width:92vw;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
+.idd-engine-reason{margin-top:8px;padding:10px 12px;border:1px solid rgba(232,180,90,.34);border-radius:8px;background:rgba(232,180,90,.10);color:#ffdca3;font:12px/1.45 "Segoe UI Variable Text","Segoe UI",sans-serif;}
+.idd-engine-grid{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px;}
+.idd-engine-card{cursor:pointer;text-align:left;background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:8px;color:#dbe0dc;padding:10px 12px;font:12px/1.35 "Segoe UI Variable Text","Segoe UI",sans-serif;}
+.idd-engine-card:hover{border-color:rgba(66,189,127,.48);background:rgba(66,189,127,.08);}
+.idd-engine-card.on{border-color:rgba(66,189,127,.72);background:rgba(66,189,127,.14);box-shadow:inset 0 0 0 1px rgba(66,189,127,.22);}
+.idd-engine-card b{display:block;color:#e4e8e5;font-weight:700;}
+.idd-engine-card span{display:block;color:#8d978f;font-size:11px;margin-top:3px;}
+.idd-engine-url{width:100%;box-sizing:border-box;margin-top:8px;background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:8px;color:#e4e8e5;padding:9px 10px;font:12px "Cascadia Code","Consolas",ui-monospace,monospace;}
+.idd-engine-url:focus{outline:none;border-color:rgba(66,189,127,.55);box-shadow:0 0 0 2px rgba(66,189,127,.10);}
+.idd-engine-msg{min-height:16px;color:#ffb6a7;font:11px/1.35 "Segoe UI Variable Text","Segoe UI",sans-serif;margin-top:7px;}
 .idd-modal-panel.idd-import-panel{width:500px;max-width:92%;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
 .idd-importlist{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
 .idd-importrow{cursor:pointer;text-align:left;background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:8px;color:#dbe0dc;padding:9px 10px;font:12px "Segoe UI Variable Text","Segoe UI",sans-serif;}
@@ -863,7 +881,7 @@
 .idd-regen{padding:7px 0 !important;font-size:12.5px !important;flex:0 0 84px !important;
   min-width:84px !important;max-width:84px !important;text-align:center;white-space:nowrap;overflow:hidden;}
 .idd-wrap.idd-topfit .idd-top{gap:6px !important;padding-left:7px !important;padding-right:7px !important;}
-.idd-wrap.idd-topfit .idd-btn.idd-toplay{padding-left:10px !important;padding-right:10px !important;max-width:124px;
+.idd-wrap.idd-topfit .idd-btn.idd-toplay{padding-left:10px !important;padding-right:10px !important;min-width:74px !important;max-width:92px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .idd-wrap.idd-topfit .idd-importbtn{min-width:82px;max-width:144px;}
 .idd-wrap.idd-topfit .idd-langbtn{min-width:78px;max-width:104px;}
@@ -1034,6 +1052,17 @@
       .idd-langcard b{display:block;color:var(--txt);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
       .idd-langcard.on b{color:var(--acc);}
       .idd-langcard span{display:block;color:var(--dim);font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      .idd-engine-panel{width:560px;max-width:92vw;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
+      .idd-engine-reason{margin-top:8px;padding:10px 12px;border:1px solid rgba(232,180,90,.34);border-radius:8px;background:rgba(232,180,90,.10);color:#ffdca3;font:12px/1.45 'Segoe UI';}
+      .idd-engine-grid{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px;}
+      .idd-engine-card{cursor:pointer;text-align:left;background:#050a08;border:1px solid var(--gfaint);border-radius:8px;color:#dbe0dc;padding:10px 12px;font:12px/1.35 'Segoe UI';}
+      .idd-engine-card:hover{border-color:var(--gdim);background:rgba(72,255,132,.08);}
+      .idd-engine-card.on{border-color:var(--g);background:rgba(72,255,132,.14);box-shadow:inset 0 0 0 1px rgba(72,255,132,.22);}
+      .idd-engine-card b{display:block;color:var(--txt);font-weight:700;}
+      .idd-engine-card span{display:block;color:var(--dim);font-size:11px;margin-top:3px;}
+      .idd-engine-url{width:100%;box-sizing:border-box;margin-top:8px;background:#050a08;border:1px solid var(--gfaint);border-radius:8px;color:var(--txt);padding:9px 10px;font:12px monospace;}
+      .idd-engine-url:focus{outline:none;border-color:var(--gdim);box-shadow:0 0 0 2px rgba(72,255,132,.10);}
+      .idd-engine-msg{min-height:16px;color:#ffb6a7;font:11px/1.35 'Segoe UI';margin-top:7px;}
       .idd-modal-panel.idd-import-panel{width:500px;max-width:92%;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
       .idd-importlist{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
       .idd-importrow{cursor:pointer;text-align:left;background:#050a08;border:1px solid var(--gfaint);border-radius:8px;
@@ -1282,9 +1311,11 @@
       .idd-btn:hover{border-color:var(--gdim);color:var(--g);}
       .idd-btn.on{background:rgba(72,255,132,.16);color:var(--g);border-color:var(--gdim);}
       .idd-btn.red:hover{border-color:var(--red);color:#ffd9d9;background:rgba(150,40,40,.25);}
-      /* "Layout Presets" in the top bar: bold + emphasized (tinted) so it reads as a primary entry point */
+      /* "Layouts" in the top bar: bold + emphasized (tinted) so it reads as a primary entry point */
       .idd-btn.idd-toplay{font-weight:700 !important;background:rgba(72,189,127,.22) !important;
-        border-color:rgba(66,189,127,.62) !important;color:#9ff2c2 !important;padding:6px 16px !important;}
+        border-color:rgba(66,189,127,.62) !important;color:#9ff2c2 !important;padding:6px 14px !important;
+        flex:0 0 auto !important;min-width:80px !important;white-space:nowrap !important;
+        overflow:hidden !important;text-overflow:ellipsis !important;line-height:1 !important;}
       .idd-btn.idd-toplay:hover{border-color:var(--g) !important;color:#d6fde7 !important;background:rgba(72,189,127,.32) !important;}
       /* polish: fast press feedback + keyboard focus ring + smooth-but-quick transitions */
       .idd-btn,.idd-regen,.idd-seg button,.idd-mbtn,.idd-res,.idd-respreset,.idd-mp,.idd-bdedit,.idd-add{transition:background .12s ease,border-color .12s ease,color .12s ease,transform .06s ease,filter .12s ease;}
@@ -1444,7 +1475,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.16-respop-body-m";
+        const IDD_REV = "r2026.06.17-translate-fallback-c";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -1515,7 +1546,8 @@
         const info = el("div", "idd-i"); info.textContent = "i"; info.title = "Edit the JSON caption on the board, then Generate.";
         const fsBtn = el("div", "idd-i idd-fsbtn"); fsBtn.textContent = "⛶"; fsBtn.title = "Fullscreen (Esc to close)";
         // Layout presets gallery lives in the TOP bar (left cluster) for quick reach.
-        const layoutsBtn = mkBtn("Layout Presets"); layoutsBtn.classList.add("idd-toplay");
+        const LAYOUTS_BTN_LABEL = "Layouts";
+        const layoutsBtn = mkBtn(LAYOUTS_BTN_LABEL); layoutsBtn.classList.add("idd-toplay");
         layoutsBtn.title = "Layout preset gallery — pick a composition and it fills the ratio + starter boxes; save your own too";
         layoutsBtn.onclick = (e) => { e.stopPropagation(); openLayoutGallery(); };
         const IMPORT_REVIEW = "Ask Before Replacing";
@@ -1875,6 +1907,52 @@
           "हिन्दी": "Hindi",
         };
         const translateBtn = mkBtn("Language"); translateBtn.classList.add("idd-langbtn");
+        const TRANSLATION_ENGINE_DEFAULT = "Google";
+        const TRANSLATION_ENGINE_CUSTOM = "LibreTranslate Custom URL";
+        const TRANSLATION_ENGINES = ["Google", "MyMemory", "LibreTranslate", TRANSLATION_ENGINE_CUSTOM];
+        const GOOGLE_BLOCK_REASON = "Google Translate can be blocked or rate-limited by your network/region; this is not a DENO node error.";
+        const ENGINE_DESCRIPTIONS = {
+          "Google": "Default. Fast when translate.googleapis.com is reachable.",
+          "MyMemory": "Free public endpoint. Useful when Google is blocked, but auto-detect may be weaker.",
+          "LibreTranslate": "Public LibreTranslate endpoint. May be rate-limited depending on the server.",
+          [TRANSLATION_ENGINE_CUSTOM]: "Use your own LibreTranslate server URL.",
+        };
+        function normalizeTranslationEngine(v) {
+          const raw = String(v || "").trim();
+          const lower = raw.toLowerCase().replace(/[_-]+/g, " ");
+          if (TRANSLATION_ENGINES.includes(raw)) return raw;
+          if (lower === "mymemory" || lower === "my memory") return "MyMemory";
+          if (lower === "libretranslate" || lower === "libre translate") return "LibreTranslate";
+          if (lower === "libretranslate custom url" || lower === "libre translate custom url" || lower === "custom libretranslate") return TRANSLATION_ENGINE_CUSTOM;
+          return TRANSLATION_ENGINE_DEFAULT;
+        }
+        function getTranslationEngine() {
+          const val = normalizeTranslationEngine(getW("translation_engine", TRANSLATION_ENGINE_DEFAULT));
+          if (val !== getW("translation_engine", TRANSLATION_ENGINE_DEFAULT)) setW("translation_engine", val);
+          return val;
+        }
+        function getLibreTranslateUrl() {
+          return String(getW("libretranslate_url", "") || "").trim();
+        }
+        function setTranslationEngine(engine, url) {
+          setW("translation_engine", normalizeTranslationEngine(engine));
+          if (url !== undefined) setW("libretranslate_url", String(url || "").trim());
+        }
+        function translationFailureReason(payload, engine) {
+          const msg = payload && typeof payload.reason === "string" && payload.reason.trim();
+          if (msg) return msg;
+          return normalizeTranslationEngine(engine) === "Google"
+            ? GOOGLE_BLOCK_REASON
+            : "The selected translation engine did not respond. Choose another engine and retry.";
+        }
+        function translationFailureTitle(payload, engine) {
+          const current = normalizeTranslationEngine((payload && payload.engine) || engine);
+          return current === "Google" ? "Google failed or unreachable" : current + " failed or unreachable";
+        }
+        async function responseJsonOrNull(res) {
+          try { return await res.json(); }
+          catch (e) { return null; }
+        }
         function isNoTranslation(v) { return LEGACY_NO_TRANSLATION.has(String(v || "").trim()); }
         function isOriginalView(v) { return LEGACY_VIEW_ORIGINAL.has(String(v || "").trim()); }
         function isEnglishPrompt(v) {
@@ -1932,29 +2010,169 @@
         }
         function paintTranslate() {
           const view = getViewLanguage();
+          const engine = getTranslationEngine();
           const out = normalizeTranslateValue(getW("translate_output", NO_TRANSLATION));
           if (out !== ENGLISH_PROMPT) setW("translate_output", ENGLISH_PROMPT);
           translateBtn.textContent = "Language";
           translateBtn.classList.toggle("on", view !== VIEW_DEFAULT);
           translateBtn.title = "Language: " + view
             + " · Output: " + outputLanguageLabel()
+            + " · Engine: " + engine
             + ". Description fields may be translated; exact TEXT words stay as typed.";
           fitTopBarSoon();
         }
-        async function translateCaptionViaRoute(caption, target, source = "auto") {
+        async function translateCaptionViaRoute(caption, target, source = "auto", options = {}) {
+          const engine = normalizeTranslationEngine(options.engine || getTranslationEngine());
+          const libretranslateUrl = options.libretranslate_url !== undefined
+            ? String(options.libretranslate_url || "").trim()
+            : getLibreTranslateUrl();
           const res = await api.fetchApi("/deno/ideogram_director/translate_caption", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ caption, source, target }),
+            body: JSON.stringify({
+              caption,
+              source,
+              target,
+              engine,
+              translation_engine: engine,
+              libretranslate_url: libretranslateUrl,
+            }),
           });
-          if (!res || !res.ok) throw new Error("translation route failed");
-          const data = await res.json();
+          const data = res ? await responseJsonOrNull(res) : null;
+          if (!res || !res.ok) {
+            const err = new Error((data && (data.error || data.message)) || "translation route failed");
+            err.payload = Object.assign({ engine }, data || {});
+            throw err;
+          }
           const translated = normalizeCaption(data.caption);
-          if (!translated) throw new Error("translation returned no caption");
+          if (!translated) {
+            const err = new Error("translation returned no caption");
+            err.payload = Object.assign({ engine }, data || {});
+            throw err;
+          }
           return { caption: translated, data };
         }
+        function openTranslationFallbackDialog(payload, retry, options = {}) {
+          return new Promise((resolve) => {
+            const current = normalizeTranslationEngine((payload && payload.engine) || getTranslationEngine());
+            const retryLabel = String((options && options.retryLabel) || "the same translation");
+            const modal = el("div", "idd-modal"); modal.tabIndex = -1; stop(modal);
+            const panel = el("div", "idd-modal-panel idd-engine-panel");
+            const h = el("div", "idd-modal-h");
+            const ht = el("span", "t"); ht.textContent = translationFailureTitle(payload, current); h.append(ht);
+            const hint = el("div", "idd-ml");
+            hint.textContent = "Choose another translation engine, save it, and retry " + retryLabel + ".";
+            const reason = el("div", "idd-engine-reason");
+            reason.textContent = translationFailureReason(payload, current);
+            const grid = el("div", "idd-engine-grid");
+            const urlInput = el("input", "idd-engine-url");
+            urlInput.type = "url";
+            urlInput.placeholder = "https://your-libretranslate-server.com";
+            urlInput.value = getLibreTranslateUrl();
+            const msg = el("div", "idd-engine-msg");
+            let selected = current === "Google" ? "MyMemory" : current;
+            if (!TRANSLATION_ENGINES.includes(selected)) selected = "MyMemory";
+            const choices = current === "Google" ? ["MyMemory", "LibreTranslate", TRANSLATION_ENGINE_CUSTOM] : TRANSLATION_ENGINES;
+            function paintCards() {
+              grid.innerHTML = "";
+              for (const choice of choices) {
+                const card = el("button", "idd-engine-card"); card.type = "button";
+                card.classList.toggle("on", selected === choice);
+                const name = el("b"); name.textContent = choice;
+                const desc = el("span"); desc.textContent = ENGINE_DESCRIPTIONS[choice] || "Translation engine";
+                card.append(name, desc);
+                card.onclick = (e) => {
+                  e.stopPropagation();
+                  selected = choice;
+                  msg.textContent = "";
+                  paintCards();
+                  if (selected === TRANSLATION_ENGINE_CUSTOM) setTimeout(() => urlInput.focus(), 0);
+                };
+                grid.appendChild(card);
+              }
+              urlInput.style.display = selected === TRANSLATION_ENGINE_CUSTOM ? "" : "none";
+            }
+            const acts = el("div", "idd-modal-acts");
+            const cancel = el("button", "idd-mbtn"); cancel.textContent = "Cancel";
+            const apply = el("button", "idd-mbtn save"); apply.textContent = "Save and Retry";
+            acts.append(el("span", "sp"), cancel, apply);
+            panel.append(h, hint, reason, grid, urlInput, msg, acts);
+            modal.append(panel); document.body.appendChild(modal);
+            const close = (value) => { try { modal.remove(); } catch (e) {} resolve(value); };
+            const doApply = async () => {
+              if (selected === TRANSLATION_ENGINE_CUSTOM && !String(urlInput.value || "").trim()) {
+                msg.textContent = "Enter a LibreTranslate server URL first.";
+                urlInput.focus();
+                return;
+              }
+              apply.disabled = true;
+              apply.textContent = "Retrying...";
+              setTranslationEngine(selected, urlInput.value);
+              paintTranslate();
+              try {
+                const ok = await retry();
+                close(ok || false);
+              } catch (err) {
+                const nextPayload = err && err.payload ? err.payload : { engine: selected, reason: String(err && err.message || err || "") };
+                msg.textContent = translationFailureReason(nextPayload, selected);
+                apply.disabled = false;
+                apply.textContent = "Save and Retry";
+              }
+            };
+            modal.addEventListener("keydown", (e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") { e.preventDefault(); close(false); }
+              if (e.key === "Enter" && e.target !== urlInput) { e.preventDefault(); doApply(); }
+            });
+            modal.addEventListener("pointerdown", (e) => { if (e.target === modal) close(false); });
+            cancel.onclick = (e) => { e.stopPropagation(); close(false); };
+            apply.onclick = (e) => { e.stopPropagation(); doApply(); };
+            paintCards();
+            setTimeout(() => {
+              const on = grid.querySelector(".idd-engine-card.on");
+              if (on) on.focus();
+            }, 0);
+          });
+        }
         let viewTranslateSeq = 0;
-        async function translateBoardToViewLanguage(source = "auto") {
+        async function translateCaptionToEnglishForOutput(cap, offerFallback = true, retryLabel = "the English output") {
+          const viewSource = getViewLanguage() === ENGLISH_PROMPT ? "auto" : getViewLanguage();
+          try {
+            return (await translateCaptionViaRoute(cap, ENGLISH_PROMPT, viewSource)).caption;
+          } catch (err) {
+            const payload = err && err.payload ? err.payload : { engine: getTranslationEngine(), reason: String(err && err.message || err || "") };
+            translateBtn.textContent = "English Failed";
+            translateBtn.title = translationFailureReason(payload, getTranslationEngine());
+            if (!offerFallback) throw err;
+            const retried = await openTranslationFallbackDialog(
+              payload,
+              () => translateCaptionToEnglishForOutput(cap, false, retryLabel),
+              { retryLabel }
+            );
+            if (retried) return retried;
+            throw err;
+          }
+        }
+        async function ensureEnglishOutputReadyBeforeQueue(offerFallback = true) {
+          if (normalizeTranslateValue(getW("translate_output", NO_TRANSLATION)) !== ENGLISH_PROMPT) return true;
+          const oldText = translateBtn.textContent;
+          translateBtn.textContent = "Checking English...";
+          translateBtn.classList.add("on");
+          translateBtn.title = "Checking that the final prompt can be converted to English before generation.";
+          try {
+            await translateCaptionToEnglishForOutput(assembleCaption(), offerFallback, "generation");
+            translateBtn.textContent = "English Ready";
+            translateBtn.title = "Final English prompt conversion is ready. Exact TEXT words stay as typed.";
+            setTimeout(() => { paintTranslate(); }, 1200);
+            return true;
+          } catch (err) {
+            console.error("[Director] final English preflight failed", err);
+            translateBtn.textContent = oldText || "Language";
+            setTimeout(() => { paintTranslate(); }, 1200);
+            return false;
+          }
+        }
+        async function translateBoardToViewLanguage(source = "auto", offerFallback = true) {
           const target = getViewLanguage();
           const seq = ++viewTranslateSeq;
           const oldText = translateBtn.textContent;
@@ -1972,9 +2190,15 @@
             return true;
           } catch (err) {
             console.error("[Director] view translation failed", err);
+            const payload = err && err.payload ? err.payload : { engine: getTranslationEngine(), reason: String(err && err.message || err || "") };
             translateBtn.textContent = oldText || "View";
-            translateBtn.title = "View translation failed. The board was left unchanged.";
-            return false;
+            translateBtn.title = translationFailureReason(payload, getTranslationEngine());
+            if (!offerFallback) throw err;
+            return await openTranslationFallbackDialog(
+              payload,
+              () => translateBoardToViewLanguage(source, false),
+              { retryLabel: "the board view translation" }
+            );
           }
         }
         function openTranslateDialog() {
@@ -3029,7 +3253,7 @@
           selectedId = null;
           renderBoxes(); renderElements(); layoutStage();
           serialize();
-          flashBtn(layoutsBtn, "✓ " + p.name, "Layout Presets");
+          flashBtn(layoutsBtn, "✓ " + p.name, LAYOUTS_BTN_LABEL);
         }
         function wirePreview(p) {
           const frame = el("div", "idd-gal-wire");
@@ -3119,7 +3343,7 @@
                 summary: summary.value || "", background: bgArea.value || "",   // capture draft text too → full template
                 boxes: boxes.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, type: b.type, text: b.text || "", desc: b.desc || "", palette: (b.palette || []).slice(0, 5) })) });
               lsStore(LS_LAYOUTS, mine); paint();
-              modal.remove(); flashBtn(layoutsBtn, "✓ Saved", "Layout Presets");
+              modal.remove(); flashBtn(layoutsBtn, "✓ Saved", LAYOUTS_BTN_LABEL);
             },
           });
           headRight.append(count, acts);
@@ -3784,7 +4008,7 @@
             setTimeout(() => { paintTranslate(); translateBtn.title = p.status || translateBtn.title; }, 1800);
           },
           onExecutionError: (p) => { showExecutionError(p); },
-          preflightIncomingPromptBeforeQueue: () => {
+          preflightIncomingPromptBeforeQueue: async () => {
             if (skipNextQueuePreflight) {
               skipNextQueuePreflight = false;
               return false;
@@ -3799,6 +4023,7 @@
               showInputPromptNotice();
               return true;
             }
+            if (!(await ensureEnglishOutputReadyBeforeQueue(true))) return true;
             return false;
           },
           setImage: (url) => { bimg.src = url; bimg.style.display = "block"; board.classList.remove("empty"); applyResultDim(); },
@@ -3878,8 +4103,7 @@
             let cap = assembleCaption();
             if (normalizeTranslateValue(getW("translate_output", NO_TRANSLATION)) === ENGLISH_PROMPT) {
               copy.textContent = "Translating...";
-              const viewSource = getViewLanguage() === ENGLISH_PROMPT ? "auto" : getViewLanguage();
-              cap = (await translateCaptionViaRoute(cap, ENGLISH_PROMPT, viewSource)).caption;
+              cap = await translateCaptionToEnglishForOutput(cap, true, "the English JSON output");
             }
             const written = navigator.clipboard.writeText(JSON.stringify(cap));
             if (written && typeof written.then === "function") written.then(() => done("✓ Copied"), () => done("Copy failed"));
@@ -4073,6 +4297,9 @@
           const vv = normalizeViewLanguage(getW("view_language", VIEW_DEFAULT));
           if (vv !== getW("view_language", VIEW_DEFAULT)) setW("view_language", vv);
           if (normalizeTranslateValue(getW("translate_output", NO_TRANSLATION)) !== ENGLISH_PROMPT) setW("translate_output", ENGLISH_PROMPT);
+          const ev = normalizeTranslationEngine(getW("translation_engine", TRANSLATION_ENGINE_DEFAULT));
+          if (ev !== getW("translation_engine", TRANSLATION_ENGINE_DEFAULT)) setW("translation_engine", ev);
+          if (typeof getW("libretranslate_url", "") !== "string") setW("libretranslate_url", "");
           if (typeof getW("save_prefix", "") !== "string" || !getW("save_prefix", "")) setW("save_prefix", "Ideogram_Director");
           const ar = getW("aspect_ratio", "");
           if (typeof ar !== "string" || (ar && !/^\d+\s*:\s*\d+$/.test(ar))) setW("aspect_ratio", "");

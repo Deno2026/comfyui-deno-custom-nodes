@@ -10,6 +10,11 @@ import deno_translate_engine as engine
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_TRANSLATE_OPTS = {
+    "translate_text_fields": False,
+    "engine": engine.TRANSLATION_ENGINE_GOOGLE,
+    "libretranslate_url": "",
+}
 
 
 def _director_result(packet):
@@ -29,6 +34,14 @@ def test_language_display_contract():
     assert engine.should_skip_translation("a cat on the beach", "English", "English") is True
     assert engine.display_for_code("zh-CN") == "中文 (简体)"
     assert engine.DIRECTOR_OUTPUT_CHOICES == ("No translation (keep as written)", "English")
+    assert engine.TRANSLATION_ENGINE_CHOICES == (
+        "Google",
+        "MyMemory",
+        "LibreTranslate",
+        "LibreTranslate Custom URL",
+    )
+    assert engine.normalize_translation_engine("my memory") == "MyMemory"
+    assert engine.translation_failure_reason("Google").startswith("Google Translate can be blocked")
     assert deno_ideogram_director.VIEW_LANGUAGE_DEFAULT == "English"
     assert deno_ideogram_director._VIEW_LANGUAGE_CHOICES[0] == "English"
     assert "Original (as written)" not in deno_ideogram_director._VIEW_LANGUAGE_CHOICES
@@ -70,7 +83,7 @@ def test_ideogram_director_view_language_helper_preserves_literal_text(monkeypat
         "한국어",
     )
 
-    assert calls == [("auto", "ko", {"translate_text_fields": False})]
+    assert calls == [("auto", "ko", DEFAULT_TRANSLATE_OPTS)]
     assert translated["high_level_description"] == "KO:clean sale poster"
     assert translated["compositional_deconstruction"]["elements"][0]["text"] == "SALE"
     assert changed == sent == 3
@@ -100,7 +113,7 @@ def test_ideogram_director_view_language_forces_english_output(monkeypatch):
 
     prompt = json.loads(packet["result"][0])
     assert prompt["high_level_description"] == "translated english prompt"
-    assert calls == [("ko", "en", {"translate_text_fields": False})]
+    assert calls == [("ko", "en", DEFAULT_TRANSLATE_OPTS)]
 
 
 def test_ideogram_director_view_language_translates_ascii_non_english_output(monkeypatch):
@@ -208,6 +221,60 @@ def test_translate_caption_preserves_structure_and_skips_literal_text(monkeypatc
     assert len(calls) == 4
 
 
+def test_translate_text_uses_mymemory_engine(monkeypatch):
+    calls = []
+
+    def fake_mymemory(text, src, tgt, timeout=10.0):
+        calls.append((text, src, tgt))
+        return "EN:" + text
+
+    monkeypatch.setattr(engine, "_request_mymemory", fake_mymemory)
+    engine._CACHE.clear()
+
+    out = engine.translate_text("un gato", "Español", "English", engine="MyMemory")
+
+    assert out == "EN:un gato"
+    assert calls == [("un gato", "es", "en")]
+
+
+def test_translate_caption_passes_selected_engine(monkeypatch):
+    calls = []
+
+    def fake_mymemory(text, src, tgt, timeout=10.0):
+        calls.append((text, src, tgt))
+        return "EN:" + text
+
+    monkeypatch.setattr(engine, "_request_mymemory", fake_mymemory)
+    engine._CACHE.clear()
+    cap = {"high_level_description": "고양이"}
+
+    out, changed, sent = engine.translate_caption(
+        cap,
+        "한국어",
+        "English",
+        {"engine": "MyMemory", "translate_text_fields": False},
+    )
+
+    assert out["high_level_description"] == "EN:고양이"
+    assert changed == sent == 1
+    assert calls == [("고양이", "ko", "en")]
+
+
+def test_libretranslate_custom_url_validation():
+    assert engine._normalize_libretranslate_endpoint(
+        "https://example.com/api/translate",
+        require_custom=True,
+    ) == "https://example.com/api/translate"
+    assert engine._normalize_libretranslate_endpoint(
+        "https://example.com/api",
+        require_custom=True,
+    ) == "https://example.com/api/translate"
+    with pytest.raises(ValueError, match="https"):
+        engine._normalize_libretranslate_endpoint("http://example.com", require_custom=True)
+    with pytest.raises(ValueError, match="empty"):
+        engine._normalize_libretranslate_endpoint("", require_custom=True)
+
+
 def test_translate_caption_skips_explicit_same_english_source(monkeypatch):
     def fail_request(text, src, tgt, timeout=10.0):
         raise AssertionError("same-language English fields should not call the network")
@@ -231,7 +298,7 @@ def test_ideogram_director_outputs_english_prompt_only(monkeypatch):
     def fake_translate_caption(cap, src, tgt, opts=None):
         assert src == "auto"
         assert tgt == "en"
-        assert opts == {"translate_text_fields": False}
+        assert opts == DEFAULT_TRANSLATE_OPTS
         out = dict(cap)
         out["high_level_description"] = "translated english output"
         return out, 1, 1
@@ -254,6 +321,134 @@ def test_ideogram_director_outputs_english_prompt_only(monkeypatch):
     assert prompt["high_level_description"] == "translated english output"
     assert packet["ui"]["idd_translate"][0]["ok"] is True
     assert "English prompt ready" in packet["ui"]["idd_translate"][0]["status"]
+
+
+def test_ideogram_director_final_output_uses_selected_translation_engine(monkeypatch):
+    calls = []
+
+    def fake_translate_caption(cap, src, tgt, opts=None):
+        calls.append((src, tgt, opts))
+        out = dict(cap)
+        out["high_level_description"] = "translated by selected engine"
+        return out, 1, 1
+
+    monkeypatch.setattr(deno_ideogram_director.translate_engine, "translate_caption", fake_translate_caption)
+    node = deno_ideogram_director.DenoIdeogramDirector()
+
+    packet = node.build(
+        width=1024,
+        height=1024,
+        seed=1,
+        high_level_description="한국어 원문",
+        background="배경",
+        style_mode="none",
+        translate_output="English",
+        translation_engine="MyMemory",
+    )
+
+    prompt = json.loads(packet["result"][0])
+    assert prompt["high_level_description"] == "translated by selected engine"
+    assert calls == [
+        (
+            "auto",
+            "en",
+            {"translate_text_fields": False, "engine": "MyMemory", "libretranslate_url": ""},
+        )
+    ]
+    assert packet["ui"]["idd_translate"][0]["engine"] == "MyMemory"
+
+
+def test_ideogram_director_final_output_failure_stops_generation(monkeypatch):
+    def fake_translate_caption(cap, src, tgt, opts=None):
+        raise TimeoutError("network blocked")
+
+    monkeypatch.setattr(deno_ideogram_director.translate_engine, "translate_caption", fake_translate_caption)
+    node = deno_ideogram_director.DenoIdeogramDirector()
+
+    with pytest.raises(RuntimeError) as err:
+        node.build(
+            width=1024,
+            height=1024,
+            seed=1,
+            high_level_description="한국어 원문",
+            background="배경",
+            style_mode="none",
+            translate_output="English",
+            translation_engine="Google",
+        )
+
+    message = str(err.value)
+    assert "English prompt conversion unavailable" in message
+    assert "Generation was stopped before using a non-English prompt" in message
+    assert "Google Translate can be blocked or rate-limited" in message
+    assert "Original prompt was used" not in message
+
+
+def test_ideogram_director_v0738_saved_widget_values_remain_prefix():
+    input_types = deno_ideogram_director.DenoIdeogramDirector.INPUT_TYPES()
+    required = list(input_types["required"].keys())
+    serialized_optional = [
+        name
+        for name, spec in input_types["optional"].items()
+        if name != "backdrop" and not (isinstance(spec, tuple) and len(spec) > 1 and spec[1].get("forceInput"))
+    ]
+    current_serialized_names = required + serialized_optional
+    v0738_serialized_names = [
+        "width",
+        "height",
+        "seed",
+        "high_level_description",
+        "background",
+        "style_mode",
+        "aesthetics",
+        "lighting",
+        "medium",
+        "photo",
+        "art_style",
+        "import_mode",
+        "caption_data",
+        "seed_lock",
+        "auto_save",
+        "save_prefix",
+        "aspect_ratio",
+        "include_aspect_ratio",
+        "translate_output",
+        "view_language",
+    ]
+    v0738_saved_values = [
+        1088,
+        1376,
+        17,
+        "한국어 요약",
+        "한국어 배경",
+        "art",
+        "sparkly",
+        "soft glowing light",
+        "digital illustration",
+        "",
+        "shoujo manga",
+        "Ask Before Replacing",
+        '{"boxes":[{"id":1,"desc":"old saved box"}]}',
+        True,
+        False,
+        "Ideogram_Director",
+        "4:5",
+        False,
+        "English",
+        "한국어",
+    ]
+
+    assert current_serialized_names[: len(v0738_serialized_names)] == v0738_serialized_names
+    assert current_serialized_names[len(v0738_serialized_names) :] == [
+        "translation_engine",
+        "libretranslate_url",
+    ]
+    restored = dict(zip(current_serialized_names, v0738_saved_values))
+    assert restored["caption_data"] == '{"boxes":[{"id":1,"desc":"old saved box"}]}'
+    assert restored["translate_output"] == "English"
+    assert restored["view_language"] == "한국어"
+    assert "translation_engine" not in restored
+    assert "libretranslate_url" not in restored
 
 
 def test_ideogram_director_translation_preserves_rendered_text_fields(monkeypatch):
@@ -887,8 +1082,9 @@ def test_ideogram_director_frontend_connected_prompt_contract():
     assert "function showInputPromptNotice()" in script
     assert "function acknowledgeInvalidPromptIfBoardChanged()" in script
     assert "function installDirectorQueuePromptHook()" in script
-    assert "preflightIncomingPromptBeforeQueue: () =>" in script
-    assert 'deno_ideogram_director: "incoming_prompt_waiting"' in script
+    assert "preflightIncomingPromptBeforeQueue: async () =>" in script
+    assert "shouldStop = await guard();" in script
+    assert 'deno_ideogram_director: "preflight_waiting"' in script
     assert "텍스트만 사용" not in script
     assert "Use Text as Prompt" not in script
     assert "function applyInvalidInputAsPrompt()" not in script
@@ -908,7 +1104,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.16-respop-body-m"' in script
+    assert 'const IDD_REV = "r2026.06.17-translate-fallback-c"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script
@@ -937,6 +1133,15 @@ def test_ideogram_director_frontend_view_language_contract():
     assert 'const LEGACY_VIEW_ORIGINAL_VALUE = "Original (as written)"' in script
     assert "function viewLanguageChoices()" in script
     assert "function translateBoardToViewLanguage" in script
+    assert "function translateCaptionToEnglishForOutput" in script
+    assert "function ensureEnglishOutputReadyBeforeQueue" in script
+    assert "function openTranslationFallbackDialog" in script
+    assert 'const TRANSLATION_ENGINE_DEFAULT = "Google"' in script
+    assert "Google failed or unreachable" in script
+    assert "Google Translate can be blocked or rate-limited by your network/region; this is not a DENO node error." in script
+    assert "Save and Retry" in script
+    assert 'setW("translation_engine"' in script
+    assert 'setW("libretranslate_url"' in script
     assert '"/deno/ideogram_director/translate_caption"' in script
     assert "idd-lang-full" in script
     assert "idd-langgrid" in script
@@ -950,6 +1155,11 @@ def test_ideogram_director_frontend_view_language_contract():
     assert 'translateBoardToViewLanguage("auto")' in script
     assert 'const viewSource = getViewLanguage() === ENGLISH_PROMPT ? "auto" : getViewLanguage();' in script
     assert "translateCaptionViaRoute(cap, ENGLISH_PROMPT, viewSource)" in script
+    assert 'translateCaptionToEnglishForOutput(cap, true, "the English JSON output")' in script
+    assert 'ensureEnglishOutputReadyBeforeQueue(true)' in script
+    assert "Generation was stopped before using a non-English prompt." in (
+        REPO_ROOT / "deno_ideogram_director.py"
+    ).read_text(encoding="utf-8")
     assert 'name.textContent = choice === VIEW_ORIGINAL ? "Original" : choice' not in script
     assert "No view translation" not in script
     assert "View language" not in script

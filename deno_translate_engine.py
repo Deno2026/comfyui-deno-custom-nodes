@@ -153,8 +153,21 @@ SOURCE_LANGUAGE_CHOICES = (AUTO_DISPLAY,) + tuple(LANG_DISPLAY[code] for code in
 TARGET_LANGUAGE_CHOICES = tuple(LANG_DISPLAY[code] for code in LANGS)
 DIRECTOR_OUTPUT_CHOICES = (ORIGINAL_DISPLAY, DIRECTOR_ENGLISH_DISPLAY)
 
+TRANSLATION_ENGINE_GOOGLE = "Google"
+TRANSLATION_ENGINE_MYMEMORY = "MyMemory"
+TRANSLATION_ENGINE_LIBRETRANSLATE = "LibreTranslate"
+TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM = "LibreTranslate Custom URL"
+TRANSLATION_ENGINE_CHOICES = (
+    TRANSLATION_ENGINE_GOOGLE,
+    TRANSLATION_ENGINE_MYMEMORY,
+    TRANSLATION_ENGINE_LIBRETRANSLATE,
+    TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM,
+)
+TRANSLATION_ENGINE_DEFAULT = TRANSLATION_ENGINE_GOOGLE
+LIBRETRANSLATE_DEFAULT_URL = "https://libretranslate.com"
+
 _DISPLAY_TO_CODE = {display: code for code, display in LANG_DISPLAY.items()}
-_CACHE: OrderedDict[tuple[str, str, str], str] = OrderedDict()
+_CACHE: OrderedDict[tuple[str, str, str, str, str], str] = OrderedDict()
 _CACHE_LIMIT = 512
 _last_call = [0.0]
 _USER_AGENT = (
@@ -184,6 +197,51 @@ def display_for_code(code: str | None) -> str:
     if value == "auto":
         return AUTO_DISPLAY
     return LANG_DISPLAY.get(value, value)
+
+
+def normalize_translation_engine(engine: str | None) -> str:
+    value = (engine or "").strip()
+    lowered = value.lower().replace("_", " ").replace("-", " ")
+    aliases = {
+        "": TRANSLATION_ENGINE_DEFAULT,
+        "google": TRANSLATION_ENGINE_GOOGLE,
+        "google translate": TRANSLATION_ENGINE_GOOGLE,
+        "gtx": TRANSLATION_ENGINE_GOOGLE,
+        "mymemory": TRANSLATION_ENGINE_MYMEMORY,
+        "my memory": TRANSLATION_ENGINE_MYMEMORY,
+        "libretranslate": TRANSLATION_ENGINE_LIBRETRANSLATE,
+        "libre translate": TRANSLATION_ENGINE_LIBRETRANSLATE,
+        "libretranslate custom url": TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM,
+        "libre translate custom url": TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM,
+        "custom libretranslate": TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM,
+    }
+    if value in TRANSLATION_ENGINE_CHOICES:
+        return value
+    return aliases.get(lowered, TRANSLATION_ENGINE_DEFAULT)
+
+
+def translation_failure_reason(engine: str | None, exc: Exception | None = None) -> str:
+    engine = normalize_translation_engine(engine)
+    if engine == TRANSLATION_ENGINE_GOOGLE:
+        return (
+            "Google Translate can be blocked or rate-limited by your network/region; "
+            "this is not a DENO node error."
+        )
+    if engine == TRANSLATION_ENGINE_MYMEMORY:
+        return "MyMemory did not respond or rejected the request; try LibreTranslate or Google."
+    if engine == TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM:
+        return "The custom LibreTranslate server did not respond; check the URL or choose another engine."
+    return "LibreTranslate did not respond or rejected the request; try another engine or a custom URL."
+
+
+def short_exception_message(exc: Exception | None, limit: int = 180) -> str:
+    if exc is None:
+        return ""
+    msg = str(exc).strip()
+    if not msg:
+        msg = type(exc).__name__
+    msg = " ".join(msg.split())
+    return msg[:limit]
 
 
 def _cache_get(key):
@@ -218,6 +276,93 @@ def _request_gtx(text, src, tgt, timeout=10.0):
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _request_mymemory(text, src, tgt, timeout=10.0):
+    query = urllib.parse.urlencode(
+        {
+            "q": text,
+            "langpair": "%s|%s" % (src or "auto", tgt),
+        }
+    )
+    req = urllib.request.Request(
+        "https://api.mymemory.translated.net/get?" + query,
+        headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
+    )
+    with _OPENER.open(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    response = data.get("responseData") if isinstance(data, dict) else None
+    translated = response.get("translatedText") if isinstance(response, dict) else None
+    if not isinstance(translated, str) or not translated:
+        detail = data.get("responseDetails") if isinstance(data, dict) else ""
+        raise RuntimeError("MyMemory returned no translated text: %s" % detail)
+    return translated
+
+
+def _normalize_libretranslate_endpoint(url, require_custom=False):
+    raw = (url or "").strip()
+    if not raw:
+        if require_custom:
+            raise ValueError("LibreTranslate Custom URL is empty")
+        raw = LIBRETRANSLATE_DEFAULT_URL
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("LibreTranslate URL must start with http:// or https://")
+    host = (parsed.hostname or "").lower()
+    is_local = host in {"localhost", "127.0.0.1", "::1"}
+    if parsed.scheme == "http" and not is_local:
+        raise ValueError("Remote LibreTranslate Custom URL must use https://")
+    if parsed.path.rstrip("/").endswith("/translate"):
+        return raw
+    return raw.rstrip("/") + "/translate"
+
+
+def _request_libretranslate(text, src, tgt, timeout=10.0, url=None, require_custom=False):
+    endpoint = _normalize_libretranslate_endpoint(url, require_custom=require_custom)
+    payload = json.dumps(
+        {
+            "q": text,
+            "source": src or "auto",
+            "target": tgt,
+            "format": "text",
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "User-Agent": _USER_AGENT,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with _OPENER.open(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    translated = data.get("translatedText") if isinstance(data, dict) else None
+    if not isinstance(translated, str) or not translated:
+        detail = data.get("error") if isinstance(data, dict) else ""
+        raise RuntimeError("LibreTranslate returned no translated text: %s" % detail)
+    return translated
+
+
+def _request_translation(text, src, tgt, timeout=10.0, engine=None, libretranslate_url=""):
+    engine = normalize_translation_engine(engine)
+    if engine == TRANSLATION_ENGINE_MYMEMORY:
+        return _request_mymemory(text, src, tgt, timeout=timeout)
+    if engine == TRANSLATION_ENGINE_LIBRETRANSLATE:
+        return _request_libretranslate(text, src, tgt, timeout=timeout)
+    if engine == TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM:
+        return _request_libretranslate(
+            text,
+            src,
+            tgt,
+            timeout=timeout,
+            url=libretranslate_url,
+            require_custom=True,
+        )
+    data = _request_gtx(text, src, tgt, timeout=timeout)
+    return "".join(seg[0] for seg in (data[0] or []) if seg and seg[0]) or text
+
+
 def should_skip_translation(text: str, src: str, tgt: str) -> bool:
     if not isinstance(text, str) or not text.strip():
         return True
@@ -232,8 +377,15 @@ def should_skip_translation(text: str, src: str, tgt: str) -> bool:
     return False
 
 
-def translate_text(text: str, src: str, tgt: str, timeout=10.0) -> str:
-    """Translate one string through the gtx endpoint.
+def translate_text(
+    text: str,
+    src: str,
+    tgt: str,
+    timeout=10.0,
+    engine=None,
+    libretranslate_url="",
+) -> str:
+    """Translate one string through the selected online translation endpoint.
 
     Raises after retries. Callers decide whether to fail or pass the original
     text through unchanged.
@@ -242,9 +394,11 @@ def translate_text(text: str, src: str, tgt: str, timeout=10.0) -> str:
         text = "" if text is None else str(text)
     src_code = code_for_display(src) or "auto"
     tgt_code = code_for_display(tgt)
+    engine_name = normalize_translation_engine(engine)
+    libretranslate_url = (libretranslate_url or "").strip()
     if should_skip_translation(text, src_code, tgt_code):
         return text
-    key = (src_code, tgt_code, text)
+    key = (engine_name, libretranslate_url, src_code, tgt_code, text)
     cached = _cache_get(key)
     if cached is not None:
         return cached
@@ -256,9 +410,14 @@ def translate_text(text: str, src: str, tgt: str, timeout=10.0) -> str:
             time.sleep(0.15 - gap)
         try:
             _last_call[0] = time.monotonic()
-            data = _request_gtx(text, src_code, tgt_code, timeout=timeout)
-            translated = "".join(seg[0] for seg in (data[0] or []) if seg and seg[0])
-            translated = translated or text
+            translated = _request_translation(
+                text,
+                src_code,
+                tgt_code,
+                timeout=timeout,
+                engine=engine_name,
+                libretranslate_url=libretranslate_url,
+            ) or text
             _cache_set(key, translated)
             return translated
         except Exception as exc:
@@ -300,6 +459,8 @@ def translate_caption(obj, src, tgt, opts=None):
     """
     opts = opts or {}
     translate_text_fields = bool(opts.get("translate_text_fields", False))
+    engine = normalize_translation_engine(opts.get("engine"))
+    libretranslate_url = opts.get("libretranslate_url") or ""
     changed = 0
     sent = 0
 
@@ -310,7 +471,13 @@ def translate_caption(obj, src, tgt, opts=None):
         if should_skip_translation(value, src, tgt):
             return value
         sent += 1
-        out = translate_text(value, src, tgt)
+        out = translate_text(
+            value,
+            src,
+            tgt,
+            engine=engine,
+            libretranslate_url=libretranslate_url,
+        )
         if out != value:
             changed += 1
         return out

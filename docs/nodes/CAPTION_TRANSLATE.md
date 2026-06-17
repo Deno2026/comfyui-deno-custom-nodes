@@ -5,7 +5,7 @@ Status: **paused / excluded from registration (2026-06-15).**
 The standalone `(Deno) Translator` node is deferred. Keep `DenoTranslate` and any standalone wrapper
 out of `__init__.py`, `node_list.json`, pyproject/README release surfaces, and packaged files until
 the user explicitly restarts this feature. `deno_translate_engine.py` stays available because
-Ideogram Director's built-in `Translate On/Off` output helper uses it.
+Ideogram Director's built-in `Language` / English-output helper uses it.
 
 Read this document when touching `deno_caption_translate.py` or caption/plain-text translation
 behavior.
@@ -36,13 +36,17 @@ behavior.
   but the rendered TEXT must remain English.
 - Online translation is opt-in. When `enable_online_translation` is off, the node makes no network
   request and returns the input unchanged.
-- Engine: Google's free web endpoint (`translate.googleapis.com`, `client=gtx`) via stdlib
+- Default engine: Google's free web endpoint (`translate.googleapis.com`, `client=gtx`) via stdlib
   networking only — no installable dependency that can fail for end users. Per-string results are
   cached in-process with a bounded cache.
-- Engine policy is Google-only by user decision; do not add an LLM provider here (wire the
-  existing Local LLM Refiner in the workflow instead).
-- On ANY failure (offline, blocked endpoint, response shape change) the input passes through
-  UNCHANGED and `status` says so — the workflow never breaks.
+- Ideogram Director may pass an explicit fallback engine when Google is blocked by the user's
+  network/region: `MyMemory`, `LibreTranslate`, or a guarded `LibreTranslate Custom URL`. Do not add
+  an LLM provider here; use the existing Local LLM Refiner in the workflow for LLM-based translation.
+- Standalone Translator failure policy, if that node is restarted later: on failure (offline,
+  blocked endpoint, response shape change) the input passes through unchanged and `status` says so.
+  Ideogram Director is stricter for its final English output path: Generate and Copy JSON preflight
+  the conversion, offer another engine, and stop rather than silently passing a non-English prompt
+  downstream.
 
 ## Pitfalls
 
