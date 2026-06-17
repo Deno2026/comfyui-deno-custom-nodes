@@ -43,70 +43,48 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release target: `0.7.42`.
+Current public release attempt: `0.7.42`.
 
-0.7.42 release prep status, 2026-06-17:
+Release artifacts created:
+
+- GitHub release/tag: `v0.7.42`
+- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.42`
+- Release commit/tag target: `0510ad277066f08e25b9015e0a891eb19a6adad9`
+- Release worktree: `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.39-release-main`
+
+0.7.42 release scope:
 
 - Scope: Visual Fold stale-selection/floating-toolbar fix, Local LLM Loader `Thinking` save/F5
   restore and live `More` popups, Ideogram Director language-refresh button reflow, Bernini Prompt
   Guide / RTX VFX Video Finisher saved-workflow migration hardening, and release metadata/tests.
-- Local release worktree verification passed: changed JS `node --check`, `py -m pytest tests -q`
-  -> 197 passed, `git diff --check` whitespace check, strengthened Registry metadata/package tests,
-  and mandatory independent GPT-5.5 xhigh release reviewer PASS.
-- Residual before/after publish: Desktop live-canvas exact Visual Fold follow-up remains
-  `UNVERIFIED`; Registry/CDN/Manager install surfaces must be monitored after push.
-
-Previous public release: `0.7.41`.
-
-Release artifacts created:
-
-- GitHub release/tag: `v0.7.41`
-- Release URL: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.41`
-- Release commit/tag target: `6da6f2d`
-- Release worktree: `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.39-release-main`
 
 Propagation state at last update on 2026-06-17:
 
-- GitHub Actions for commit `6da6f2d`: CI success, Publish to Comfy registry success, Pages success.
-- Comfy Registry version `0.7.41` exists and the install endpoint points to `0.7.41`, but Registry
+- GitHub Actions for commit `0510ad2`: CI success, Publish to Comfy registry success, Pages success.
+- Comfy Registry version `0.7.42` exists and the install endpoint points to `0.7.42`, but Registry
   still reports `NodeVersionStatusPending` with empty `status_reason`.
-- CDN package: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.41/node.zip` returns 200.
-- CDN package check passed: pyproject `0.7.41`, `deno_node_metadata.py`,
-  update-badge `deno_node_help.js` markers, and excludes `tests/`, `tmp/`, `SESSION_HANDOFF.md`,
-  `AGENTS.md`, and internal node docs.
+- CDN package: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.42/node.zip` returns 200.
+- CDN package check passed: pyproject `0.7.42`, Visual Fold stale-selection markers, Local LLM live
+  popup markers, Ideogram `r2026.06.17-refresh-reflow-c`, Bernini save/reload marker, RTX finisher
+  save/reload marker, and excludes `tests/`, `tmp/`, `SESSION_HANDOFF.md`, `AGENTS.md`, and internal
+  node docs.
 - ComfyUI Manager `extension-node-map.json` lists this repo with `DenoIdeogramDirector` and
-  `DenoLocalLLMRefiner`.
-- Heartbeat monitor `deno-0-7-41-registry-monitor` should run every 30 minutes until Registry becomes
+  `DenoLocalLLMRefiner`; current map entry has 19 public nodes.
+- Heartbeat monitor `deno-0-7-42-registry-monitor` should run every 30 minutes until Registry becomes
   Active and the install endpoint/Manager map remain correct.
-
-0.7.41 release scope:
-
-1. All public DENO nodes now expose useful ComfyUI Info panel metadata via `deno_node_metadata.py`:
-   node descriptions, input tooltips, and output tooltips.
-2. The DENO info button checks the Comfy Registry install endpoint from the frontend, caches the
-   status locally, shows green/latest when current, and shows a yellow `i` plus small `!` badge when
-   an update is available.
-3. README, localized README notes, changelog, and release safety docs mention the new info/update
-   behavior.
 
 Runtime verification:
 
-- Easy-Install `8188`: synced and verified `0.7.41` `/object_info`, `width` tooltip, queue idle, and
-  served `deno_node_help.js` update-badge markers.
-- Desktop `8000`: synced and served `0.7.41` `/object_info`, `width` tooltip, and update-badge JS
-  markers during the Desktop backend verification window. The Desktop app did not keep the backend
-  persistently running after direct launch in this session; treat Electron-card stable relaunch as
-  user-final-check unless the Desktop app is manually opened from its card.
-- Local next-release Visual Fold follow-up, 2026-06-17: `web/js/deno_visual_fold.js` was synced from
-  source into this release worktree to keep the current menu-API/fallback-toolbar behavior. It now
-  treats `canvas.selected_nodes` as the current node-selection authority, uses `selectedItems` only
-  when that is unavailable, and falls back to legacy `node.selected` only for older frontends. This
-  prevents stale selection flags from showing Fold for one selected node or a blank canvas. Source,
-  Easy-Install runtime, Desktop install folder, and this release worktree now hash-match for the JS.
-  Easy-Install `8188` Playwright canvas check passed for two selected nodes -> Fold visible, one
-  selected node with stale `node.selected` -> Fold hidden, blank selection with stale `node.selected`
-  -> Fold hidden, and stale group object -> Fold Group hidden. Desktop live-canvas check for this
-  exact follow-up is `UNVERIFIED` because `8000` was not running.
+- Local release worktree verification passed: changed JS `node --check`, `py -m pytest tests -q`
+  -> 197 passed, `git diff --check` whitespace check, strengthened Registry metadata/package tests,
+  and mandatory independent GPT-5.5 xhigh release reviewer PASS.
+- Easy-Install `8188` Visual Fold Playwright canvas check passed for two selected nodes -> Fold
+  visible, one selected node with stale `node.selected` -> Fold hidden, blank selection with stale
+  `node.selected` -> Fold hidden, and stale group object -> Fold Group hidden.
+- Desktop live-canvas exact Visual Fold follow-up remains `UNVERIFIED` because `8000` was not
+  running during the release check. Reviewer also marked actual model-stream Local LLM popup update
+  and some real-canvas Save/F5 second-serialization cells as `UNVERIFIED`; tests cover the regression
+  shapes, but user-final Desktop/canvas spot checks are still useful.
 
 Important packaging boundary:
 
@@ -119,17 +97,15 @@ Important packaging boundary:
 
 ### Ideogram Director
 
-Status: public `0.7.38` release created; Registry activation still pending.
+Status: public `0.7.42` release created; Registry activation still pending.
 
 Key behavior:
 
 - Visual Ideogram 4 JSON/bbox prompt builder.
-- Local next-release polish, reported 2026-06-17: saved workflow + Chrome/F5 reload could render the
+- 0.7.42 polish, reported 2026-06-17: saved workflow + Chrome/F5 reload could render the
   top-bar `↻` language refresh button as a narrow vertical bar until it was clicked once. Local rev
   `r2026.06.17-refresh-reflow-c` fixes the likely cause by giving the refresh button a fixed flex
-  basis and rerunning the top-bar fit pass after restore/size stabilization. Not public-released yet.
-  Before release, verify saved workflow -> F5/reload -> load workflow -> inspect `↻` on Easy-Install
-  and Desktop.
+  basis and rerunning the top-bar fit pass after restore/size stabilization.
 - 0.7.38 fixes:
   - `Language` replaces the old Translate On/Off surface. It opens a fullscreen language grid.
   - English is the default baseline and the popup no longer shows `Original` as a user choice.
@@ -163,15 +139,15 @@ Current files:
 
 ### Local LLM Loader / Reviewer
 
-Status: included in 0.7.37 hotfix scope.
+Status: included in public `0.7.42`; Registry activation still pending.
 
 Key behavior:
 
-- Local next-release polish, reported 2026-06-17: the `Thinking` / `Result` `More` popup used to show
+- 0.7.42 polish, reported 2026-06-17: the `Thinking` / `Result` `More` popup used to show
   only the text that existed when the popup opened. Local JS now binds the popup to the node state so
   it updates live during streaming/status changes, while preserving manual scroll position unless the
-  popup is already near the bottom. Not public-released yet.
-- Local next-release bugfix, reported 2026-06-17: a saved workflow could contain `Thinking=true` in
+  popup is already near the bottom.
+- 0.7.42 bugfix, reported 2026-06-17: a saved workflow could contain `Thinking=true` in
   JSON but reopen with visible `Thinking Off` after `Ctrl+S -> Ctrl+Shift+R/F5`. Root cause: current
   Ollama layouts can serialize generated button labels before hidden LM Studio/legacy rows, while
   the normalizer only handled the later button position. JS now detects both button-run positions,
@@ -205,7 +181,7 @@ Key behavior:
 
 ### Saved Workflow Restore Audit
 
-Status: local next-release safety work, not public-released yet.
+Status: public `0.7.42` safety work; Registry activation still pending.
 
 Critical rule learned 2026-06-17:
 
@@ -217,15 +193,15 @@ Critical rule learned 2026-06-17:
 
 Parallel audit results:
 
-- Fixed locally: `DenoLocalLLMRefiner` normalizes the user's 18-slot current Ollama saved layout where
+- Released in 0.7.42: `DenoLocalLLMRefiner` normalizes the user's 18-slot current Ollama saved layout where
   generated button labels appear before hidden LM Studio rows, so `Thinking=true` does not reopen as
   visible off.
-- Fixed locally: `DenoBerniniPromptGuide` now normalizes legacy 8-slot public workflow values with
+- Released in 0.7.42: `DenoBerniniPromptGuide` now normalizes legacy 8-slot public workflow values with
   generated display-widget blanks into the 6 real widget values, then syncs back to the compact saved
   shape.
-- Fixed locally: `DenoRTXVFXVideoFinisher` now syncs repaired legacy leading-blank 13-slot public
+- Released in 0.7.42: `DenoRTXVFXVideoFinisher` now syncs repaired legacy leading-blank 13-slot public
   workflow values back to the current 12 real widget values.
-- Still needs real-canvas Save/F5 audit before release: `DenoRTXVFXEasyUpscale`,
+- Still needs future real-canvas Save/F5 audit: `DenoRTXVFXEasyUpscale`,
   `DenoMultiLoraLoader`, `DenoLTXMultiLoraLoader`, `DenoAdvancedImageSourceLoader`, and the current
   `DenoIdeogramDirector`/`DenoLocalLLMRefiner` local UI changes. These were flagged as structural
   risk or insufficient fixture coverage, not all as confirmed live bugs.
