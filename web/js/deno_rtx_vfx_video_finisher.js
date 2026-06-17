@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_NAME = "DenoRTXVFXVideoFinisher";
+const FINISHER_SAVE_RESTORE_REV = "rtx-finisher-save-reload-v1";
 
 const MIN_WIDTH = 580;
 const MIN_HEIGHT = 340;
@@ -579,6 +580,13 @@ function syncControlPanel(node) {
     node.__denoFinisherUi?.sync?.();
 }
 
+function syncFinisherSerializedValues(node) {
+    if (!node) {
+        return;
+    }
+    node.widgets_values = BACKEND_WIDGET_NAMES.map((name) => getWidget(node, name)?.value ?? BACKEND_DEFAULTS[name]);
+}
+
 function repairShiftedBackendWidgetValues(node) {
     const value = (name) => getWidget(node, name)?.value;
     const looksShiftedByOne = (
@@ -626,6 +634,9 @@ function repairShiftedBackendWidgetValues(node) {
         }
     }
     node.__denoFinisherRepairedShiftedWidgets = true;
+    node.properties = node.properties || {};
+    node.properties.__deno_rtx_finisher_save_restore = FINISHER_SAVE_RESTORE_REV;
+    syncFinisherSerializedValues(node);
     return true;
 }
 
@@ -653,6 +664,7 @@ function sanitizeBackendWidgetValues(node) {
     if (ratioPresetWidget && !String(ratioPresetWidget.value || "").includes(":")) {
         setWidgetValue(node, ratioPresetWidget, BACKEND_DEFAULTS.ratio_preset, false);
     }
+    syncFinisherSerializedValues(node);
 }
 
 function updateWidgetVisibility(node) {

@@ -56,6 +56,7 @@ The user explicitly approved active parallel-agent use for this repo.
 - Keep the main agent responsible for final design judgment, file integration, runtime sync, ComfyUI restart, final canvas verification, git actions, and release decisions.
 - Do not let multiple agents edit the same file at the same time. If a worker edits code, give it a disjoint file scope and review its changes before integration.
 - For small obvious fixes, direct work is fine, but if the bug touches both frontend and backend or the user reports repeated mismatch, attach at least one parallel reviewer unless there is a clear reason not to.
+- Parallel-agent work is not complete until the main agent has collected every spawned agent's final result, recorded the usable findings or file changes in the turn notes/handoff, and closed agents that no longer need to stay open. Before any final user report, explicitly check for unresolved spawned agents. Context compaction is not an excuse for losing delegated results; after compaction, recover known agent IDs/results from the summary or state files before declaring completion.
 
 ## Runtime Paths
 
@@ -103,6 +104,10 @@ Common requirements:
   node `DESCRIPTION`, every required/optional input must have a ComfyUI `tooltip`, and every output
   in `RETURN_TYPES` must have matching `OUTPUT_TOOLTIPS`. The shared DENO version/update notice must
   be visible through the DENO info button path. Missing Info-panel descriptions are a release blocker.
+- Hard gate for saved visible state: it is a blocker if the workflow JSON contains the correct value
+  but the real canvas reopens with the visible control, row, toggle, model, prompt, or numeric value
+  wrong. Saved data and visible UI restoration must match after `Ctrl+S -> Ctrl+Shift+R/F5 -> reopen`.
+  Do not call a node compatible just because the raw JSON still contains the value.
 - Use API-first, browser-last verification for ComfyUI UI work. First verify source/runtime hashes, `/queue`, `/object_info`, served JS markers, backend logs, and `/prompt` or WebSocket events. Use the browser only for final fresh-canvas visual/interaction proof, screenshot, and console errors. Do not waste time scraping LiteGraph internals from the browser when the same fact can be checked through ComfyUI APIs or tests.
 - During Codex UI verification, treat the current ComfyUI browser canvas as disposable when the user has saved anything important and `/queue` is idle. Codex may reload, close/reopen, or clear/recreate a test canvas to force fresh frontend JS and clean node state. This never means deleting saved workflow files.
 - If the Codex in-app Browser / Chrome plugin control channel is closed, do not stop at "browser unavailable" or repeatedly ask the user to refresh. First use the local Chrome DevTools fallback `tools/comfyui_cdp_probe.ps1` for a headless ComfyUI screenshot and DOM/title check. If a separate disposable browser is useful, run the same helper with `-Visible -KeepOpen` to open an isolated Chrome window instead of touching the user's current tab. Ask the user to open or refresh the in-app browser only when real hover/click checks must happen in the user's live side panel.
@@ -128,6 +133,9 @@ Hard release gate: every node/workflow touched by a public release must have sav
 - The GPT5.5 Xhigh review must include the existing release checks plus a strict frontend/backend contract sync review.
 - Ghost features are not allowed. If a feature exists in backend code, it must have a working frontend path or be an explicit compatibility-only migration/rejection path. If a feature is added, frontend and backend must work together in the same release unit. If a feature is removed, remove it from both frontend and backend in the same release unit.
 - Check whether old public workflow JSON files still load with the current node IDs, widget order, input names, output names, hidden fields, and saved values.
+- Check both raw saved values and visible restored values. A saved `true` that reopens as an off
+  toggle, a saved model that reopens as another row/default, or a saved prompt that appears under the
+  wrong label is a release blocker even if the JSON still contains the original data.
 - If a node ID changed, use ComfyUI node replacement metadata where possible instead of exposing duplicate legacy menu nodes.
 - If only widget/input/output structure changed, add narrow frontend/backend migration and normalization rather than silently dropping old values.
 - Migration code can create new bugs. Any migration change must be tested against both old saved workflows and freshly created current nodes.

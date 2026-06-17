@@ -95,6 +95,27 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
 
             const api = context.capturedApi;
             assert(api, "reviewer graph test API was not exposed");
+            assert(api.previewTextDialogTitle({{ error: "bad" }}, "result") === "Error", "Result popup title must switch to Error when node state has an error");
+            assert(api.previewTextDialogBody({{ answer: "final answer" }}, "result") === "final answer", "Result popup must read live answer text from node state");
+            assert(api.previewTextDialogBody({{ thinking: "live thinking" }}, "thinking") === "live thinking", "Thinking popup must read live thinking text from node state");
+            const liveDialog = {{
+                overlay: {{ isConnected: true }},
+                kind: "result",
+                fallbackTitle: "Result",
+                fallbackText: "Waiting for run output.",
+                titleElement: {{ textContent: "" }},
+                textBox: {{ value: "old", scrollHeight: 1000, scrollTop: 900, clientHeight: 100 }},
+            }};
+            assert(api.setPreviewTextDialogContent(liveDialog, {{ answer: "new streamed answer" }}), "Connected preview dialog must accept live updates");
+            assert(liveDialog.titleElement.textContent === "Result", "Live result dialog title must stay Result for normal answers");
+            assert(liveDialog.textBox.value === "new streamed answer", "Live result dialog body must update without reopening");
+            assert(liveDialog.textBox.scrollTop === 1000, "Live dialog should auto-follow only when already near the bottom");
+            liveDialog.textBox.scrollTop = 120;
+            api.setPreviewTextDialogContent(liveDialog, {{ answer: "next answer" }});
+            assert(liveDialog.textBox.value === "next answer", "Live dialog should continue updating while open");
+            assert(liveDialog.textBox.scrollTop === 120, "Live dialog must not force-scroll when the user is reading older text");
+            liveDialog.overlay.isConnected = false;
+            assert(!api.setPreviewTextDialogContent(liveDialog, {{ answer: "ignored" }}), "Disconnected preview dialog must be treated as closed");
             const savedLoaderValues = [
                 "LM Studio",
                 "gemma3:1b",
@@ -211,10 +232,43 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(normalizedCurrentSaved[6] === false, "Loader current saved values must keep thinking in the current slot");
             assert(normalizedCurrentSaved[7] === 2, "Loader current saved values must keep seed in the current slot");
             assert(normalizedCurrentSaved[12] === "Prompt text", "Loader current saved values must keep the prompt in the current slot");
+            const currentSavedLoaderValuesWithThinkingOn = [...currentSavedLoaderValuesWithOldButtons];
+            currentSavedLoaderValuesWithThinkingOn[9] = true;
+            const normalizedThinkingOn = api.normalizeLocalLLMLoaderSerializedValues(currentSavedLoaderValuesWithThinkingOn);
+            assert(normalizedThinkingOn[6] === true, "Loader saved Thinking On value must stay on during current-value normalization");
+            const currentOllamaSavedValuesWithButtonsBeforeHiddenLmRows = [
+                "Ollama",
+                "gemma4:31b-it-qat",
+                "Refresh Models",
+                "Stop LLM",
+                "Unload LLM",
+                "google/gemma-4-12b-qat",
+                "http://127.0.0.1:8000/v1",
+                "",
+                "Return only the final prompt.",
+                true,
+                1,
+                "fixed",
+                "Unload after run",
+                1,
+                "Auto: unload only before first LLM call",
+                "",
+                "System Prompt",
+                "",
+            ];
+            const normalizedOllamaButtonsBeforeHiddenRows = api.normalizeLocalLLMLoaderSerializedValues(currentOllamaSavedValuesWithButtonsBeforeHiddenLmRows);
+            assert(normalizedOllamaButtonsBeforeHiddenRows.length === 13, "Loader Ollama saved values with buttons before hidden rows must normalize to 13 widgets");
+            assert(normalizedOllamaButtonsBeforeHiddenRows[0] === "Ollama", "Loader Ollama button-before-hidden-row values must preserve provider");
+            assert(normalizedOllamaButtonsBeforeHiddenRows[1] === "gemma4:31b-it-qat", "Loader Ollama button-before-hidden-row values must preserve selected Ollama model");
+            assert(normalizedOllamaButtonsBeforeHiddenRows[2] === "google/gemma-4-12b-qat", "Loader Ollama button-before-hidden-row values must preserve hidden LM Studio model without shifting it into buttons");
+            assert(normalizedOllamaButtonsBeforeHiddenRows[5] === "Return only the final prompt.", "Loader Ollama button-before-hidden-row values must preserve system prompt");
+            assert(normalizedOllamaButtonsBeforeHiddenRows[6] === true, "Loader Ollama saved Thinking On must restore to the visible Thinking toggle after F5");
+            assert(normalizedOllamaButtonsBeforeHiddenRows[7] === 1, "Loader Ollama button-before-hidden-row values must keep seed in the current slot");
+            assert(normalizedOllamaButtonsBeforeHiddenRows[8] === "fixed", "Loader Ollama button-before-hidden-row values must keep seed mode in the current slot");
             const staleFirstRunNode = {{
                 widgets: [
                     {{ name: "provider", value: "Ollama", options: {{ values: ["Ollama", "LM Studio"] }} }},
-                    {{ name: "ollama_model", value: "gemma3:1b", options: {{ values: ["gemma3:1b", "qwen3.6:35b-a3b"] }} }},
+                    {{ name: "ollama_model", value: "gemma3:1b", options: {{ values: ["gemma3:1b", "qwen3.6:35b-a3b", "gemma4:31b-it-qat"] }} }},
                     {{ name: "lm_studio_model", value: "google/gemma-4-e4b", options: {{ values: ["google/gemma-4-e4b", "google/gemma-4-12b"] }} }},
                     {{ name: "custom_server_url", value: "http://127.0.0.1:8000/v1" }},
                     {{ name: "custom_model", value: "" }},
@@ -235,6 +289,14 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(staleFirstRunNode.widgets[5].value === "System Prompt text", "Loader first-run repair must clear shifted seed-mode text from system prompt");
             assert(staleFirstRunNode.widgets[7].value === 2, "Loader first-run repair must restore saved seed before queue submit");
             assert(staleFirstRunNode.widgets[12].value === "Prompt text", "Loader first-run repair must restore saved prompt textarea before queue submit");
+            staleFirstRunNode.widgets[6].value = false;
+            api.applyLocalLLMLoaderSavedWidgetValues(staleFirstRunNode, normalizedThinkingOn);
+            assert(staleFirstRunNode.widgets[6].value === true, "Loader first-run repair must restore saved Thinking On before queue submit");
+            staleFirstRunNode.widgets[6].value = false;
+            api.applyLocalLLMLoaderSavedWidgetValues(staleFirstRunNode, normalizedOllamaButtonsBeforeHiddenRows);
+            assert(staleFirstRunNode.widgets[0].value === "Ollama", "Loader first-run repair must restore saved Ollama provider from button-before-hidden-row values");
+            assert(staleFirstRunNode.widgets[1].value === "gemma4:31b-it-qat", "Loader first-run repair must restore saved Ollama model from button-before-hidden-row values");
+            assert(staleFirstRunNode.widgets[6].value === true, "Loader first-run repair must restore saved Ollama Thinking On after F5");
             const seedModeNode = {{
                 id: 77,
                 type: "DenoLocalLLMRefiner",

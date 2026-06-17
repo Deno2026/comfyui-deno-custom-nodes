@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 
 const NODE_NAME = "DenoBerniniPromptGuide";
 const GENERATED_PREFIX = "deno_bernini_prompt_guide_";
+const SAVE_RESTORE_REV = "bernini-prompt-guide-save-reload-v1";
 const SUMMARY_HEIGHT = 40;
 const PROMPT_MIN_HEIGHT = 50;
 const POSITIVE_PROMPT_DEFAULT_HEIGHT = 112;
@@ -55,6 +56,108 @@ const TASK_TYPE_LABELS = {
 };
 const TASK_LABEL_TO_TYPE = Object.fromEntries(Object.entries(TASK_TYPE_LABELS).map(([key, label]) => [label, key]));
 const TASK_TYPE_DISPLAY_VALUES = Object.values(TASK_TYPE_LABELS);
+
+// Saved-workflow migration:
+// Older public workflows can contain the two generated display widgets in
+// widgets_values:
+//   [task_type, "", positive, reference_helper, "", negative_preset, show_negative, negative]
+// The stable saved shape is the six real backend widgets:
+//   [task_type, positive, reference_helper, negative_preset, show_negative, negative]
+const BERNINI_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT = 6;
+
+function getNormalizedBerniniPromptGuideSerializedValues(values) {
+    if (!Array.isArray(values)) {
+        return null;
+    }
+
+    if (
+        values.length >= 8 &&
+        (values[1] === "" || values[1] == null) &&
+        (values[4] === "" || values[4] == null)
+    ) {
+        return [values[0], values[2], values[3], values[5], values[6], values[7]];
+    }
+
+    if (values.length >= BERNINI_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT) {
+        return values.slice(0, BERNINI_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT);
+    }
+
+    return null;
+}
+
+function normalizeBerniniPromptGuideLegacyWidgetValues(info) {
+    const normalized = getNormalizedBerniniPromptGuideSerializedValues(info?.widgets_values);
+    if (normalized) {
+        info.widgets_values = normalized;
+    }
+    return normalized;
+}
+
+function hasGeneratedBerniniPromptGuideWidgets(node) {
+    return (node?.widgets || []).some((widget) => String(widget?.name || "").startsWith(GENERATED_PREFIX));
+}
+
+function getBerniniPromptGuideConfigureWidgetValues(node, normalizedValues) {
+    if (!Array.isArray(normalizedValues)) {
+        return null;
+    }
+
+    if (!hasGeneratedBerniniPromptGuideWidgets(node)) {
+        return normalizedValues;
+    }
+
+    return [
+        normalizedValues[0],
+        "",
+        normalizedValues[1],
+        normalizedValues[2],
+        "",
+        normalizedValues[3],
+        normalizedValues[4],
+        normalizedValues[5],
+    ];
+}
+
+function applyBerniniPromptGuideSerializedValuesToWidgets(node, values) {
+    if (!node || !Array.isArray(values)) {
+        return;
+    }
+
+    const names = [
+        "task_type",
+        "positive_prompt",
+        "reference_prompt_helper",
+        "negative_preset",
+        "show_negative_prompt",
+        "negative_prompt",
+    ];
+    for (let i = 0; i < names.length; i++) {
+        setWidgetValue(node, names[i], values[i]);
+    }
+}
+
+function getBerniniPromptGuideSerializedValuesFromWidgets(node) {
+    if (!node) {
+        return null;
+    }
+
+    const taskType = normalizeTaskType(getWidgetValue(node, "task_type", TASK_TYPE_LABELS.default));
+    return [
+        TASK_TYPE_LABELS[taskType] || TASK_TYPE_LABELS.default,
+        getWidgetValue(node, "positive_prompt", ""),
+        Boolean(getWidgetValue(node, "reference_prompt_helper", false)),
+        String(getWidgetValue(node, "negative_preset", NEGATIVE_PRESET_OFFICIAL)),
+        Boolean(getWidgetValue(node, "show_negative_prompt", true)),
+        getWidgetValue(node, "negative_prompt", ""),
+    ];
+}
+
+function syncBerniniPromptGuideSerializedValues(node) {
+    const values = getBerniniPromptGuideSerializedValuesFromWidgets(node);
+    if (values) {
+        node.widgets_values = values;
+    }
+}
 
 const TASK_HELP = {
     default: {
@@ -144,6 +247,24 @@ app.registerExtension({
             return;
         }
 
+        const configure = nodeType.prototype.configure;
+        nodeType.prototype.configure = function (info) {
+            const normalized = normalizeBerniniPromptGuideLegacyWidgetValues(info);
+            if (normalized) {
+                this.__denoBerniniPromptGuideConfiguredWidgetValues = [...normalized];
+                info.widgets_values = getBerniniPromptGuideConfigureWidgetValues(this, normalized);
+            }
+
+            const result = configure?.apply(this, arguments);
+            if (normalized) {
+                applyBerniniPromptGuideSerializedValuesToWidgets(this, normalized);
+                syncBerniniPromptGuideSerializedValues(this);
+                this.properties = this.properties || {};
+                this.properties.__deno_bernini_prompt_guide_save_restore = SAVE_RESTORE_REV;
+            }
+            return result;
+        };
+
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             const result = onNodeCreated?.apply(this, arguments);
@@ -154,7 +275,16 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             const result = onConfigure?.apply(this, arguments);
-            queueMicrotask(() => setupNode(this));
+            queueMicrotask(() => {
+                setupNode(this);
+                if (this.__denoBerniniPromptGuideConfiguredWidgetValues) {
+                    applyBerniniPromptGuideSerializedValuesToWidgets(this, this.__denoBerniniPromptGuideConfiguredWidgetValues);
+                    updateConditionalVisibility(this);
+                    syncBerniniPromptGuideSerializedValues(this);
+                    refreshNode(this);
+                    delete this.__denoBerniniPromptGuideConfiguredWidgetValues;
+                }
+            });
             return result;
         };
     },
@@ -172,6 +302,9 @@ function setupNode(node) {
 
         removeGeneratedWidgets(node);
         storeWidgetDefaults(node);
+        if (node.__denoBerniniPromptGuideConfiguredWidgetValues) {
+            applyBerniniPromptGuideSerializedValuesToWidgets(node, node.__denoBerniniPromptGuideConfiguredWidgetValues);
+        }
         polishWidgetLabels(node);
         applyNegativePresetToPrompt(node, { migrateLegacy: true });
         normalizeTaskWidget(node);
@@ -187,6 +320,7 @@ function setupNode(node) {
         moveWidgetBefore(node, negativeToggle, negativeAnchor);
 
         updateConditionalVisibility(node);
+        syncBerniniPromptGuideSerializedValues(node);
         wrapWidgetCallbacks(node);
         refreshNode(node);
     } finally {
@@ -431,6 +565,7 @@ function wrapWidgetCallbacks(node) {
                     applyNegativePresetToPrompt(node, { force: true });
                 }
                 updateConditionalVisibility(node);
+                syncBerniniPromptGuideSerializedValues(node);
                 refreshNode(node);
             }
             return result;
@@ -508,6 +643,7 @@ function toggleNegativePrompt(node) {
 
     setWidgetValue(node, "show_negative_prompt", opening);
     updateConditionalVisibility(node);
+    syncBerniniPromptGuideSerializedValues(node);
     queueMicrotask(() => refreshNode(node));
 }
 

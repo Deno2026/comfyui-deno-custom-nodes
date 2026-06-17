@@ -64,6 +64,15 @@ approves those nodes separately.
   translation engine/fallback flow, useful after loading a layout or pasted JSON while a non-English
   view language is selected. Legacy TEXT captions where the literal rendered word is only in `desc`
   must be preserved during board-view translation.
+- Refresh-button restore polish (local 2026-06-17, not public-released yet): after Chrome/F5 reload
+  and loading a saved workflow, the top-bar `↻` language refresh button could initially render as a
+  narrow vertical bar next to the Language button. Root cause: the compact top bar allows children to
+  shrink, while saved-workflow restore can run the first fit pass before ComfyUI has given the DOM its
+  final width. Clicking the button later forced a second fit pass, so the button recovered. Local rev
+  `r2026.06.17-refresh-reflow-c` gives the refresh button a fixed flex basis and reruns the top-bar
+  fit pass after restore/size stabilization. Before release, verify: saved Director workflow ->
+  browser refresh/F5 -> load workflow -> inspect the `↻` button before any interaction on both
+  Easy-Install and Desktop.
 - Desktop regression report (2026-06-16): user reproduced a `0.7.35` Desktop-only collapse where
   clicking the wrong region can leave the Director with only the narrow right rail visible and a
   huge blank body. Portable/Easy-Install verification is not enough for this class of bug. Before

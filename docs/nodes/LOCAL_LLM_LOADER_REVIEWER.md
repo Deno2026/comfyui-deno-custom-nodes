@@ -75,6 +75,7 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 - Loader `Seed Mode` must also behave like ComfyUI's after-generate seed control. On queue submit, `increment`, `decrement`, and `randomize` update the visible Loader `Seed` widget for the next queued run without adding a separate serialized `control_after_generate` widget or shifting the 13 saved Loader widget slots. Backend `_seed_for_index` still offsets batched prompt-list items inside one execution.
 - Thinking-only responses with no final result are rejected with a clear error instead of passing an empty prompt downstream.
 - Saved LM Studio/Ollama model selections must survive workflow reload even when the live model list returns the default model first. Configure-time normalization moves the saved model value before default choices and strips old serialized button/control values so saved 12B-style selections do not fall back to e4b. First queue submit after reload must not require pressing `Refresh Models` to restore the saved provider/model/system prompt/seed/prompt slots.
+- Saved Loader workflows may contain generated button labels in `widgets_values`. Depending on provider/hidden-row state, `Refresh Models`, `Stop LLM`, and `Unload LLM` can appear before either the hidden LM Studio rows or the legacy server rows. Both layouts must normalize before ComfyUI restores widgets, so visible toggles such as `Thinking` survive `Ctrl+S -> Ctrl+Shift+R/F5`.
 - Saved model preservation must not pretend the model exists on every PC. If a saved Ollama/LM
   Studio model is not in the current detected model choices, the visible combo value should read
   `Missing saved model: <model>` and the node preview should explain that the model is unavailable
@@ -83,6 +84,9 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
   name only after the local server reports that exact model. Run, Stop LLM, and Unload LLM must
   reject the missing-display value before sending any Ollama/LM Studio request.
 - Local preview scrollbars support wheel and thumb drag, with modal wheel scrolling preserved.
+- Local preview `More` popups for `Thinking` and `Result` stay live while the node streams or status
+  messages change. If the user is reading older text above the bottom, the popup must not force-scroll
+  down on every token; auto-follow only when the view is already near the bottom.
 - Local preview wheel hit-testing must use the current event's real `clientX/clientY` first. Do not
   let stale LiteGraph `graph_mouse` / `last_mouse` coordinates scroll the Loader preview while the
   pointer is over a neighboring custom node such as Ideogram Director.
@@ -140,6 +144,9 @@ Before calling this node done after a behavior change, cover the affected cells:
   - Regenerate submit mode wins over stale Pass widget values.
   - `How to use` opens outside the canvas frame, scrolls locally, and does not change serialized workflow values.
 - Real canvas control test for buttons, preview scrollbars, More popup, resize grow/shrink, and wheel/middle-click behavior.
+  - During a streaming run, open `Thinking -> More` and `Result -> More`; both full-text popups should
+    keep updating without reopening. Close either popup and confirm later updates do not affect a
+    removed DOM element.
 - Adjacent-node wheel leak test:
   - Put Local LLM Loader next to Ideogram Director.
   - Make the Loader preview scrollable.
@@ -152,6 +159,7 @@ Before calling this node done after a behavior change, cover the affected cells:
   - Dragging the node taller grows the Prompt textarea.
   - Result uses `More` for full text instead of taking all extra node height.
   - Old `user_prompt` sockets migrate to visible `prompt`. Converted Provider/Model/Seed/VRAM COMBO sockets disappear after setup/refresh. `prompt` remains the only supported STRING input socket and feeds the same backend value as the in-node textarea.
+  - Save with `Thinking` on, hard refresh/reopen, and confirm the visible `Thinking` toggle is still on. Include a saved layout where generated button labels appear before hidden model rows.
 
 ## Latest Review Evidence
 

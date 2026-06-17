@@ -659,7 +659,8 @@
 .idd-res:hover{border-color:var(--gdim) !important;}
 .idd-langbtn{min-width:96px;max-width:128px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .idd-langbtn.on{background:rgba(66,189,127,.14) !important;color:var(--g) !important;border-color:var(--gdim) !important;}
-.idd-refreshbtn,.idd-histbtn{width:30px;min-width:30px;height:28px;padding:0 !important;display:inline-flex !important;
+.idd-refreshbtn,.idd-histbtn{width:30px;min-width:30px;max-width:30px;flex:0 0 30px !important;flex-shrink:0 !important;
+  box-sizing:border-box !important;height:28px;padding:0 !important;display:inline-flex !important;
   align-items:center;justify-content:center;font-size:15px !important;line-height:1 !important;border-radius:8px !important;}
 .idd-refreshbtn.working{color:#ffd48a !important;border-color:rgba(232,180,90,.45) !important;background:rgba(232,180,90,.12) !important;}
 .idd-importbtn{min-width:104px;max-width:150px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -892,7 +893,7 @@
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .idd-wrap.idd-topfit .idd-importbtn{min-width:82px;max-width:144px;}
 .idd-wrap.idd-topfit .idd-langbtn{min-width:78px;max-width:104px;}
-.idd-wrap.idd-topfit .idd-refreshbtn{width:27px;min-width:27px;}
+.idd-wrap.idd-topfit .idd-refreshbtn{width:30px;min-width:30px;max-width:30px;flex-basis:30px !important;}
 .idd-wrap.idd-topfit .idd-res{max-width:124px;overflow:hidden;text-overflow:ellipsis;}
 .idd-wrap.idd-topfit .idd-seedpill .idd-seedlbl{display:none;}
 .idd-wrap.idd-topfit .idd-seedpill .idd-seed{width:38px;}
@@ -1040,7 +1041,8 @@
       .idd-res:hover{border-color:var(--gdim);}
       .idd-langbtn{min-width:96px;max-width:128px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       .idd-langbtn.on{background:rgba(72,255,132,.16);color:var(--g);border-color:var(--gdim);}
-      .idd-refreshbtn,.idd-histbtn{width:30px;min-width:30px;height:28px;padding:0 !important;display:inline-flex !important;
+      .idd-refreshbtn,.idd-histbtn{width:30px;min-width:30px;max-width:30px;flex:0 0 30px !important;flex-shrink:0 !important;
+        box-sizing:border-box !important;height:28px;padding:0 !important;display:inline-flex !important;
         align-items:center;justify-content:center;font-size:15px !important;line-height:1 !important;border-radius:8px !important;}
       .idd-refreshbtn.working{color:#ffd48a !important;border-color:rgba(232,180,90,.45) !important;background:rgba(232,180,90,.12) !important;}
       .idd-importbtn{min-width:104px;max-width:150px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -1495,7 +1497,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.17-elements-history-refresh-a";
+        const IDD_REV = "r2026.06.17-refresh-reflow-c";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -1525,6 +1527,11 @@
             const overflows = top.scrollWidth > top.clientWidth + 1;
             wrap.classList.toggle("idd-topfit", tooNarrow || overflows);
           });
+        };
+        const fitTopBarAfterRestore = () => {
+          fitTopBarSoon();
+          window.setTimeout(fitTopBarSoon, 32);
+          window.setTimeout(fitTopBarSoon, 160);
         };
         // seed group: labeled pill [ Seed | number | lock ] — a bare number means nothing to a new
         // user; the mode buttons show Fixed (reuse this seed) / Random (roll a new one each run).
@@ -1928,6 +1935,14 @@
         };
         const translateBtn = mkBtn("Language"); translateBtn.classList.add("idd-langbtn");
         const translateRefreshBtn = mkBtn("↻"); translateRefreshBtn.classList.add("idd-refreshbtn");
+        Object.assign(translateRefreshBtn.style, {
+          width: "30px",
+          minWidth: "30px",
+          maxWidth: "30px",
+          flex: "0 0 30px",
+          flexShrink: "0",
+          boxSizing: "border-box",
+        });
         const TRANSLATION_ENGINE_DEFAULT = "Google";
         const TRANSLATION_ENGINE_CUSTOM = "LibreTranslate Custom URL";
         const TRANSLATION_ENGINES = ["Google", "MyMemory", "LibreTranslate", TRANSLATION_ENGINE_CUSTOM];
@@ -2592,7 +2607,7 @@
         // low-frequency fullscreen joins the board's view cluster instead of crowding the corner.
         top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, regen);
         paintRes();   // always populate the resolution chip on creation (not just on restore)
-        setTimeout(fitTopBarSoon, 0);
+        setTimeout(fitTopBarAfterRestore, 0);
 
         // ── body: board + rail ──
         const body = el("div", "idd-body");
@@ -3796,7 +3811,7 @@
           iddUseConfiguredSize = false;
           node._iddConfiguredSize = null;
           installIddComputeSizeGuard();
-          node.setDirtyCanvas(true, true); layoutStage(); fitTopBarSoon();
+          node.setDirtyCanvas(true, true); layoutStage(); fitTopBarAfterRestore();
         }, 0);
         setTimeout(installIddComputeSizeGuard, 250);
 
@@ -4507,7 +4522,7 @@
             const ij = getImportJson();
             handleInputPromptRaw(ij);
           }
-          renderBoxes(); renderPalette(); renderElements(); layoutStage(); applyBackdrop();
+          renderBoxes(); renderPalette(); renderElements(); layoutStage(); applyBackdrop(); fitTopBarAfterRestore();
           undoStack.length = 0; redoStack.length = 0; lastSnap = snapshot();   // fresh undo baseline per load
         }
         chain(node, "onConfigure", function () { setTimeout(hydrate, 0); });

@@ -396,7 +396,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.17-elements-history-refresh-a"' in script
+    assert 'IDD_REV = "r2026.06.17-refresh-reflow-c"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
@@ -417,7 +417,7 @@ def test_ideogram_director_recreate_node_restores_default_size_when_small():
     assert "const recreatedTooSmall = marked && (sw < IDD_MIN_W || sh < IDD_MIN_H);" in script
     assert "marked && !recreatedTooSmall" in script
     assert ": [IDD_DEFAULT_W, IDD_DEFAULT_H];" in script
-    assert "layoutStage(); fitTopBarSoon();" in script
+    assert "layoutStage(); fitTopBarAfterRestore();" in script
 
 
 def test_ideogram_director_bbox_number_badge_is_primary_drag_handle():
@@ -2317,7 +2317,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "Context window is too small for this prompt." in script
     assert 'status: "error"' in script
     assert 'hasError ? "Error" : "Result"' in script
-    assert 'openPreviewTextDialog(isError ? "Error" : "Result", text)' in script
+    assert 'openPreviewTextDialog(node, "result", isError ? "Error" : "Result", text)' in script
+    assert "updateOpenPreviewTextDialogs(node, next)" in script
     assert "installGraphScan" in script
     assert "syncLoaderOutputSlots" in script
     assert "removeLegacyWidgets" in script
@@ -2416,10 +2417,11 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "LocalLLMPreviewWidget" in script
     assert "const actualHeight = Math.max(expectedHeight, Number(height) || 0);" in script
     assert "maxPreviewLinesForHeight(resultH)" in script
-    assert 'openPreviewTextDialog("Thinking", text)' in script
-    assert 'openPreviewTextDialog(isError ? "Error" : "Result", text)' in script
+    assert 'openPreviewTextDialog(node, "thinking", "Thinking", text)' in script
+    assert 'openPreviewTextDialog(node, "result", isError ? "Error" : "Result", text)' in script
     assert "buttonBounds: this.expandBounds.result" in script
     assert "function openPreviewTextDialog" in script
+    assert "setPreviewTextDialogContent" in script
     assert "denoLocalLLMExpanded" not in script
     assert "const manualHeight = Number(node.size?.[1]) || 0;" in script
     assert "Math.max(manualHeight, computed[1], 180)" in script

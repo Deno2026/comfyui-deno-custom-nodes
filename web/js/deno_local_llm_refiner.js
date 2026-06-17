@@ -135,6 +135,7 @@ let reviewerTooltipOwner = "";
 const progressListenerApis = new WeakSet();
 let progressListenerRetryScheduled = false;
 const localLLMStateByNodeId = new Map();
+const previewTextDialogsByKey = new Map();
 let registeredNodeData = null;
 let reviewerGraphPromptHookInstalled = false;
 let reviewerGraphPromptRetryScheduled = false;
@@ -313,11 +314,77 @@ function setLocalLLMNodeState(node, patch) {
     if (key) {
         localLLMStateByNodeId.set(key, next);
     }
+    updateOpenPreviewTextDialogs(node, next);
     return next;
 }
 
 function getLocalLLMNodeState(node) {
     return node?.__denoLocalLLMState || localLLMCachedStateForNode(node) || {};
+}
+
+function previewTextDialogKey(node, kind) {
+    const nodeKey = localLLMNodeStateKey(node);
+    const textKind = String(kind || "");
+    return nodeKey && textKind ? `${nodeKey}:${textKind}` : "";
+}
+
+function previewTextDialogTitle(state, kind, fallback = "Preview") {
+    if (kind === "thinking") {
+        return "Thinking";
+    }
+    if (kind === "result") {
+        return state?.error ? "Error" : "Result";
+    }
+    return fallback;
+}
+
+function previewTextDialogBody(state, kind, fallback = "Waiting for run output.") {
+    if (kind === "thinking") {
+        return String(state?.thinking || fallback);
+    }
+    if (kind === "result") {
+        return String(state?.error || state?.answer || fallback);
+    }
+    return String(fallback || "");
+}
+
+function previewTextAreaNearBottom(textBox) {
+    if (!textBox) {
+        return true;
+    }
+    return textBox.scrollHeight - textBox.scrollTop - textBox.clientHeight <= 28;
+}
+
+function setPreviewTextDialogContent(dialog, state) {
+    if (!dialog?.overlay?.isConnected || !dialog.textBox) {
+        return false;
+    }
+    const nextTitle = previewTextDialogTitle(state, dialog.kind, dialog.fallbackTitle);
+    const nextText = previewTextDialogBody(state, dialog.kind, dialog.fallbackText);
+    const shouldFollow = previewTextAreaNearBottom(dialog.textBox);
+    if (dialog.titleElement) {
+        dialog.titleElement.textContent = nextTitle;
+    }
+    if (dialog.textBox.value !== nextText) {
+        dialog.textBox.value = nextText;
+        if (shouldFollow) {
+            dialog.textBox.scrollTop = dialog.textBox.scrollHeight;
+        }
+    }
+    return true;
+}
+
+function updateOpenPreviewTextDialogs(node, state = getLocalLLMNodeState(node)) {
+    for (const kind of ["thinking", "result"]) {
+        const key = previewTextDialogKey(node, kind);
+        const dialog = key ? previewTextDialogsByKey.get(key) : null;
+        if (!dialog) {
+            continue;
+        }
+        if (!setPreviewTextDialogContent(dialog, state)) {
+            previewTextDialogsByKey.delete(key);
+        }
+    }
 }
 
 function localLLMNodeById(nodeId, options = {}) {
@@ -559,12 +626,22 @@ function normalizeLocalLLMLoaderSerializedValues(values) {
         return null;
     }
     let normalized = [...values];
-    const hasGeneratedButtonRun = LOADER_GENERATED_BUTTON_VALUES.every((button, index) => String(normalized[3 + index] ?? "") === button);
-    if (hasGeneratedButtonRun) {
-        normalized.splice(3, LOADER_GENERATED_BUTTON_VALUES.length);
+    const generatedButtonStart = findLocalLLMGeneratedButtonRunStart(normalized);
+    if (generatedButtonStart >= 0) {
+        normalized.splice(generatedButtonStart, LOADER_GENERATED_BUTTON_VALUES.length);
         normalized = normalizeLocalLLMLoaderLegacyButtonValues(normalized);
     }
     return normalized.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
+}
+
+function findLocalLLMGeneratedButtonRunStart(values) {
+    for (const start of [3, 2]) {
+        const matches = LOADER_GENERATED_BUTTON_VALUES.every((button, index) => String(values[start + index] ?? "") === button);
+        if (matches) {
+            return start;
+        }
+    }
+    return -1;
 }
 
 function normalizeLocalLLMLoaderLegacyButtonValues(values) {
@@ -1333,6 +1410,9 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         collectReviewerSelectableSeedCandidates,
         incrementReviewerRetrySeed,
         maybeAutoRetryReviewer,
+        previewTextDialogBody,
+        previewTextDialogTitle,
+        setPreviewTextDialogContent,
         previewTextWidth,
         repairPromptWidgetValue,
         resetReviewerAutoRetry,
@@ -1917,7 +1997,7 @@ function setupNode(node) {
         const provider = currentProvider(node);
         if (!node.__denoLocalLLMState) {
             const cachedState = localLLMCachedStateForNode(node);
-            node.__denoLocalLLMState = {
+            setLocalLLMNodeState(node, {
                 status: cachedState?.status || "ready",
                 provider,
                 model: String(activeModelWidget(node)?.value || ""),
@@ -1927,7 +2007,7 @@ function setupNode(node) {
                 index: Number(cachedState?.index || 0),
                 total: Number(cachedState?.total || 0),
                 updatedAt: cachedState?.updatedAt || Date.now(),
-            };
+            });
         }
         polishWidgetLabels(node);
         polishInputLabels(node);
@@ -2549,7 +2629,7 @@ class LocalLLMPreviewWidget {
             if (pressedKey === "thinking" && isInsideBounds(pos, this.expandBounds.thinking)) {
                 const state = getLocalLLMNodeState(node);
                 const text = String(state.thinking || "Waiting for run output.");
-                openPreviewTextDialog("Thinking", text);
+                openPreviewTextDialog(node, "thinking", "Thinking", text);
             } else if (pressedKey === "result" && isInsideBounds(pos, this.expandBounds.result)) {
                 const state = getLocalLLMNodeState(node);
                 const isError = Boolean(state.error);
@@ -2558,7 +2638,7 @@ class LocalLLMPreviewWidget {
                         ? state.error
                         : state.answer || "Waiting for run output.",
                 );
-                openPreviewTextDialog(isError ? "Error" : "Result", text);
+                openPreviewTextDialog(node, "result", isError ? "Error" : "Result", text);
             }
             return true;
         }
@@ -3613,12 +3693,11 @@ function createInputWidgetFromNodeData(node, name, label) {
         label,
         initialValue,
         () => {
-            node.__denoLocalLLMState = {
-                ...(node.__denoLocalLLMState || {}),
+            setLocalLLMNodeState(node, {
                 provider: currentProvider(node),
                 model: String(activeModelWidget(node)?.value || ""),
                 status: "ready",
-            };
+            });
             refreshNode(node);
         },
         values.length ? { values, list: values } : {}
@@ -4018,20 +4097,18 @@ function setActiveProviderModelVisibility(node) {
         }
     }
     const activeValue = String(activeModelWidget(node)?.value || "").trim();
-    node.__denoLocalLLMState = {
-        ...(node.__denoLocalLLMState || {}),
+    setLocalLLMNodeState(node, {
         provider,
         model: activeValue,
-    };
+    });
     if (isMissingSavedModelDisplayValue(activeValue) && !isLocalLLMBusyState(node)) {
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: "saved model not found",
             provider,
             model: activeValue,
             answer: "",
             thinking: `Saved ${provider} model "${originalModelValueFromDisplay(activeValue)}" is not available on this PC. Start the local server and press Refresh Models, or choose another model.`,
-        };
+        });
     }
 }
 
@@ -4064,14 +4141,13 @@ function wrapModelCallback(node) {
             modelWidget.value = displayModelValueForCurrentChoices(modelWidget, modelWidget.value);
             if (name === activeModelNameForProvider(currentProvider(node))) {
                 const value = String(modelWidget.value || "");
-                node.__denoLocalLLMState = {
-                    ...(node.__denoLocalLLMState || {}),
+                setLocalLLMNodeState(node, {
                     model: value,
                     status: isMissingSavedModelDisplayValue(value) ? "saved model not found" : "ready",
                     thinking: isMissingSavedModelDisplayValue(value)
                         ? `Saved ${currentProvider(node)} model "${originalModelValueFromDisplay(value)}" is not available on this PC. Press Refresh Models after installing or loading it.`
                         : "Model selection is ready.",
-                };
+                });
                 refreshNode(node);
             }
             return result;
@@ -4090,12 +4166,11 @@ function wrapProviderCallback(node) {
         const result = original?.apply(this, arguments);
         const provider = currentProvider(node);
         setActiveProviderModelVisibility(node);
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             provider,
             model: String(activeModelWidget(node)?.value || ""),
             status: "ready",
-        };
+        });
         removeRefreshButtonWidgets(node);
         removeStopButtonWidgets(node);
         removeUnloadButtonWidgets(node);
@@ -4313,21 +4388,19 @@ async function stopLocalModel(node) {
     repairModelWidgetValue(modelWidget);
     const model = String(modelWidget?.value || "").trim();
     const invalidModel = !model || isUnavailableModelWidgetValue(model);
-    node.__denoLocalLLMState = {
-        ...(node.__denoLocalLLMState || {}),
+    setLocalLLMNodeState(node, {
         status: "stop requested",
         provider,
         model,
         answer: "",
         thinking: invalidModel ? "Refresh Models and select an installed local LLM model before stopping." : "Asking the local LLM request to stop.",
-    };
+    });
     refreshNode(node);
     if (invalidModel) {
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: "stop skipped",
             thinking: "Refresh Models and select an installed local LLM model before stopping.",
-        };
+        });
         refreshNode(node);
         return;
     }
@@ -4341,23 +4414,21 @@ async function stopLocalModel(node) {
         if (!response.ok && !payload?.message) {
             throw new Error(payload?.error || `HTTP ${response.status}`);
         }
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: payload.ok ? "stop requested" : "nothing to stop",
             provider,
             model,
             answer: "",
             thinking: String(payload.message || payload.error || "Stop request finished."),
-        };
+        });
     } catch (error) {
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: "stop failed",
             provider,
             model,
             answer: "",
             thinking: String(error?.message || error),
-        };
+        });
     }
     refreshNode(node);
 }
@@ -4370,32 +4441,29 @@ async function unloadLocalModel(node) {
     const model = String(modelWidget?.value || "").trim();
     const invalidModel = !model || isUnavailableModelWidgetValue(model);
     if (isLocalLLMBusyState(node)) {
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: "unload blocked",
             provider,
             model,
             answer: "",
             thinking: "The local LLM is still generating. Press Stop LLM first, then unload after it has stopped.",
-        };
+        });
         refreshNode(node);
         return;
     }
-    node.__denoLocalLLMState = {
-        ...(node.__denoLocalLLMState || {}),
+    setLocalLLMNodeState(node, {
         status: "unloading LLM",
         provider,
         model,
         answer: "",
         thinking: invalidModel ? "Refresh Models and select an installed local LLM model before unloading." : "Requesting unload from the local LLM server.",
-    };
+    });
     refreshNode(node);
     if (invalidModel) {
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: "unload skipped",
             thinking: "Refresh Models and select an installed local LLM model before unloading.",
-        };
+        });
         refreshNode(node);
         return;
     }
@@ -4409,23 +4477,21 @@ async function unloadLocalModel(node) {
         if (!response.ok && !payload?.message) {
             throw new Error(payload?.error || `HTTP ${response.status}`);
         }
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: payload.ok ? "LLM unloaded" : (payload.busy ? "unload blocked" : "manual unload unavailable"),
             provider,
             model,
             answer: "",
             thinking: String(payload.message || payload.error || "Unload request finished."),
-        };
+        });
     } catch (error) {
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: "LLM unload failed",
             provider,
             model,
             answer: "",
             thinking: String(error?.message || error),
-        };
+        });
     }
     refreshNode(node);
 }
@@ -4435,12 +4501,11 @@ async function refreshModels(node) {
     const serverUrl = defaultServerForProvider(provider, node);
     const modelWidget = activeModelWidget(node);
     const savedModel = originalModelValueFromDisplay(modelWidget?.value);
-    node.__denoLocalLLMState = {
-        ...(node.__denoLocalLLMState || {}),
+    setLocalLLMNodeState(node, {
         status: "loading models",
         provider,
         model: savedModel,
-    };
+    });
     refreshNode(node);
     try {
         const response = await fetch("/deno/local_llm/models", {
@@ -4466,8 +4531,7 @@ async function refreshModels(node) {
             choices.length > 0 &&
             !savedModelStillExists &&
             isMissingSavedModelDisplayValue(modelWidget?.value);
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: savedModelMissing ? "saved model not found" : choices.length ? `${choices.length} models found` : "no models found",
             provider,
             model: String(modelWidget?.value || ""),
@@ -4477,14 +4541,13 @@ async function refreshModels(node) {
                 : choices.length
                 ? `Model list is ready. Choose from the ${provider} model row.`
                 : "No models were returned by the local server.",
-        };
+        });
     } catch (error) {
         updateModelChoices(node, provider, []);
         if (modelWidget && hasUsableSavedModelValue(savedModel)) {
             modelWidget.value = missingSavedModelDisplayValue(savedModel);
         }
-        node.__denoLocalLLMState = {
-            ...(node.__denoLocalLLMState || {}),
+        setLocalLLMNodeState(node, {
             status: hasUsableSavedModelValue(savedModel) ? "saved model not found" : "model refresh failed",
             provider,
             model: String(modelWidget?.value || ""),
@@ -4492,7 +4555,7 @@ async function refreshModels(node) {
             thinking: hasUsableSavedModelValue(savedModel)
                 ? `Saved ${provider} model "${savedModel}" could not be verified on this PC. ${String(error?.message || error)}`
                 : String(error?.message || error),
-        };
+        });
     }
     refreshNode(node);
 }
@@ -5328,8 +5391,13 @@ function openSystemPromptDialog(node) {
     textarea.focus();
 }
 
-function openPreviewTextDialog(titleText, textValue) {
+function openPreviewTextDialog(node, kind, titleText, textValue) {
     document.querySelector?.(".deno-local-llm-preview-modal")?.remove();
+    for (const [key, dialog] of previewTextDialogsByKey.entries()) {
+        if (!dialog?.overlay?.isConnected) {
+            previewTextDialogsByKey.delete(key);
+        }
+    }
 
     const overlay = document.createElement("div");
     overlay.className = "deno-local-llm-preview-modal";
@@ -5364,7 +5432,8 @@ function openPreviewTextDialog(titleText, textValue) {
     const header = document.createElement("div");
     header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:16px;";
     const title = document.createElement("div");
-    title.textContent = String(titleText || "Preview");
+    const state = getLocalLLMNodeState(node);
+    title.textContent = previewTextDialogTitle(state, kind, titleText || "Preview");
     title.style.cssText = "font-size:18px;font-weight:800;color:#9dffba;";
     const closeButton = document.createElement("button");
     closeButton.textContent = "Close";
@@ -5372,7 +5441,7 @@ function openPreviewTextDialog(titleText, textValue) {
     header.append(title, closeButton);
 
     const textBox = document.createElement("textarea");
-    textBox.value = String(textValue || "");
+    textBox.value = previewTextDialogBody(state, kind, textValue || "");
     textBox.readOnly = true;
     textBox.style.cssText = [
         "flex:1",
@@ -5392,7 +5461,13 @@ function openPreviewTextDialog(titleText, textValue) {
         "overscroll-behavior:contain",
     ].join(";");
 
-    const close = () => overlay.remove();
+    const dialogKey = previewTextDialogKey(node, kind);
+    const close = () => {
+        if (dialogKey && previewTextDialogsByKey.get(dialogKey)?.overlay === overlay) {
+            previewTextDialogsByKey.delete(dialogKey);
+        }
+        overlay.remove();
+    };
     closeButton.addEventListener("click", close);
     overlay.addEventListener("pointerdown", (event) => {
         if (event.target === overlay) {
@@ -5412,6 +5487,17 @@ function openPreviewTextDialog(titleText, textValue) {
     panel.append(header, textBox);
     overlay.append(panel);
     document.body.append(overlay);
+    if (dialogKey) {
+        previewTextDialogsByKey.set(dialogKey, {
+            overlay,
+            kind,
+            titleElement: title,
+            textBox,
+            fallbackTitle: String(titleText || "Preview"),
+            fallbackText: String(textValue || ""),
+        });
+        setPreviewTextDialogContent(previewTextDialogsByKey.get(dialogKey), state);
+    }
     textBox.focus();
 }
 

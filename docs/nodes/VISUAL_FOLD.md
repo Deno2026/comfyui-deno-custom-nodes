@@ -1,0 +1,72 @@
+# DENO Visual Fold
+
+## Product Contract
+
+Visual Fold is a visual organization helper for ComfyUI graphs. It lets users fold selected nodes
+or ComfyUI groups into a compact chip, unfold them later, rename folded groups, and align or
+distribute selected nodes/groups.
+
+It must stay visual-only:
+
+- Do not change workflow execution logic, graph links, backend node IDs, or node outputs.
+- Do not turn selected nodes into a ComfyUI subgraph.
+- Preserve the folded nodes in the main graph so saved workflows remain ordinary ComfyUI workflows.
+- Keep the controls discoverable through both the selection toolbar/button path and the context menu
+  path.
+
+## Current Frontend Contract
+
+- On current ComfyUI frontends, use the extension menu API hooks
+  `getCanvasMenuItems` and `getNodeMenuItems`.
+- On older frontends, keep the LiteGraph menu patch fallback.
+- If ComfyUI's selection toolbox DOM is hidden, disabled, or moved by Desktop/Electron builds,
+  Visual Fold must still expose a small DENO fallback toolbar near the selected nodes/groups.
+- Do not depend on one exact selector such as `.selection-toolbox .p-panel-content` as the only
+  control path.
+- Avoid duplicate menu entries when the new menu API is available.
+
+## Desktop Pitfall
+
+ComfyUI Desktop can use a newer frontend shell and different selection-toolbar DOM than the
+portable/Easy-Install browser view. A fix that works on `8188` is not enough for Fold behavior.
+
+Broken assumption from 2026-06-17:
+
+> The old selection toolbar selector and legacy LiteGraph menu patch are always enough.
+
+Correct assumption:
+
+> Fold must work when the selection toolbar exists, when it is missing/disabled, and when Desktop
+> routes menus through the new extension API.
+
+## Selection State Pitfall
+
+ComfyUI can briefly disagree with itself during click, F5, context-menu, and blank-canvas selection
+changes. `canvas.selected_nodes`, `canvas.selectedItems`, legacy `node.selected`, and old
+`selected_group` fields may not clear on the same frame.
+
+Correct behavior:
+
+- For current node selection, prefer `canvas.selected_nodes` when it exists.
+- Use `selectedItems` only when `selected_nodes` is unavailable, and use legacy `node.selected` only
+  as the last fallback for older frontends.
+- For group selection, prefer `selectedItems`; do not let stale `selected_group`, `selectedGroup`,
+  or `group.selected` resurrect a Fold Group action when `selectedItems` is already present.
+- The fallback DENO toolbar must disappear when the current selection no longer has a valid Fold,
+  Unfold, Rename, or Align action. A one-node selection must not show the floating Fold button.
+
+## Verification Matrix
+
+For any Visual Fold UI change, check at least:
+
+- Easy-Install main runtime and Desktop `ComfyUI` card, or mark the missing cell `UNVERIFIED`.
+- Fresh graph with two normal nodes selected: Fold button/menu appears and folds them.
+- Folded chip selected: Unfold and Rename are available.
+- Multi-node selection: Align button/menu appears.
+- ComfyUI group selection: Fold Group and group align paths appear.
+- Selection toolbar hidden or unavailable: fallback DENO Fold bar appears and does not block canvas
+  pan/zoom outside the bar.
+- One normal node selected: floating Fold button does not appear.
+- Blank canvas click after a multi-node selection: fallback toolbar disappears instead of floating
+  in the middle of the screen.
+- Context menu path: no duplicate DENO Fold entries on current ComfyUI frontends.

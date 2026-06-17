@@ -29,6 +29,7 @@ docs/handoff_archive/
 docs/nodes/
 docs/nodes/CAPTION_TRANSLATE.md
 docs/nodes/RANDOM_PROMPT_BOX.md
+docs/nodes/VISUAL_FOLD.md
 tmp/
 
 # Paused local/WIP node wrappers. Keep these out of the public package until

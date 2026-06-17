@@ -210,6 +210,7 @@ def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
     assert "docs/TRANSLATOR_REFACTOR_SPEC.md" in comfyignore
     assert "docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md" in comfyignore
     assert "docs/nodes/RANDOM_PROMPT_BOX.md" in comfyignore
+    assert "docs/nodes/VISUAL_FOLD.md" in comfyignore
     assert "docs/handoff_archive/" in comfyignore
     assert "tmp/" in comfyignore
     assert "tools/comfyui_runtime_matrix.ps1" in comfyignore
@@ -244,6 +245,14 @@ def test_visual_fold_frontend_is_visual_only():
     assert "Deno Rename Fold Group" in script
     assert "function foldedAnchorFromCanvas" in script
     assert "function rememberCanvasPointer" in script
+    assert "function supportsExtensionMenuApi" in script
+    assert "function buildCanvasMenuItems" in script
+    assert "function buildNodeMenuItems" in script
+    assert "getCanvasMenuItems(canvas)" in script
+    assert "getNodeMenuItems(node)" in script
+    assert 'data-testid="selection-toolbox"' in script
+    assert "deno-visual-fold-fallback-bar" in script
+    assert "function attachButtonToSelectionSurface" in script
     assert "window.prompt" not in script
     assert "__denoVisualFold" in script
     assert "function appGraph()" in script
@@ -264,7 +273,10 @@ def test_visual_fold_frontend_is_visual_only():
     assert "function distributeSelectedGroups" in script
     assert "function addAlignMenuOptions" in script
     assert "function patchGroupMenuTarget" in script
-    assert "if (node?.selected) result.push(node);" in script
+    assert "function selectedNodesFromRaw" in script
+    assert "for (const node of selectedNodesFromRaw(raw)) addUnique(result, node);" in script
+    assert "if (node?.selected) addUnique(result, node);" in script
+    assert "let usedSelectedItems = false;" in script
     assert "node?.flags?.collapsed" in script
     assert "_collapsed_width" in script
     assert "foldedAnchorAt" in script

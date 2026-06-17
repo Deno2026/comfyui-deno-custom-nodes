@@ -27,6 +27,7 @@ let foldButtonEl = null;
 let renameButtonEl = null;
 let alignButtonEl = null;
 let alignMenuEl = null;
+let fallbackToolbarEl = null;
 let renameDialogEl = null;
 let overlayTimer = null;
 let visualStyleInstalled = false;
@@ -62,29 +63,46 @@ function addUnique(result, item) {
   }
 }
 
+function selectedNodesFromRaw(raw) {
+  const result = [];
+  if (!raw || typeof raw !== "object") return result;
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const node = typeof item === "object" ? item : nodeById(item);
+      addUnique(result, node);
+    }
+    return result;
+  }
+
+  for (const [key, value] of Object.entries(raw)) {
+    const node = value && typeof value === "object" ? value : nodeById(key);
+    addUnique(result, node);
+  }
+  return result;
+}
+
 function selectedNodes(fallback) {
   const result = [];
   const raw = app.canvas?.selected_nodes;
   if (raw && typeof raw === "object") {
-    if (Array.isArray(raw)) {
-      for (const item of raw) {
-        const node = typeof item === "object" ? item : nodeById(item);
-        if (node) result.push(node);
+    for (const node of selectedNodesFromRaw(raw)) addUnique(result, node);
+  } else {
+    const selectedItems = app.canvas?.selectedItems;
+    if (selectedItems && typeof selectedItems.has === "function") {
+      for (const node of graphNodes()) {
+        if (selectedItems.has(node)) addUnique(result, node);
       }
     } else {
-      for (const [key, value] of Object.entries(raw)) {
-        const node = value && typeof value === "object" ? value : nodeById(key);
-        if (node) result.push(node);
+      for (const node of graphNodes()) {
+        if (node?.selected) addUnique(result, node);
       }
     }
-  }
-  for (const node of graphNodes()) {
-    if (node?.selected) result.push(node);
   }
   if (fallback && !result.includes(fallback)) {
     result.push(fallback);
   }
-  return Array.from(new Set(result)).filter(Boolean);
+  return result.filter(Boolean);
 }
 
 function selectedAlignNodes(fallback) {
@@ -100,17 +118,21 @@ function selectedGroups(fallback) {
   // ComfyUI can leave legacy selected_group / selectedGroup state behind
   // after node alignment or selection changes. Normal node selection wins.
   if (!hasSelectedNodes) {
+    let usedSelectedItems = false;
     if (selectedItems && typeof selectedItems.has === "function") {
+      usedSelectedItems = true;
       for (const group of groups) {
         if (selectedItems.has(group)) addUnique(result, group);
       }
     }
 
-    addUnique(result, app.canvas?.selected_group);
-    addUnique(result, app.canvas?.selectedGroup);
+    if (!usedSelectedItems) {
+      addUnique(result, app.canvas?.selected_group);
+      addUnique(result, app.canvas?.selectedGroup);
 
-    for (const group of groups) {
-      if (group?.selected) addUnique(result, group);
+      for (const group of groups) {
+        if (group?.selected) addUnique(result, group);
+      }
     }
   }
 
@@ -607,6 +629,22 @@ function ensureVisualStyle() {
       background: rgba(27, 118, 62, 0.98);
       border-color: rgba(110, 255, 165, 0.96);
       color: #ffffff;
+    }
+
+    .deno-visual-fold-fallback-bar {
+      position: fixed;
+      z-index: 10010;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px;
+      border: 1px solid rgba(82, 255, 145, 0.74);
+      border-radius: 12px;
+      background: rgba(4, 13, 8, 0.96);
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(82, 255, 145, 0.10) inset;
+      transform: translate(-50%, -100%);
+      pointer-events: auto;
     }
 
     .deno-visual-align-menu {
@@ -1299,21 +1337,111 @@ function selectedBounds(nodes) {
   return { minX, minY, maxX, maxY };
 }
 
+function clampNumber(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return min;
+  return Math.max(min, Math.min(max, number));
+}
+
 function selectionToolbarContent() {
   if (typeof document === "undefined") return null;
-  return document.querySelector(".selection-toolbox .p-panel-content");
+  const selectors = [
+    '[data-testid="selection-toolbox"] .p-panel-content',
+    '.selection-toolbox .p-panel-content',
+    '[data-testid="selection-toolbox"] [data-pc-section="content"]',
+  ];
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (!element?.isConnected) continue;
+    const rect = element.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+    return element;
+  }
+  return null;
+}
+
+function ensureFallbackToolbar(actionBounds) {
+  if (typeof document === "undefined" || !document.body || !actionBounds) return null;
+  ensureVisualStyle();
+  if (!fallbackToolbarEl) {
+    fallbackToolbarEl = document.createElement("div");
+    fallbackToolbarEl.className = "deno-visual-fold-fallback-bar";
+    fallbackToolbarEl.setAttribute("data-deno-visual-fold", "fallback-toolbar");
+    fallbackToolbarEl.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    fallbackToolbarEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    document.body.appendChild(fallbackToolbarEl);
+  }
+
+  if (!positionFallbackToolbar(actionBounds)) {
+    fallbackToolbarEl.style.display = "none";
+    return null;
+  }
+  return fallbackToolbarEl;
+}
+
+function positionFallbackToolbar(actionBounds) {
+  if (!fallbackToolbarEl || !actionBounds || typeof window === "undefined") return false;
+  const anchor = graphToClient((actionBounds.minX + actionBounds.maxX) / 2, actionBounds.minY);
+  if (!anchor) return false;
+
+  fallbackToolbarEl.style.display = "flex";
+  const width = fallbackToolbarEl.offsetWidth || 180;
+  const height = fallbackToolbarEl.offsetHeight || 44;
+  const left = clampNumber(anchor[0], 18 + width / 2, window.innerWidth - 18 - width / 2);
+  const top = clampNumber(anchor[1] - 12, 60 + height, window.innerHeight - 18);
+  fallbackToolbarEl.style.left = `${left}px`;
+  fallbackToolbarEl.style.top = `${top}px`;
+  return true;
+}
+
+function hideFallbackToolbarIfEmpty() {
+  if (!fallbackToolbarEl) return;
+  if (!fallbackToolbarEl.querySelector(".deno-visual-fold-button")) {
+    fallbackToolbarEl.style.display = "none";
+  }
+}
+
+function insertSelectionButton(surface, button, referenceButton) {
+  if (button.parentElement !== surface) {
+    const reference = referenceButton?.parentElement === surface
+      ? referenceButton.nextSibling
+      : surface.querySelector?.('[aria-label="More Options"]');
+    surface.insertBefore(button, reference || null);
+  }
+}
+
+function attachButtonToSelectionSurface(button, actionBounds, referenceButton = null) {
+  const toolbar = selectionToolbarContent();
+  if (toolbar) {
+    insertSelectionButton(toolbar, button, referenceButton);
+    hideFallbackToolbarIfEmpty();
+    return true;
+  }
+
+  const fallback = ensureFallbackToolbar(actionBounds);
+  if (!fallback) return false;
+  insertSelectionButton(fallback, button, referenceButton);
+  positionFallbackToolbar(actionBounds);
+  return true;
 }
 
 function detachFoldButton() {
   if (foldButtonEl?.parentElement) {
     foldButtonEl.parentElement.removeChild(foldButtonEl);
   }
+  hideFallbackToolbarIfEmpty();
 }
 
 function detachRenameButton() {
   if (renameButtonEl?.parentElement) {
     renameButtonEl.parentElement.removeChild(renameButtonEl);
   }
+  hideFallbackToolbarIfEmpty();
 }
 
 function detachAlignButton() {
@@ -1321,53 +1449,19 @@ function detachAlignButton() {
   if (alignButtonEl?.parentElement) {
     alignButtonEl.parentElement.removeChild(alignButtonEl);
   }
+  hideFallbackToolbarIfEmpty();
 }
 
-function attachFoldButtonToToolbar(button) {
-  const toolbar = selectionToolbarContent();
-  if (!toolbar) {
-    detachFoldButton();
-    return false;
-  }
-
-  if (button.parentElement !== toolbar) {
-    const more = toolbar.querySelector('[aria-label="More Options"]');
-    if (more) toolbar.insertBefore(button, more);
-    else toolbar.appendChild(button);
-  }
-  return true;
+function attachFoldButtonToToolbar(button, actionBounds) {
+  return attachButtonToSelectionSurface(button, actionBounds);
 }
 
-function attachAlignButtonToToolbar(button) {
-  const toolbar = selectionToolbarContent();
-  if (!toolbar) {
-    detachAlignButton();
-    return false;
-  }
-
-  if (button.parentElement !== toolbar) {
-    const reference = foldButtonEl?.parentElement === toolbar
-      ? foldButtonEl.nextSibling
-      : toolbar.querySelector('[aria-label="More Options"]');
-    toolbar.insertBefore(button, reference || null);
-  }
-  return true;
+function attachAlignButtonToToolbar(button, actionBounds) {
+  return attachButtonToSelectionSurface(button, actionBounds, foldButtonEl);
 }
 
-function attachRenameButtonToToolbar(button) {
-  const toolbar = selectionToolbarContent();
-  if (!toolbar) {
-    detachRenameButton();
-    return false;
-  }
-
-  if (button.parentElement !== toolbar) {
-    const reference = foldButtonEl?.parentElement === toolbar
-      ? foldButtonEl.nextSibling
-      : toolbar.querySelector('[aria-label="More Options"]');
-    toolbar.insertBefore(button, reference || null);
-  }
-  return true;
+function attachRenameButtonToToolbar(button, actionBounds) {
+  return attachButtonToSelectionSurface(button, actionBounds, foldButtonEl);
 }
 
 function updateFoldButton() {
@@ -1388,7 +1482,7 @@ function updateFoldButton() {
   }
 
   const actionBounds = foldableGroup ? selectedGroupBounds([foldableGroup]) : selectedBounds(actionNodes);
-  if (!actionBounds || !attachFoldButtonToToolbar(button)) {
+  if (!actionBounds || !attachFoldButtonToToolbar(button, actionBounds)) {
     detachFoldButton();
     return;
   }
@@ -1403,7 +1497,8 @@ function updateRenameButton() {
   if (!button) return;
 
   const folded = selectedNodes().find((node) => foldMeta(node));
-  if (!folded || !selectedBounds([folded]) || !attachRenameButtonToToolbar(button)) {
+  const actionBounds = folded ? selectedBounds([folded]) : null;
+  if (!folded || !actionBounds || !attachRenameButtonToToolbar(button, actionBounds)) {
     detachRenameButton();
     return;
   }
@@ -1418,7 +1513,8 @@ function updateAlignButton() {
 
   const groups = selectedAlignGroups();
   if (groups.length >= 2) {
-    if (!selectedGroupBounds(groups) || !attachAlignButtonToToolbar(button)) {
+    const actionBounds = selectedGroupBounds(groups);
+    if (!actionBounds || !attachAlignButtonToToolbar(button, actionBounds)) {
       detachAlignButton();
       return;
     }
@@ -1433,7 +1529,8 @@ function updateAlignButton() {
     return;
   }
 
-  if (!selectedBounds(clean) || !attachAlignButtonToToolbar(button)) {
+  const actionBounds = selectedBounds(clean);
+  if (!actionBounds || !attachAlignButtonToToolbar(button, actionBounds)) {
     detachAlignButton();
     return;
   }
@@ -1632,7 +1729,34 @@ function addSelectedMenuOptions(options) {
   }
 }
 
+function supportsExtensionMenuApi() {
+  return typeof app.collectCanvasMenuItems === "function"
+    && typeof app.collectNodeMenuItems === "function";
+}
+
+function compactMenuItems(options) {
+  return Array.isArray(options) ? options.filter((item) => item && typeof item === "object") : [];
+}
+
+function buildCanvasMenuItems(canvas) {
+  const options = [];
+  const foldedAnchor = foldedAnchorFromCanvas(canvas);
+  if (foldedAnchor) addFoldMenuOptions(foldedAnchor, options);
+  addSelectedMenuOptions(options);
+  addAlignMenuOptions(options);
+  return compactMenuItems(options);
+}
+
+function buildNodeMenuItems(node) {
+  const options = [];
+  const targetNode = node || foldedAnchorFromCanvas(app.canvas);
+  addFoldMenuOptions(targetNode, options);
+  addAlignMenuOptions(options, targetNode);
+  return compactMenuItems(options);
+}
+
 function patchMenuTarget(target) {
+  if (supportsExtensionMenuApi()) return;
   if (!target || target.__denoVisualFoldMenuPatched) return;
   const original = target.getExtraMenuOptions;
   target.getExtraMenuOptions = function (_canvas, options) {
@@ -1676,6 +1800,7 @@ function patchGroupMenuTarget(group) {
 function patchCanvasMenu() {
   const target = canvasPrototype();
   if (!target) return false;
+  if (supportsExtensionMenuApi()) return true;
 
   if (!target.__denoVisualFoldCanvasMenuPatched) {
     const original = target.getCanvasMenuOptions;
@@ -1768,6 +1893,12 @@ app.registerExtension({
   name: EXTENSION_NAME,
   setup() {
     installLatePatches();
+  },
+  getCanvasMenuItems(canvas) {
+    return buildCanvasMenuItems(canvas);
+  },
+  getNodeMenuItems(node) {
+    return buildNodeMenuItems(node);
   },
   async beforeRegisterNodeDef(nodeType) {
     patchMenuTarget(nodeType?.prototype);

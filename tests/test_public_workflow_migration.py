@@ -37,6 +37,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 INIT_PATH = REPO_ROOT / "__init__.py"
 JS_PATH = REPO_ROOT / "web" / "js" / "deno_ltx_prompt_guide.js"
 EXTRA_JS_PATH = REPO_ROOT / "web" / "js" / "deno_extra_nodes.js"
+BERNINI_JS_PATH = REPO_ROOT / "web" / "js" / "deno_bernini_prompt_guide.js"
+RTX_FINISHER_JS_PATH = REPO_ROOT / "web" / "js" / "deno_rtx_vfx_video_finisher.js"
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "public_workflows"
 FIXTURES = sorted(FIXTURE_DIR.glob("*.json"))
 
@@ -186,6 +188,32 @@ def test_ltx_model_loader_has_shift_repair_gate():
     assert "this.__denoLtxConfiguredWidgetValues = [...normalized]" in src
     assert "node.__denoLtxConfiguredWidgetValues || node.widgets_values" in src
     assert "delete node.__denoLtxConfiguredWidgetValues" in src
+
+
+def test_bernini_prompt_guide_has_legacy_configure_migration():
+    src = BERNINI_JS_PATH.read_text(encoding="utf-8")
+
+    assert "function getNormalizedBerniniPromptGuideSerializedValues" in src
+    assert "function normalizeBerniniPromptGuideLegacyWidgetValues" in src
+    assert "function getBerniniPromptGuideConfigureWidgetValues" in src
+    assert "function applyBerniniPromptGuideSerializedValuesToWidgets" in src
+    assert "bernini-prompt-guide-save-reload-v1" in src
+    assert "nodeType.prototype.configure = function" in src
+    assert "normalizeBerniniPromptGuideLegacyWidgetValues(info)" in src
+    assert "this.__denoBerniniPromptGuideConfiguredWidgetValues = [...normalized]" in src
+    assert "info.widgets_values = getBerniniPromptGuideConfigureWidgetValues(this, normalized)" in src
+    assert "syncBerniniPromptGuideSerializedValues(this)" in src
+    assert "delete this.__denoBerniniPromptGuideConfiguredWidgetValues" in src
+
+
+def test_rtx_finisher_syncs_repaired_legacy_widget_values():
+    src = RTX_FINISHER_JS_PATH.read_text(encoding="utf-8")
+
+    assert "function repairShiftedBackendWidgetValues" in src
+    assert "function syncFinisherSerializedValues" in src
+    assert "rtx-finisher-save-reload-v1" in src
+    assert "node.widgets_values = BACKEND_WIDGET_NAMES.map" in src
+    assert "node.properties.__deno_rtx_finisher_save_restore = FINISHER_SAVE_RESTORE_REV" in src
 
 
 # --------------------------------------------------------------------------
@@ -527,6 +555,200 @@ console.log("OK");
 """
 
     harness_path = tmp_path / "ltx_model_loader_shift_repair.mjs"
+    harness_path.write_text(harness, encoding="utf-8")
+
+    result = subprocess.run(
+        [node_bin, str(harness_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
+    assert "OK" in result.stdout
+
+
+def test_bernini_prompt_guide_normalizes_legacy_generated_widget_slots(tmp_path):
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node runtime not available")
+
+    src = BERNINI_JS_PATH.read_text(encoding="utf-8")
+    snippets = [
+        _extract_js_const_line(src, "GENERATED_PREFIX"),
+        _extract_js_const_line(src, "NEGATIVE_PRESET_OFFICIAL"),
+        _extract_js_const_line(src, "TASK_TYPE_CUSTOM_LEGACY"),
+        _extract_js_declaration(src, "TASK_TYPE_LABELS"),
+        _extract_js_declaration(src, "TASK_LABEL_TO_TYPE"),
+        _extract_js_declaration(src, "SYSTEM_PROMPTS"),
+        _extract_js_const_line(src, "BERNINI_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT"),
+        _extract_js_function(src, "getNormalizedBerniniPromptGuideSerializedValues"),
+        _extract_js_function(src, "hasGeneratedBerniniPromptGuideWidgets"),
+        _extract_js_function(src, "getBerniniPromptGuideConfigureWidgetValues"),
+        _extract_js_function(src, "normalizeTaskType"),
+        _extract_js_function(src, "getWidget"),
+        _extract_js_function(src, "getWidgetValue"),
+        _extract_js_function(src, "setWidgetValue"),
+        _extract_js_function(src, "applyBerniniPromptGuideSerializedValuesToWidgets"),
+        _extract_js_function(src, "getBerniniPromptGuideSerializedValuesFromWidgets"),
+        _extract_js_function(src, "syncBerniniPromptGuideSerializedValues"),
+    ]
+
+    harness = "\n".join(snippets) + r"""
+function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function check(cond, msg) { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } }
+
+const core = [
+    "Reference Video Edit",
+    "Replace the jacket with the shirt from image0.",
+    true,
+    "Official Wan2.2",
+    true,
+    "watermark, bad hands",
+];
+const legacy = [
+    "Reference Video Edit",
+    "",
+    "Replace the jacket with the shirt from image0.",
+    true,
+    "",
+    "Official Wan2.2",
+    true,
+    "watermark, bad hands",
+];
+const nodeWithGenerated = {
+    widgets: [
+        { name: "task_type", value: "Default" },
+        { name: GENERATED_PREFIX + "system_summary", value: "" },
+        { name: "positive_prompt", value: "" },
+        { name: "reference_prompt_helper", value: false },
+        { name: GENERATED_PREFIX + "negative_toggle", value: "" },
+        { name: "negative_preset", value: "Empty" },
+        { name: "show_negative_prompt", value: false },
+        { name: "negative_prompt", value: "" },
+    ],
+};
+const nodeWithoutGenerated = {
+    widgets: [
+        { name: "task_type", value: "Default" },
+        { name: "positive_prompt", value: "" },
+        { name: "reference_prompt_helper", value: false },
+        { name: "negative_preset", value: "Empty" },
+        { name: "show_negative_prompt", value: false },
+        { name: "negative_prompt", value: "" },
+    ],
+};
+
+check(eq(getNormalizedBerniniPromptGuideSerializedValues(legacy), core), "legacy 8 -> 6");
+check(eq(getNormalizedBerniniPromptGuideSerializedValues(core), core), "current passthrough");
+check(eq(
+    getNormalizedBerniniPromptGuideSerializedValues(["Text to Video", "", false, "Empty", false, ""]),
+    ["Text to Video", "", false, "Empty", false, ""]
+), "current empty positive prompt preserved");
+check(getNormalizedBerniniPromptGuideSerializedValues(null) === null, "null -> null");
+
+check(eq(getBerniniPromptGuideConfigureWidgetValues(nodeWithGenerated, core), legacy), "core expands around generated widgets");
+check(eq(getBerniniPromptGuideConfigureWidgetValues(nodeWithoutGenerated, core), core), "core stays compact without generated widgets");
+
+applyBerniniPromptGuideSerializedValuesToWidgets(nodeWithGenerated, core);
+check(nodeWithGenerated.widgets[0].value === "Reference Video Edit", "task type applied");
+check(nodeWithGenerated.widgets[2].value === "Replace the jacket with the shirt from image0.", "positive applied");
+check(nodeWithGenerated.widgets[3].value === true, "reference helper applied");
+check(nodeWithGenerated.widgets[5].value === "Official Wan2.2", "negative preset applied");
+check(nodeWithGenerated.widgets[6].value === true, "negative visibility applied");
+check(nodeWithGenerated.widgets[7].value === "watermark, bad hands", "negative prompt applied");
+syncBerniniPromptGuideSerializedValues(nodeWithGenerated);
+check(eq(nodeWithGenerated.widgets_values, core), "synced back to compact serialized values");
+
+console.log("OK");
+"""
+
+    harness_path = tmp_path / "bernini_prompt_guide_migration.mjs"
+    harness_path.write_text(harness, encoding="utf-8")
+
+    result = subprocess.run(
+        [node_bin, str(harness_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
+    assert "OK" in result.stdout
+
+
+def test_rtx_finisher_repairs_public_legacy_leading_blank_values(tmp_path):
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node runtime not available")
+
+    src = RTX_FINISHER_JS_PATH.read_text(encoding="utf-8")
+    snippets = [
+        "const app = { graph: { setDirtyCanvas() {} } };",
+        _extract_js_const_line(src, "FINISHER_SAVE_RESTORE_REV"),
+        _extract_js_declaration(src, "FIRST_PASS_CHOICES"),
+        _extract_js_declaration(src, "UPSCALE_PASS_CHOICES"),
+        _extract_js_declaration(src, "QUALITY_CHOICES"),
+        _extract_js_declaration(src, "RESIZE_TYPES"),
+        _extract_js_declaration(src, "DIVISIBLE_BY_VALUES"),
+        _extract_js_declaration(src, "BACKEND_DEFAULTS"),
+        _extract_js_declaration(src, "BACKEND_WIDGET_NAMES"),
+        "function getWidget(node, name) { return (node.widgets || []).find((widget) => widget.name === name); }",
+        _extract_js_function(src, "requestNodeRedraw"),
+        _extract_js_function(src, "setWidgetValue"),
+        _extract_js_function(src, "syncFinisherSerializedValues"),
+        _extract_js_function(src, "repairShiftedBackendWidgetValues"),
+    ]
+
+    harness = "\n".join(snippets) + r"""
+function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function check(cond, msg) { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } }
+function widget(name, value) { return { name, value }; }
+
+const shifted = ["", "Deblur", "Ultra", "High Bitrate", "High", "Scale", 2, 4, 3840, 2160, "32", "16:9", "Center Crop (Fill)"];
+const node = {
+    properties: {},
+    setDirtyCanvas() {},
+    widgets: BACKEND_WIDGET_NAMES.map((name, index) => widget(name, shifted[index])),
+};
+
+check(repairShiftedBackendWidgetValues(node) === true, "legacy leading blank should be repaired");
+const byName = Object.fromEntries(node.widgets.map((w) => [w.name, w.value]));
+check(byName.first_pass === "Deblur", "first pass");
+check(byName.first_quality === "Ultra", "first quality");
+check(byName.upscale_pass === "High Bitrate", "upscale pass");
+check(byName.upscale_quality === "High", "upscale quality");
+check(byName.resize_type === "Scale", "resize type");
+check(byName.scale === 2, "scale");
+check(byName.megapixels === 4, "megapixels");
+check(byName.width === 3840, "width");
+check(byName.height === 2160, "height");
+check(byName.divisible_by === "32", "divisible_by");
+check(byName.ratio_preset === "16:9", "ratio preset");
+check(byName.resize_method === "Center Crop (Fill)", "resize method");
+check(node.properties.__deno_rtx_finisher_save_restore === "rtx-finisher-save-reload-v1", "repair marker");
+check(eq(node.widgets_values, [
+    "Deblur",
+    "Ultra",
+    "High Bitrate",
+    "High",
+    "Scale",
+    2,
+    4,
+    3840,
+    2160,
+    "32",
+    "16:9",
+    "Center Crop (Fill)",
+]), "repaired compact widgets_values");
+
+const clean = {
+    properties: {},
+    setDirtyCanvas() {},
+    widgets: BACKEND_WIDGET_NAMES.map((name, index) => widget(name, node.widgets_values[index])),
+};
+check(repairShiftedBackendWidgetValues(clean) === false, "clean values should not be repaired again");
+
+console.log("OK");
+"""
+
+    harness_path = tmp_path / "rtx_finisher_legacy_repair.mjs"
     harness_path.write_text(harness, encoding="utf-8")
 
     result = subprocess.run(

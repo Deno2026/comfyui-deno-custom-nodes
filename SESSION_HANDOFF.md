@@ -34,6 +34,7 @@ Do not read `docs/handoff_archive/` during normal startup unless deep history is
 - Local LLM Loader / Reviewer: `docs/nodes/LOCAL_LLM_LOADER_REVIEWER.md`
 - LTX Prompt Guide: `docs/nodes/LTX_PROMPT_GUIDE.md`
 - Ideogram Director: `docs/nodes/ideogram-director/README.md`
+- Visual Fold: `docs/nodes/VISUAL_FOLD.md`
 - Runtime matrix: `docs/COMFYUI_RUNTIME_MATRIX.md`
 - Translator paused state: `docs/nodes/CAPTION_TRANSLATE.md`
 - Random Prompt Box paused state: `docs/nodes/RANDOM_PROMPT_BOX.md`
@@ -42,7 +43,20 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.41`.
+Current public release target: `0.7.42`.
+
+0.7.42 release prep status, 2026-06-17:
+
+- Scope: Visual Fold stale-selection/floating-toolbar fix, Local LLM Loader `Thinking` save/F5
+  restore and live `More` popups, Ideogram Director language-refresh button reflow, Bernini Prompt
+  Guide / RTX VFX Video Finisher saved-workflow migration hardening, and release metadata/tests.
+- Local release worktree verification passed: changed JS `node --check`, `py -m pytest tests -q`
+  -> 197 passed, `git diff --check` whitespace check, strengthened Registry metadata/package tests,
+  and mandatory independent GPT-5.5 xhigh release reviewer PASS.
+- Residual before/after publish: Desktop live-canvas exact Visual Fold follow-up remains
+  `UNVERIFIED`; Registry/CDN/Manager install surfaces must be monitored after push.
+
+Previous public release: `0.7.41`.
 
 Release artifacts created:
 
@@ -83,6 +97,16 @@ Runtime verification:
   markers during the Desktop backend verification window. The Desktop app did not keep the backend
   persistently running after direct launch in this session; treat Electron-card stable relaunch as
   user-final-check unless the Desktop app is manually opened from its card.
+- Local next-release Visual Fold follow-up, 2026-06-17: `web/js/deno_visual_fold.js` was synced from
+  source into this release worktree to keep the current menu-API/fallback-toolbar behavior. It now
+  treats `canvas.selected_nodes` as the current node-selection authority, uses `selectedItems` only
+  when that is unavailable, and falls back to legacy `node.selected` only for older frontends. This
+  prevents stale selection flags from showing Fold for one selected node or a blank canvas. Source,
+  Easy-Install runtime, Desktop install folder, and this release worktree now hash-match for the JS.
+  Easy-Install `8188` Playwright canvas check passed for two selected nodes -> Fold visible, one
+  selected node with stale `node.selected` -> Fold hidden, blank selection with stale `node.selected`
+  -> Fold hidden, and stale group object -> Fold Group hidden. Desktop live-canvas check for this
+  exact follow-up is `UNVERIFIED` because `8000` was not running.
 
 Important packaging boundary:
 
@@ -100,6 +124,12 @@ Status: public `0.7.38` release created; Registry activation still pending.
 Key behavior:
 
 - Visual Ideogram 4 JSON/bbox prompt builder.
+- Local next-release polish, reported 2026-06-17: saved workflow + Chrome/F5 reload could render the
+  top-bar `↻` language refresh button as a narrow vertical bar until it was clicked once. Local rev
+  `r2026.06.17-refresh-reflow-c` fixes the likely cause by giving the refresh button a fixed flex
+  basis and rerunning the top-bar fit pass after restore/size stabilization. Not public-released yet.
+  Before release, verify saved workflow -> F5/reload -> load workflow -> inspect `↻` on Easy-Install
+  and Desktop.
 - 0.7.38 fixes:
   - `Language` replaces the old Translate On/Off surface. It opens a fullscreen language grid.
   - English is the default baseline and the popup no longer shows `Original` as a user choice.
@@ -137,6 +167,15 @@ Status: included in 0.7.37 hotfix scope.
 
 Key behavior:
 
+- Local next-release polish, reported 2026-06-17: the `Thinking` / `Result` `More` popup used to show
+  only the text that existed when the popup opened. Local JS now binds the popup to the node state so
+  it updates live during streaming/status changes, while preserving manual scroll position unless the
+  popup is already near the bottom. Not public-released yet.
+- Local next-release bugfix, reported 2026-06-17: a saved workflow could contain `Thinking=true` in
+  JSON but reopen with visible `Thinking Off` after `Ctrl+S -> Ctrl+Shift+R/F5`. Root cause: current
+  Ollama layouts can serialize generated button labels before hidden LM Studio/legacy rows, while
+  the normalizer only handled the later button position. JS now detects both button-run positions,
+  and the focused test includes the user's 18-slot saved-value shape.
 - Loader keeps UI/backend contract synchronized: no leftover widget sockets except supported inputs.
 - Saved provider/model values should survive refresh. If a saved Ollama/LM Studio model is absent on
   the current PC, the frontend displays `Missing saved model: <model>` and backend validation rejects
@@ -163,6 +202,44 @@ Key behavior:
   can clamp unknown combo values to defaults.
 - LTX Prompt Guide keeps one 5-value canonical saved shape for positive prompt, language, frame rate,
   negative-toggle, and negative prompt. Legacy 7-value layouts migrate without losing prompt text.
+
+### Saved Workflow Restore Audit
+
+Status: local next-release safety work, not public-released yet.
+
+Critical rule learned 2026-06-17:
+
+- A saved raw JSON value is not enough. If the real ComfyUI canvas reopens that value under the wrong
+  visible row, toggle, model, prompt, or numeric control, it is a blocker and can become user data loss
+  on the next save.
+- This rule is now documented in repo `AGENTS.md`, `docs/DENO_NODE_RETROSPECTIVE.md`, the Local LLM
+  node document, and the local `deno-comfyui-node-maker` skill.
+
+Parallel audit results:
+
+- Fixed locally: `DenoLocalLLMRefiner` normalizes the user's 18-slot current Ollama saved layout where
+  generated button labels appear before hidden LM Studio rows, so `Thinking=true` does not reopen as
+  visible off.
+- Fixed locally: `DenoBerniniPromptGuide` now normalizes legacy 8-slot public workflow values with
+  generated display-widget blanks into the 6 real widget values, then syncs back to the compact saved
+  shape.
+- Fixed locally: `DenoRTXVFXVideoFinisher` now syncs repaired legacy leading-blank 13-slot public
+  workflow values back to the current 12 real widget values.
+- Still needs real-canvas Save/F5 audit before release: `DenoRTXVFXEasyUpscale`,
+  `DenoMultiLoraLoader`, `DenoLTXMultiLoraLoader`, `DenoAdvancedImageSourceLoader`, and the current
+  `DenoIdeogramDirector`/`DenoLocalLLMRefiner` local UI changes. These were flagged as structural
+  risk or insufficient fixture coverage, not all as confirmed live bugs.
+- Parallel-agent handoff rule added 2026-06-17: before a final user report, collect every spawned
+  agent result, record usable findings or changed paths, and close agents that are no longer needed.
+  If context compaction happens mid-task, the resumed agent must recover known agent IDs/results from
+  the summary or state before claiming completion.
+
+Focused tests added/updated:
+
+- `tests/test_local_llm_reviewer_graph_transform.py`: user-style 18-slot Local LLM layout with
+  `Thinking=true`.
+- `tests/test_public_workflow_migration.py`: Bernini legacy 8-slot migration and RTX 2-pass
+  leading-blank repair.
 
 ### Standalone Translator
 

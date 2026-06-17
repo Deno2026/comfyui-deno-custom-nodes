@@ -6,6 +6,14 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.42 - 2026-06-17
+
+- Fixed Visual Fold selection handling so stale ComfyUI selection flags no longer leave Fold controls floating after a blank-canvas click or a one-node selection.
+- Improved Local LLM Loader saved-workflow restore so the visible `Thinking` toggle survives Save, F5, and reopen for current Ollama layouts.
+- Updated Local LLM Loader `Thinking` and `Result` `More` popups so they keep following live streaming text while open without forcing the scroll position when the user is reading older text.
+- Polished Ideogram Director's language refresh button so saved workflows reopen with the button at its normal width instead of a narrow vertical mark.
+- Hardened saved-workflow migration for Bernini Prompt Guide and RTX VFX Video Finisher so legacy generated-widget layouts preserve the user's visible values.
+
 ## 0.7.41 - 2026-06-17
 
 - Added pack-wide ComfyUI Info panel descriptions for all public Deno nodes, including input and output explanations.
