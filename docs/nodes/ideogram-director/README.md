@@ -28,7 +28,7 @@ approves those nodes separately.
 
 ## Current State (2026-06-16)
 
-- JS rev marker: `IDD_REV = "r2026.06.17-translate-fallback-c"` in `web/js/deno_ideogram_director.js` (check the served
+- JS rev marker: `IDD_REV = "r2026.06.17-elements-history-refresh-a"` in `web/js/deno_ideogram_director.js` (check the served
   JS for this string after a sync; the user needs Ctrl+Shift+R to pick up a new rev).
 - Resolution popup hardening (0.7.38, 2026-06-16): the resolution control
   popup is a `document.body` fixed overlay anchored to the top-bar size button. Do not mount it back
@@ -55,6 +55,15 @@ approves those nodes separately.
   `Layouts` in the top bar, while the tooltip and gallery title still say Layout presets. The button
   must stay single-line with nowrap/ellipsis rules, because the Language button and seed controls can
   otherwise squeeze `Layout Presets` into an ugly two-line button at normal node widths.
+- Elements/history/refresh follow-up (0.7.40, 2026-06-17): the right rail's Elements list is shown
+  visually front-to-back while the official caption output keeps the existing `boxes.map(...)`
+  order. Dragging an element row shows a horizontal insertion line before drop, and auto editor
+  colors are stored per box (`uiColor`) so reordering does not repaint the boxes. The bottom bar
+  includes visible undo/redo buttons (`↶` / `↷`) that call the same node-owned history as Ctrl+Z/Y.
+  The top-bar `↻` language refresh button retranslates the current editable board through the saved
+  translation engine/fallback flow, useful after loading a layout or pasted JSON while a non-English
+  view language is selected. Legacy TEXT captions where the literal rendered word is only in `desc`
+  must be preserved during board-view translation.
 - Desktop regression report (2026-06-16): user reproduced a `0.7.35` Desktop-only collapse where
   clicking the wrong region can leave the Director with only the narrow right rail visible and a
   huge blank body. Portable/Easy-Install verification is not enough for this class of bug. Before

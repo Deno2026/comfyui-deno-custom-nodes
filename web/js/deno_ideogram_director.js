@@ -593,6 +593,7 @@
       if (ordered) item.bbox = ordered;
       if (type === "text") item.text = raw.text || "";
       item.desc = firstText(raw, ["desc", "description", "label", "name", "prompt"]);
+      if (HEX.test(raw.uiColor || "")) item.uiColor = raw.uiColor;
       const palette = raw.color_palette || raw.palette;
       if (Array.isArray(palette)) item.color_palette = palette.slice();
       elements.push(item);
@@ -658,6 +659,9 @@
 .idd-res:hover{border-color:var(--gdim) !important;}
 .idd-langbtn{min-width:96px;max-width:128px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .idd-langbtn.on{background:rgba(66,189,127,.14) !important;color:var(--g) !important;border-color:var(--gdim) !important;}
+.idd-refreshbtn,.idd-histbtn{width:30px;min-width:30px;height:28px;padding:0 !important;display:inline-flex !important;
+  align-items:center;justify-content:center;font-size:15px !important;line-height:1 !important;border-radius:8px !important;}
+.idd-refreshbtn.working{color:#ffd48a !important;border-color:rgba(232,180,90,.45) !important;background:rgba(232,180,90,.12) !important;}
 .idd-importbtn{min-width:104px;max-width:150px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .idd-importbtn.on{background:rgba(66,189,127,.10) !important;color:var(--g) !important;border-color:var(--gdim) !important;}
 .idd-importbtn.pending{background:rgba(232,180,90,.16) !important;color:#ffd48a !important;border-color:rgba(232,180,90,.45) !important;}
@@ -788,7 +792,10 @@
 .idd-elem .ty:hover{color:var(--g) !important;border-color:var(--gdim) !important;}
 .idd-elem .x:hover{color:#e6b9b9 !important;}
 .idd-elem .dup:hover{color:var(--g) !important;}
-.idd-elem.over{outline:1px dashed rgba(78,203,141,.8) !important;}
+.idd-elem.drop-before::before,.idd-elem.drop-after::after{content:"";position:absolute;left:4px;right:4px;height:2px;border-radius:999px;
+  background:var(--g);box-shadow:0 0 8px rgba(72,255,132,.75);pointer-events:none;z-index:3;}
+.idd-elem.drop-before::before{top:-2px;}
+.idd-elem.drop-after::after{bottom:-2px;}
 
 /* 9) Bottom action bar */
 .idd-bot{background:#171c19 !important;border-top:1px solid rgba(255,255,255,.07) !important;}
@@ -885,6 +892,7 @@
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .idd-wrap.idd-topfit .idd-importbtn{min-width:82px;max-width:144px;}
 .idd-wrap.idd-topfit .idd-langbtn{min-width:78px;max-width:104px;}
+.idd-wrap.idd-topfit .idd-refreshbtn{width:27px;min-width:27px;}
 .idd-wrap.idd-topfit .idd-res{max-width:124px;overflow:hidden;text-overflow:ellipsis;}
 .idd-wrap.idd-topfit .idd-seedpill .idd-seedlbl{display:none;}
 .idd-wrap.idd-topfit .idd-seedpill .idd-seed{width:38px;}
@@ -1032,6 +1040,9 @@
       .idd-res:hover{border-color:var(--gdim);}
       .idd-langbtn{min-width:96px;max-width:128px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       .idd-langbtn.on{background:rgba(72,255,132,.16);color:var(--g);border-color:var(--gdim);}
+      .idd-refreshbtn,.idd-histbtn{width:30px;min-width:30px;height:28px;padding:0 !important;display:inline-flex !important;
+        align-items:center;justify-content:center;font-size:15px !important;line-height:1 !important;border-radius:8px !important;}
+      .idd-refreshbtn.working{color:#ffd48a !important;border-color:rgba(232,180,90,.45) !important;background:rgba(232,180,90,.12) !important;}
       .idd-importbtn{min-width:104px;max-width:150px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       .idd-importbtn.on{background:rgba(72,255,132,.10);color:var(--g);border-color:var(--gdim);}
       .idd-importbtn.pending{background:rgba(232,180,90,.16);color:#ffd48a;border-color:rgba(232,180,90,.45);}
@@ -1290,7 +1301,7 @@
       .idd-paladdrow{display:flex;align-items:center;gap:8px;margin-top:2px;}
       .idd-paladdrow input[type=color]{width:36px;height:26px;border:1px solid var(--gfaint);border-radius:6px;
         background:#050a08;cursor:pointer;padding:2px;flex:0 0 auto;}
-      .idd-elem{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:6px;cursor:pointer;}
+      .idd-elem{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:6px;cursor:pointer;position:relative;}
       .idd-elem:hover{background:rgba(72,255,132,.07);}
       .idd-elem.sel{background:rgba(72,255,132,.13);}
       .idd-elem .n{font:bold 10px monospace;color:var(--dim);width:16px;}
@@ -1303,7 +1314,9 @@
       .idd-elem .g:active{cursor:grabbing;}
       .idd-elem .dup{color:var(--dim);cursor:pointer;padding:0 2px;font-size:12px;}
       .idd-elem .dup:hover{color:var(--g);}
-      .idd-elem.over{outline:1px dashed var(--g);outline-offset:-1px;}
+      .idd-elem.drop-before::before,.idd-elem.drop-after::after{content:"";position:absolute;left:4px;right:4px;height:2px;border-radius:999px;background:var(--g);box-shadow:0 0 8px rgba(72,255,132,.75);pointer-events:none;z-index:3;}
+      .idd-elem.drop-before::before{top:-2px;}
+      .idd-elem.drop-after::after{bottom:-2px;}
       .idd-bot{display:flex;align-items:center;gap:7px;padding:7px 10px;flex:0 0 auto;
         border-top:1px solid var(--gfaint);background:rgba(1,6,4,.55);}
       .idd-btn{cursor:pointer;background:#0c1611;border:1px solid var(--gfaint);border-radius:999px;
@@ -1377,6 +1390,7 @@
             type: b.type === "text" ? "text" : "obj",
             text: b.text || "", desc: b.desc || "",
             palette: Array.isArray(b.palette) ? b.palette.filter((c) => HEX.test(c)).slice(0, 5) : [],
+            uiColor: HEX.test(b.uiColor || "") ? b.uiColor : "",
           };
         };
 
@@ -1392,6 +1406,7 @@
             const box = {
               type: e0.type === "text" ? "text" : "obj", text: e0.text || "", desc: e0.desc || "",
               palette: Array.isArray(e0.color_palette) ? e0.color_palette.filter((c) => HEX.test(c)).slice(0, 5) : [],
+              uiColor: HEX.test(e0.uiColor || "") ? e0.uiColor : "",
             };
             const bb = e0.bbox;
             if (Array.isArray(bb) && bb.length === 4) {
@@ -1420,12 +1435,15 @@
         }
 
         // ── serialize editor state → caption_data widget (§5) ──
+        let paintHistory = () => {};
         function serialize() {
           acknowledgeInvalidPromptIfBoardChanged();
+          ensureBoxUiColors();
           const cd = {
-            boxes: boxes.map((b) => ({
+            boxes: boxes.map((b, i) => ({
               x: +b.x.toFixed(4), y: +b.y.toFixed(4), w: +b.w.toFixed(4), h: +b.h.toFixed(4),
               type: b.type, text: b.text || "", desc: b.desc || "", palette: (b.palette || []).slice(0, 5),
+              uiColor: ensureBoxUiColor(b, i),
             })),
             stylePalette: stylePalette.slice(0, 16),
             importSig: lastImportSig, // which wired JSON seeded this state (backend change detection)
@@ -1437,6 +1455,7 @@
           setW("caption_data", JSON.stringify(cd));
           node.setDirtyCanvas(true, true);
           commit();   // record an undo step (no-op while restoring)
+          paintHistory();
         }
         // ── undo/redo: one linear history of the board+panel state. Each change → one serialize() →
         // one step (a drag burst is a single serialize on pointerup → a single step). Scoped to the node. ──
@@ -1455,6 +1474,7 @@
           let d; try { d = JSON.parse(s); } catch (e) { return; }
           restoring = true;
           boxes = (d.boxes || []).map((b) => Object.assign({}, b));
+          ensureBoxUiColors();
           stylePalette = (d.stylePalette || []).slice();
           summary.value = d.hld || ""; setW("high_level_description", d.hld || "");
           bgArea.value = d.bg || ""; setW("background", d.bg || "");
@@ -1467,15 +1487,15 @@
           bdropDim = +d.bdropDim || 0; resultDim = +d.resultDim || 0; if (d.bdT) bdT = Object.assign({}, d.bdT);
           selectedId = boxes.some((b) => b.id === d.selId) ? d.selId : null;
           renderBoxes(); renderPalette(); renderElements(); layoutStage(); applyBackdrop(); applyResultDim();
-          serialize(); restoring = false;   // persist; restoring guard kept commit() a no-op
+          serialize(); restoring = false; paintHistory();   // persist; restoring guard kept commit() a no-op
         }
-        function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); lastSnap = undoStack.pop(); applySnap(lastSnap); }
-        function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); lastSnap = redoStack.pop(); applySnap(lastSnap); }
+        function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); lastSnap = undoStack.pop(); applySnap(lastSnap); paintHistory(); }
+        function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); lastSnap = redoStack.pop(); applySnap(lastSnap); paintHistory(); }
 
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.17-translate-fallback-c";
+        const IDD_REV = "r2026.06.17-elements-history-refresh-a";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -1907,6 +1927,7 @@
           "हिन्दी": "Hindi",
         };
         const translateBtn = mkBtn("Language"); translateBtn.classList.add("idd-langbtn");
+        const translateRefreshBtn = mkBtn("↻"); translateRefreshBtn.classList.add("idd-refreshbtn");
         const TRANSLATION_ENGINE_DEFAULT = "Google";
         const TRANSLATION_ENGINE_CUSTOM = "LibreTranslate Custom URL";
         const TRANSLATION_ENGINES = ["Google", "MyMemory", "LibreTranslate", TRANSLATION_ENGINE_CUSTOM];
@@ -2019,6 +2040,8 @@
             + " · Output: " + outputLanguageLabel()
             + " · Engine: " + engine
             + ". Description fields may be translated; exact TEXT words stay as typed.";
+          translateRefreshBtn.title = "Refresh the current board text into " + view
+            + ". Output stays English. Exact TEXT words stay as typed.";
           fitTopBarSoon();
         }
         async function translateCaptionViaRoute(caption, target, source = "auto", options = {}) {
@@ -2172,6 +2195,16 @@
             return false;
           }
         }
+        function withCurrentUiColors(cap) {
+          const els = cap && cap.compositional_deconstruction && cap.compositional_deconstruction.elements;
+          if (!Array.isArray(els)) return cap;
+          for (let i = 0; i < els.length && i < boxes.length; i++) {
+            if (els[i] && typeof els[i] === "object" && HEX.test(boxes[i].uiColor || "")) {
+              els[i].uiColor = boxes[i].uiColor;
+            }
+          }
+          return cap;
+        }
         async function translateBoardToViewLanguage(source = "auto", offerFallback = true) {
           const target = getViewLanguage();
           const seq = ++viewTranslateSeq;
@@ -2182,7 +2215,7 @@
           try {
             const translated = await translateCaptionViaRoute(assembleCaption(), target, source);
             if (seq !== viewTranslateSeq) return false;
-            applyImportedCaption(translated.caption);
+            applyImportedCaption(withCurrentUiColors(translated.caption));
             selectedId = null;
             renderBoxes(); renderPalette(); renderElements(); layoutStage(); serialize();
             paintTranslate();
@@ -2199,6 +2232,24 @@
               () => translateBoardToViewLanguage(source, false),
               { retryLabel: "the board view translation" }
             );
+          }
+        }
+        async function refreshBoardTranslation() {
+          const oldText = translateRefreshBtn.textContent;
+          translateRefreshBtn.disabled = true;
+          translateRefreshBtn.classList.add("working");
+          translateRefreshBtn.textContent = "…";
+          try {
+            const ok = await translateBoardToViewLanguage("auto");
+            translateRefreshBtn.textContent = ok ? "✓" : "!";
+            setTimeout(() => { translateRefreshBtn.textContent = oldText; paintTranslate(); }, ok ? 900 : 1400);
+          } catch (err) {
+            translateRefreshBtn.textContent = "!";
+            translateRefreshBtn.title = (err && err.message) ? err.message : "Translation unavailable. The board was not changed.";
+            setTimeout(() => { translateRefreshBtn.textContent = oldText; paintTranslate(); }, 1500);
+          } finally {
+            translateRefreshBtn.disabled = false;
+            translateRefreshBtn.classList.remove("working");
           }
         }
         function openTranslateDialog() {
@@ -2264,6 +2315,7 @@
           else setTimeout(() => search.focus(), 0);
         }
         translateBtn.onclick = (e) => { e.stopPropagation(); openTranslateDialog(); };
+        translateRefreshBtn.onclick = (e) => { e.stopPropagation(); refreshBoardTranslation(); };
         paintTranslate();
 
         // ── resolution control: aspect ratio + megapixels (the official Ideogram 4 size model).
@@ -2538,7 +2590,7 @@
         // the old caption-status text are intentionally not mounted; that keeps Seed visible at default size.
         // Regenerate owns the terminal top-right hotspot (Fitts / Figma·Canva convention); the
         // low-frequency fullscreen joins the board's view cluster instead of crowding the corner.
-        top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, seedPill, regen);
+        top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, regen);
         paintRes();   // always populate the resolution chip on creation (not just on restore)
         setTimeout(fitTopBarSoon, 0);
 
@@ -3524,10 +3576,39 @@
         const elemList = el("div");
         elemSec.append(elemLbl, elemList);
 
+        function clearElementDropPreview() {
+          elemList.querySelectorAll(".drop-before,.drop-after").forEach((elx) => {
+            elx.classList.remove("drop-before", "drop-after");
+          });
+        }
+        function elementDropAfter(e, row) {
+          const r = row.getBoundingClientRect();
+          return (e.clientY - r.top) > r.height / 2;
+        }
+        function paintElementDropPreview(e, row) {
+          clearElementDropPreview();
+          row.classList.toggle("drop-after", elementDropAfter(e, row));
+          row.classList.toggle("drop-before", !elementDropAfter(e, row));
+        }
+        function reorderElementDrop(e, targetBox, row) {
+          const movingId = +e.dataTransfer.getData("text/plain");
+          if (!Number.isFinite(movingId) || movingId === targetBox.id) return;
+          const moving = boxes.find((x) => x.id === movingId);
+          if (!moving) return;
+          const frontFirst = boxes.slice().reverse().filter((x) => x.id !== movingId);
+          const target = frontFirst.findIndex((x) => x.id === targetBox.id);
+          if (target < 0) return;
+          frontFirst.splice(target + (elementDropAfter(e, row) ? 1 : 0), 0, moving);
+          boxes = frontFirst.reverse();
+          renderBoxes(); renderElements(); serialize();
+        }
+
         function renderElements() {
+          ensureBoxUiColors();
           elemList.textContent = "";
-          boxes.forEach((b, i) => {
+          boxes.map((b, i) => ({ b, i })).reverse().forEach(({ b, i }) => {
             const row = el("div", "idd-elem" + (b.id === selectedId ? " sel" : ""));
+            row.dataset.iddBoxId = String(b.id);
             row.title = "Double-click to edit this element.";
             const n = el("span", "n"); n.textContent = String(i + 1).padStart(2, "0");
             const c = el("span", "c"); c.style.background = boxColor(b, i);
@@ -3535,14 +3616,19 @@
             const ty = el("span", "ty"); ty.textContent = b.type;
             ty.onclick = (e) => { e.stopPropagation(); b.type = b.type === "text" ? "obj" : "text"; renderElements(); renderBoxes(); serialize(); };
             const dup = el("span", "dup"); dup.textContent = "⧉"; dup.title = "Duplicate";
-            dup.onclick = (e) => { e.stopPropagation(); const cp = Object.assign({}, b, { id: _bid++, x: Math.min(1 - b.w, b.x + 0.03), y: Math.min(1 - b.h, b.y + 0.03), palette: (b.palette || []).slice() }); boxes.splice(i + 1, 0, cp); setSel(cp.id); renderBoxes(); renderElements(); serialize(); };
+            dup.onclick = (e) => { e.stopPropagation(); const cp = Object.assign({}, b, { id: _bid++, x: Math.min(1 - b.w, b.x + 0.03), y: Math.min(1 - b.h, b.y + 0.03), palette: (b.palette || []).slice(), uiColor: uiColorForIndex(boxes.length) }); boxes.splice(i + 1, 0, cp); setSel(cp.id); renderBoxes(); renderElements(); serialize(); };
             const x = el("span", "x"); x.textContent = "✕";
             x.onclick = (e) => { e.stopPropagation(); if (selectedId === b.id) selectedId = null; boxes.splice(i, 1); renderBoxes(); renderElements(); serialize(); };
             const grip = el("span", "g"); grip.textContent = "⠿"; grip.title = "Drag to reorder (draw order / z)"; grip.draggable = true;
-            grip.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", String(i)); e.dataTransfer.effectAllowed = "move"; });
-            row.addEventListener("dragover", (e) => { e.preventDefault(); row.classList.add("over"); });
-            row.addEventListener("dragleave", () => row.classList.remove("over"));
-            row.addEventListener("drop", (e) => { e.preventDefault(); row.classList.remove("over"); const from = +e.dataTransfer.getData("text/plain"); if (from >= 0 && from !== i) { const m = boxes.splice(from, 1)[0]; boxes.splice(i, 0, m); renderBoxes(); renderElements(); serialize(); } });
+            grip.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", String(b.id)); e.dataTransfer.effectAllowed = "move"; });
+            grip.addEventListener("dragend", clearElementDropPreview);
+            row.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; paintElementDropPreview(e, row); });
+            row.addEventListener("dragleave", clearElementDropPreview);
+            row.addEventListener("drop", (e) => {
+              e.preventDefault();
+              reorderElementDrop(e, b, row);
+              clearElementDropPreview();
+            });
             row.onclick = () => setSel(b.id);
             row.addEventListener("dblclick", (e) => {
               e.stopPropagation();
@@ -3551,8 +3637,8 @@
               const idx = boxes.findIndex((x) => x.id === b.id);
               if (idx >= 0) openElementEditor(idx);
             });
-            row.addEventListener("mouseenter", () => { const bx = ov.querySelectorAll(".idd-box")[i]; if (bx) bx.classList.add("hov"); });
-            row.addEventListener("mouseleave", () => { const bx = ov.querySelectorAll(".idd-box")[i]; if (bx) bx.classList.remove("hov"); });
+            row.addEventListener("mouseenter", () => { const bx = ov.querySelector(`[data-idd-box-id="${b.id}"]`); if (bx) bx.classList.add("hov"); });
+            row.addEventListener("mouseleave", () => { const bx = ov.querySelector(`[data-idd-box-id="${b.id}"]`); if (bx) bx.classList.remove("hov"); });
             row.append(grip, n, c, t, ty, dup, x); elemList.append(row);
           });
           if (!boxes.length) { const e0 = el("div", "idd-elem"); e0.style.color = "var(--dim)"; e0.textContent = "Drag on the board to add a region"; elemList.append(e0); }
@@ -3572,17 +3658,28 @@
         const bot = el("div", "idd-bot");
         const save = mkBtn("Save Image"); const auto = mkBtn("Auto-save"); const copy = mkBtn("Copy JSON");
         const paste = mkBtn("Paste JSON"); const clear = mkBtn("Clear Board", true);
+        const undoBtn = mkBtn("↶"); undoBtn.classList.add("idd-histbtn", "idd-undo");
+        const redoBtn = mkBtn("↷"); redoBtn.classList.add("idd-histbtn", "idd-redo");
         save.title = "Save the latest result image into ComfyUI's output folder";
         auto.title = "Auto-save every result image as it arrives (toggle)";
         copy.title = "Copy the board as official Ideogram caption JSON (exactly what the node outputs)";
         paste.title = "Paste a caption JSON onto the board — official Ideogram format (LLM output, shared prompts) or a board copy";
         clear.title = "Remove all boxes and reset the fields — Ctrl+Z undoes it";
+        undoBtn.title = "Undo board edit (Ctrl+Z)";
+        redoBtn.title = "Redo board edit (Ctrl+Y)";
         // toggle affordance: the leading ●/○ shows the auto-save STATE at a glance
         const paintAuto = () => { auto.textContent = (autoOn ? "● " : "○ ") + "Auto-save"; auto.classList.toggle("on", autoOn); };
         // save is meaningless before a result exists; success flashes confirmation
         const paintSave = () => { save.disabled = !(node._idd && node._idd._last); };
         const vsep = () => el("span", "idd-vsep");
-        bot.append(save, auto, vsep(), copy, paste, el("span", "idd-sp"), clear);
+        paintHistory = () => {
+          undoBtn.disabled = !undoStack.length;
+          redoBtn.disabled = !redoStack.length;
+        };
+        undoBtn.onclick = (e) => { e.stopPropagation(); undo(); };
+        redoBtn.onclick = (e) => { e.stopPropagation(); redo(); };
+        bot.append(save, auto, vsep(), copy, paste, el("span", "idd-sp"), undoBtn, redoBtn, clear);
+        paintHistory();
 
         wrap.append(top, body, bot);
 
@@ -3715,11 +3812,20 @@
         // auto colors: boxes WITHOUT their own palette get a distinct hue per index, so box 01/02/03
         // and their panel rows match at a glance (a box's own palette[0] still wins).
         const AUTO_COLORS = ["#4ECB8D", "#5AA7E8", "#E8B45A", "#C97FE0", "#E8705A", "#58D5C9", "#A0D060", "#E060A0"];
-        const boxColor = (b, i) => (b.palette && b.palette[0]) || AUTO_COLORS[i % AUTO_COLORS.length];
+        const uiColorForIndex = (i) => AUTO_COLORS[Math.max(0, i || 0) % AUTO_COLORS.length];
+        function ensureBoxUiColor(b, i) {
+          if (!b || typeof b !== "object") return uiColorForIndex(i);
+          if (!HEX.test(b.uiColor || "")) b.uiColor = uiColorForIndex(i);
+          return b.uiColor;
+        }
+        function ensureBoxUiColors() { boxes.forEach((b, i) => ensureBoxUiColor(b, i)); }
+        const boxColor = (b, i) => (b.palette && b.palette[0]) || ensureBoxUiColor(b, i);
         function renderBoxes() {
+          ensureBoxUiColors();
           ov.querySelectorAll(".idd-box").forEach((n) => n.remove());
           boxes.forEach((b, i) => {
             const d = el("div", "idd-box" + (b.type === "text" ? " text" : "") + (b.id === selectedId ? " sel" : ""));
+            d.dataset.iddBoxId = String(b.id);
             d.style.left = b.x * 100 + "%"; d.style.top = b.y * 100 + "%";
             d.style.width = b.w * 100 + "%"; d.style.height = b.h * 100 + "%";
             const col = boxColor(b, i); d.style.borderColor = col;
@@ -3737,8 +3843,8 @@
             }
             d.addEventListener("pointerdown", (e) => { if (e.target === d || e.target === lab || e.target === tag) onBoxDown(e, i, "move"); });
             d.addEventListener("dblclick", (e) => { e.stopPropagation(); openElementEditor(i); });
-            d.addEventListener("mouseenter", () => { const r = elemList.children[i]; if (r) r.classList.add("hov"); });
-            d.addEventListener("mouseleave", () => { const r = elemList.children[i]; if (r) r.classList.remove("hov"); });
+            d.addEventListener("mouseenter", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.add("hov"); });
+            d.addEventListener("mouseleave", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.remove("hov"); });
             ov.append(d);
           });
         }
@@ -3778,7 +3884,7 @@
           // Ctrl(⌘)+drag on a box = drag a COPY (the original stays put)
           if (mode === "move" && (e.ctrlKey || e.metaKey)) {
             const src = boxes[i];
-            const cp = Object.assign({}, src, { id: _bid++, palette: (src.palette || []).slice() });
+            const cp = Object.assign({}, src, { id: _bid++, palette: (src.palette || []).slice(), uiColor: uiColorForIndex(boxes.length) });
             boxes.splice(i + 1, 0, cp); i = i + 1;
             renderBoxes(); renderElements();
           }
@@ -3792,7 +3898,7 @@
         ov.addEventListener("pointerdown", (e) => {
           if (e.button !== 0 || e.target !== ov) return; e.stopPropagation();
           const p = rel(e);
-          const b = { id: _bid++, x: p.x, y: p.y, w: 0, h: 0, type: "obj", text: "", desc: "", palette: [] };
+          const b = { id: _bid++, x: p.x, y: p.y, w: 0, h: 0, type: "obj", text: "", desc: "", palette: [], uiColor: uiColorForIndex(boxes.length) };
           boxes.push(b); selectedId = b.id;
           drag = { i: boxes.length - 1, mode: "draw", ox: p.x, oy: p.y, sx: e.clientX, sy: e.clientY, moved: false };
           window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
@@ -4224,7 +4330,7 @@
         let autoOn = false;
         auto.addEventListener("click", (e) => { e.stopPropagation(); autoOn = !autoOn; setW("auto_save", autoOn); paintAuto(); });
         paintAuto(); paintSave();
-        [save, auto, copy, paste, clear, info, translateBtn].forEach((b) => b.addEventListener("mousedown", (e) => e.stopPropagation()));
+        [save, auto, copy, paste, clear, undoBtn, redoBtn, info, translateBtn, translateRefreshBtn].forEach((b) => b.addEventListener("mousedown", (e) => e.stopPropagation()));
         for (const elc of [seedIn, rail, summary, bgArea]) stop(elc);
 
         function isStaticImportJsonSource(src) {

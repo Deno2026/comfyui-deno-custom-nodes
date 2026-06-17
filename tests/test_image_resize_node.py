@@ -336,7 +336,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.17-translate-fallback-c"' in script
+    assert 'IDD_REV = "r2026.06.17-elements-history-refresh-a"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
@@ -390,6 +390,75 @@ def test_ideogram_director_right_rail_keeps_local_wheel_scroll():
     assert 't.closest(".idd-rail,.idd-gal-scroll,.idd-importlist,textarea,input,select")' in script
     assert "overflow-y:auto;overscroll-behavior:contain;transition:width .15s ease;" in script
     assert "for (const elc of [seedIn, rail, summary, bgArea]) stop(elc);" in script
+
+
+def test_ideogram_director_elements_list_is_front_to_back_without_reversing_output():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert 'elemLbl.textContent = "Elements"' in script
+    assert "Elements (Front" not in script
+    assert "boxes.map((b, i) => ({ b, i })).reverse().forEach(({ b, i }) => {" in script
+    assert "row.dataset.iddBoxId = String(b.id)" in script
+    assert "d.dataset.iddBoxId = String(b.id)" in script
+    assert 'e.dataTransfer.setData("text/plain", String(b.id));' in script
+    assert 'const movingId = +e.dataTransfer.getData("text/plain");' in script
+    assert "function paintElementDropPreview(e, row)" in script
+    assert "function reorderElementDrop(e, targetBox, row)" in script
+    assert "const frontFirst = boxes.slice().reverse().filter((x) => x.id !== movingId);" in script
+    assert "frontFirst.splice(target + (elementDropAfter(e, row) ? 1 : 0), 0, moving);" in script
+    assert "boxes = frontFirst.reverse();" in script
+    assert ".idd-elem{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:6px;cursor:pointer;position:relative;}" in script
+    assert ".idd-elem.drop-before::before,.idd-elem.drop-after::after" in script
+    assert ".idd-elem.over{outline" not in script
+    assert 'row.classList.toggle("drop-after", elementDropAfter(e, row));' in script
+    assert 'row.classList.toggle("drop-before", !elementDropAfter(e, row));' in script
+    assert 'grip.addEventListener("dragend", clearElementDropPreview);' in script
+    assert 'elemList.querySelector(`[data-idd-box-id="${b.id}"]`)' in script
+    assert 'ov.querySelector(`[data-idd-box-id="${b.id}"]`)' in script
+    assert "const els = boxes.map((b) => {" in script
+
+
+def test_ideogram_director_auto_colors_stay_with_boxes_not_row_index():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert "function ensureBoxUiColor(b, i)" in script
+    assert "function ensureBoxUiColors() { boxes.forEach((b, i) => ensureBoxUiColor(b, i)); }" in script
+    assert 'uiColor: HEX.test(b.uiColor || "") ? b.uiColor : ""' in script
+    assert 'if (HEX.test(raw.uiColor || "")) item.uiColor = raw.uiColor;' in script
+    assert "uiColor: ensureBoxUiColor(b, i)" in script
+    assert "uiColor: HEX.test(e0.uiColor || \"\") ? e0.uiColor : \"\"" in script
+    assert "function withCurrentUiColors(cap)" in script
+    assert 'applyImportedCaption(withCurrentUiColors(translated.caption));' in script
+    assert "const boxColor = (b, i) => (b.palette && b.palette[0]) || ensureBoxUiColor(b, i);" in script
+    assert "uiColor: uiColorForIndex(boxes.length)" in script
+    assert "ensureBoxUiColors();" in script
+
+    assemble = script.split("function assembleCaption()", 1)[1].split('copy.addEventListener("click"', 1)[0]
+    assert "uiColor" not in assemble
+    assert "if (bpal.length) el.color_palette = bpal;" in assemble
+
+
+def test_ideogram_director_history_and_translate_refresh_buttons_are_wired():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert 'const undoBtn = mkBtn("↶")' in script
+    assert 'const redoBtn = mkBtn("↷")' in script
+    assert 'undoBtn.title = "Undo board edit (Ctrl+Z)"' in script
+    assert 'redoBtn.title = "Redo board edit (Ctrl+Y)"' in script
+    assert "undoBtn.disabled = !undoStack.length;" in script
+    assert "redoBtn.disabled = !redoStack.length;" in script
+    assert "undoBtn.onclick = (e) => { e.stopPropagation(); undo(); };" in script
+    assert "redoBtn.onclick = (e) => { e.stopPropagation(); redo(); };" in script
+    assert "bot.append(save, auto, vsep(), copy, paste, el(\"span\", \"idd-sp\"), undoBtn, redoBtn, clear);" in script
+
+    assert 'const translateRefreshBtn = mkBtn("↻")' in script
+    assert "function refreshBoardTranslation()" in script
+    assert 'translateRefreshBtn.onclick = (e) => { e.stopPropagation(); refreshBoardTranslation(); };' in script
+    assert 'translateBoardToViewLanguage("auto")' in script
+    assert "function translateCaptionViaRoute" in script
+    assert "function openTranslationFallbackDialog" in script
+    assert 'top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, regen);' in script
+    assert 'api.fetchApi("/deno/ideogram_director/translate_board"' not in script
 
 
 def test_rtx_vfx_preflight_node_is_not_registered():

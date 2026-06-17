@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.40 - 2026-06-17
+
+- Improved Ideogram Director Elements ordering: the right-side list now reads visually front-to-back, shows a green insertion line while reordering, and keeps each box's editor color attached to that box after reordering.
+- Added Ideogram Director board undo/redo buttons beside Copy/Paste/Clear for users who prefer visible controls over Ctrl+Z/Ctrl+Y.
+- Added an Ideogram Director language refresh button so the current board can be translated again after loading a layout or pasted JSON. It reuses the saved translation engine and fallback dialog.
+- Protected legacy TEXT boxes whose literal rendered word is stored only in `desc` during board-view translation.
+
 ## 0.7.39 - 2026-06-17
 
 - Improved Ideogram Director language translation recovery: if Google is blocked or unreachable, the node now explains the network/region issue, lets users switch to MyMemory, LibreTranslate, or a custom LibreTranslate server, and stops Generate/Copy JSON instead of silently passing a non-English prompt downstream.

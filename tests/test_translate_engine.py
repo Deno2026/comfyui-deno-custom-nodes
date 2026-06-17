@@ -52,14 +52,15 @@ def test_ideogram_director_view_language_helper_preserves_literal_text(monkeypat
     calls = []
 
     def fake_translate_caption(cap, src, tgt, opts=None):
-        calls.append((src, tgt, opts))
+        calls.append((src, tgt, opts, json.loads(json.dumps(cap))))
         out = json.loads(json.dumps(cap))
         out["high_level_description"] = "KO:" + out["high_level_description"]
         out["compositional_deconstruction"]["background"] = (
             "KO:" + out["compositional_deconstruction"]["background"]
         )
         out["compositional_deconstruction"]["elements"][0]["desc"] = "KO:large red sign"
-        return out, 3, 3
+        out["compositional_deconstruction"]["elements"][1]["desc"] = "KO:OPEN"
+        return out, 4, 4
 
     monkeypatch.setattr(deno_ideogram_director.translate_engine, "translate_caption", fake_translate_caption)
     source = {
@@ -72,7 +73,12 @@ def test_ideogram_director_view_language_helper_preserves_literal_text(monkeypat
                     "bbox": [100, 100, 300, 700],
                     "text": "SALE",
                     "desc": "large red sign",
-                }
+                },
+                {
+                    "type": "text",
+                    "bbox": [400, 100, 600, 700],
+                    "desc": "OPEN",
+                },
             ],
         },
     }
@@ -83,10 +89,14 @@ def test_ideogram_director_view_language_helper_preserves_literal_text(monkeypat
         "한국어",
     )
 
-    assert calls == [("auto", "ko", DEFAULT_TRANSLATE_OPTS)]
+    assert [(src, tgt, opts) for src, tgt, opts, _cap in calls] == [("auto", "ko", DEFAULT_TRANSLATE_OPTS)]
+    sent_caption = calls[0][3]
+    assert sent_caption["compositional_deconstruction"]["elements"][1]["desc"] == ""
     assert translated["high_level_description"] == "KO:clean sale poster"
     assert translated["compositional_deconstruction"]["elements"][0]["text"] == "SALE"
-    assert changed == sent == 3
+    assert translated["compositional_deconstruction"]["elements"][0]["desc"] == "KO:large red sign"
+    assert translated["compositional_deconstruction"]["elements"][1]["desc"] == "OPEN"
+    assert changed == sent == 4
     assert display == "한국어"
 
 
@@ -114,6 +124,52 @@ def test_ideogram_director_view_language_forces_english_output(monkeypatch):
     prompt = json.loads(packet["result"][0])
     assert prompt["high_level_description"] == "translated english prompt"
     assert calls == [("ko", "en", DEFAULT_TRANSLATE_OPTS)]
+
+
+def test_ideogram_director_final_english_preserves_legacy_desc_only_text(monkeypatch):
+    calls = []
+
+    def fake_translate_caption(cap, src, tgt, opts=None):
+        calls.append((src, tgt, opts, json.loads(json.dumps(cap))))
+        out = json.loads(json.dumps(cap))
+        out["high_level_description"] = "EN:" + out["high_level_description"]
+        out["compositional_deconstruction"]["background"] = "EN:" + out["compositional_deconstruction"]["background"]
+        for element in out["compositional_deconstruction"]["elements"]:
+            if element.get("desc"):
+                element["desc"] = "EN:" + element["desc"]
+        return out, 3, 3
+
+    monkeypatch.setattr(deno_ideogram_director.translate_engine, "translate_caption", fake_translate_caption)
+    node = deno_ideogram_director.DenoIdeogramDirector()
+    caption = {
+        "high_level_description": "강아지 포스터",
+        "compositional_deconstruction": {
+            "background": "밝은 방",
+            "elements": [
+                {"type": "obj", "bbox": [10, 10, 300, 300], "desc": "작은 강아지"},
+                {"type": "text", "bbox": [330, 10, 450, 300], "desc": "열림"},
+            ],
+        },
+    }
+
+    packet = node.build(
+        width=1024,
+        height=1024,
+        seed=3,
+        import_json=json.dumps(caption, ensure_ascii=False),
+        import_mode=deno_ideogram_director.IMPORT_AUTO,
+        view_language="한국어",
+        translate_output=engine.DIRECTOR_ENGLISH_DISPLAY,
+    )
+
+    prompt = json.loads(_director_result(packet)[0])
+    assert [(src, tgt, opts) for src, tgt, opts, _cap in calls] == [("ko", "en", DEFAULT_TRANSLATE_OPTS)]
+    sent_caption = calls[0][3]
+    assert sent_caption["compositional_deconstruction"]["elements"][1]["desc"] == ""
+    assert prompt["high_level_description"] == "EN:강아지 포스터"
+    assert prompt["compositional_deconstruction"]["background"] == "EN:밝은 방"
+    assert prompt["compositional_deconstruction"]["elements"][0]["desc"] == "EN:작은 강아지"
+    assert prompt["compositional_deconstruction"]["elements"][1]["desc"] == "열림"
 
 
 def test_ideogram_director_view_language_translates_ascii_non_english_output(monkeypatch):
@@ -1056,7 +1112,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
     assert 'const importBtn = mkBtn(IMPORT_REVIEW)' in script
     assert 'const runAlertAccept = el("button", "primary idd-alert-accept")' in script
     assert 'const runAlertKeep = el("button", "idd-alert-keep")' in script
-    assert 'top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, seedPill, regen)' in script
+    assert 'top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, regen)' in script
     assert "acceptPrompt" not in script
     assert "keepPrompt" not in script
     assert "function handleConnectedPromptEcho(cap, sig)" in script
@@ -1104,7 +1160,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.17-translate-fallback-c"' in script
+    assert 'const IDD_REV = "r2026.06.17-elements-history-refresh-a"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script

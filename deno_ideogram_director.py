@@ -307,6 +307,71 @@ def _translation_opts(translation_engine=None, libretranslate_url=""):
     }
 
 
+def _prepare_caption_for_text_safe_translation(caption):
+    caption_for_translation = json.loads(json.dumps(caption or {}, ensure_ascii=False))
+    text_preserve = []
+    try:
+        elements = (
+            caption_for_translation.get("compositional_deconstruction", {})
+            .get("elements", [])
+        )
+        original_elements = (
+            (caption or {})
+            .get("compositional_deconstruction", {})
+            .get("elements", [])
+        )
+        if isinstance(elements, list) and isinstance(original_elements, list):
+            for idx, element in enumerate(elements):
+                if not isinstance(element, dict) or str(element.get("type", "")).lower() != "text":
+                    continue
+                original = original_elements[idx] if idx < len(original_elements) else element
+                if not isinstance(original, dict):
+                    original = element
+                preserve = {}
+                text_value = original.get("text")
+                desc_value = original.get("desc")
+                if isinstance(text_value, str):
+                    preserve["text"] = text_value
+                # Some external/old captions put the literal rendered word in desc only.
+                # Do not even send that field to the translation engine; restore it after.
+                if not (isinstance(text_value, str) and text_value.strip()) and isinstance(desc_value, str):
+                    preserve["desc"] = desc_value
+                    element["desc"] = ""
+                if preserve:
+                    text_preserve.append((idx, preserve))
+    except Exception:
+        return caption, []
+    return caption_for_translation, text_preserve
+
+
+def _restore_caption_text_literals(caption, text_preserve):
+    if not text_preserve:
+        return caption
+    try:
+        translated_elements = (
+            caption.get("compositional_deconstruction", {})
+            .get("elements", [])
+        )
+        if isinstance(translated_elements, list):
+            for idx, preserve in text_preserve:
+                if idx < len(translated_elements) and isinstance(translated_elements[idx], dict):
+                    translated_elements[idx].update(preserve)
+    except Exception:
+        pass
+    return caption
+
+
+def _translate_caption_text_safe(caption, source_language, target_code, translate_opts):
+    caption_for_translation, text_preserve = _prepare_caption_for_text_safe_translation(caption)
+    translated, changed, sent = translate_engine.translate_caption(
+        caption_for_translation,
+        source_language or "auto",
+        target_code,
+        translate_opts,
+    )
+    return _restore_caption_text_literals(translated, text_preserve), changed, sent
+
+
 def _translate_caption_for_view(
     caption,
     source_language="auto",
@@ -321,9 +386,9 @@ def _translate_caption_for_view(
     """
     view_language = _normalize_view_language(view_language)
     target_code = translate_engine.code_for_display(view_language) or "en"
-    translated, changed, sent = translate_engine.translate_caption(
+    translated, changed, sent = _translate_caption_text_safe(
         caption,
-        source_language or "auto",
+        source_language,
         target_code,
         _translation_opts(translation_engine, libretranslate_url),
     )
@@ -749,7 +814,7 @@ class DenoIdeogramDirector:
             try:
                 caption = translate_engine.loads_caption(prompt)
                 if caption is not None:
-                    translated, changed, sent = translate_engine.translate_caption(
+                    translated, changed, sent = _translate_caption_text_safe(
                         caption,
                         source_code,
                         target_code,
