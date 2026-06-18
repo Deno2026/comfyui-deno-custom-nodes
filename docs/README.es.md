@@ -6,7 +6,15 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-Deno Custom Nodes es un paquete de nodos personalizados para ComfyUI, pensado para mejorar flujos reales de imagen, video, LTX, RTX y preparación de modelos. La mayoría de los nodos Deno incluyen un pequeño botón verde `i` para ver ayuda rápida sin salir del canvas de ComfyUI. Si hay una nueva versión de Deno Custom Nodes, el botón se vuelve amarillo y muestra una pequeña insignia `!`.
+Puedes usar este repo libremente.
+
+Los nodos, documentos, ejemplos, workflows y recursos propiedad de DENO incluidos en este repo se pueden usar, copiar, modificar, publicar, redistribuir y usar comercialmente. No necesitas mencionar a DENO, al creador ni este repo cuando los uses.
+
+Los modelos, checkpoints, LoRAs, bibliotecas, herramientas y servicios de terceros mantienen sus propias licencias y condiciones. Si un workflow usa un modelo o recurso específico, revisa y respeta esa licencia antes de compartir o vender resultados.
+
+Deno Custom Nodes es un paquete de nodos personalizados para ComfyUI, pensado para mejorar flujos reales de imagen, video, LTX, RTX y preparación de modelos.
+
+La mayoría de los nodos Deno incluyen un pequeño botón verde `i` para ver ayuda rápida sin salir del canvas de ComfyUI. Si hay una nueva versión de Deno Custom Nodes, el botón se vuelve amarillo y muestra una pequeña insignia `!`.
 
 ## Release Notes
 

@@ -6,7 +6,15 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-Deno Custom Nodes 是一组面向 ComfyUI 实际制作流程的自定义节点，帮助图像、视频、LTX、RTX、模型准备等重复任务变得更快、更清晰、更适合日常使用。大多数 Deno 节点都带有一个小的绿色 `i` 按钮，可以在不离开 ComfyUI 画布的情况下查看节点说明。如果有新的 Deno Custom Nodes 版本，按钮会变成黄色并显示一个小 `!` 徽标。
+你可以自由使用这个 repo。
+
+本 repo 中由 DENO 拥有的节点、文档、示例、工作流和素材都可以自由使用、复制、修改、发布、再分发并用于商业用途。使用时不需要提及 DENO、创作者或本 repo。
+
+第三方模型、checkpoint、LoRA、库、工具和服务仍然适用各自的许可证和使用条款。如果某个工作流使用了特定模型或素材，请在分享或销售输出前确认并遵守对应许可证。
+
+Deno Custom Nodes 是一组面向 ComfyUI 实际制作流程的自定义节点，帮助图像、视频、LTX、RTX、模型准备等重复任务变得更快、更清晰、更适合日常使用。
+
+大多数 Deno 节点都带有一个小的绿色 `i` 按钮，可以在不离开 ComfyUI 画布的情况下查看节点说明。如果有新的 Deno Custom Nodes 版本，按钮会变成黄色并显示一个小 `!` 徽标。
 
 ## Release Notes
 

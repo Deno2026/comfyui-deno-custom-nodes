@@ -6,7 +6,15 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-Deno Custom Nodes adalah kumpulan custom node untuk ComfyUI yang membantu workflow nyata untuk gambar, video, LTX, RTX, dan persiapan model terasa lebih cepat, jelas, dan nyaman dipakai setiap hari. Sebagian besar node Deno memiliki tombol hijau kecil `i` untuk membuka bantuan cepat tanpa meninggalkan canvas ComfyUI. Jika versi Deno Custom Nodes yang lebih baru tersedia, tombol berubah menjadi kuning dan menampilkan badge `!` kecil.
+Kamu bisa memakai repo ini dengan bebas.
+
+Node, dokumen, contoh, workflow, dan aset milik DENO di repo ini bebas digunakan, disalin, diubah, diterbitkan, didistribusikan ulang, dan digunakan secara komersial. Kamu tidak perlu menyebut DENO, pembuatnya, atau repo ini saat menggunakannya.
+
+Model, checkpoint, LoRA, library, tool, dan layanan pihak ketiga tetap mengikuti lisensi dan ketentuannya masing-masing. Jika sebuah workflow memakai model atau aset tertentu, periksa dan ikuti lisensi tersebut sebelum membagikan atau menjual output.
+
+Deno Custom Nodes adalah kumpulan custom node untuk ComfyUI yang membantu workflow nyata untuk gambar, video, LTX, RTX, dan persiapan model terasa lebih cepat, jelas, dan nyaman dipakai setiap hari.
+
+Sebagian besar node Deno memiliki tombol hijau kecil `i` untuk membuka bantuan cepat tanpa meninggalkan canvas ComfyUI. Jika versi Deno Custom Nodes yang lebih baru tersedia, tombol berubah menjadi kuning dan menampilkan badge `!` kecil.
 
 ## Release Notes
 

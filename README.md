@@ -6,6 +6,12 @@
 
 ![Deno Custom Nodes banner](docs/images/deno-custom-nodes-banner.jpg)
 
+You can use this repo freely.
+
+DENO-owned nodes, docs, examples, workflows, and assets in this repo are free to use, copy, modify, publish, redistribute, and use commercially. You do not need to mention DENO, the creator, or this repo when you use them.
+
+Third-party models, checkpoints, LoRAs, libraries, tools, and services keep their own licenses and terms. If a workflow uses a specific model or asset, check and follow that license before sharing or selling outputs.
+
 Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
@@ -74,7 +80,7 @@ Main features:
 
 Minor-upgrade multi-image loader designed for batch guide workflows.
 
-Credit: Inspired by the original workflow ideas from **WhatDreamsCost**, then adapted and refined for the Deno workflow style.
+Inspired by the original workflow ideas from **WhatDreamsCost**, then adapted and refined for the Deno workflow style.
 
 ![Deno Multi Image Loader](docs/images/multi-image-loader.jpg)
 
@@ -271,7 +277,7 @@ Main features:
 
 LTX guide sequencer tuned for multi-image workflows.
 
-Credit: Inspired by **WhatDreamsCost**'s LTX workflow approach, with Deno-side adjustments focused on day-to-day usability.
+Inspired by **WhatDreamsCost**'s LTX workflow approach, with Deno-side adjustments focused on day-to-day usability.
 
 ![Deno LTX Sequencer](docs/images/ltx-sequencer.jpg)
 
