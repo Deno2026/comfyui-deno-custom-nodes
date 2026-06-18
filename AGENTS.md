@@ -136,6 +136,8 @@ Hard release gate: every node/workflow touched by a public release must have sav
 
 - Before any public release, attach a separate GPT5.5 Xhigh reviewer for release inspection. Do not replace this with the implementing agent's self-review.
 - The GPT5.5 Xhigh review must include the existing release checks plus a strict frontend/backend contract sync review.
+- The release reviewer must receive a real review package, not a vague "check this patch" request. Include: exact release scope, changed files, user-facing symptoms that motivated the change, intended behavior, suspected edge cases, frontend/backend contract, saved-workflow compatibility risks, Desktop vs Portable runtime risks, tests already run, package/Registry surfaces, and unresolved uncertainties. Instruct the reviewer to answer with `PASS`, `PASS WITH NOTES`, or `BLOCK`, and to mark any release blocker plainly.
+- Treat the reviewer as an independent third-party gate. A reviewer pass is useful only after the main agent reads the full report, fixes or explicitly accepts every note, and records the result in the handoff or release notes. Do not outsource judgment blindly, but do not ignore a BLOCK without resolving it.
 - Ghost features are not allowed. If a feature exists in backend code, it must have a working frontend path or be an explicit compatibility-only migration/rejection path. If a feature is added, frontend and backend must work together in the same release unit. If a feature is removed, remove it from both frontend and backend in the same release unit.
 - Check whether old public workflow JSON files still load with the current node IDs, widget order, input names, output names, hidden fields, and saved values.
 - Check both raw saved values and visible restored values. A saved `true` that reopens as an off
@@ -156,6 +158,7 @@ Before any release prep:
 - Confirm exact release scope.
 - Exclude paused/WIP nodes unless explicitly approved.
 - Run or obtain the separate GPT5.5 Xhigh reviewer report for the release scope, including frontend/backend sync and ghost-feature checks.
+- Build the reviewer package before asking for the report. It should contain enough code, test output, release notes, and risk context for the reviewer to challenge the release like a third party, including likely non-happy paths such as focus loss, stale saved values, missing local resources, old workflows, package contents, and runtime differences.
 - Include public workflow fixture/migration checks for every released node or workflow in scope.
 - Sync `node_list.json`, `pyproject.toml`, README/search terms, localized README pages, changelog/release notes, and screenshots when public node surface changes.
 - Treat ComfyUI Manager and Registry visibility as release surfaces, not an afterthought. Every public node creation, rename, removal, display-name change, or major UI contract change must update `node_list.json`, `pyproject.toml`, README/search terms, localized README pages, changelog/release notes, and real-canvas screenshots in the same release unit.
