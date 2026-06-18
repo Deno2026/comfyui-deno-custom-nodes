@@ -43,7 +43,35 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.47`.
+Current public release prep: `0.7.48`.
+
+0.7.48 scope:
+
+- DENO node `i` info/update popup opens update details only on click, not hover.
+- The yellow update icon/badge has its own pointer hover hitbox and subtle emphasis, so LiteGraph's
+  top-right resize cursor no longer takes over that area.
+- The DENO info popup closes when the user clicks or wheels outside it. Wheel inside the popup keeps
+  the popup open for normal reading.
+- The update card keeps the release-notes link and normal node description, but removes rollback
+  guide UI/copy.
+- Ideogram Director's fullscreen Language picker now closes with Escape consistently with the
+  visible `Esc to close` hint.
+
+0.7.48 verification before public push:
+
+- Full test suite passed: `209 passed`.
+- Registry metadata tests passed: `13 passed`.
+- `node --check` passed for edited frontend JS.
+- `git diff --check` passed with only Windows LF-to-CRLF warnings.
+- Mandatory independent release reviewer PASS WITH NOTES; no blocking issue remained.
+- After PC reboot, active Desktop `8000` and Easy-Install `8188` were both reachable and queue-idle.
+- Source files were hash-matched into both active runtimes:
+  `pyproject.toml`, `web/js/deno_node_help.js`, and `web/js/deno_ideogram_director.js`.
+- Both active runtimes served the new markers:
+  `handleOutsideHelpPointerDown`, `handleOutsideHelpWheel`, no `Rollback guide`,
+  `r2026.06.19-language-esc-a`, and `closeLanguageKey`.
+
+Status: ready to push/tag/release `v0.7.48` after user approval.
 
 0.7.47 hotfix scope for the two GitHub bug reports:
 

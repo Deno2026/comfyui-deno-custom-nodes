@@ -1508,7 +1508,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.18-bbox-ergonomics-b";
+        const IDD_REV = "r2026.06.19-language-esc-a";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -2328,7 +2328,18 @@
           search.addEventListener("input", renderCards);
           panel.append(h, hint, search, status, grid);
           modal.append(panel); document.body.appendChild(modal);
-          const close = () => { try { modal.remove(); } catch (e) {} };
+          const close = () => {
+            document.removeEventListener("keydown", closeLanguageKey, true);
+            try { modal.remove(); } catch (e) {}
+          };
+          const closeLanguageKey = (e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              e.preventDefault();
+              close();
+            }
+          };
+          document.addEventListener("keydown", closeLanguageKey, true);
           closeBtn.onclick = (e) => { e.stopPropagation(); close(); };
           modal.addEventListener("keydown", (e) => {
             e.stopPropagation();

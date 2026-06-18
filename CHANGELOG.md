@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.48 - 2026-06-19
+
+- Improved the DENO node info button: update details now open only on click, the popup closes when users click or wheel outside it, and the update card shows short release-note bullets without extra rollback clutter.
+- Fixed Ideogram Director's fullscreen Language picker so Escape closes it consistently, matching the on-screen `Esc to close` hint.
+
 ## 0.7.47 - 2026-06-19
 
 - Fixed Local LLM Loader validation for queued/list-wrapped saved combo values, so current and legacy seed, memory, and ComfyUI model-unload settings validate correctly before execution.

@@ -9,19 +9,24 @@ const UPDATE_BADGE_RADIUS = 5;
 const UPDATE_BADGE_OFFSET_X = 6;
 const UPDATE_BADGE_OFFSET_Y = -5;
 const REGISTRY_INSTALL_URL = "https://api.comfy.org/nodes/deno-custom-nodes/install";
-const VERSION_CACHE_KEY = "denoCustomNodes.versionStatus.v1";
+const CHANGELOG_URL = "https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/CHANGELOG.md";
+const RELEASE_BASE_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag";
+const VERSION_CACHE_KEY = "denoCustomNodes.versionStatus.v2";
 const VERSION_CACHE_MS = 6 * 60 * 60 * 1000;
+const MAX_RELEASE_NOTES = 4;
 
 const nodeHelpDescriptions = new Map();
 const popupState = new Map();
-let statusTooltipEl = null;
 let versionStatusPromise = null;
+let canvasHelpCursorTicket = 0;
 let denoVersionStatus = {
     status: "unknown",
     current_version: "",
     latest_version: "",
     update_available: false,
     message: "Version check unavailable.",
+    release_notes: [],
+    release_url: "",
 };
 
 function isDenoNode(nodeData) {
@@ -56,6 +61,15 @@ function compareVersions(left, right) {
     return 0;
 }
 
+function normalizeVersion(version) {
+    return String(version || "").trim().replace(/^v/i, "");
+}
+
+function releaseUrl(version) {
+    const normalized = normalizeVersion(version);
+    return normalized ? `${RELEASE_BASE_URL}/v${normalized}` : "https://github.com/Deno2026/comfyui-deno-custom-nodes/releases";
+}
+
 function latestVersionFromRegistryPayload(payload) {
     return String(
         payload?.version
@@ -63,6 +77,48 @@ function latestVersionFromRegistryPayload(payload) {
         || payload?.node_version?.version
         || ""
     );
+}
+
+function parseChangelogNotes(markdown, version) {
+    const wanted = normalizeVersion(version);
+    if (!wanted) return [];
+
+    const notes = [];
+    let inSection = false;
+    for (const rawLine of String(markdown || "").split(/\r?\n/)) {
+        const line = rawLine.trim();
+        const heading = line.match(/^##\s+v?([0-9]+(?:\.[0-9]+){1,3})(?:\s+|$)/i);
+        if (heading) {
+            if (inSection) break;
+            inSection = normalizeVersion(heading[1]) === wanted;
+            continue;
+        }
+        if (!inSection) continue;
+        const bullet = line.match(/^[-*]\s+(.+)$/);
+        if (bullet?.[1]) {
+            notes.push(bullet[1].trim());
+        }
+        if (notes.length >= MAX_RELEASE_NOTES) {
+            break;
+        }
+    }
+    return notes;
+}
+
+async function fetchReleaseNotes(version) {
+    try {
+        const response = await fetch(`${CHANGELOG_URL}?t=${Date.now()}`, {
+            method: "GET",
+            headers: { "Accept": "text/plain" },
+            cache: "no-store",
+        });
+        if (!response.ok) {
+            throw new Error(`GitHub returned HTTP ${response.status}`);
+        }
+        return parseChangelogNotes(await response.text(), version);
+    } catch (_error) {
+        return [];
+    }
 }
 
 function setCurrentVersionFromDescription(description) {
@@ -94,6 +150,7 @@ function saveCachedVersionStatus(status) {
 function markVersionStatus(status) {
     denoVersionStatus = { ...denoVersionStatus, ...status };
     updateAllDomHelpButtons();
+    updateOpenVersionCards();
     app.graph?.setDirtyCanvas?.(true, true);
 }
 
@@ -122,11 +179,14 @@ async function refreshDenoVersionStatus() {
             const payload = await response.json();
             const latestVersion = latestVersionFromRegistryPayload(payload) || currentVersion;
             const updateAvailable = compareVersions(latestVersion, currentVersion) > 0;
+            const releaseNotes = updateAvailable ? await fetchReleaseNotes(latestVersion) : [];
             const status = {
                 status: updateAvailable ? "update_available" : "latest",
                 current_version: currentVersion,
                 latest_version: latestVersion,
                 update_available: updateAvailable,
+                release_notes: releaseNotes,
+                release_url: releaseUrl(latestVersion),
                 message: updateAvailable
                     ? `Update available: v${currentVersion} -> v${latestVersion}`
                     : `Latest version: v${currentVersion}`,
@@ -140,6 +200,8 @@ async function refreshDenoVersionStatus() {
                 current_version: currentVersion,
                 latest_version: "",
                 update_available: false,
+                release_notes: [],
+                release_url: "",
                 message: `Version check unavailable: ${String(error?.message || error || "network error")}`,
             };
             markVersionStatus(status);
@@ -189,33 +251,6 @@ function versionVisualState() {
     };
 }
 
-function ensureStatusTooltip() {
-    ensureHelpStyles();
-    if (statusTooltipEl) return statusTooltipEl;
-    statusTooltipEl = document.createElement("div");
-    statusTooltipEl.className = "deno-node-help-status-tip";
-    document.body.appendChild(statusTooltipEl);
-    return statusTooltipEl;
-}
-
-function showStatusTooltip(event) {
-    const tooltip = ensureStatusTooltip();
-    const visual = versionVisualState();
-    tooltip.textContent = visual.title;
-    tooltip.className = `deno-node-help-status-tip ${visual.className}`;
-    const clientX = Number(event?.clientX || 0);
-    const clientY = Number(event?.clientY || 0);
-    tooltip.style.left = `${Math.min(clientX + 12, window.innerWidth - 280)}px`;
-    tooltip.style.top = `${Math.max(12, Math.min(clientY + 12, window.innerHeight - 48))}px`;
-    tooltip.style.display = "block";
-}
-
-function hideStatusTooltip() {
-    if (statusTooltipEl) {
-        statusTooltipEl.style.display = "none";
-    }
-}
-
 function applyVersionButtonState(button) {
     if (!button) return;
     const visual = versionVisualState();
@@ -230,6 +265,12 @@ function updateAllDomHelpButtons() {
     document.querySelectorAll(`.${HELP_BUTTON_CLASS}`).forEach(applyVersionButtonState);
 }
 
+function updateOpenVersionCards() {
+    document.querySelectorAll(".deno-node-help-release").forEach((card) => {
+        card.replaceWith(createVersionCard());
+    });
+}
+
 function ensureHelpStyles() {
     if (document.getElementById("deno-node-help-style")) {
         return;
@@ -241,8 +282,8 @@ function ensureHelpStyles() {
         .${HELP_CLASS} {
             position: absolute;
             z-index: 10020;
-            width: min(360px, calc(100vw - 32px));
-            max-height: min(420px, calc(100vh - 32px));
+            width: min(430px, calc(100vw - 32px));
+            max-height: min(540px, calc(100vh - 32px));
             box-sizing: border-box;
             padding: 12px 13px 13px;
             border-radius: 12px;
@@ -253,6 +294,8 @@ function ensureHelpStyles() {
             font: 12px/1.45 sans-serif;
             overflow: hidden;
             pointer-events: auto;
+            display: flex;
+            flex-direction: column;
         }
         .${HELP_CLASS} .deno-node-help-head {
             display: flex;
@@ -277,7 +320,8 @@ function ensureHelpStyles() {
             user-select: none;
         }
         .${HELP_CLASS} .deno-node-help-content {
-            max-height: 340px;
+            flex: 1;
+            min-height: 72px;
             overflow: auto;
             padding-right: 3px;
             color: #d7ffe3;
@@ -347,37 +391,76 @@ function ensureHelpStyles() {
             background: rgba(10, 65, 28, 0.96);
             color: #dfffea;
         }
-        .${HELP_CLASS} .deno-node-help-version {
+        .${HELP_CLASS} .deno-node-help-release {
             margin: 0 0 10px;
-            padding: 7px 9px;
+            padding: 8px 9px 9px;
             border-radius: 8px;
             border: 1px solid rgba(72, 255, 132, 0.28);
             background: rgba(0, 0, 0, 0.32);
-            color: #9dffba;
-            font-weight: 700;
+            color: #dfffea;
         }
-        .${HELP_CLASS} .deno-node-help-version.deno-node-update-available {
+        .${HELP_CLASS} .deno-node-help-release.deno-node-update-available {
             border-color: rgba(255, 214, 74, 0.58);
-            color: #fff1a8;
             background: rgba(83, 54, 0, 0.44);
         }
-        .deno-node-help-status-tip {
-            position: fixed;
-            z-index: 10060;
-            display: none;
-            max-width: 260px;
-            padding: 6px 8px;
-            border-radius: 7px;
-            border: 1px solid rgba(72, 255, 132, 0.42);
-            background: rgba(1, 6, 4, 0.98);
-            color: #dfffea;
-            font: 700 11px/1.3 sans-serif;
-            pointer-events: none;
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.38);
+        .${HELP_CLASS} .deno-node-help-release-title {
+            color: #9dffba;
+            font-weight: 850;
+            margin-bottom: 3px;
         }
-        .deno-node-help-status-tip.deno-node-update-available {
-            border-color: rgba(255, 214, 74, 0.7);
+        .${HELP_CLASS} .deno-node-help-release.deno-node-update-available .deno-node-help-release-title {
             color: #fff1a8;
+        }
+        .${HELP_CLASS} .deno-node-help-release-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px 8px;
+            margin-bottom: 7px;
+            color: #a6c8b0;
+            font-size: 11px;
+        }
+        .${HELP_CLASS} .deno-node-help-release-note-title {
+            margin: 8px 0 4px;
+            color: #c7ffd8;
+            font-weight: 800;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .${HELP_CLASS} .deno-node-help-release ul {
+            margin: 0 0 8px 17px;
+            padding: 0;
+        }
+        .${HELP_CLASS} .deno-node-help-release li {
+            margin: 0 0 3px;
+        }
+        .${HELP_CLASS} .deno-node-help-release-empty {
+            margin: 0 0 8px;
+            color: #a6c8b0;
+        }
+        .${HELP_CLASS} .deno-node-help-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+            margin-top: 6px;
+        }
+        .${HELP_CLASS} .deno-node-help-actions a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 24px;
+            padding: 0 9px;
+            border-radius: 7px;
+            border: 1px solid rgba(72, 255, 132, 0.32);
+            background: rgba(11, 42, 22, 0.72);
+            color: #b8ffd0;
+            text-decoration: none;
+            font-weight: 800;
+        }
+        .${HELP_CLASS} .deno-node-help-actions a:hover {
+            border-color: rgba(72, 255, 132, 0.62);
+            background: rgba(26, 89, 45, 0.8);
+            color: #ffffff;
         }
     `;
     document.head.appendChild(style);
@@ -457,6 +540,152 @@ function closeAllHelpPopups() {
     }
 }
 
+function canvasEventToGraphPoint(event) {
+    const canvas = app.canvas;
+    const canvasEl = canvas?.canvas;
+    const rect = canvasEl?.getBoundingClientRect?.();
+    if (!rect) {
+        return null;
+    }
+    const offset = [
+        Number(event?.clientX || 0) - rect.left,
+        Number(event?.clientY || 0) - rect.top,
+    ];
+    if (typeof canvas.convertOffsetToCanvas === "function") {
+        return canvas.convertOffsetToCanvas(offset);
+    }
+    const scale = canvas.ds?.scale || 1;
+    const dsOffset = canvas.ds?.offset || [0, 0];
+    return [
+        (offset[0] / scale) - (dsOffset[0] || 0),
+        (offset[1] / scale) - (dsOffset[1] || 0),
+    ];
+}
+
+function isCanvasHelpButtonEvent(event) {
+    if (event?.target !== app.canvas?.canvas) {
+        return false;
+    }
+    const graphPoint = canvasEventToGraphPoint(event);
+    if (!Array.isArray(graphPoint)) {
+        return false;
+    }
+    const nodes = app.graph?._nodes || [];
+    return nodes.some((node) => {
+        const description = getNodeDescription(node) || node.__denoHelpDescription;
+        if (!description || node.flags?.collapsed || !Array.isArray(node.pos)) {
+            return false;
+        }
+        return isCanvasHelpButtonHit(node, [
+            graphPoint[0] - node.pos[0],
+            graphPoint[1] - node.pos[1],
+        ]);
+    });
+}
+
+function isHelpPopupUiEvent(event) {
+    const target = event?.target;
+    if (typeof Node !== "undefined" && !(target instanceof Node)) {
+        return false;
+    }
+    return Boolean(
+        target?.closest?.(`.${HELP_CLASS}`)
+        || target?.closest?.(`.${HELP_BUTTON_CLASS}`)
+    );
+}
+
+function handleOutsideHelpPointerDown(event) {
+    if (!popupState.size) {
+        return;
+    }
+    if (isHelpPopupUiEvent(event) || isCanvasHelpButtonEvent(event)) {
+        return;
+    }
+    closeAllHelpPopups();
+    app.graph?.setDirtyCanvas?.(true, true);
+}
+
+function handleOutsideHelpWheel(event) {
+    if (!popupState.size || isHelpPopupUiEvent(event)) {
+        return;
+    }
+    closeAllHelpPopups();
+    app.graph?.setDirtyCanvas?.(true, true);
+}
+
+function setupOutsidePopupClose() {
+    if (setupOutsidePopupClose.ready) {
+        return;
+    }
+    setupOutsidePopupClose.ready = true;
+    document.addEventListener("pointerdown", handleOutsideHelpPointerDown, true);
+    document.addEventListener("wheel", handleOutsideHelpWheel, true);
+}
+
+function appendText(parent, className, text) {
+    const element = document.createElement("div");
+    if (className) {
+        element.className = className;
+    }
+    element.textContent = text;
+    parent.appendChild(element);
+    return element;
+}
+
+function createVersionCard() {
+    const visual = versionVisualState();
+    const card = document.createElement("div");
+    card.className = `deno-node-help-release ${visual.className}`;
+
+    appendText(card, "deno-node-help-release-title", visual.title);
+
+    const meta = document.createElement("div");
+    meta.className = "deno-node-help-release-meta";
+    const current = denoVersionStatus.current_version ? `Installed v${denoVersionStatus.current_version}` : "Installed version unknown";
+    const latest = denoVersionStatus.latest_version ? `Latest v${denoVersionStatus.latest_version}` : "Latest version unknown";
+    appendText(meta, "", current);
+    appendText(meta, "", latest);
+    card.appendChild(meta);
+
+    if (denoVersionStatus.update_available) {
+        appendText(card, "deno-node-help-release-note-title", "What changed");
+        const notes = Array.isArray(denoVersionStatus.release_notes) ? denoVersionStatus.release_notes : [];
+        if (notes.length) {
+            const list = document.createElement("ul");
+            notes.slice(0, MAX_RELEASE_NOTES).forEach((note) => {
+                const item = document.createElement("li");
+                item.textContent = note;
+                list.appendChild(item);
+            });
+            card.appendChild(list);
+        } else {
+            appendText(card, "deno-node-help-release-empty", "Release notes could not be loaded here. Open GitHub release notes for details.");
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "deno-node-help-actions";
+        actions.appendChild(createHelpLink(denoVersionStatus.release_url || releaseUrl(denoVersionStatus.latest_version), "Release notes"));
+        card.appendChild(actions);
+    } else if (denoVersionStatus.status === "latest") {
+        const actions = document.createElement("div");
+        actions.className = "deno-node-help-actions";
+        actions.appendChild(createHelpLink(denoVersionStatus.release_url || releaseUrl(denoVersionStatus.current_version), "Current release notes"));
+        card.appendChild(actions);
+    }
+
+    return card;
+}
+
+function createHelpLink(url, label) {
+    const link = document.createElement("a");
+    link.href = url || "https://github.com/Deno2026/comfyui-deno-custom-nodes/releases";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = label;
+    link.addEventListener("click", (event) => event.stopPropagation());
+    return link;
+}
+
 function createPopupElement(title, description, onClose) {
     ensureHelpStyles();
 
@@ -484,13 +713,8 @@ function createPopupElement(title, description, onClose) {
     content.className = "deno-node-help-content";
     content.innerHTML = renderDescription(description);
 
-    const visual = versionVisualState();
-    const version = document.createElement("div");
-    version.className = `deno-node-help-version ${visual.className}`;
-    version.textContent = visual.title;
-
     head.append(titleEl, close);
-    popup.append(head, version, content);
+    popup.append(head, createVersionCard(), content);
     document.body.appendChild(popup);
     return popup;
 }
@@ -544,6 +768,56 @@ function openCanvasHelpPopup(node, nodeData, ctx) {
     positionPopupNearNode(popup, node, ctx);
 }
 
+function getCanvasHelpButtonFrame(node) {
+    const visual = versionVisualState();
+    return {
+        x: (Number(node?.size?.[0]) || 0) - HELP_ICON_SIZE - HELP_ICON_MARGIN,
+        y: -25,
+        rightPad: visual.badgeLabel ? UPDATE_BADGE_RADIUS : 0,
+        topPad: visual.badgeLabel ? UPDATE_BADGE_RADIUS : 0,
+        visual,
+    };
+}
+
+function isCanvasHelpButtonHit(node, localPos) {
+    if (!Array.isArray(localPos)) {
+        return false;
+    }
+    const frame = getCanvasHelpButtonFrame(node);
+    return (
+        localPos[0] >= frame.x
+        && localPos[0] <= frame.x + HELP_ICON_SIZE + frame.rightPad
+        && localPos[1] >= frame.y - frame.topPad
+        && localPos[1] <= frame.y + HELP_ICON_SIZE
+    );
+}
+
+function setCanvasHelpButtonHover(node, active) {
+    const next = active === true;
+    const changed = node.__denoHelpButtonHover !== next;
+    node.__denoHelpButtonHover = next;
+    const canvasEl = app.canvas?.canvas;
+    if (canvasEl?.style) {
+        if (next) {
+            const ticket = ++canvasHelpCursorTicket;
+            const forcePointer = () => {
+                if (canvasHelpCursorTicket === ticket && node.__denoHelpButtonHover === true) {
+                    canvasEl.style.cursor = "pointer";
+                }
+            };
+            forcePointer();
+            globalThis.requestAnimationFrame?.(forcePointer);
+            globalThis.setTimeout?.(forcePointer, 0);
+        } else if (canvasEl.style.cursor === "pointer") {
+            canvasHelpCursorTicket += 1;
+            canvasEl.style.cursor = "";
+        }
+    }
+    if (changed) {
+        app.graph?.setDirtyCanvas?.(true, true);
+    }
+}
+
 function patchCanvasHelpButton(nodeType, nodeData) {
     const originalDraw = nodeType.prototype.onDrawForeground;
     nodeType.prototype.onDrawForeground = function (ctx) {
@@ -552,22 +826,24 @@ function patchCanvasHelpButton(nodeType, nodeData) {
             return result;
         }
 
-        const x = (Number(this.size?.[0]) || 0) - HELP_ICON_SIZE - HELP_ICON_MARGIN;
-        const y = -25;
+        const frame = getCanvasHelpButtonFrame(this);
+        const { x, y, visual } = frame;
         const centerX = x + (HELP_ICON_SIZE / 2);
         const centerY = y + (HELP_ICON_SIZE / 2);
-        const visual = versionVisualState();
+        const hovered = this.__denoHelpButtonHover === true;
+        const hoverFill = visual.badgeLabel ? "rgba(160, 111, 0, 1)" : "rgba(32, 120, 56, 0.98)";
+        const hoverStroke = visual.badgeLabel ? "rgba(255, 242, 135, 1)" : "rgba(151, 255, 180, 1)";
 
         ctx.save();
         ctx.beginPath();
-        ctx.arc(centerX, centerY, HELP_ICON_SIZE / 2, 0, Math.PI * 2);
-        ctx.fillStyle = visual.fill;
+        ctx.arc(centerX, centerY, (HELP_ICON_SIZE / 2) + (hovered ? 1 : 0), 0, Math.PI * 2);
+        ctx.fillStyle = hovered ? hoverFill : visual.fill;
         ctx.fill();
-        ctx.lineWidth = 1.2;
-        ctx.strokeStyle = visual.stroke;
+        ctx.lineWidth = hovered ? 2 : 1.2;
+        ctx.strokeStyle = hovered ? hoverStroke : visual.stroke;
         ctx.stroke();
         ctx.fillStyle = visual.color;
-        ctx.font = "bold 11px sans-serif";
+        ctx.font = hovered ? "900 12px sans-serif" : "bold 11px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(visual.label, centerX, centerY + 0.2);
@@ -575,14 +851,14 @@ function patchCanvasHelpButton(nodeType, nodeData) {
             const badgeX = centerX + UPDATE_BADGE_OFFSET_X;
             const badgeY = centerY + UPDATE_BADGE_OFFSET_Y;
             ctx.beginPath();
-            ctx.arc(badgeX, badgeY, UPDATE_BADGE_RADIUS, 0, Math.PI * 2);
+            ctx.arc(badgeX, badgeY, UPDATE_BADGE_RADIUS + (hovered ? 0.7 : 0), 0, Math.PI * 2);
             ctx.fillStyle = visual.badgeFill;
             ctx.fill();
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = visual.badgeStroke;
+            ctx.lineWidth = hovered ? 1.4 : 1;
+            ctx.strokeStyle = hovered ? hoverStroke : visual.badgeStroke;
             ctx.stroke();
             ctx.fillStyle = visual.badgeColor;
-            ctx.font = "900 8px sans-serif";
+            ctx.font = hovered ? "900 9px sans-serif" : "900 8px sans-serif";
             ctx.fillText(visual.badgeLabel, badgeX, badgeY + 0.2);
         }
         ctx.restore();
@@ -594,22 +870,28 @@ function patchCanvasHelpButton(nodeType, nodeData) {
         return result;
     };
 
+    const originalMouseMove = nodeType.prototype.onMouseMove;
+    nodeType.prototype.onMouseMove = function (event, localPos) {
+        if (!this.flags?.collapsed && isCanvasHelpButtonHit(this, localPos)) {
+            setCanvasHelpButtonHover(this, true);
+            return true;
+        }
+        setCanvasHelpButtonHover(this, false);
+        return originalMouseMove?.apply(this, arguments);
+    };
+
+    const originalMouseLeave = nodeType.prototype.onMouseLeave;
+    nodeType.prototype.onMouseLeave = function () {
+        setCanvasHelpButtonHover(this, false);
+        return originalMouseLeave?.apply(this, arguments);
+    };
+
     const originalMouseDown = nodeType.prototype.onMouseDown;
     nodeType.prototype.onMouseDown = function (event, localPos) {
-        const x = (Number(this.size?.[0]) || 0) - HELP_ICON_SIZE - HELP_ICON_MARGIN;
-        const y = -25;
-        const visual = versionVisualState();
-        const rightPad = visual.badgeLabel ? UPDATE_BADGE_RADIUS : 0;
-        const topPad = visual.badgeLabel ? UPDATE_BADGE_RADIUS : 0;
-        if (
-            Array.isArray(localPos)
-            && localPos[0] >= x
-            && localPos[0] <= x + HELP_ICON_SIZE + rightPad
-            && localPos[1] >= y - topPad
-            && localPos[1] <= y + HELP_ICON_SIZE
-        ) {
+        if (isCanvasHelpButtonHit(this, localPos)) {
             event?.preventDefault?.();
             event?.stopPropagation?.();
+            setCanvasHelpButtonHover(this, false);
             openCanvasHelpPopup(this, nodeData, app.canvas?.ctx);
             return true;
         }
@@ -617,29 +899,9 @@ function patchCanvasHelpButton(nodeType, nodeData) {
         return originalMouseDown?.apply(this, arguments);
     };
 
-    const originalMouseMove = nodeType.prototype.onMouseMove;
-    nodeType.prototype.onMouseMove = function (event, localPos) {
-        const x = (Number(this.size?.[0]) || 0) - HELP_ICON_SIZE - HELP_ICON_MARGIN;
-        const y = -25;
-        const visual = versionVisualState();
-        const rightPad = visual.badgeLabel ? UPDATE_BADGE_RADIUS : 0;
-        const topPad = visual.badgeLabel ? UPDATE_BADGE_RADIUS : 0;
-        if (
-            Array.isArray(localPos)
-            && localPos[0] >= x
-            && localPos[0] <= x + HELP_ICON_SIZE + rightPad
-            && localPos[1] >= y - topPad
-            && localPos[1] <= y + HELP_ICON_SIZE
-        ) {
-            showStatusTooltip(event);
-        } else {
-            hideStatusTooltip();
-        }
-        return originalMouseMove?.apply(this, arguments);
-    };
-
     const originalRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
+        setCanvasHelpButtonHover(this, false);
         closeHelpPopup(getNodeKey(this));
         return originalRemoved?.apply(this, arguments);
     };
@@ -698,9 +960,6 @@ function injectDomHelpButton(header) {
     button.type = "button";
     button.className = HELP_BUTTON_CLASS;
     applyVersionButtonState(button);
-    button.addEventListener("mouseenter", showStatusTooltip);
-    button.addEventListener("mousemove", showStatusTooltip);
-    button.addEventListener("mouseleave", hideStatusTooltip);
     button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -750,6 +1009,7 @@ app.registerExtension({
         }
     },
     setup() {
+        setupOutsidePopupClose();
         setupDomHelpObserver();
     },
 });

@@ -1160,7 +1160,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.18-bbox-ergonomics-b"' in script
+    assert 'const IDD_REV = "r2026.06.19-language-esc-a"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script
@@ -1215,6 +1215,8 @@ def test_ideogram_director_frontend_view_language_contract():
     assert "idd-lang-full" in script
     assert "idd-langgrid" in script
     assert "idd-langcard" in script
+    assert 'document.addEventListener("keydown", closeLanguageKey, true);' in script
+    assert 'document.removeEventListener("keydown", closeLanguageKey, true);' in script
     assert 'ht.textContent = "Language"' in script
     assert 'translateBtn.textContent = "Language"' in script
     assert 'const recommended = ["English", "한국어"' in script

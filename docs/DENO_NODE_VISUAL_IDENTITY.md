@@ -82,8 +82,16 @@ Use these values as the starting point unless ComfyUI itself provides a better n
 - Add a small DENO green circular `i` button near the top-right of DENO node headers by default.
 - This button should follow the approved first mockup concept: cute, clear, compact, and ComfyUI-native.
 - Use `i` as the default mark rather than an orange `?`; reserve warning colors for real warning states.
-- Hover should show a short tooltip such as `Node info`.
+- Hover should not open a custom status tooltip. Users often pass over the node header while working,
+  so update/version details should not appear until click.
+- Hover may still make the `i` button feel clickable: use a pointer cursor and a subtle heavier
+  stroke/text emphasis on the button itself, but do not show explanatory text until click.
 - Click should open a compact DENO-style help popup with the node purpose, main modes, important options, caution notes, and README pointer.
+- The popup should close when the user clicks outside it or starts canvas wheel zoom/scroll outside
+  the popup. It should not stay floating awkwardly while the graph view changes.
+- When the pack version checker knows a newer version is available, the same popup should keep the
+  normal node description but add a compact update card above it: installed version, latest version,
+  short "What changed" bullets, and GitHub release notes link.
 - Keep the help button visually light so it does not fight the title, sockets, collapse state, or node action controls.
 - For future DENO nodes, treat this as a standard service detail, not optional decoration.
 

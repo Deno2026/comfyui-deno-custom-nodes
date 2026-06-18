@@ -297,6 +297,25 @@ def test_deno_node_help_update_state_has_badge():
     assert "deno-node-update-available::after" in script
     assert "UPDATE_BADGE_RADIUS" in script
     assert "Update available:" in script
+    assert "CHANGELOG_URL" in script
+    assert "parseChangelogNotes" in script
+    assert "createVersionCard" in script
+    assert "What changed" in script
+    assert "Release notes" in script
+    assert "Rollback guide" not in script
+    assert "Rollback is manual" not in script
+    assert "ROLLBACK_GUIDE_URL" not in script
+    assert "__denoHelpButtonHover" in script
+    assert "canvasHelpCursorTicket" in script
+    assert "requestAnimationFrame" in script
+    assert "isCanvasHelpButtonHit" in script
+    assert "handleOutsideHelpPointerDown" in script
+    assert "handleOutsideHelpWheel" in script
+    assert 'document.addEventListener("wheel", handleOutsideHelpWheel, true)' in script
+    assert 'style.cursor = "pointer"' in script
+    assert "showStatusTooltip" not in script
+    assert "deno-node-help-status-tip" not in script
+    assert 'addEventListener("mouseenter"' not in script
 
 
 def test_public_ltx23_8gb_workflow_keeps_deno_node_contracts():
@@ -396,7 +415,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.18-bbox-ergonomics-b"' in script
+    assert 'IDD_REV = "r2026.06.19-language-esc-a"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
