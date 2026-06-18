@@ -32,6 +32,7 @@ Do not read `docs/handoff_archive/` during normal startup unless deep history is
 - Shared node pre-flight: `docs/DENO_NODE_RETROSPECTIVE.md`
 - Visual identity: `docs/DENO_NODE_VISUAL_IDENTITY.md`
 - Local LLM Loader / Reviewer: `docs/nodes/LOCAL_LLM_LOADER_REVIEWER.md`
+- LTX Model Download Helper: `docs/nodes/LTX_MODEL_DOWNLOADER.md`
 - LTX Prompt Guide: `docs/nodes/LTX_PROMPT_GUIDE.md`
 - Ideogram Director: `docs/nodes/ideogram-director/README.md`
 - Visual Fold: `docs/nodes/VISUAL_FOLD.md`
@@ -43,7 +44,71 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release prep: `0.7.48`.
+Current public release: `0.7.49`.
+
+0.7.49 hotfix scope for GitHub #31 / ComfyUI EZi Desktop startup reports:
+
+- Root cause: `(Deno) Easy Model Download Helper` computed install status while ComfyUI was
+  still answering `/object_info`. EZi Desktop waits on `/object_info` before showing its UI, and
+  large, linked, external, or offline model folders could make the startup look hung even though the
+  backend printed the normal server URL.
+- Local fix: `DenoLTXModelDownloader.INPUT_TYPES()` no longer counts installed files, and the normal
+  helper status route no longer deep-recursive scans model folders by default.
+- Deep recursive filename search remains as an explicit internal opt-in path only. Normal startup,
+  node creation, `/object_info`, and `Refresh Check` use direct configured paths plus registered
+  ComfyUI model-folder aliases.
+- Added `docs/nodes/LTX_MODEL_DOWNLOADER.md` and routed `deno_ltx_model_downloader.py` work through
+  `docs/NODE_WORK_INDEX.md` so this startup contract is preserved.
+
+0.7.49 verification before public push:
+
+- `python -m py_compile deno_ltx_model_downloader.py`
+- Targeted helper regression tests: `7 passed`.
+- `python -m pytest tests/test_image_resize_node.py -q` -> `124 passed`.
+- `python -m pytest tests/test_registry_metadata.py -q` -> `13 passed`.
+- `python -m pytest tests/test_public_workflow_migration.py -q` -> `30 passed`.
+- Full test suite after version bump: `211 passed`.
+- `git diff --check` and final `git diff --cached --check` passed; only normal CRLF warnings before
+  staging.
+- Mandatory independent GPT-5.5 xhigh release reviewer `019edced-7f1f-7d12-90ee-128d15000447`
+  returned `PASS WITH NOTES`; no blocker remained.
+- Source `deno_ltx_model_downloader.py` was copied into the active Easy-Install runtime and
+  hash-matched.
+- Active `8188` was restarted through the EZi-style wrapper path. Final runtime shape:
+  `pythonw.exe ... ComfyUI-EZi.py` plus `python_embeded\python.exe -X utf8=1 ... runpy main.py`.
+- Runtime API proof on `http://127.0.0.1:8188/`:
+  - `/object_info/DenoLTXModelDownloader` returned OK in about `201 ms`.
+  - Full `/object_info` returned OK in about `1400 ms`.
+  - `POST /deno/ltx_model_downloader/check` returned OK with 6 files and 2 roots.
+  - `/queue` was idle.
+
+Public release state:
+
+- Release commit/tag target: `e210f8912079e4b4b9d6490998607a1a00335b9b` / `v0.7.49`
+- GitHub release: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.49`
+- GitHub Actions CI, Pages, and Publish to Comfy registry succeeded on 2026-06-18 UTC.
+- CDN zip exists and returned `200 application/zip`:
+  `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.49/node.zip`
+- CDN package check passed:
+  - `pyproject.toml` version `0.7.49`
+  - `deno_ltx_model_downloader.py` includes `allow_deep_scan: bool = False` and the guarded deep
+    scan marker.
+  - `node_list.json` has 19 public nodes and includes `DenoLTXModelDownloader`.
+  - no `tests/`, `docs/nodes/`, or `SESSION_HANDOFF.md` are packaged.
+- Registry versions endpoint and install endpoint both resolve to `0.7.49`, currently
+  `NodeVersionStatusPending` with empty `status_reason`.
+- Manager `extension-node-map.json` still lists this repo with `DenoIdeogramDirector` and
+  `DenoLocalLLMRefiner`.
+- 30-minute same-thread heartbeat monitor is active and TOML-checked:
+  `deno-0-7-49-registry-monitor`.
+
+Next action:
+
+- Wait until Registry `0.7.49` becomes Active and the install endpoint still resolves to `0.7.49`.
+- After Active, verify Manager map still lists this repo with `DenoIdeogramDirector` and
+  `DenoLocalLLMRefiner`, then stop the 30-minute monitor.
+- Optional user-facing note for issue #31: the helper no longer deep-searches arbitrary nested model
+  folders by default; users with deeply nested custom packs should set the exact target subfolder.
 
 0.7.48 scope:
 
