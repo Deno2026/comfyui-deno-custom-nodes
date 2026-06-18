@@ -72,13 +72,31 @@ Current public release attempt: `0.7.46`.
   - Local LLM reviewer graph transform test passed: `1 passed`.
   - `git diff --check` passed, with only Windows LF-to-CRLF warnings.
   - Skill validator passed: `Skill is valid!`.
-- Independent release reviewer for 0.7.46: `019edafb-9889-7d12-9989-8214968e8b22` (pending at this
-  handoff edit until collected in the release turn).
+- Independent release reviewer for 0.7.46: `019edafb-9889-7d12-9989-8214968e8b22`.
+  Initial review BLOCKED an overbroad `VALIDATE_INPUTS` patch that bypassed active combo validation.
+  The release was fixed with explicit active combo validation and re-reviewed as PASS.
+- Final pre-release checks after the reviewer BLOCK fix:
+  - Full test suite passed: `209 passed`.
+  - Registry metadata + Local LLM reviewer graph transform subset passed: `14 passed`.
+  - `git diff --check` passed, with only Windows LF-to-CRLF warnings.
 - Runtime canvas verification is not required for the 0.7.46 code itself because this release only
   changes backend pre-execution validation and docs. If any frontend file changes before release,
   rerun the normal Easy-Install + Desktop canvas gates.
-- After public release, create or update a 30-minute Registry/Manager propagation monitor for
-  `0.7.46`, then sync local runtimes from the released package once Registry is Active.
+- Public release completed:
+  - Release commit/tag target: `7477e0a` / `v0.7.46`
+  - GitHub release: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.46`
+  - GitHub Actions CI, Pages, and Publish to Comfy registry succeeded on 2026-06-18.
+  - CDN zip exists: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.46/node.zip`
+  - CDN package was checked: `pyproject.toml` version `0.7.46`, `node_list.json` has 19 public
+    nodes, and tests/tmp/SESSION_HANDOFF/AGENTS/.codex-remote-attachments were excluded.
+  - Initial Comfy Registry status: `NodeVersionStatusPending`; install endpoint resolves to
+    `0.7.46` Pending. `0.7.45` was Active at first check.
+  - Manager `extension-node-map.json` lists this repo with 19 nodes including
+    `DenoIdeogramDirector`, `DenoLocalLLMRefiner`, `DenoResolutionSetup`, and `DenoVideoCompare`.
+  - 30-minute propagation monitor was updated from the old 0.7.45 check to watch `0.7.46`.
+- Pending: wait until Registry `0.7.46` becomes Active and the install endpoint still resolves to
+  `0.7.46`, then sync local Easy-Install and Desktop runtimes from the released package when queues
+  are idle.
 
 Untracked local-only artifacts not staged for release:
 
