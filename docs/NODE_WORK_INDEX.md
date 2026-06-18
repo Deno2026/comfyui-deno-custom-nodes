@@ -71,6 +71,9 @@ Use this before opening implementation files:
 - LTX Prompt Guide:
   - `docs/nodes/LTX_PROMPT_GUIDE.md`
   - Read when touching `deno_ltx_prompt_guide.py`, `web/js/deno_ltx_prompt_guide.js`, or saved prompt-guide workflow migration.
+- LTX Model Download Helper:
+  - `docs/nodes/LTX_MODEL_DOWNLOADER.md`
+  - Read when touching `deno_ltx_model_downloader.py`, `web/js/deno_ltx_model_downloader.js`, or manual model setup helper behavior.
 - Multi LoRA Loaders:
   - `docs/nodes/MULTI_LORA_LOADERS.md`
   - Read when touching `deno_multi_lora_loader.py`, `deno_ltx_multi_lora_loader.py`, `web/js/deno_multi_lora.js`, `web/js/deno_ltx_multi_lora.js`, or saved missing-LoRA compatibility.
@@ -93,6 +96,8 @@ Use this before opening implementation files:
 | `web/js/deno_random_prompt_box.js` | `docs/nodes/RANDOM_PROMPT_BOX.md` only after explicit user restart |
 | `deno_ltx_prompt_guide.py` | `docs/nodes/LTX_PROMPT_GUIDE.md` |
 | `web/js/deno_ltx_prompt_guide.js` | `docs/nodes/LTX_PROMPT_GUIDE.md` |
+| `deno_ltx_model_downloader.py` | `docs/nodes/LTX_MODEL_DOWNLOADER.md` |
+| `web/js/deno_ltx_model_downloader.js` | `docs/nodes/LTX_MODEL_DOWNLOADER.md` |
 | `deno_multi_lora_loader.py` | `docs/nodes/MULTI_LORA_LOADERS.md` |
 | `deno_ltx_multi_lora_loader.py` | `docs/nodes/MULTI_LORA_LOADERS.md` |
 | `web/js/deno_multi_lora.js` | `docs/nodes/MULTI_LORA_LOADERS.md` |

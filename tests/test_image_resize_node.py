@@ -1825,6 +1825,46 @@ def test_ltx_model_setup_helper_declares_output_node_and_safe_root_widget():
     assert node_cls().run(input_types["required"]["model_root"][1]["default"]) == ()
 
 
+def test_ltx_model_setup_helper_input_types_do_not_scan_model_folders(monkeypatch):
+    package = load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXModelDownloader"]
+
+    def fail_rglob(*_args, **_kwargs):
+        raise AssertionError("INPUT_TYPES must not recursively scan model folders")
+
+    monkeypatch.setattr(module.Path, "rglob", fail_rglob)
+
+    input_types = node_cls.INPUT_TYPES()
+
+    assert input_types["required"]["model_root"][1]["default"]
+
+
+def test_ltx_model_setup_helper_payload_does_not_scan_model_folders(monkeypatch):
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_models_dir = folder_paths.models_dir
+
+    def fail_rglob(*_args, **_kwargs):
+        raise AssertionError("Default setup-helper payload must not recursively scan model folders")
+
+    monkeypatch.setattr(module.Path, "rglob", fail_rglob)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        models_root = Path(temp_dir) / "models"
+        models_root.mkdir()
+        folder_paths.models_dir = str(models_root)
+        try:
+            payload = module._build_payload(None, module._default_presets_state())
+        finally:
+            folder_paths.models_dir = original_models_dir
+
+    assert payload["mode"] == "manual_setup_helper"
+    assert payload["files"]
+    assert "existing_count" in payload
+
+
 def test_ltx_model_setup_helper_preserves_builtin_preset_for_old_workflows():
     package = load_package()
     module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
@@ -1888,7 +1928,7 @@ def test_ltx_model_setup_helper_checks_registered_model_folder_names():
     assert result["relative_path"].replace("\\", "/") == "TextEncoders/flux2-klein-9b-uncensored-q6_k.gguf"
 
 
-def test_ltx_model_setup_helper_recursively_finds_files_in_model_subfolders():
+def test_ltx_model_setup_helper_deep_scan_is_explicit_opt_in():
     load_package()
     module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
 
@@ -1899,7 +1939,7 @@ def test_ltx_model_setup_helper_recursively_finds_files_in_model_subfolders():
         target_file = nested_dir / "flux2-klein-9b-kv-fp8.safetensors"
         target_file.write_bytes(b"ready")
 
-        result = module._public_custom_file(
+        default_result = module._public_custom_file(
             str(models_root),
             {
                 "url": "https://example.com/flux2-klein-9b-kv-fp8.safetensors",
@@ -1909,10 +1949,18 @@ def test_ltx_model_setup_helper_recursively_finds_files_in_model_subfolders():
             },
             0,
         )
+        scanned = module._resolve_target_file(
+            str(models_root),
+            "diffusion_models",
+            "flux2-klein-9b-kv-fp8.safetensors",
+            1,
+            allow_deep_scan=True,
+        )
 
-    assert result["status"] == "exists"
-    assert result["found_by"] == "subfolder"
-    assert result["relative_path"].replace("\\", "/") == "diffusion_models/Flux/flux2-klein-9b-kv-fp8.safetensors"
+    assert default_result["status"] == "missing"
+    assert scanned["status"] == "exists"
+    assert scanned["found_by"] == "subfolder"
+    assert scanned["relative_path"].replace("\\", "/") == "diffusion_models/Flux/flux2-klein-9b-kv-fp8.safetensors"
 
 
 def test_ltx_model_setup_helper_has_no_backend_download_code():

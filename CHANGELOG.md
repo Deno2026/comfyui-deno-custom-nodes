@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.49 - 2026-06-19
+
+- Fixed ComfyUI EZi/Desktop startup hangs caused by Easy Model Download Helper checking model folders while ComfyUI was still loading its node list.
+
 ## 0.7.48 - 2026-06-19
 
 - Improved the DENO node info button: update details now open only on click, the popup closes when users click or wheel outside it, and the update card shows short release-note bullets without extra rollback clutter.

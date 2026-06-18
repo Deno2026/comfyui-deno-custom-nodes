@@ -151,14 +151,9 @@ def _collect_model_roots() -> List[Dict]:
             elif resolved.name.lower() == "models":
                 add(resolved, "ComfyUI models root")
 
-    for root in roots.values():
-        root["existing_count"] = sum(
-            1 for item in MODEL_FILES if _public_file(root["path"], item)["status"] == "exists"
-        )
-
     return sorted(
         roots.values(),
-        key=lambda item: (-int(item["existing_count"]), 0 if item["source"] != "default" else 1, item["path"].casefold()),
+        key=lambda item: (0 if item["source"] == "default" else 1, item["path"].casefold()),
     )
 
 
@@ -331,7 +326,14 @@ def _scan_for_filename(base_dirs: Iterable[Path], filename: str, expected_size: 
     return None
 
 
-def _resolve_target_file(models_root: str, target_subdir: str, filename: str, expected_size: int) -> Dict:
+def _resolve_target_file(
+    models_root: str,
+    target_subdir: str,
+    filename: str,
+    expected_size: int,
+    *,
+    allow_deep_scan: bool = False,
+) -> Dict:
     relative_path, configured_label = _safe_relative_path(target_subdir, filename)
     root = Path(models_root)
     candidates = _target_path_candidates(models_root, target_subdir, filename)
@@ -348,7 +350,7 @@ def _resolve_target_file(models_root: str, target_subdir: str, filename: str, ex
             found_by = "registered" if candidate != candidates[0] else "configured"
             break
 
-    if status == "missing":
+    if status == "missing" and allow_deep_scan:
         scanned = _scan_for_filename((candidate.parent for candidate in candidates), filename, expected_size)
         if scanned is not None:
             target = scanned
