@@ -396,7 +396,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.18-resolution-import-a"' in script
+    assert 'IDD_REV = "r2026.06.18-bbox-ergonomics-b"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
@@ -503,8 +503,12 @@ def test_ideogram_director_history_and_translate_refresh_buttons_are_wired():
 
     assert 'const undoBtn = mkBtn("↶")' in script
     assert 'const redoBtn = mkBtn("↷")' in script
-    assert 'undoBtn.title = "Undo board edit (Ctrl+Z)"' in script
-    assert 'redoBtn.title = "Redo board edit (Ctrl+Y)"' in script
+    assert 'undoBtn.title = "Undo board edit"' in script
+    assert 'redoBtn.title = "Redo board edit"' in script
+    assert "ComfyUI owns global" in script
+    assert "Ctrl+Z/Y" in script
+    assert 'undoBtn.title = "Undo board edit (Ctrl+Z)"' not in script
+    assert 'redoBtn.title = "Redo board edit (Ctrl+Y)"' not in script
     assert "undoBtn.disabled = !undoStack.length;" in script
     assert "redoBtn.disabled = !redoStack.length;" in script
     assert "undoBtn.onclick = (e) => { e.stopPropagation(); undo(); };" in script

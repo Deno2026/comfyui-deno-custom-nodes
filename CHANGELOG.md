@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.44 - 2026-06-18
+
+- Improved Ideogram Director bbox editing ergonomics: tiny boxes are easier to drag from the number badge, stale pixel-size popups no longer cover the board, and board undo/redo stays on the visible `↶` / `↷` buttons without taking over ComfyUI's graph undo.
+
 ## 0.7.43 - 2026-06-18
 
 - Preserved saved LoRA selections in Multi LoRA and LTX Multi LoRA workflows even when a saved LoRA file is missing from the current PC's dropdown list.

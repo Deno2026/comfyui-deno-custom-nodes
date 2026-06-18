@@ -43,7 +43,32 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.43`.
+Current public release attempt: `0.7.44`.
+
+0.7.44 release scope:
+
+- Ideogram Director bbox ergonomics hotfix after Reddit/GitHub feedback and PR #28 review.
+- PR #28 was not merged as-is because it regressed the 0.7.43 resolution-import guard. Only the
+  useful intent was adapted.
+- Tiny/overlapping bbox editing is easier because the top-left number badge has a larger move hit
+  target.
+- The stale live pixel-size tooltip is disabled so it no longer covers the board or displays frozen
+  dimensions during drags.
+- `Ctrl/Cmd`+drag copy is hardened so pressing the modifier before or during a move duplicates the
+  selected box.
+- Ideogram Director no longer captures global `Ctrl+Z` / `Ctrl+Y`; ComfyUI keeps graph undo/redo,
+  and board-only undo/redo stays on the visible `↶` / `↷` buttons.
+
+0.7.44 verification evidence:
+
+- User manually confirmed the bbox behavior works before deploy approval.
+- Source/runtime JS marker: `r2026.06.18-bbox-ergonomics-b`.
+- Static checks: `node --check` on `web/js/deno_ideogram_director.js`, `git diff --check`.
+- Full test suite: `python -m pytest -q` -> `201 passed`.
+- Independent release reviewer `019ed8f8-8216-74d0-8d27-99facbbec5e7` returned PASS for public
+  release and was closed.
+
+Previous public release context: `0.7.43`.
 
 0.7.43 release worktree:
 
@@ -190,6 +215,17 @@ Current files:
 - `web/js/styles/`
 - `deno_translate_engine.py`
 - `docs/nodes/ideogram-director/`
+
+0.7.44 local runtime state:
+
+- Bbox ergonomics follow-up lives in release worktree
+  `E:\DENO-Share\agent-worktrees\comfyui-deno-custom-nodes-0.7.43-release`.
+- Director board history should stay node-owned through the visible bottom `↶` / `↷` buttons.
+  Do not capture global `Ctrl+Z` / `Ctrl+Y`; ComfyUI owns graph-level undo/redo and capturing it can
+  make the whole canvas feel like it flickers or resets.
+- Current local marker: `r2026.06.18-bbox-ergonomics-b`; source JS was synced to Easy-Install `8188`
+  and Desktop `8000` with matching hashes and served marker checks. Browser tabs still need
+  `Ctrl+Shift+R` to pick up the new static file.
 
 ### Local LLM Loader / Reviewer
 

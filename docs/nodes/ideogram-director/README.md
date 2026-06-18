@@ -66,7 +66,7 @@ approves those nodes separately.
   visually front-to-back while the official caption output keeps the existing `boxes.map(...)`
   order. Dragging an element row shows a horizontal insertion line before drop, and auto editor
   colors are stored per box (`uiColor`) so reordering does not repaint the boxes. The bottom bar
-  includes visible undo/redo buttons (`↶` / `↷`) that call the same node-owned history as Ctrl+Z/Y.
+  includes visible undo/redo buttons (`↶` / `↷`) that call the node-owned board history.
   The top-bar `↻` language refresh button retranslates the current editable board through the saved
   translation engine/fallback flow, useful after loading a layout or pasted JSON while a non-English
   view language is selected. Legacy TEXT captions where the literal rendered word is only in `desc`
@@ -102,6 +102,13 @@ approves those nodes separately.
   overlapping, the top-left number badge is the primary move handle. It sits above the enlarged
   resize-handle hit area and starts `move` directly, so users can drag from the number label while
   edge/corner handles remain available for resizing.
+- Bbox ergonomics follow-up (local, 2026-06-18): the stage-edge clamp is intentional. A bbox should
+  stop naturally at the generation canvas boundary instead of being dragged outside the board. The
+  old floating pixel-size tooltip is intentionally disabled because a stale-looking readout distracts
+  during move/resize; if size feedback returns later, it must update live and not cover small boxes.
+  Ctrl/Cmd+drag must duplicate while moving. Keyboard Ctrl+Z/Ctrl+Y is intentionally not claimed by
+  the Director because ComfyUI already owns graph-level undo/redo; use the visible bottom `↶` / `↷`
+  buttons for board-only undo/redo.
 - Sizing hotfix (2026-06-16): a user report that Ideogram Director can shrink to about half height
   after interaction was confirmed as a real `computeSize()` contract risk. Normal synthetic clicks
   stayed stable, but a Comfy/LiteGraph fit path equivalent to
@@ -212,7 +219,7 @@ approves those nodes separately.
   bbox visibility toggle
   (B key); fullscreen; **seed pill with an explicit two-segment switch `[Fixed | Random]`**
   (active segment filled — green Fixed / amber Random — number dims when Random; rev `-j`);
-  node-owned Ctrl+Z/Y (never reaches graph undo; text fields keep native undo); board/photo/bbox
+  visible board undo/redo buttons (`↶` / `↷`) instead of claiming ComfyUI's Ctrl+Z/Y; board/photo/bbox
   wheel and middle-click are canvas-first (ComfyUI zoom/pan), while the right rail and gallery lists
   keep local wheel scroll; Language can translate the editable board view while Copy JSON copies
   the OFFICIAL caption in the configured output language.

@@ -738,7 +738,8 @@
 .idd-box.hov{box-shadow:0 0 0 1px rgba(0,0,0,.6),0 0 0 2px color-mix(in srgb,var(--bc,#4ecb8d) 55%,transparent) !important;}
 .idd-box .tag{color:#0b1410 !important;border-radius:0 0 5px 0 !important;
   font:600 10px "Cascadia Code","Consolas",ui-monospace,monospace !important;box-shadow:0 1px 2px rgba(0,0,0,.4);
-  cursor:move !important;z-index:6 !important;touch-action:none !important;user-select:none !important;}
+  cursor:move !important;z-index:6 !important;touch-action:none !important;user-select:none !important;
+  min-width:20px !important;min-height:15px !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;}
 .idd-box .lab{color:#f2f5f3 !important;font:11px/1.4 "Segoe UI Variable Text","Segoe UI",sans-serif !important;
   text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 5px rgba(0,0,0,.75) !important;}
 .idd-h{background:var(--bc,#4ecb8d) !important;border:1px solid #0b1410 !important;border-radius:2px !important;
@@ -1156,7 +1157,8 @@
       .idd-box.text{border-style:dashed;}
       .idd-box.sel{box-shadow:0 0 0 1px #041208,0 0 10px var(--gdim);background:rgba(72,255,132,.13);}
       .idd-box .tag{position:absolute;top:0;left:0;z-index:6;background:var(--g);color:#041208;font:bold 10px monospace;
-        padding:1px 5px;border-radius:0 0 4px 0;cursor:move;touch-action:none;user-select:none;}
+        min-width:20px;min-height:15px;padding:1px 5px;border-radius:0 0 4px 0;cursor:move;touch-action:none;user-select:none;
+        display:inline-flex;align-items:center;justify-content:center;}
       .idd-box .lab{position:absolute;top:16px;left:3px;right:3px;bottom:3px;color:#eafff0;font:11px/1.35 'Segoe UI';
         text-shadow:0 1px 2px #000,0 0 4px #000a;overflow:hidden;white-space:normal;overflow-wrap:anywhere;pointer-events:none;}
       .idd-h{position:absolute;width:9px;height:9px;background:var(--g);border:1px solid #041208;border-radius:2px;
@@ -1462,6 +1464,15 @@
         // ── undo/redo: one linear history of the board+panel state. Each change → one serialize() →
         // one step (a drag burst is a single serialize on pointerup → a single step). Scoped to the node. ──
         let undoStack = [], redoStack = [], lastSnap = null, restoring = false;
+        let paintHistoryQueued = false;
+        function paintHistorySoon() {
+          if (paintHistoryQueued) return;
+          paintHistoryQueued = true;
+          requestAnimationFrame(() => {
+            paintHistoryQueued = false;
+            paintHistory();
+          });
+        }
         function snapshot() {
           return JSON.stringify({ boxes, stylePalette, styleMode, selId: selectedId,
             hld: summary.value, bg: bgArea.value, aes: aesIn.value, lig: ligIn.value,
@@ -1491,13 +1502,13 @@
           renderBoxes(); renderPalette(); renderElements(); layoutStage(); applyBackdrop(); applyResultDim();
           serialize(); restoring = false; paintHistory();   // persist; restoring guard kept commit() a no-op
         }
-        function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); lastSnap = undoStack.pop(); applySnap(lastSnap); paintHistory(); }
-        function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); lastSnap = redoStack.pop(); applySnap(lastSnap); paintHistory(); }
+        function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); lastSnap = undoStack.pop(); applySnap(lastSnap); paintHistory(); paintHistorySoon(); }
+        function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); lastSnap = redoStack.pop(); applySnap(lastSnap); paintHistory(); paintHistorySoon(); }
 
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.18-resolution-import-a";
+        const IDD_REV = "r2026.06.18-bbox-ergonomics-b";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -2803,7 +2814,7 @@
           paintRegen();
         }
         const bdHandle = el("div", "idd-bdhandle"); bdHandle.style.display = "none"; board.append(bdHandle);
-        const dimTip = el("div", "idd-dimtip"); dimTip.style.display = "none"; board.append(dimTip);   // live W×H while dragging/resizing
+        const dimTip = el("div", "idd-dimtip"); dimTip.style.display = "none"; board.append(dimTip);   // legacy holder; kept hidden so old CSS/state cannot leak
         function setBdEdit(on) {
           bdEdit = on; bdEditBtn.classList.toggle("on", on); bdrop.classList.toggle("edit", on);
           bdHandle.style.display = on ? "block" : "none";
@@ -3683,9 +3694,9 @@
         auto.title = "Auto-save every result image as it arrives (toggle)";
         copy.title = "Copy the board as official Ideogram caption JSON (exactly what the node outputs)";
         paste.title = "Paste a caption JSON onto the board — official Ideogram format (LLM output, shared prompts) or a board copy";
-        clear.title = "Remove all boxes and reset the fields — Ctrl+Z undoes it";
-        undoBtn.title = "Undo board edit (Ctrl+Z)";
-        redoBtn.title = "Redo board edit (Ctrl+Y)";
+        clear.title = "Remove all boxes and reset the fields — use ↶ to undo it";
+        undoBtn.title = "Undo board edit";
+        redoBtn.title = "Redo board edit";
         // toggle affordance: the leading ●/○ shows the auto-save STATE at a glance
         const paintAuto = () => { auto.textContent = (autoOn ? "● " : "○ ") + "Auto-save"; auto.classList.toggle("on", autoOn); };
         // save is meaningless before a result exists; success flashes confirmation
@@ -3880,14 +3891,11 @@
           b.x = nx; b.y = ny;
           b.w = Math.min(Math.abs(x2 - x1), 1 - nx); b.h = Math.min(Math.abs(y2 - y1), 1 - ny);
         }
-        // live W×H readout (in target pixels) near the cursor while dragging/resizing/drawing
-        function showDimTip(b, e) {
-          const W2 = +getW("width", 1024), H2 = +getW("height", 1024);
-          dimTip.textContent = Math.round(b.w * W2) + " × " + Math.round(b.h * H2) + " px";
-          const br = board.getBoundingClientRect();
-          dimTip.style.left = Math.max(2, Math.min(e.clientX - br.left + 14, board.clientWidth - 86)) + "px";
-          dimTip.style.top = Math.max(2, Math.min(e.clientY - br.top + 14, board.clientHeight - 22)) + "px";
-          dimTip.style.display = "block";
+        // The old live W×H readout was more distracting than useful: during move it looked stale,
+        // and during small-box edits it hid the target. Keep the element as a compatibility no-op.
+        function hideDimTip() {
+          dimTip.textContent = "";
+          dimTip.style.display = "none";
         }
         // Update only the .sel class on the existing box divs — do NOT recreate them. Recreating divs
         // on every click breaks native dblclick: the two clicks land on different DOM nodes so the
@@ -3898,24 +3906,33 @@
         // markSel only toggles .sel (does NOT recreate box divs) so native dblclick-to-edit stays intact.
         function setSel(id) { selectedId = id; markSel(); renderElements(); }
         let drag = null;
+        function cloneBoxForDrag(i) {
+          const src = boxes[i];
+          if (!src) return i;
+          const cp = Object.assign({}, src, {
+            id: _bid++,
+            palette: (src.palette || []).slice(),
+            uiColor: uiColorForIndex(boxes.length),
+          });
+          boxes.splice(i + 1, 0, cp);
+          return i + 1;
+        }
         function onBoxDown(e, i, mode, dir) {
-          if (e.button !== 0) return; e.stopPropagation();
+          if (e.button !== 0) return; e.stopPropagation(); e.preventDefault();
           // Ctrl(⌘)+drag on a box = drag a COPY (the original stays put)
           if (mode === "move" && (e.ctrlKey || e.metaKey)) {
-            const src = boxes[i];
-            const cp = Object.assign({}, src, { id: _bid++, palette: (src.palette || []).slice(), uiColor: uiColorForIndex(boxes.length) });
-            boxes.splice(i + 1, 0, cp); i = i + 1;
+            i = cloneBoxForDrag(i);
             renderBoxes(); renderElements();
           }
           setSel(boxes[i].id);
           try { wrap.focus({ preventScroll: true }); } catch (x) {}   // make the board keyboard-active (arrows/Tab/Del)
           const p = rel(e), b = boxes[i];
           drag = { i, mode, dir, ox: p.x - b.x, oy: p.y - b.y, sx: e.clientX, sy: e.clientY,
-                   bx: b.x, by: b.y, moved: false };
+                   bx: b.x, by: b.y, moved: false, copied: mode === "move" && (e.ctrlKey || e.metaKey) };
           window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
         }
         ov.addEventListener("pointerdown", (e) => {
-          if (e.button !== 0 || e.target !== ov) return; e.stopPropagation();
+          if (e.button !== 0 || e.target !== ov) return; e.stopPropagation(); e.preventDefault();
           const p = rel(e);
           const b = { id: _bid++, x: p.x, y: p.y, w: 0, h: 0, type: "obj", text: "", desc: "", palette: [], uiColor: uiColorForIndex(boxes.length) };
           boxes.push(b); selectedId = b.id;
@@ -3928,6 +3945,17 @@
           // break dblclick). A draw is always intentional; tiny draws are dropped by the w<0.02 check.
           if (drag.mode !== "draw" && !drag.moved && Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) < 4) return;
           drag.moved = true;
+          if (drag.mode === "move" && !drag.copied && (e.ctrlKey || e.metaKey)) {
+            const old = boxes[drag.i];
+            drag.i = cloneBoxForDrag(drag.i);
+            const cp = boxes[drag.i];
+            if (old && cp) {
+              cp.x = old.x; cp.y = old.y; cp.w = old.w; cp.h = old.h;
+              selectedId = cp.id;
+            }
+            drag.copied = true;
+            renderElements();
+          }
           const p = rel(e); const b = boxes[drag.i]; if (!b) return;
           // move: clamp so the WHOLE box stays inside the stage (image) — top-left AND bottom-right.
           // (clamp01 on just the top-left lets a tall/wide box overflow the bottom/right edge.)
@@ -3941,11 +3969,11 @@
           }
           else if (drag.mode === "resize") { resizeBox(b, drag.dir, p); }
           else { b.x = Math.min(drag.ox, p.x); b.y = Math.min(drag.oy, p.y); b.w = Math.abs(p.x - drag.ox); b.h = Math.abs(p.y - drag.oy); }
-          showDimTip(b, e); renderBoxes();
+          hideDimTip(); renderBoxes();
         }
         function onUp() {
           window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp);
-          dimTip.style.display = "none";
+          hideDimTip();
           const wasDraw = !!drag && drag.mode === "draw";
           if (wasDraw) { const b = boxes[drag.i]; if (!b || b.w < 0.02 || b.h < 0.02) { boxes.splice(drag.i, 1); selectedId = null; } }
           const changed = !!drag && (drag.moved || wasDraw);
@@ -4038,15 +4066,9 @@
             close(); renderBoxes(); renderElements(); serialize();
           };
         }
-        // Delete selected box
-        // ── Ctrl+Z OWNERSHIP: while you're working ANYWHERE inside this node, undo/redo means the
-        // BOARD's history — never ComfyUI's graph undo (that one restores old widget values and
-        // reads as "the node reset itself"). Two parts:
-        //  1) every click inside the node hands keyboard focus back to the board (clicks INTO text
-        //     fields keep their own focus so typing works),
-        //  2) a CAPTURE-phase key handler claims Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / Ctrl+Enter no
-        //     matter which inner element holds focus. Inside text fields the event is still fenced
-        //     off from ComfyUI, but the browser's native TEXT undo is left alone.
+        // Delete selected box. Board shortcuts are intentionally conservative: ComfyUI owns global
+        // graph shortcuts such as Ctrl+Z/Y, while the Director's board history uses the visible
+        // bottom ↶/↷ buttons. Text inputs keep native text undo.
         const isTextEntry = (t) => {
           if (!t || !t.tagName) return false;
           if (t.tagName === "TEXTAREA") return true;
@@ -4058,21 +4080,7 @@
           if (!isTextEntry(e.target)) setTimeout(() => { try { wrap.focus({ preventScroll: true }); } catch (x) {} }, 0);
         }, true);
         wrap.addEventListener("keydown", (e) => {
-          const ctrl = e.ctrlKey || e.metaKey;
-          if (!ctrl) return;
-          const k = (e.key || "").toLowerCase();
-          if (k === "enter") { e.preventDefault(); e.stopPropagation(); regen.click(); return; }
-          if (k !== "z" && k !== "y") return;
-          e.stopPropagation();                             // fence ComfyUI's graph undo out, always
-          if (isTextEntry(e.target)) return;               // text fields keep native text undo
-          e.preventDefault();
-          if (k === "y" || (k === "z" && e.shiftKey)) redo(); else undo();
-        }, true);
-
-        wrap.addEventListener("keydown", (e) => {
           if (document.activeElement !== wrap) return;   // only when the board (not a text field) is focused
-          // (Ctrl+Z / Ctrl+Y / Ctrl+Enter live in the CAPTURE-phase handler above — they work from
-          // anywhere inside the node, so they're not repeated here.)
           const sb = selectedId != null ? boxes.find((x) => x.id === selectedId) : null;
           if (e.key === "Delete" || e.key === "Backspace") {
             // ALWAYS swallow while the board is focused — otherwise ComfyUI's global hotkey
