@@ -10,7 +10,15 @@ from aiohttp import web
 from PIL import Image, ImageOps
 from server import PromptServer
 
-from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, RESIZE_METHODS, compute_aligned_ratio_dims, round_up
+from .deno_resolution_common import (
+    COMMON_RATIOS,
+    DIVISIBLE_BY_VALUES,
+    RESIZE_METHODS,
+    compute_aligned_ratio_dims,
+    round_up,
+    validate_combo_choice,
+    validate_active_ratio_preset,
+)
 
 
 IMAGE_INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
@@ -392,7 +400,26 @@ class DenoMultiImageLoader:
     CATEGORY = "Deno/Image"
 
     @classmethod
-    def VALIDATE_INPUTS(cls, image_paths):
+    def VALIDATE_INPUTS(
+        cls,
+        image_paths,
+        mode=None,
+        ratio_preset=None,
+        divisible_by=None,
+        interpolation=None,
+        resize_method=None,
+    ):
+        for result in (
+            validate_combo_choice("mode", mode, ["Keep Input Ratio", "Preset Ratio", "Manual Input"]),
+            validate_combo_choice("divisible_by", divisible_by, DIVISIBLE_BY_VALUES),
+            validate_combo_choice("interpolation", interpolation, IMAGE_INTERPOLATION_MODES),
+            validate_combo_choice("resize_method", resize_method, RESIZE_METHODS),
+        ):
+            if result is not True:
+                return result
+        ratio_result = validate_active_ratio_preset(mode, ratio_preset)
+        if ratio_result is not True:
+            return ratio_result
         failed_paths = _selected_image_errors(image_paths)
         if failed_paths:
             return (

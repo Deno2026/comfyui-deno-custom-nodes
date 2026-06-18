@@ -32,6 +32,33 @@ def parse_ratio(ratio_preset: str) -> Tuple[int, int]:
     return int(ratio_x), int(ratio_y)
 
 
+def is_common_ratio(ratio_preset: str) -> bool:
+    return str(ratio_preset or "").strip() in COMMON_RATIOS
+
+
+def validate_combo_choice(name: str, value, choices, *, aliases=None, allow_blank: bool = False):
+    if value is None:
+        return True
+    text = str(value or "").strip()
+    if allow_blank and not text:
+        return True
+    aliases = aliases or {}
+    normalized = str(aliases.get(text, text)).strip()
+    allowed = {str(choice).strip() for choice in choices}
+    if normalized in allowed:
+        return True
+    return f"{name} is not available: {text or '(empty)'}"
+
+
+def validate_active_ratio_preset(mode: str, ratio_preset: str, *, active_mode: str = "Preset Ratio"):
+    if str(mode or "").strip() != active_mode:
+        return True
+    value = str(ratio_preset or "").strip()
+    if is_common_ratio(value):
+        return True
+    return f"ratio_preset is not available for {active_mode}: {value or '(empty)'}"
+
+
 def simplify_ratio(width: int, height: int) -> str:
     gcd = math.gcd(int(width), int(height))
     return f"{width // gcd}:{height // gcd}"

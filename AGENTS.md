@@ -108,6 +108,11 @@ Common requirements:
   but the real canvas reopens with the visible control, row, toggle, model, prompt, or numeric value
   wrong. Saved data and visible UI restoration must match after `Ctrl+S -> Ctrl+Shift+R/F5 -> reopen`.
   Do not call a node compatible just because the raw JSON still contains the value.
+- Hard gate for missing saved combo values: ComfyUI may validate combo values before the node function
+  runs. For any node with file/model/LoRA/provider/preset/mode combos, test a saved value that is not
+  in the current option list. Disabled/off/hidden/out-of-active-range values must not block
+  pre-execution validation; enabled/active missing values must fail clearly. Backend code that would
+  ignore the value later is not enough.
 - Use API-first, browser-last verification for ComfyUI UI work. First verify source/runtime hashes, `/queue`, `/object_info`, served JS markers, backend logs, and `/prompt` or WebSocket events. Use the browser only for final fresh-canvas visual/interaction proof, screenshot, and console errors. Do not waste time scraping LiteGraph internals from the browser when the same fact can be checked through ComfyUI APIs or tests.
 - During Codex UI verification, treat the current ComfyUI browser canvas as disposable when the user has saved anything important and `/queue` is idle. Codex may reload, close/reopen, or clear/recreate a test canvas to force fresh frontend JS and clean node state. This never means deleting saved workflow files.
 - If the Codex in-app Browser / Chrome plugin control channel is closed, do not stop at "browser unavailable" or repeatedly ask the user to refresh. First use the local Chrome DevTools fallback `tools/comfyui_cdp_probe.ps1` for a headless ComfyUI screenshot and DOM/title check. If a separate disposable browser is useful, run the same helper with `-Visible -KeepOpen` to open an isolated Chrome window instead of touching the user's current tab. Ask the user to open or refresh the in-app browser only when real hover/click checks must happen in the user's live side panel.
@@ -136,6 +141,10 @@ Hard release gate: every node/workflow touched by a public release must have sav
 - Check both raw saved values and visible restored values. A saved `true` that reopens as an off
   toggle, a saved model that reopens as another row/default, or a saved prompt that appears under the
   wrong label is a release blocker even if the JSON still contains the original data.
+- Check missing saved combo values before release. A workflow saved on another PC or with a removed
+  USB/external drive must not be rejected merely because a disabled/off/unused combo value is absent
+  from the current option list. If the missing value is enabled/active, the error must name the
+  specific slot or field.
 - If a node ID changed, use ComfyUI node replacement metadata where possible instead of exposing duplicate legacy menu nodes.
 - If only widget/input/output structure changed, add narrow frontend/backend migration and normalization rather than silently dropping old values.
 - Migration code can create new bugs. Any migration change must be tested against both old saved workflows and freshly created current nodes.

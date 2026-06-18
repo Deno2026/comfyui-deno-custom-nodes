@@ -16,7 +16,7 @@ import contextlib
 
 import torch
 
-from .deno_resolution_common import COMMON_RATIOS, RESIZE_METHODS
+from .deno_resolution_common import COMMON_RATIOS, RESIZE_METHODS, validate_combo_choice, validate_active_ratio_preset
 from .deno_rtx_vfx_easy_upscale import (
     RTX_VFX_DEFAULT_DIVISIBLE_BY,
     RTX_VFX_DIVISIBLE_BY_VALUES,
@@ -96,6 +96,41 @@ class DenoRTXVFXVideoFinisher:
     RETURN_NAMES = ("images",)
     FUNCTION = "apply_finisher"
     CATEGORY = "Deno/Image"
+
+    @classmethod
+    def VALIDATE_INPUTS(
+        cls,
+        first_pass=None,
+        first_quality=None,
+        upscale_pass=None,
+        upscale_quality=None,
+        resize_type=None,
+        divisible_by=None,
+        ratio_preset=None,
+        resize_method=None,
+    ):
+        first_pass_result = validate_combo_choice("first_pass", first_pass, FIRST_PASS_CHOICES)
+        if first_pass_result is not True:
+            return first_pass_result
+        if str(first_pass or "").strip() in {"Denoise", "Deblur"}:
+            first_quality_result = validate_combo_choice("first_quality", first_quality, QUALITY_CHOICES)
+            if first_quality_result is not True:
+                return first_quality_result
+
+        upscale_pass_result = validate_combo_choice("upscale_pass", upscale_pass, UPSCALE_PASS_CHOICES)
+        if upscale_pass_result is not True:
+            return upscale_pass_result
+        if str(upscale_pass or "").strip() not in {"VSR", "High Bitrate"}:
+            return True
+        for result in (
+            validate_combo_choice("upscale_quality", upscale_quality, QUALITY_CHOICES),
+            validate_combo_choice("resize_type", resize_type, FINISHER_RESIZE_TYPES),
+            validate_combo_choice("divisible_by", divisible_by, RTX_VFX_DIVISIBLE_BY_VALUES),
+            validate_combo_choice("resize_method", resize_method, RESIZE_METHODS),
+        ):
+            if result is not True:
+                return result
+        return validate_active_ratio_preset(resize_type, ratio_preset)
 
     def apply_finisher(
         self,

@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.46 - 2026-06-18
+
+- Hardened saved-workflow compatibility for stale combo values across prompt guides, Local LLM nodes, Ideogram Director, resize/image utilities, video compare, and RTX VFX helpers.
+- Disabled, hidden, off, or inactive saved options from missing drives or older workflows no longer block ComfyUI before the node can ignore them. Active missing options still stop with a clearer field-specific message.
+
 ## 0.7.45 - 2026-06-18
 
 - Fixed Multi LoRA and LTX Multi LoRA saved-workflow validation so disabled LoRA slots no longer block execution when their saved file is on a removed external drive or USB. Enabled missing LoRAs still stop with a clear slot-specific message.

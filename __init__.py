@@ -16,9 +16,25 @@ except ImportError:
 prefer_rtx_vfx_runtime_path()
 
 try:
-    from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
+    from .deno_resolution_common import (
+        COMMON_RATIOS,
+        DIVISIBLE_BY_VALUES,
+        PREFERRED_DIMENSIONS,
+        RESIZE_METHODS,
+        parse_ratio,
+        validate_combo_choice,
+        validate_active_ratio_preset,
+    )
 except ImportError:
-    from deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, PREFERRED_DIMENSIONS, RESIZE_METHODS, parse_ratio
+    from deno_resolution_common import (
+        COMMON_RATIOS,
+        DIVISIBLE_BY_VALUES,
+        PREFERRED_DIMENSIONS,
+        RESIZE_METHODS,
+        parse_ratio,
+        validate_combo_choice,
+        validate_active_ratio_preset,
+    )
 
 try:
     from .deno_node_metadata import decorate_node_classes
@@ -270,6 +286,25 @@ class DenoResolutionSetup:
     RETURN_NAMES = ("image", "width", "height")
     FUNCTION = "setup_resolution"
     CATEGORY = "Deno/Image"
+
+    @classmethod
+    def VALIDATE_INPUTS(
+        cls,
+        mode=None,
+        ratio_preset=None,
+        divisible_by=None,
+        resize_method=None,
+        interpolation=None,
+    ):
+        for result in (
+            validate_combo_choice("mode", mode, ["Preset Ratio", "Manual Input", "Keep Input Ratio"]),
+            validate_combo_choice("divisible_by", divisible_by, DIVISIBLE_BY_VALUES),
+            validate_combo_choice("resize_method", resize_method, RESIZE_METHODS),
+            validate_combo_choice("interpolation", interpolation, INTERPOLATION_MODES),
+        ):
+            if result is not True:
+                return result
+        return validate_active_ratio_preset(mode, ratio_preset)
 
     def calculate_dims(
         self,

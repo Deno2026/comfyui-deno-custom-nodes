@@ -38,6 +38,11 @@ try:
 except Exception:  # pragma: no cover - ComfyUI provides this at runtime.
     comfy_model_management = None
 
+try:
+    from .deno_resolution_common import validate_combo_choice
+except Exception:  # pragma: no cover - direct import during local tests
+    from deno_resolution_common import validate_combo_choice
+
 
 PROVIDER_OLLAMA = "Ollama"
 PROVIDER_LM_STUDIO = "LM Studio"
@@ -1720,11 +1725,32 @@ class DenoLocalLLMRefiner:
         return _local_llm_cache_key(kwargs)
 
     @classmethod
-    def VALIDATE_INPUTS(cls, provider=None, ollama_model=None, lm_studio_model=None, custom_model=None):
+    def VALIDATE_INPUTS(
+        cls,
+        provider=None,
+        ollama_model=None,
+        lm_studio_model=None,
+        custom_model=None,
+        seed_mode=None,
+        model_memory=None,
+        comfy_vram_policy=None,
+    ):
         raw_provider_value = str(_extract_scalar(provider, PROVIDER_OLLAMA) or "").strip()
         if raw_provider_value not in PROVIDERS and raw_provider_value != LEGACY_PROVIDER_CUSTOM:
             return "Provider must be Ollama or LM Studio."
         provider_value = _normalize_provider(raw_provider_value)
+        for result in (
+            validate_combo_choice("seed_mode", seed_mode, SEED_MODE_OPTIONS, aliases={"random": SEED_MODE_RANDOMIZE}),
+            validate_combo_choice("model_memory", model_memory, MODEL_MEMORY_OPTIONS, aliases=MODEL_MEMORY_ALIASES),
+            validate_combo_choice(
+                "comfy_vram_policy",
+                comfy_vram_policy,
+                COMFY_VRAM_POLICY_OPTIONS,
+                aliases=COMFY_VRAM_POLICY_ALIASES,
+            ),
+        ):
+            if result is not True:
+                return result
         ollama_value = str(_extract_scalar(ollama_model, "") or "").strip()
         lm_studio_value = str(_extract_scalar(lm_studio_model, "") or "").strip()
 
@@ -2214,6 +2240,15 @@ class DenoAIReviewGate:
     FUNCTION = "gate"
     OUTPUT_NODE = True
     CATEGORY = "Deno/LLM"
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, review_mode=None):
+        return validate_combo_choice(
+            "review_mode",
+            review_mode,
+            ["Review", "Pass"],
+            aliases={"Legacy Review": "Review"},
+        )
 
     def gate(
         self,

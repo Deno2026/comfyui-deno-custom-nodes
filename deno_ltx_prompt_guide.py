@@ -66,6 +66,10 @@ class DenoLTXPromptGuide:
     FUNCTION = "build"
     CATEGORY = "Deno/LTX"
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, language=None):
+        return True
+
     def build(
         self,
         clip,

@@ -186,6 +186,10 @@ class DenoBerniniPromptGuide:
     FUNCTION = "build"
     CATEGORY = "Deno/Bernini"
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, task_type=None, negative_preset=None):
+        return True
+
     def build(
         self,
         clip,

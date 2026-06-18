@@ -435,6 +435,10 @@ class DenoVideoCompare:
     CATEGORY = "Deno/Image"
     OUTPUT_NODE = True
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, mode=None, toggle_image=None):
+        return True
+
     def compare_videos(self, mode, split_position, toggle_image, swap, fps,
                        burn_labels=False,
                        video_a=None, video_b=None, audio_a=None, audio_b=None):

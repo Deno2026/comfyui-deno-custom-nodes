@@ -408,6 +408,19 @@ def test_ideogram_director_compute_size_guard_allows_user_shrink():
     assert 'window.removeEventListener("pointercancel", end, true)' in script
 
 
+def test_ideogram_director_validation_accepts_stale_style_combo_values():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoIdeogramDirector"]
+
+    assert node_cls.VALIDATE_INPUTS(
+        style_mode="cinematic",
+        import_mode="Ask before replacing board",
+        translate_output="English",
+        view_language="Original (as written)",
+        translation_engine="Google",
+    ) is True
+
+
 def test_ideogram_director_recreate_node_restores_default_size_when_small():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
@@ -1245,13 +1258,20 @@ def test_multi_image_loader_validates_selected_files_before_execution():
     assert "shots/missing.png" in missing_result
 
 
-def test_multi_image_loader_validate_inputs_does_not_disable_builtin_validation():
+def test_multi_image_loader_validate_inputs_only_bypasses_needed_saved_combos():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
 
     signature = inspect.signature(node_cls.VALIDATE_INPUTS)
 
-    assert list(signature.parameters) == ["image_paths"]
+    assert list(signature.parameters) == [
+        "image_paths",
+        "mode",
+        "ratio_preset",
+        "divisible_by",
+        "interpolation",
+        "resize_method",
+    ]
     assert all(parameter.kind is not inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
 
 
@@ -2060,6 +2080,49 @@ def test_ltx_multi_lora_validation_skips_disabled_missing_saved_lora():
         folder_paths.get_filename_list = original_get_filename_list
 
 
+def test_ltx23_preset_validation_skips_inactive_missing_saved_model_values():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTX23PresetLoader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_full_path = folder_paths.get_full_path
+
+    present = {
+        ("checkpoints", "present.ckpt"),
+        ("text_encoders", "present_text.safetensors"),
+    }
+
+    def fake_get_full_path(folder_name, filename):
+        return str(REPO_ROOT / "models" / folder_name / filename) if (folder_name, filename) in present else None
+
+    try:
+        folder_paths.get_full_path = fake_get_full_path
+        assert (
+            node_cls.VALIDATE_INPUTS(
+                pipeline_mode="Checkpoint Style",
+                checkpoint_name="present.ckpt",
+                text_encoder_name="present_text.safetensors",
+                gguf_unet_name="removed_usb/missing.gguf",
+                video_vae_name="removed_usb/missing_video_vae.safetensors",
+                audio_vae_name="removed_usb/missing_audio_vae.safetensors",
+                text_projection_name="removed_usb/missing_projection.safetensors",
+                clip_device="default",
+                weight_dtype="default",
+            )
+            is True
+        )
+        missing_active = node_cls.VALIDATE_INPUTS(
+            pipeline_mode="Checkpoint Style",
+            checkpoint_name="removed_usb/missing.ckpt",
+            text_encoder_name="present_text.safetensors",
+            clip_device="default",
+            weight_dtype="default",
+        )
+        assert "checkpoint_name" in missing_active
+        assert "not installed" in missing_active
+    finally:
+        folder_paths.get_full_path = original_get_full_path
+
+
 def test_ltx_prompt_guide_encodes_prompts_and_outputs_integer_frame_rate():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXPromptGuide"]
@@ -2071,6 +2134,7 @@ def test_ltx_prompt_guide_encodes_prompts_and_outputs_integer_frame_rate():
     assert node_cls.RETURN_TYPES == ("CONDITIONING", "CONDITIONING", "INT")
     assert node_cls.RETURN_NAMES == ("positive", "negative", "frame_rate")
     assert node_cls.CATEGORY == "Deno/LTX"
+    assert node_cls.VALIDATE_INPUTS(language="Retired Language") is True
 
 
 def test_ltx_prompt_guide_keeps_negative_prompt_when_collapsed():
@@ -2222,6 +2286,12 @@ def test_bernini_prompt_guide_builds_chatlike_prompt_with_reference_hint_and_off
 
 def test_bernini_prompt_guide_legacy_custom_system_falls_back_to_default_and_keeps_negative_presets():
     package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoBerniniPromptGuide"]
+
+    assert node_cls.VALIDATE_INPUTS(
+        task_type="custom",
+        negative_preset="Official Wan2.2 + Custom",
+    ) is True
 
     class RecordingClip:
         def __init__(self):
@@ -3895,6 +3965,42 @@ def test_local_llm_refiner_validation_accepts_only_ollama_and_lm_studio_models()
     assert "qwen3.6:35b-a3b" in missing_saved_result
 
 
+def test_local_llm_and_review_gate_validation_accepts_legacy_saved_combo_labels():
+    package = load_package()
+    loader_cls = package.NODE_CLASS_MAPPINGS["DenoLocalLLMRefiner"]
+    reviewer_cls = package.NODE_CLASS_MAPPINGS["DenoAIReviewGate"]
+
+    assert loader_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="",
+        seed_mode="random",
+        model_memory="Keep loaded",
+        comfy_vram_policy="Always free",
+    ) is True
+    assert reviewer_cls.VALIDATE_INPUTS(review_mode="Legacy Review") is True
+    assert "seed_mode" in loader_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="",
+        seed_mode="shuffle forever",
+        model_memory="Keep loaded",
+        comfy_vram_policy="Always free",
+    )
+    assert "model_memory" in loader_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="",
+        seed_mode="random",
+        model_memory="Keep everything forever",
+        comfy_vram_policy="Always free",
+    )
+    assert "review_mode" in reviewer_cls.VALIDATE_INPUTS(review_mode="Maybe")
+
+
 def test_local_llm_refiner_missing_saved_display_does_not_execute():
     package = load_package()
     node = package.DenoLocalLLMRefiner()
@@ -4250,3 +4356,94 @@ def test_resize_box_keep_input_ratio_mode_uses_source_image_aspect():
     assert round(width / height, 3) == 1.5
     assert abs(megapixels - 2.1) < 0.03
     assert aspect_ratio == "3:2"
+
+
+def test_resolution_related_nodes_skip_inactive_missing_ratio_combo_values():
+    package = load_package()
+
+    resolution_cls = package.NODE_CLASS_MAPPINGS["DenoResolutionSetup"]
+    multi_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
+    advanced_cls = package.NODE_CLASS_MAPPINGS["DenoAdvancedImageSourceLoader"]
+    rtx_cls = package.NODE_CLASS_MAPPINGS["DenoRTXVFXEasyUpscale"]
+    finisher_cls = package.NODE_CLASS_MAPPINGS["DenoRTXVFXVideoFinisher"]
+
+    assert resolution_cls.VALIDATE_INPUTS(mode="Keep Input Ratio", ratio_preset="1712:880") is True
+    assert multi_cls.VALIDATE_INPUTS(image_paths="", mode="Manual Input", ratio_preset="1712:880") is True
+    assert advanced_cls.VALIDATE_INPUTS(mode="Keep Input Ratio", ratio_preset="1712:880") is True
+    assert rtx_cls.VALIDATE_INPUTS(mode="Denoise Medium", resize_type="Preset Ratio", ratio_preset="1712:880") is True
+    assert finisher_cls.VALIDATE_INPUTS(upscale_pass="Off", resize_type="Preset Ratio", ratio_preset="1712:880") is True
+
+    for result in (
+        resolution_cls.VALIDATE_INPUTS(mode="Preset Ratio", ratio_preset="1712:880"),
+        multi_cls.VALIDATE_INPUTS(image_paths="", mode="Preset Ratio", ratio_preset="1712:880"),
+        advanced_cls.VALIDATE_INPUTS(mode="Preset Ratio", ratio_preset="1712:880"),
+        rtx_cls.VALIDATE_INPUTS(mode="VSR Medium", resize_type="Preset Ratio", ratio_preset="1712:880"),
+        finisher_cls.VALIDATE_INPUTS(upscale_pass="VSR", resize_type="Preset Ratio", ratio_preset="1712:880"),
+    ):
+        assert "ratio_preset" in result
+        assert "Preset Ratio" in result
+
+
+def test_resolution_related_nodes_reject_invalid_active_combo_controls():
+    package = load_package()
+
+    resolution_cls = package.NODE_CLASS_MAPPINGS["DenoResolutionSetup"]
+    multi_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
+    advanced_cls = package.NODE_CLASS_MAPPINGS["DenoAdvancedImageSourceLoader"]
+    rtx_cls = package.NODE_CLASS_MAPPINGS["DenoRTXVFXEasyUpscale"]
+    finisher_cls = package.NODE_CLASS_MAPPINGS["DenoRTXVFXVideoFinisher"]
+
+    assert "mode" in resolution_cls.VALIDATE_INPUTS(mode="Whatever", ratio_preset="16:9")
+    assert "divisible_by" in resolution_cls.VALIDATE_INPUTS(mode="Manual Input", divisible_by="7")
+    assert "interpolation" in multi_cls.VALIDATE_INPUTS(
+        image_paths="",
+        mode="Manual Input",
+        ratio_preset="16:9",
+        interpolation="magic",
+    )
+    assert "resize_method" in multi_cls.VALIDATE_INPUTS(
+        image_paths="",
+        mode="Manual Input",
+        ratio_preset="16:9",
+        resize_method="stretch badly",
+    )
+    assert "list_output_mode" in advanced_cls.VALIDATE_INPUTS(
+        mode="Manual Input",
+        ratio_preset="16:9",
+        list_output_mode="Merged List",
+    )
+    assert "mode" in rtx_cls.VALIDATE_INPUTS(
+        mode="VSR Impossible",
+        resize_type="Preset Ratio",
+        ratio_preset="16:9",
+    )
+    assert "resize_type" in rtx_cls.VALIDATE_INPUTS(
+        mode="VSR Medium",
+        resize_type="Fake Resize",
+        ratio_preset="16:9",
+    )
+    assert "upscale_pass" in finisher_cls.VALIDATE_INPUTS(
+        upscale_pass="Maybe",
+        resize_type="Preset Ratio",
+        ratio_preset="16:9",
+    )
+    assert "resize_type" in finisher_cls.VALIDATE_INPUTS(
+        upscale_pass="VSR",
+        resize_type="Fake Resize",
+        ratio_preset="16:9",
+    )
+    assert finisher_cls.VALIDATE_INPUTS(
+        first_pass="Off",
+        first_quality="Retired Quality",
+        upscale_pass="Off",
+        upscale_quality="Retired Quality",
+        resize_type="Retired Resize",
+        ratio_preset="1712:880",
+    ) is True
+
+
+def test_video_compare_validation_accepts_stale_hidden_combo_values():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoVideoCompare"]
+
+    assert node_cls.VALIDATE_INPUTS(mode="A/B", toggle_image="C") is True

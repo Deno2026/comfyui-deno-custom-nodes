@@ -108,6 +108,14 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
   gate is `save -> hard reload/reopen -> inspect the visible UI -> serialize again`, not just
   inspecting the first saved JSON.
 - ComfyUI/LiteGraph combo restore can clamp a saved value to a default before custom setup runs when the saved value is not in the current option list, such as models from `extra_model_paths.yaml`. If the user-selected value must survive F5/reload, store the normalized saved `widgets_values` during `configure()` before LiteGraph mutates widgets, then reapply that saved array during setup before sanitizing. Do not rely on `node.widgets_values` after `configure()` as the source of truth.
+- ComfyUI can validate combo values before the node function runs. A value that is disabled, hidden,
+  outside `active_*`, or intentionally ignored by backend code can still block execution if it is a
+  saved combo value that is no longer in the current option list. This happens before the node gets a
+  chance to skip the slot. Any node with optional/repeatable file, model, LoRA, provider, VAE, text
+  encoder, GGUF, preset, or mode combo rows must have a missing-saved-combo preflight check: saved
+  missing values in disabled/off/unused slots must not block, while enabled/active missing values must
+  fail with a clear message. Use narrow `VALIDATE_INPUTS(..., **kwargs)` or an equivalent contract only
+  when needed; do not clear the saved value to make validation pass.
 - Saved Local LLM model values must be preserved without pretending they are installed on another
   PC. If a saved Ollama/LM Studio model is absent from the current detected provider list, show a
   reversible unavailable value such as `Missing saved model: <model>`, preserve the original id
@@ -194,6 +202,12 @@ Run this before saying a node is done:
 18. Check that wheel over the node still controls ComfyUI canvas zoom/scroll and middle-click / wheel-click drag still pans the canvas unless the pointer is inside a deliberate local scroll area.
 19. Run the frontend geometry gate in the screenshot: no clipped text, no overlapping widget Y positions, panels stay inside the node frame, toggles do not shift unrelated rows, resize grows and shrinks, F5/reopen does not duplicate widgets, lower blank space lets canvas wheel/middle-click work, and a short viewport or zoomed canvas still reads correctly.
 19a. Run the visible restore gate for any node with saved widgets, generated buttons, hidden rows, custom DOM state, or frontend migration: change representative visible values, save, hard reload/reopen, confirm the visible UI matches the saved values, then serialize again and confirm the second save did not overwrite them. A raw JSON value that fails to reappear correctly in the UI is a blocker.
+19b. Run the missing saved combo preflight gate for any node with combo values that can come from the
+   user's files, model folders, providers, presets, or dynamic lists. Simulate a saved combo value that
+   is absent from the current option list. Check enabled/active, disabled/off, hidden, and outside
+   `active_*` states separately. Disabled/off/unused missing values must load and run past validation;
+   enabled/active missing values must stop with a clear slot/field-specific error. Backend "we ignore
+   it later" is not enough because ComfyUI may reject it before node execution.
 20. Hard row-mapping gate: if backend inputs, widget order, hidden fields, combo/default lists, mode tabs, or frontend migration changed, inspect the real canvas row by row. A fresh node and a saved-node/migration case must both show the correct value kind under the correct label; for example `.gguf` under GGUF, VAE files under VAE, text encoders under text encoder, and projections under text projection. Any one-slot shift is a blocker.
 21. If backend inputs, widget order, hidden fields, or frontend migration changed, load or simulate an old saved-node case. Fresh-node testing alone is not enough.
 22. For complex multi-part nodes, test each major function and make sure one fix did not break another feature.
@@ -209,6 +223,10 @@ Run this before saying a node is done:
 - Migration code must be defensive. Reject shifted labels, URLs in model-name fields, booleans in text fields, `NaN` seeds, stale hidden widgets, and old option tokens before they can become active runtime values.
 - Migration can introduce new regressions. Test old saved workflows and freshly created current nodes in the same pass, then verify links, visible controls, output slots, widget values, and execution-critical defaults.
 - A migration is not proven by code inspection alone. Add or update fixture tests using representative old public workflow JSON when possible.
+- Saved combo compatibility must include absent-current-option states, not only preserved JSON values.
+  Test at least one saved workflow where a model/LoRA/provider/preset combo value is missing from the
+  current machine, and verify disabled/off/unused rows do not block ComfyUI's pre-execution
+  validation.
 - Do not call release ready if migration hides active controls, erases saved selections, breaks links, adds duplicate visible nodes, creates UNKNOWN nodes, or only works after manually recreating nodes without documenting that requirement.
 - If compatibility cannot be preserved safely, treat the release as breaking and stop for explicit user approval.
 

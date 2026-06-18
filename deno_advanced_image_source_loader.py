@@ -21,7 +21,15 @@ from .deno_multi_image_board import (
     _resolve_path,
     _split_paths,
 )
-from .deno_resolution_common import COMMON_RATIOS, DIVISIBLE_BY_VALUES, RESIZE_METHODS, compute_aligned_ratio_dims, round_up
+from .deno_resolution_common import (
+    COMMON_RATIOS,
+    DIVISIBLE_BY_VALUES,
+    RESIZE_METHODS,
+    compute_aligned_ratio_dims,
+    round_up,
+    validate_combo_choice,
+    validate_active_ratio_preset,
+)
 
 
 REMOTE_IMAGE_TIMEOUT_SECONDS = 20
@@ -417,6 +425,27 @@ class DenoAdvancedImageSourceLoader:
     OUTPUT_IS_LIST = (False, True, False, False, False)
     FUNCTION = "load_images"
     CATEGORY = "Deno/Image"
+
+    @classmethod
+    def VALIDATE_INPUTS(
+        cls,
+        mode=None,
+        ratio_preset=None,
+        divisible_by=None,
+        interpolation=None,
+        resize_method=None,
+        list_output_mode=None,
+    ):
+        for result in (
+            validate_combo_choice("mode", mode, ["Keep Input Ratio", "Preset Ratio", "Manual Input"]),
+            validate_combo_choice("divisible_by", divisible_by, DIVISIBLE_BY_VALUES),
+            validate_combo_choice("interpolation", interpolation, IMAGE_INTERPOLATION_MODES),
+            validate_combo_choice("resize_method", resize_method, ADVANCED_RESIZE_METHODS),
+            validate_combo_choice("list_output_mode", list_output_mode, ["Original Size", "Match Batch Size"]),
+        ):
+            if result is not True:
+                return result
+        return validate_active_ratio_preset(mode, ratio_preset)
 
     def load_images(
         self,

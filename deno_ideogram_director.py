@@ -746,6 +746,7 @@ class DenoIdeogramDirector:
     @classmethod
     def VALIDATE_INPUTS(
         cls,
+        style_mode=None,
         import_mode=None,
         translate_output=None,
         view_language=None,

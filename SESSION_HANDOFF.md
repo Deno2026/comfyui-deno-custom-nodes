@@ -43,7 +43,49 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.45`.
+Current public release attempt: `0.7.46`.
+
+0.7.46 release scope:
+
+- New lesson added to `AGENTS.md`, `docs/DENO_NODE_RETROSPECTIVE.md`, and local skill
+  `C:\Users\aions\.codex\skills\deno-comfyui-node-maker\SKILL.md`: ComfyUI can reject stale COMBO
+  values before a node function runs, even when the value is disabled, hidden, out of active range, or
+  ignored later by backend code.
+- The pre-release checklist now requires a missing-saved-combo gate: simulate a saved combo value
+  absent from the current option list and check enabled/active, disabled/off, hidden, and outside
+  `active_*` states separately.
+- Parallel read-only audits were collected and closed:
+  - PASS with test-gap notes: Multi LoRA, LTX Multi LoRA, LTX23 Preset Loader.
+  - PASS for Local LLM dynamic missing model handling and Ideogram import/language combos.
+  - RISK fixed locally: Local LLM fixed legacy combos, AI Review Gate mode, LTX Prompt Guide language,
+    Bernini task/negative preset, Ideogram style mode, Video Compare hidden mode/toggle, Resize Box /
+    Multi Image / Advanced Image / RTX VFX ratio presets.
+- Local code now adds narrow `VALIDATE_INPUTS` coverage for those stale combo paths and uses
+  `validate_active_ratio_preset()` for ratio-based nodes so inactive/hidden stale ratios pass, while
+  active `Preset Ratio` stale values fail clearly.
+
+0.7.46 verification evidence before public release:
+
+  - Python compile of changed backend files passed.
+  - Full test suite passed: `208 passed`.
+  - Registry metadata tests passed: `13 passed`.
+  - Local LLM reviewer graph transform test passed: `1 passed`.
+  - `git diff --check` passed, with only Windows LF-to-CRLF warnings.
+  - Skill validator passed: `Skill is valid!`.
+- Independent release reviewer for 0.7.46: `019edafb-9889-7d12-9989-8214968e8b22` (pending at this
+  handoff edit until collected in the release turn).
+- Runtime canvas verification is not required for the 0.7.46 code itself because this release only
+  changes backend pre-execution validation and docs. If any frontend file changes before release,
+  rerun the normal Easy-Install + Desktop canvas gates.
+- After public release, create or update a 30-minute Registry/Manager propagation monitor for
+  `0.7.46`, then sync local runtimes from the released package once Registry is Active.
+
+Untracked local-only artifacts not staged for release:
+
+- `.codex-remote-attachments/` user screenshots
+- `tmp/` test artifacts
+
+Previous public release context: `0.7.45`.
 
 0.7.45 release scope:
 
@@ -56,24 +98,6 @@ Current public release attempt: `0.7.45`.
   through `docs/NODE_WORK_INDEX.md`.
 - Added `.codex-remote-attachments/` to `.comfyignore` so user-provided screenshot attachments can
   never enter the Registry package.
-
-0.7.45 verification evidence:
-
-- `python -m pytest -q` -> `203 passed` after the version bump.
-- `python -m py_compile deno_multi_lora_loader.py deno_ltx_multi_lora_loader.py __init__.py` passed.
-- `git diff --check` passed, with only Windows LF-to-CRLF warnings.
-- Independent release reviewer `019edacc-70e9-7581-8ad9-5782a2cabd11` initially BLOCKED on an
-  overbroad changelog sentence and `.codex-remote-attachments/` package risk; both were fixed and
-  re-review was requested.
-- Local `python -m build --sdist --wheel` was not run because the current local Python lacks the
-  `build` module. GitHub Actions / Comfy Registry publish remains the package source of truth.
-
-Untracked local-only artifacts not staged for release:
-
-- `.codex-remote-attachments/` user screenshots
-- `tmp/` test artifacts
-
-Previous public release context: `0.7.44`.
 
 0.7.43 release worktree:
 

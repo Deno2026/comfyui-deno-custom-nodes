@@ -4,7 +4,14 @@ from typing import Tuple
 import torch
 import torch.nn.functional as F
 
-from .deno_resolution_common import COMMON_RATIOS, RESIZE_METHODS, compute_aligned_ratio_dims, round_up
+from .deno_resolution_common import (
+    COMMON_RATIOS,
+    RESIZE_METHODS,
+    compute_aligned_ratio_dims,
+    round_up,
+    validate_combo_choice,
+    validate_active_ratio_preset,
+)
 from .deno_rtx_vfx_runtime import (
     current_nvvfx_package_path,
     is_path_relative_to,
@@ -365,6 +372,29 @@ class DenoRTXVFXEasyUpscale:
     RETURN_NAMES = ("images",)
     FUNCTION = "apply_vfx"
     CATEGORY = "Deno/Image"
+
+    @classmethod
+    def VALIDATE_INPUTS(
+        cls,
+        mode=None,
+        resize_type=None,
+        divisible_by=None,
+        ratio_preset=None,
+        resize_method=None,
+    ):
+        mode_result = validate_combo_choice("mode", mode, QUALITY_LEVELS)
+        if mode_result is not True:
+            return mode_result
+        if _same_size_only(str(mode or "")):
+            return True
+        for result in (
+            validate_combo_choice("resize_type", resize_type, RESIZE_TYPES),
+            validate_combo_choice("divisible_by", divisible_by, RTX_VFX_DIVISIBLE_BY_VALUES),
+            validate_combo_choice("resize_method", resize_method, RESIZE_METHODS),
+        ):
+            if result is not True:
+                return result
+        return validate_active_ratio_preset(resize_type, ratio_preset)
 
     def apply_vfx(
         self,
