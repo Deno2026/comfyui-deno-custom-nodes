@@ -1,8 +1,9 @@
 # Ideogram Director
 
-Status: public 0.7.33 release candidate. Registry propagation is still pending as of the
-2026-06-15 cleanup; do not call the public rollout complete until Comfy Registry marks
-0.7.33 Active and ComfyUI Manager discovery includes `DenoIdeogramDirector`.
+Status: stable public Ideogram Director node in the beginner DENO Custom Nodes channel.
+This document is the node Product Contract, not the live release monitor. Check the
+repo `SESSION_HANDOFF.md` for the latest release, Registry propagation, and Manager
+visibility state.
 
 Read this folder only when the task is about Ideogram 4 JSON captions, bbox composition, KJ Prompt Builder analysis, or the proposed `(Deno) Ideogram Director`.
 
@@ -22,13 +23,13 @@ Current local implementation files:
 - `deno_ideogram_director.py`
 - `web/js/deno_ideogram_director.js`
 
-Ideogram Director is in the 0.7.33 public release candidate scope. Keep standalone Translator
-and Random Prompt Box out of the public release surface unless the user explicitly restarts and
+Ideogram Director is part of the stable public node surface. Keep standalone Translator and
+Random Prompt Box out of the public release surface unless the user explicitly restarts and
 approves those nodes separately.
 
-## Current State (2026-06-16)
+## Current State (2026-06-19)
 
-- JS rev marker: `IDD_REV = "r2026.06.18-resolution-import-a"` in `web/js/deno_ideogram_director.js` (check the served
+- JS rev marker: `IDD_REV = "r2026.06.19-language-esc-a"` in `web/js/deno_ideogram_director.js` (check the served
   JS for this string after a sync; the user needs Ctrl+Shift+R to pick up a new rev).
 - Resolution popup hardening (0.7.38, 2026-06-16): the resolution control
   popup is a `document.body` fixed overlay anchored to the top-bar size button. Do not mount it back
