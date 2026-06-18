@@ -21,6 +21,8 @@ const ALIGN_MENU_PREFIX = "Deno: Align";
 const GROUP_ALIGN_MENU_PREFIX = "Deno: Align Groups";
 const CHIP_MAX_W = 260;
 const LABEL_MAX_LENGTH = 34;
+const SELECTION_DRAG_SUPPRESS_MS = 320;
+const SELECTION_POINTER_SUPPRESS_MS = 180;
 
 let tooltipEl = null;
 let foldButtonEl = null;
@@ -959,9 +961,52 @@ function syncFoldedMotion() {
   refreshFoldedLooks();
 }
 
+function eventHasPressedButton(event) {
+  return Number(event?.buttons || 0) !== 0;
+}
+
+function canvasClientRect() {
+  return app.canvas?.canvas?.getBoundingClientRect?.() || null;
+}
+
+function isInsideCanvasRect(event) {
+  const rect = canvasClientRect();
+  if (!rect || !Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) {
+    return false;
+  }
+  return event.clientX >= rect.left
+    && event.clientX <= rect.right
+    && event.clientY >= rect.top
+    && event.clientY <= rect.bottom;
+}
+
+function suppressSelectionActions(ms = SELECTION_POINTER_SUPPRESS_MS) {
+  suppressSelectionUiUntil = Math.max(suppressSelectionUiUntil, Date.now() + ms);
+  detachSelectionActionButtons();
+  hideTooltip();
+}
+
+function isSelectionActionTarget(target) {
+  if (typeof Node === "undefined" || !(target instanceof Node)) {
+    return false;
+  }
+  return Boolean(
+    foldButtonEl?.contains?.(target)
+    || renameButtonEl?.contains?.(target)
+    || alignButtonEl?.contains?.(target)
+    || alignMenuEl?.contains?.(target)
+    || fallbackToolbarEl?.contains?.(target)
+  );
+}
+
 function handleCanvasMove(event) {
   lastCanvasPointerEvent = event;
   syncFoldedMotion();
+  if (eventHasPressedButton(event)) {
+    canvasPointerActive = true;
+    suppressSelectionActions(SELECTION_DRAG_SUPPRESS_MS);
+    return;
+  }
   updateHoverTooltip(event);
 }
 
@@ -971,12 +1016,23 @@ function rememberCanvasPointer(event) {
     return;
   }
   canvasPointerActive = true;
-  suppressSelectionUiUntil = Date.now() + 180;
+  suppressSelectionActions(SELECTION_POINTER_SUPPRESS_MS);
 }
 
-function releaseCanvasPointer() {
+function releaseCanvasPointer(event) {
+  if (isSelectionActionTarget(event?.target)) {
+    return;
+  }
   canvasPointerActive = false;
-  suppressSelectionUiUntil = Date.now() + 120;
+  suppressSelectionActions(SELECTION_DRAG_SUPPRESS_MS);
+}
+
+function rememberDocumentPointer(event) {
+  if (isSelectionActionTarget(event?.target) || !isInsideCanvasRect(event)) {
+    return;
+  }
+  canvasPointerActive = true;
+  suppressSelectionActions(SELECTION_POINTER_SUPPRESS_MS);
 }
 
 function selectionActionsSuppressed() {
@@ -985,11 +1041,18 @@ function selectionActionsSuppressed() {
     return true;
   }
   return Boolean(
-    canvas?.node_dragged
+    canvas?.isDragging
+    || canvas?.state?.draggingItems
+    || canvas?.state?.draggingCanvas
+    || canvas?.state?.draggingSelection
+    || canvas?.state?.draggingNode
+    || canvas?.state?.draggingGroup
+    || canvas?.node_dragged
     || canvas?.dragging_canvas
     || canvas?.dragging_group
     || canvas?.group_dragged
     || canvas?.selected_group_dragged
+    || canvas?.resizingGroup
     || canvas?.dragging
   );
 }
@@ -1005,17 +1068,18 @@ function setupMouseTracking() {
   if (!element || element.__denoVisualFoldMouseBound) return;
 
   element.addEventListener("mousemove", handleCanvasMove, { passive: true });
-  element.addEventListener("pointermove", syncFoldedMotion, { passive: true });
+  element.addEventListener("pointermove", handleCanvasMove, { passive: true });
   element.addEventListener("pointerdown", rememberCanvasPointer, { passive: true });
   element.addEventListener("contextmenu", rememberCanvasPointer, { passive: true });
   element.addEventListener("mouseleave", hideTooltip, { passive: true });
   element.__denoVisualFoldMouseBound = true;
 
   if (typeof document !== "undefined" && !document.__denoVisualFoldPointerReleaseBound) {
+    document.addEventListener("pointerdown", rememberDocumentPointer, { capture: true, passive: true });
     document.addEventListener("pointerup", releaseCanvasPointer, { capture: true, passive: true });
     document.addEventListener("pointercancel", releaseCanvasPointer, { capture: true, passive: true });
     if (typeof window !== "undefined") {
-      window.addEventListener("blur", releaseCanvasPointer, { passive: true });
+      window.addEventListener("blur", () => releaseCanvasPointer(), { passive: true });
     }
     document.__denoVisualFoldPointerReleaseBound = true;
   }
@@ -1037,6 +1101,10 @@ function ensureFoldButton() {
   foldButtonEl.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (selectionActionsSuppressed()) {
+      detachSelectionActionButtons();
+      return;
+    }
     const folded = selectedNodes().find((node) => foldMeta(node));
     if (folded) {
       unfoldGroup(folded);
@@ -1076,6 +1144,10 @@ function ensureRenameButton() {
   renameButtonEl.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (selectionActionsSuppressed()) {
+      detachSelectionActionButtons();
+      return;
+    }
     const folded = selectedNodes().find((node) => foldMeta(node))
       || foldedAnchorFromCanvas(app.canvas);
     if (folded) {
@@ -1245,6 +1317,10 @@ function distributeSelectedGroups(axis) {
 
 function runAlignAction(action) {
   hideAlignMenu();
+  if (selectionActionsSuppressed()) {
+    detachSelectionActionButtons();
+    return;
+  }
   const groups = selectedAlignGroups();
   if (groups.length >= 2) {
     if (action === "horizontal") distributeSelectedGroups("horizontal");
@@ -1354,6 +1430,10 @@ function ensureAlignButton() {
   alignButtonEl.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (selectionActionsSuppressed()) {
+      detachSelectionActionButtons();
+      return;
+    }
     toggleAlignMenu();
   });
   return alignButtonEl;

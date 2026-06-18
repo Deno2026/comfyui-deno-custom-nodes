@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.47 - 2026-06-19
+
+- Fixed Local LLM Loader validation for queued/list-wrapped saved combo values, so current and legacy seed, memory, and ComfyUI model-unload settings validate correctly before execution.
+- Improved Visual Fold drag handling so Fold/Rename/Align controls stay hidden while nodes or groups are being dragged, and focus changes such as Alt+Tab cannot leave the controls stuck hidden.
+
 ## 0.7.46 - 2026-06-18
 
 - Hardened saved-workflow compatibility for stale combo values across prompt guides, Local LLM nodes, Ideogram Director, resize/image utilities, video compare, and RTX VFX helpers.

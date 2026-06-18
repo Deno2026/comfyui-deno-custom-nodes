@@ -116,6 +116,10 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
   missing values in disabled/off/unused slots must not block, while enabled/active missing values must
   fail with a clear message. Use narrow `VALIDATE_INPUTS(..., **kwargs)` or an equivalent contract only
   when needed; do not clear the saved value to make validation pass.
+- Nodes with `INPUT_IS_LIST = True` can receive list-wrapped combo values in `VALIDATE_INPUTS`, not
+  only in the execution function. Validate `["value"]` and nested list-shaped current values as the
+  same saved value, while still rejecting invalid list-wrapped values. Do not stringify the raw list
+  and compare it to combo choices.
 - Saved Local LLM model values must be preserved without pretending they are installed on another
   PC. If a saved Ollama/LM Studio model is absent from the current detected provider list, show a
   reversible unavailable value such as `Missing saved model: <model>`, preserve the original id

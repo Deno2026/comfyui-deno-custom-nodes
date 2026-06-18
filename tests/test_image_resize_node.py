@@ -3979,6 +3979,42 @@ def test_local_llm_and_review_gate_validation_accepts_legacy_saved_combo_labels(
         model_memory="Keep loaded",
         comfy_vram_policy="Always free",
     ) is True
+    assert loader_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="",
+        seed_mode=[["randomize"]],
+        model_memory=["Keep loaded"],
+        comfy_vram_policy=["Auto"],
+    ) is True
+    assert "seed_mode" in loader_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="",
+        seed_mode=["shuffle forever"],
+        model_memory=["Keep loaded"],
+        comfy_vram_policy=["Auto"],
+    )
+    assert "model_memory" in loader_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="",
+        seed_mode=["randomize"],
+        model_memory=["Keep everything forever"],
+        comfy_vram_policy=["Auto"],
+    )
+    assert "comfy_vram_policy" in loader_cls.VALIDATE_INPUTS(
+        provider="Ollama",
+        ollama_model="qwen3.6:35b-a3b",
+        lm_studio_model="google/gemma-4-12b",
+        custom_model="",
+        seed_mode=["randomize"],
+        model_memory=["Keep loaded"],
+        comfy_vram_policy=["Sometimes"],
+    )
     assert reviewer_cls.VALIDATE_INPUTS(review_mode="Legacy Review") is True
     assert "seed_mode" in loader_cls.VALIDATE_INPUTS(
         provider="Ollama",

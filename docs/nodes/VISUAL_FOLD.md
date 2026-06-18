@@ -54,6 +54,14 @@ Correct behavior:
   or `group.selected` resurrect a Fold Group action when `selectedItems` is already present.
 - The fallback DENO toolbar must disappear when the current selection no longer has a valid Fold,
   Unfold, Rename, or Align action. A one-node selection must not show the floating Fold button.
+- During node/group drag, ComfyUI can hide its own selection toolbar before legacy canvas drag flags
+  are updated. Visual Fold must treat document-level pointer starts inside the canvas, pressed-button
+  pointer moves, and current frontend states such as `canvas.isDragging` and
+  `canvas.state.draggingItems` as suppression signals so the fallback Fold/Align bar does not appear
+  under the pointer mid-drag.
+- Pointer release handlers may also be called from non-DOM events such as `window.blur`. Any
+  `contains()` target check must first guard that the target is a real DOM `Node`, and blur should
+  call the release path without passing the Window event target.
 
 ## Verification Matrix
 
@@ -66,6 +74,11 @@ For any Visual Fold UI change, check at least:
 - ComfyUI group selection: Fold Group and group align paths appear.
 - ComfyUI group drag: Fold/Fold Group/Align floating controls stay hidden while the pointer is
   actively dragging the group, then return after the drag ends if the selection is still valid.
+- Normal node drag/drop: Fold/Align controls stay hidden while the pointer is held down over the
+  canvas, and stale click events during or immediately after the drag do not open the Align menu or
+  run an align action.
+- Focus loss / Alt+Tab style path: switching away from the ComfyUI window and back must not throw a
+  `contains(window)` TypeError, and Fold/Align controls should return normally once idle.
 - Selection toolbar hidden or unavailable: fallback DENO Fold bar appears and does not block canvas
   pan/zoom outside the bar.
 - One normal node selected: floating Fold button does not appear.

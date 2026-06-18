@@ -36,18 +36,32 @@ def is_common_ratio(ratio_preset: str) -> bool:
     return str(ratio_preset or "").strip() in COMMON_RATIOS
 
 
+def _iter_combo_values(value):
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return [None]
+        result = []
+        for item in value:
+            result.extend(_iter_combo_values(item) or [None])
+        return result
+    return [value]
+
+
 def validate_combo_choice(name: str, value, choices, *, aliases=None, allow_blank: bool = False):
     if value is None:
         return True
-    text = str(value or "").strip()
-    if allow_blank and not text:
-        return True
     aliases = aliases or {}
-    normalized = str(aliases.get(text, text)).strip()
     allowed = {str(choice).strip() for choice in choices}
-    if normalized in allowed:
-        return True
-    return f"{name} is not available: {text or '(empty)'}"
+    for item in _iter_combo_values(value):
+        text = str(item or "").strip()
+        if allow_blank and not text:
+            continue
+        normalized = str(aliases.get(text, text)).strip()
+        if normalized not in allowed:
+            return f"{name} is not available: {text or '(empty)'}"
+    return True
 
 
 def validate_active_ratio_preset(mode: str, ratio_preset: str, *, active_mode: str = "Preset Ratio"):

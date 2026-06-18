@@ -73,6 +73,10 @@ The Reviewer is the differentiator: it lets a user review generated media, pass 
 - Fixed / increment / decrement seed modes use a stable ComfyUI cache key. If provider, model, prompts, seed, image, memory policy, and VRAM policy are unchanged, the Loader should not call the local LLM again.
 - `randomize` seed mode uses a fresh cache key for each run. Prompt/model/seed/image/memory/VRAM changes must still invalidate the cache and rerun the Loader.
 - Loader `Seed Mode` must also behave like ComfyUI's after-generate seed control. On queue submit, `increment`, `decrement`, and `randomize` update the visible Loader `Seed` widget for the next queued run without adding a separate serialized `control_after_generate` widget or shifting the 13 saved Loader widget slots. Backend `_seed_for_index` still offsets batched prompt-list items inside one execution.
+- `DenoLocalLLMRefiner` has `INPUT_IS_LIST = True`, so ComfyUI validation can pass widget controls as
+  list-wrapped values before execution, such as `seed_mode=["randomize"]`. Combo validation must
+  accept list-wrapped current and legacy labels for `seed_mode`, `model_memory`, and
+  `comfy_vram_policy` without silently accepting invalid values.
 - Thinking-only responses with no final result are rejected with a clear error instead of passing an empty prompt downstream.
 - Saved LM Studio/Ollama model selections must survive workflow reload even when the live model list returns the default model first. Configure-time normalization moves the saved model value before default choices and strips old serialized button/control values so saved 12B-style selections do not fall back to e4b. First queue submit after reload must not require pressing `Refresh Models` to restore the saved provider/model/system prompt/seed/prompt slots.
 - Saved Loader workflows may contain generated button labels in `widgets_values`. Depending on provider/hidden-row state, `Refresh Models`, `Stop LLM`, and `Unload LLM` can appear before either the hidden LM Studio rows or the legacy server rows. Both layouts must normalize before ComfyUI restores widgets, so visible toggles such as `Thinking` survive `Ctrl+S -> Ctrl+Shift+R/F5`.
@@ -129,6 +133,9 @@ Before calling this node done after a behavior change, cover the affected cells:
   - Fixed seed with unchanged inputs should reuse the cached output instead of calling the local LLM again.
   - Changing prompt/model/seed/image/memory policy/VRAM policy should rerun.
   - Randomize seed mode should rerun even if visible text is unchanged.
+  - `VALIDATE_INPUTS` accepts `seed_mode=["randomize"]`, `model_memory=["Keep loaded"]`, and legacy
+    list-wrapped VRAM labels such as `comfy_vram_policy=["Auto"]`, while invalid list-wrapped values
+    still fail clearly.
   - Seed Mode `increment` should change the visible Loader seed by `+1` after a real queue submit, and the next queue should use the changed seed/cache key.
   - Seed Mode changes must not create a visible or serialized extra `control_after_generate` widget, duplicate `seed_mode`, or shift saved provider/model/system prompt/seed/prompt values by one slot.
 - Old saved-node/widget-shift simulation when widget order or hidden fields change.

@@ -255,10 +255,18 @@ def test_visual_fold_frontend_is_visual_only():
     assert "function attachButtonToSelectionSurface" in script
     assert "function selectionActionsSuppressed" in script
     assert "canvasPointerActive" in script
+    assert "function rememberDocumentPointer" in script
+    assert "typeof Node === \"undefined\" || !(target instanceof Node)" in script
+    assert "document.addEventListener(\"pointerdown\", rememberDocumentPointer, { capture: true, passive: true })" in script
     assert "document.addEventListener(\"pointerup\", releaseCanvasPointer, { capture: true, passive: true })" in script
     assert "document.addEventListener(\"pointercancel\", releaseCanvasPointer, { capture: true, passive: true })" in script
+    assert "window.addEventListener(\"blur\", () => releaseCanvasPointer(), { passive: true })" in script
+    assert "canvas?.isDragging" in script
+    assert "canvas?.state?.draggingItems" in script
     assert "canvas?.node_dragged" in script
     assert "canvas?.dragging_group" in script
+    assert "isSelectionActionTarget" in script
+    assert "selectionActionsSuppressed())" in script
     assert "window.prompt" not in script
     assert "__denoVisualFold" in script
     assert "function appGraph()" in script

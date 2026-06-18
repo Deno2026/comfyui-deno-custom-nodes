@@ -43,7 +43,67 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.46`.
+Current release prep: `0.7.47` hotfix approved for release, push/publish in progress.
+
+Hotfix scope prepared for the two new GitHub bug reports:
+
+- GitHub #30 Local LLM Loader / Reviewer validation regression:
+  - Root cause: `DenoLocalLLMRefiner.INPUT_IS_LIST = True` can pass list-wrapped combo values into
+    `VALIDATE_INPUTS`, such as `seed_mode=["randomize"]`.
+  - Local fix: `deno_resolution_common.validate_combo_choice()` now validates list/nested-list
+    combo values item by item instead of stringifying the raw list.
+  - Coverage: valid list-wrapped current/legacy Local LLM values pass; invalid list-wrapped values
+    still fail clearly.
+- GitHub #29 Visual Fold drag regression:
+  - Root cause: during node/group drag, ComfyUI can hide its native selection toolbar before older
+    LiteGraph drag flags are updated, letting the DENO fallback Fold/Align controls appear under
+    the pointer.
+  - Local fix: `web/js/deno_visual_fold.js` suppresses Fold/Rename/Align while a pointer is held
+    over the canvas, while pressed-button pointer moves occur, and while newer frontend drag states
+    such as `canvas.isDragging` / `canvas.state.draggingItems` are active.
+  - Click handlers now re-check suppression before opening menus or running align actions.
+
+Hotfix verification already completed:
+
+- `node --check web/js/deno_visual_fold.js`
+- `python -m py_compile deno_resolution_common.py deno_local_llm_refiner.py`
+- Targeted tests for Local LLM validation and Visual Fold metadata passed.
+- Wider related tests passed: `35 passed, 87 deselected` for Local LLM validation subset;
+  `13 passed` for registry metadata.
+- Full test suite passed: `209 passed`.
+- `git diff --check` passed with only Windows LF-to-CRLF warnings.
+- Source changes were synced into both active runtimes:
+  - Easy-Install `8188`
+  - Desktop `ComfyUI` card runtime `8000`
+- Runtime `pyproject.toml` files were also synced from source so both active runtimes report
+  version `0.7.46`.
+- Runtime proof:
+  - Both `8188` and `8000` queues reachable.
+  - Both expose `/object_info/DenoLocalLLMRefiner`.
+  - Both serve Visual Fold JS with the new drag-suppression markers.
+  - After GPT Pro BLOCK review, Visual Fold also guards `isSelectionActionTarget()` with a DOM
+    `Node` check and uses a blur wrapper so `window.blur` cannot call `contains(window)`.
+  - Both runtime installs accept `seed_mode=["randomize"]` and nested list values, while rejecting
+    invalid list values.
+- Desktop app was restarted through its own `Restart ComfyUI` UI button after a direct test
+  backend was removed. Final listener is the Desktop app-managed `8000` backend.
+  - Real Desktop canvas drag-hold screenshot showed no DENO Fold/Align fallback controls during
+    group drag; ComfyUI's native selection toolbar appears after release, which is normal.
+  - Desktop focus-loss path was checked by moving focus away from the Desktop window and back; the
+    canvas returned to an idle state with Fold Group available and no visible broken/stuck state.
+- GPT Pro external review package rev2 prepared and sent through Telegram at:
+  `artifacts/gpt-pro-review/deno-custom-nodes-0.7.47-hotfix-gpt-pro-review-rev2.zip`.
+  It includes changed files, related source context, `git_diff.patch`, validation summary,
+  subagent findings, issue context, manifest, Desktop drag screenshots, and focus-loss evidence.
+  GPT Pro returned `PASS WITH NOTES`; the only mandatory note was `pyproject.toml` version `0.7.47`,
+  which is now applied.
+
+Pending during public release:
+
+- Push the release commit/tag, create the GitHub release, verify Actions and Registry publish, then
+  monitor Registry and Manager propagation every 30 minutes until Active.
+
+Previous public release attempt: `0.7.46`.
 
 0.7.46 release scope:
 
