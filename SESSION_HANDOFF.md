@@ -43,9 +43,9 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current release prep: `0.7.47` hotfix approved for release, push/publish in progress.
+Current public release attempt: `0.7.47`.
 
-Hotfix scope prepared for the two new GitHub bug reports:
+0.7.47 hotfix scope for the two GitHub bug reports:
 
 - GitHub #30 Local LLM Loader / Reviewer validation regression:
   - Root cause: `DenoLocalLLMRefiner.INPUT_IS_LIST = True` can pass list-wrapped combo values into
@@ -98,10 +98,28 @@ Hotfix verification already completed:
   GPT Pro returned `PASS WITH NOTES`; the only mandatory note was `pyproject.toml` version `0.7.47`,
   which is now applied.
 
-Pending during public release:
+Public release state:
 
-- Push the release commit/tag, create the GitHub release, verify Actions and Registry publish, then
-  monitor Registry and Manager propagation every 30 minutes until Active.
+- Release commit/tag target: `2e1bd364c5162ba592ab021233fbc37bd31dc06f` / `v0.7.47`
+- GitHub release: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.47`
+- GitHub Actions CI, Pages, and Publish to Comfy registry succeeded on 2026-06-18.
+- CDN zip exists: `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.47/node.zip`
+- CDN package was checked:
+  - `pyproject.toml` version `0.7.47`
+  - `node_list.json` has 19 public nodes
+  - no `tests/` or `artifacts/` folder included
+- Initial Comfy Registry status: `NodeVersionStatusPending` with empty `status_reason`; install
+  endpoint resolves to `0.7.47` Pending.
+- Manager `extension-node-map.json` lists this repo with 19 nodes including
+  `DenoIdeogramDirector` and `DenoLocalLLMRefiner`.
+- Active monitor: `deno-0-7-47-registry-monitor`, heartbeat every 30 minutes in this thread.
+
+Pending:
+
+- Wait until Registry `0.7.47` becomes Active and the install endpoint still resolves to `0.7.47`.
+- After Active, sync the active local Easy-Install and Desktop runtimes from the released package
+  when queues are idle, then verify local `pyproject.toml`, `/object_info`, served JS markers, and
+  queue idle on both runtime surfaces.
 
 Previous public release attempt: `0.7.46`.
 
