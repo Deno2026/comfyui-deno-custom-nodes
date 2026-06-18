@@ -71,7 +71,23 @@ Current public release prep: `0.7.48`.
   `handleOutsideHelpPointerDown`, `handleOutsideHelpWheel`, no `Rollback guide`,
   `r2026.06.19-language-esc-a`, and `closeLanguageKey`.
 
-Status: ready to push/tag/release `v0.7.48` after user approval.
+Public release state:
+
+- Release commit/tag target: `f9aa8bb8c90ca304f08ca3abfab46a58f12b29c1` / `v0.7.48`
+- GitHub release: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.48`
+- GitHub Actions CI, Pages, and Publish to Comfy registry succeeded on 2026-06-18 UTC.
+- CDN zip exists and returned `200 application/zip`:
+  `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.48/node.zip`
+- Registry versions endpoint and install endpoint both resolve to `0.7.48`, currently
+  `NodeVersionStatusPending` with empty `status_reason`.
+- 30-minute same-thread heartbeat monitor is active:
+  `deno-0-7-48-registry-monitor`.
+
+Next action:
+
+- Wait until Registry `0.7.48` becomes Active and the install endpoint still resolves to `0.7.48`.
+- After Active, verify Manager map still lists this repo with `DenoIdeogramDirector` and
+  `DenoLocalLLMRefiner`, then stop the 30-minute monitor.
 
 0.7.47 hotfix scope for the two GitHub bug reports:
 
