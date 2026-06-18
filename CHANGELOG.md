@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.45 - 2026-06-18
+
+- Fixed Multi LoRA and LTX Multi LoRA saved-workflow validation so disabled LoRA slots no longer block execution when their saved file is on a removed external drive or USB. Enabled missing LoRAs still stop with a clear slot-specific message.
+- Added Resize Box regression coverage for Keep Input Ratio so landscape source tensors keep the expected orientation.
+
 ## 0.7.44 - 2026-06-18
 
 - Improved Ideogram Director bbox editing ergonomics: tiny boxes are easier to drag from the number badge, stale pixel-size popups no longer cover the board, and board undo/redo stays on the visible `↶` / `↷` buttons without taking over ComfyUI's graph undo.

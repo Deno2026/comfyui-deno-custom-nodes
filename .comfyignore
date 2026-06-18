@@ -7,6 +7,7 @@
 
 .github/
 .pytest_cache/
+.codex-remote-attachments/
 __pycache__/
 *.pyc
 tests/

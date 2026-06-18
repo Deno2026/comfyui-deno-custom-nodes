@@ -41,6 +41,29 @@ def _slot_key(prefix: str, index: int) -> str:
     return f"{prefix}_{index}"
 
 
+def _as_slot_count(value) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return 1
+
+
+def _is_slot_enabled(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in {"false", "0", "off", "no"}
+    return bool(value)
+
+
+def _validate_range(kwargs, key: str, label: str, minimum: float, maximum: float):
+    try:
+        value = float(kwargs.get(key, 1.0))
+    except Exception:
+        return f"{label} must be a number."
+    if value < minimum or value > maximum:
+        return f"{label} must be between {minimum:g} and {maximum:g}."
+    return None
+
+
 class DenoLTXMultiLoraLoader:
     DESCRIPTION = (
         "Stack multiple LTX LoRAs in one node with quick add/remove UX.\n"
@@ -139,6 +162,32 @@ class DenoLTXMultiLoraLoader:
 
     def _resolve_slot_count(self, active_loras: int) -> int:
         return max(0, min(int(active_loras), MAX_LORA_SLOTS))
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, active_loras: int = 1, **kwargs):
+        slot_count = _as_slot_count(active_loras)
+        if slot_count < 0 or slot_count > MAX_LORA_SLOTS:
+            return f"active_loras must be between 0 and {MAX_LORA_SLOTS}."
+
+        available = set(_get_lora_options())
+        for index in range(1, slot_count + 1):
+            if not _is_slot_enabled(kwargs.get(_slot_key("enabled", index), True)):
+                continue
+
+            lora_name = str(kwargs.get(_slot_key("lora", index), LORA_NONE_OPTION))
+            if lora_name and lora_name != LORA_NONE_OPTION and lora_name not in available:
+                return f"LTX LoRA slot {index} is enabled but not installed: {lora_name}"
+
+            error = _validate_range(kwargs, _slot_key("strength", index), f"LTX LoRA slot {index} strength", -10.0, 10.0)
+            if error:
+                return error
+            error = _validate_range(kwargs, _slot_key("video", index), f"LTX LoRA slot {index} video strength", 0.0, 2.0)
+            if error:
+                return error
+            error = _validate_range(kwargs, _slot_key("audio", index), f"LTX LoRA slot {index} audio strength", 0.0, 2.0)
+            if error:
+                return error
+        return True
 
     def _load_lora_dict(self, lora_name: str):
         if not lora_name or lora_name == LORA_NONE_OPTION:

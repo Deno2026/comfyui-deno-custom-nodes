@@ -2010,6 +2010,56 @@ def test_multi_lora_metadata_fields_do_not_affect_loading():
     assert node_cls().load_multi_lora(model, clip, 1, lora_1="__none__", trigger_1="deno style") == (model, clip)
 
 
+def test_multi_lora_validation_skips_disabled_missing_saved_lora():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiLoraLoader"]
+    assert inspect.getfullargspec(node_cls.VALIDATE_INPUTS).varkw == "kwargs"
+    folder_paths = sys.modules["folder_paths"]
+    original_get_filename_list = folder_paths.get_filename_list
+    try:
+        folder_paths.get_filename_list = lambda folder_name: ["present.safetensors"] if folder_name == "loras" else []
+        assert (
+            node_cls.VALIDATE_INPUTS(
+                active_loras=2,
+                enabled_1=True,
+                lora_1="present.safetensors",
+                enabled_2=False,
+                lora_2="removed_usb/missing.safetensors",
+            )
+            is True
+        )
+        assert node_cls.VALIDATE_INPUTS(active_loras=1, enabled_1=True, lora_1="removed_usb/missing.safetensors") == (
+            "LoRA slot 1 is enabled but not installed: removed_usb/missing.safetensors"
+        )
+    finally:
+        folder_paths.get_filename_list = original_get_filename_list
+
+
+def test_ltx_multi_lora_validation_skips_disabled_missing_saved_lora():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXMultiLoraLoader"]
+    assert inspect.getfullargspec(node_cls.VALIDATE_INPUTS).varkw == "kwargs"
+    folder_paths = sys.modules["folder_paths"]
+    original_get_filename_list = folder_paths.get_filename_list
+    try:
+        folder_paths.get_filename_list = lambda folder_name: ["present.safetensors"] if folder_name == "loras" else []
+        assert (
+            node_cls.VALIDATE_INPUTS(
+                active_loras=2,
+                enabled_1=True,
+                lora_1="present.safetensors",
+                enabled_2=False,
+                lora_2="removed_usb/missing.safetensors",
+            )
+            is True
+        )
+        assert node_cls.VALIDATE_INPUTS(active_loras=1, enabled_1=True, lora_1="removed_usb/missing.safetensors") == (
+            "LTX LoRA slot 1 is enabled but not installed: removed_usb/missing.safetensors"
+        )
+    finally:
+        folder_paths.get_filename_list = original_get_filename_list
+
+
 def test_ltx_prompt_guide_encodes_prompts_and_outputs_integer_frame_rate():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXPromptGuide"]

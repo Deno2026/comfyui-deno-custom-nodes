@@ -43,32 +43,37 @@ Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or 
 
 ## Release State
 
-Current public release attempt: `0.7.44`.
+Current public release attempt: `0.7.45`.
 
-0.7.44 release scope:
+0.7.45 release scope:
 
-- Ideogram Director bbox ergonomics hotfix after Reddit/GitHub feedback and PR #28 review.
-- PR #28 was not merged as-is because it regressed the 0.7.43 resolution-import guard. Only the
-  useful intent was adapted.
-- Tiny/overlapping bbox editing is easier because the top-left number badge has a larger move hit
-  target.
-- The stale live pixel-size tooltip is disabled so it no longer covers the board or displays frozen
-  dimensions during drags.
-- `Ctrl/Cmd`+drag copy is hardened so pressing the modifier before or during a move duplicates the
-  selected box.
-- Ideogram Director no longer captures global `Ctrl+Z` / `Ctrl+Y`; ComfyUI keeps graph undo/redo,
-  and board-only undo/redo stays on the visible `↶` / `↷` buttons.
+- `(Deno) Multi LoRA Loader` and `(Deno) LTX Multi LoRA Loader`: disabled saved LoRA slots no longer
+  block ComfyUI validation when the saved file is missing from a removed external drive/USB.
+- Enabled missing LoRA slots still stop with a clear slot-specific error.
+- `(Deno) Resize Box`: no production code change; added regression coverage for Keep Input Ratio
+  landscape tensor orientation after a subscriber report.
+- Added `docs/nodes/MULTI_LORA_LOADERS.md` as the product contract and routed LoRA loader work
+  through `docs/NODE_WORK_INDEX.md`.
+- Added `.codex-remote-attachments/` to `.comfyignore` so user-provided screenshot attachments can
+  never enter the Registry package.
 
-0.7.44 verification evidence:
+0.7.45 verification evidence:
 
-- User manually confirmed the bbox behavior works before deploy approval.
-- Source/runtime JS marker: `r2026.06.18-bbox-ergonomics-b`.
-- Static checks: `node --check` on `web/js/deno_ideogram_director.js`, `git diff --check`.
-- Full test suite: `python -m pytest -q` -> `201 passed`.
-- Independent release reviewer `019ed8f8-8216-74d0-8d27-99facbbec5e7` returned PASS for public
-  release and was closed.
+- `python -m pytest -q` -> `203 passed` after the version bump.
+- `python -m py_compile deno_multi_lora_loader.py deno_ltx_multi_lora_loader.py __init__.py` passed.
+- `git diff --check` passed, with only Windows LF-to-CRLF warnings.
+- Independent release reviewer `019edacc-70e9-7581-8ad9-5782a2cabd11` initially BLOCKED on an
+  overbroad changelog sentence and `.codex-remote-attachments/` package risk; both were fixed and
+  re-review was requested.
+- Local `python -m build --sdist --wheel` was not run because the current local Python lacks the
+  `build` module. GitHub Actions / Comfy Registry publish remains the package source of truth.
 
-Previous public release context: `0.7.43`.
+Untracked local-only artifacts not staged for release:
+
+- `.codex-remote-attachments/` user screenshots
+- `tmp/` test artifacts
+
+Previous public release context: `0.7.44`.
 
 0.7.43 release worktree:
 
