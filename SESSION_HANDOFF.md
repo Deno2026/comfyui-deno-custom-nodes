@@ -95,18 +95,20 @@ Public release state:
     scan marker.
   - `node_list.json` has 19 public nodes and includes `DenoLTXModelDownloader`.
   - no `tests/`, `docs/nodes/`, or `SESSION_HANDOFF.md` are packaged.
-- Registry versions endpoint and install endpoint both resolve to `0.7.49`, currently
-  `NodeVersionStatusPending` with empty `status_reason`.
+- Registry versions endpoint and install endpoint both resolve to `0.7.49`, with
+  `NodeVersionStatusActive` checked on 2026-06-19.
 - Manager `extension-node-map.json` still lists this repo with `DenoIdeogramDirector` and
   `DenoLocalLLMRefiner`.
-- 30-minute same-thread heartbeat monitor is active and TOML-checked:
-  `deno-0-7-49-registry-monitor`.
+- CDN package still returns `200 application/zip`.
+- The same-thread heartbeat monitor `deno-0-7-49-registry-monitor` was stopped after propagation
+  completed.
 
 Next action:
 
-- Wait until Registry `0.7.49` becomes Active and the install endpoint still resolves to `0.7.49`.
-- After Active, verify Manager map still lists this repo with `DenoIdeogramDirector` and
-  `DenoLocalLLMRefiner`, then stop the 30-minute monitor.
+- No public propagation work remains for `0.7.49`.
+- For new user reports after `0.7.49`, first verify the installed package version, actual running
+  ComfyUI path, served JS, and browser/Desktop cache. Reports that still show old Ideogram labels
+  such as `Translate On` or `Layout Presets` are likely stale install/cache/runtime-path cases.
 - Optional user-facing note for issue #31: the helper no longer deep-searches arbitrary nested model
   folders by default; users with deeply nested custom packs should set the exact target subfolder.
 
@@ -651,11 +653,12 @@ Post-0.7.37 local Ideogram WIP verification:
 ## Next Session Checklist
 
 1. Run `git status --short` first.
-2. If continuing propagation checks, use the clean release worktree above or the source repo, but
-   verify which branch/path is active before editing.
-3. Keep watching Comfy Registry until `0.7.43` becomes active or flagged. Do not call public
-   propagation fully complete while it is pending.
-4. After Registry becomes active, verify install/update through ComfyUI Manager or a disposable runtime when practical.
-5. Manager map already lists `DenoIdeogramDirector` and `DenoLocalLLMRefiner`; when Registry
-   `0.7.43` becomes Active and the install endpoint still resolves to `0.7.43`, the 30-minute
-   monitor can stop.
+2. Treat public `0.7.49` propagation as complete unless a live Registry/Manager check later proves
+   otherwise.
+3. If a user reports EZi/Desktop startup failure, verify whether they are actually on `0.7.49`.
+   Older installs can still hit the pre-0.7.49 model-folder startup scan.
+4. If a user reports Ideogram Director showing `Translate On` or `Layout Presets`, treat it as a
+   stale install/cache/runtime-path signal first. Current `0.7.49` package uses `Language` and
+   `Layouts`.
+5. Local active Easy-Install runtime may lag behind public release state; check runtime
+   `pyproject.toml`, `/object_info`, and served JS before using it as evidence.

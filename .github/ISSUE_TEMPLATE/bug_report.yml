@@ -1,0 +1,87 @@
+name: Bug report
+description: Report a Deno Custom Nodes bug
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please include enough detail to reproduce the issue on the current release.
+  - type: input
+    id: deno_version
+    attributes:
+      label: Deno Custom Nodes version
+      description: "Example: v0.7.49"
+      placeholder: v0.7.49
+    validations:
+      required: true
+  - type: input
+    id: comfy_version
+    attributes:
+      label: ComfyUI and frontend version
+      description: Include ComfyUI version and frontend version if visible.
+      placeholder: ComfyUI v0.x.x, frontend x.x.x
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime type
+      options:
+        - Portable/browser
+        - ComfyUI-Easy-Install / EZi
+        - ComfyUI Desktop
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Affected node
+      placeholder: "(Deno) Ideogram Director"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Tell us exactly what you clicked, loaded, connected, or ran.
+      placeholder: |
+        1. Add ...
+        2. Connect ...
+        3. Click ...
+        4. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or console output
+      description: Paste relevant backend logs or browser console errors. Do not include tokens or private paths if avoidable.
+      render: text
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshot, video, or workflow
+      description: Attach a screenshot/video or a minimal workflow if it contains no secrets, tokens, or private files.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I updated Deno Custom Nodes and fully restarted ComfyUI.
+        - label: I checked that there is no duplicate old DENO node folder under custom_nodes.
+        - label: For UI bugs, I hard-refreshed the browser or restarted ComfyUI Desktop.

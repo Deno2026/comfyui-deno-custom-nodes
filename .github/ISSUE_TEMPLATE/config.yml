@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Latest releases
+    url: https://github.com/Deno2026/comfyui-deno-custom-nodes/releases
+    about: Check the latest Deno Custom Nodes release before reporting an issue.
+  - name: README and install notes
+    url: https://github.com/Deno2026/comfyui-deno-custom-nodes#readme
+    about: Read the current node list, install notes, and web tool links.

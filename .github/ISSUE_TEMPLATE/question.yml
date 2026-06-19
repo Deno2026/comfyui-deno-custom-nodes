@@ -1,0 +1,25 @@
+name: Question or support
+description: Ask a usage question or request clarification
+title: "[Question]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please include the node name and what you are trying to do.
+  - type: input
+    id: node
+    attributes:
+      label: Node or workflow
+      placeholder: "(Deno) Local LLM Loader"
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      placeholder: What are you trying to do, and where are you stuck?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Deno Custom Nodes version
+      placeholder: v0.7.49
