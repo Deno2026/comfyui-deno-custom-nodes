@@ -2376,8 +2376,8 @@
         // why output was stuck at the 1024² default. ──
         // same ratio family as our (Deno) Resize Box node — one philosophy across the node pack
         const RATIOS = [["1:1", 1, 1], ["4:5", 4, 5], ["5:4", 5, 4], ["3:4", 3, 4], ["4:3", 4, 3],
-          ["2:3", 2, 3], ["3:2", 3, 2], ["16:9", 16, 9], ["9:16", 9, 16], ["16:10", 16, 10],
-          ["10:16", 10, 16], ["21:9", 21, 9], ["9:21", 9, 21]];
+        ["2:3", 2, 3], ["3:2", 3, 2], ["16:9", 16, 9], ["9:16", 9, 16], ["16:10", 16, 10],
+        ["10:16", 10, 16], ["21:9", 21, 9], ["9:21", 9, 21]];
         const MPS = [0.5, 1, 1.5, 2];
         const PREFERRED_DIMS = [512, 720, 768, 1024, 1088, 1536, 1920];   // dims models love (Resize Box)
         // Friendly ratio for DISPLAY: snap to the nearest ratio people actually use ("≈16:9"), or
@@ -2987,7 +2987,7 @@
               const src = link && node.graph.getNodeById(link.origin_id);
               if (src) {
                 const iw = (src.widgets || []).find((w) => w.name === "image" && typeof w.value === "string")
-                        || (src.widgets || []).find((w) => typeof w.value === "string" && /\.(png|jpe?g|webp|gif|bmp)$/i.test(w.value));
+                  || (src.widgets || []).find((w) => typeof w.value === "string" && /\.(png|jpe?g|webp|gif|bmp)$/i.test(w.value));
                 if (iw && iw.value) {
                   const v = String(iw.value), parts = v.split("/"), filename = parts.pop(), subfolder = parts.join("/");
                   return "/view?" + new URLSearchParams({ filename, subfolder, type: "input" }).toString();
@@ -3584,7 +3584,7 @@
             const mv = (e) => {
               const r = elx.getBoundingClientRect();
               fn(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
-                 Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)));
+                Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)));
               paint();
             };
             elx.addEventListener("pointerdown", (e) => {
@@ -3947,7 +3947,6 @@
               d.append(hd);
             }
             d.addEventListener("pointerdown", (e) => { if (e.target === d || e.target === lab || e.target === tag) onBoxDown(e, i, "move"); });
-            d.addEventListener("dblclick", (e) => { e.stopPropagation(); openElementEditor(i); });
             d.addEventListener("mouseenter", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.add("hov"); });
             d.addEventListener("mouseleave", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.remove("hov"); });
             ov.append(d);
@@ -3992,30 +3991,47 @@
           boxes.splice(i + 1, 0, cp);
           return i + 1;
         }
+        // Manual double-click detection: setPointerCapture redirects events to ov, so the native
+        // dblclick on box divs never fires. Track last tap time+position to detect double-click.
+        let _lastTap = null;
         function onBoxDown(e, i, mode, dir) {
           if (e.button !== 0) return; e.stopPropagation(); e.preventDefault();
+          // detect double-click manually (pointer capture blocks native dblclick on box divs)
+          const now = e.timeStamp;
+          if (_lastTap && now - _lastTap.t < 400 && _lastTap.i === i &&
+            Math.abs(e.clientX - _lastTap.x) + Math.abs(e.clientY - _lastTap.y) < 10) {
+            _lastTap = null;
+            openElementEditor(i);
+            return;
+          }
+          _lastTap = { t: now, i, x: e.clientX, y: e.clientY };
+          try { ov.setPointerCapture(e.pointerId); } catch (x) { }   // capture so events stay routed here even if cursor leaves
           // Ctrl(⌘)+drag on a box = drag a COPY (the original stays put)
           if (mode === "move" && (e.ctrlKey || e.metaKey)) {
             i = cloneBoxForDrag(i);
             renderBoxes(); renderElements();
           }
           setSel(boxes[i].id);
-          try { wrap.focus({ preventScroll: true }); } catch (x) {}   // make the board keyboard-active (arrows/Tab/Del)
+          try { wrap.focus({ preventScroll: true }); } catch (x) { }   // make the board keyboard-active (arrows/Tab/Del)
           const p = rel(e), b = boxes[i];
-          drag = { i, mode, dir, ox: p.x - b.x, oy: p.y - b.y, sx: e.clientX, sy: e.clientY,
-                   bx: b.x, by: b.y, moved: false, copied: mode === "move" && (e.ctrlKey || e.metaKey) };
-          window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
+          drag = {
+            i, mode, dir, ox: p.x - b.x, oy: p.y - b.y, sx: e.clientX, sy: e.clientY,
+            bx: b.x, by: b.y, moved: false, copied: mode === "move" && (e.ctrlKey || e.metaKey)
+          };
+          ov.addEventListener("pointermove", onMove); ov.addEventListener("pointerup", onUp); ov.addEventListener("pointercancel", onUp);
         }
         ov.addEventListener("pointerdown", (e) => {
           if (e.button !== 0 || e.target !== ov) return; e.stopPropagation(); e.preventDefault();
+          try { ov.setPointerCapture(e.pointerId); } catch (x) { }   // capture so events stay routed here even if cursor leaves
           const p = rel(e);
           const b = { id: _bid++, x: p.x, y: p.y, w: 0, h: 0, type: "obj", text: "", desc: "", palette: [], uiColor: uiColorForIndex(boxes.length) };
           boxes.push(b); selectedId = b.id;
           drag = { i: boxes.length - 1, mode: "draw", ox: p.x, oy: p.y, sx: e.clientX, sy: e.clientY, moved: false };
-          window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
+          ov.addEventListener("pointermove", onMove); ov.addEventListener("pointerup", onUp); ov.addEventListener("pointercancel", onUp);
         });
         function onMove(e) {
           if (!drag) return;
+          e.preventDefault();   // suppress text-selection / browser default drag once a real drag starts
           // jitter guard ONLY for move/resize of an existing box (so a click doesn't recreate divs &
           // break dblclick). A draw is always intentional; tiny draws are dropped by the w<0.02 check.
           if (drag.mode !== "draw" && !drag.moved && Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) < 4) return;
@@ -4046,8 +4062,9 @@
           else { b.x = Math.min(drag.ox, p.x); b.y = Math.min(drag.oy, p.y); b.w = Math.abs(p.x - drag.ox); b.h = Math.abs(p.y - drag.oy); }
           hideDimTip(); renderBoxes();
         }
-        function onUp() {
-          window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp);
+        function onUp(e) {
+          ov.removeEventListener("pointermove", onMove); ov.removeEventListener("pointerup", onUp); ov.removeEventListener("pointercancel", onUp);
+          try { ov.releasePointerCapture(e.pointerId); } catch (x) { }
           hideDimTip();
           const wasDraw = !!drag && drag.mode === "draw";
           if (wasDraw) { const b = boxes[drag.i]; if (!b || b.w < 0.02 || b.h < 0.02) { boxes.splice(drag.i, 1); selectedId = null; } }
@@ -4245,7 +4262,7 @@
             node._idd._last = im;
             paintSave(); paintRegen();        // a result now exists: Save Image enables, label → "Regenerate"
             node._idd.setImage("/view?" + new URLSearchParams({ filename: im.filename || "", subfolder: im.subfolder || "", type: im.type || "output" }).toString());
-            if (autoOn) { try { api.fetchApi("/deno/ideogram_director/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: im.filename, subfolder: im.subfolder, type: im.type, prefix: getW("save_prefix", "Ideogram_Director") }) }); } catch (x) {} }
+            if (autoOn) { try { api.fetchApi("/deno/ideogram_director/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: im.filename, subfolder: im.subfolder, type: im.type, prefix: getW("save_prefix", "Ideogram_Director") }) }); } catch (x) { } }
           },
         };
 
@@ -4523,7 +4540,7 @@
               if (src && isStaticImportJsonSource(src)) {
                 const ws = src.widgets || [];
                 const tw = ws.find((w) => /text|string|json|prompt/i.test(w.name) && typeof w.value === "string")
-                        || ws.find((w) => typeof w.value === "string");
+                  || ws.find((w) => typeof w.value === "string");
                 if (tw && tw.value && String(tw.value).trim()) return tw.value;
               }
             }

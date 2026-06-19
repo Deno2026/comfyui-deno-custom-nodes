@@ -5,6 +5,7 @@ Public, user-facing release notes for Deno Custom Nodes.
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
 ## Unreleased
+ - Fixed mouse behaviour in (Deno) Ideogram Director - drag & drop or resizing works now. Double click to open the edit text box.
 
 ## 0.7.51 - 2026-06-20
 
