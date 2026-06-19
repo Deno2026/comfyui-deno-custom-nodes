@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 
 ## Unreleased
 
+## 0.7.50 - 2026-06-19
+
+- Added optional DENO Floating Tools, a small draggable helper that can free ComfyUI VRAM and show read-only Portable update status when enabled.
+- Documented the new three-surface verification baseline: Portable ComfyUI first, then official Desktop, then Easy-Install/EZi Desktop mode.
+
 ## 0.7.49 - 2026-06-19
 
 - Fixed ComfyUI EZi/Desktop startup hangs caused by Easy Model Download Helper checking model folders while ComfyUI was still loading its node list.

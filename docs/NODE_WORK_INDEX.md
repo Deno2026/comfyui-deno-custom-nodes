@@ -65,6 +65,10 @@ Use this before opening implementation files:
   - `docs/nodes/CAPTION_TRANSLATE.md`
   - Paused. Read only if the user explicitly restarts the standalone Translator node, or when
     touching `deno_translate_engine.py` for Ideogram Director's built-in translation helper.
+- DENO Floating Tools:
+  - `docs/nodes/DENO_FLOATING_TOOLS.md`
+  - Read when touching global DENO overlay tools such as `web/js/deno_floating_tools.js`,
+    floating helper settings, or the pack-level `Free ComfyUI VRAM` UI.
 - Random Prompt Box:
   - `docs/nodes/RANDOM_PROMPT_BOX.md`
   - Read only if the user explicitly restarts that paused feature.
@@ -92,6 +96,8 @@ Use this before opening implementation files:
 | `deno_caption_translate.py` | `docs/nodes/CAPTION_TRANSLATE.md` only after explicit user restart |
 | `deno_translate_engine.py` | `docs/nodes/CAPTION_TRANSLATE.md` |
 | `docs/nodes/CAPTION_TRANSLATE.md` | `docs/nodes/CAPTION_TRANSLATE.md` |
+| `web/js/deno_floating_tools.js` | `docs/nodes/DENO_FLOATING_TOOLS.md` |
+| `web/js/assets/deno_floating_tools_icon.png` | `docs/nodes/DENO_FLOATING_TOOLS.md` |
 | `deno_random_prompt_box.py` | `docs/nodes/RANDOM_PROMPT_BOX.md` only after explicit user restart |
 | `web/js/deno_random_prompt_box.js` | `docs/nodes/RANDOM_PROMPT_BOX.md` only after explicit user restart |
 | `deno_ltx_prompt_guide.py` | `docs/nodes/LTX_PROMPT_GUIDE.md` |
@@ -126,7 +132,7 @@ Do not read these during normal startup. Use them only for substantial custom fr
 - `AGENTS.md`: repo-level routing, safety, runtime/release rules.
 - `SESSION_HANDOFF.md`: compact current state and links, not a work log.
 - `docs/DENO_NODE_RETROSPECTIVE.md`: reusable mistakes and pre-flight checklist shared by all nodes.
-- `docs/COMFYUI_RUNTIME_MATRIX.md`: Portable/Easy-Install/Desktop runtime discovery and dual-runtime verification gates.
+- `docs/COMFYUI_RUNTIME_MATRIX.md`: Portable/Desktop/Easy-Install Desktop runtime discovery and three-surface verification gates.
 - `docs/nodes/<node>.md`: Product Contract, current node contract, active WIP, node-specific pitfalls, verification matrix.
 - `docs/handoff_archive/`: old history only. Do not read during normal startup.
 - `tmp/` or `scratch/`: temporary code/artifacts only. Do not keep durable docs there.

@@ -125,6 +125,10 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "video-preview",
         "multi-image-loader",
         "visual-fold",
+        "floating-tools",
+        "free-vram",
+        "update-watch",
+        "portable-comfyui",
     }
     assert required_keywords.issubset(set(keywords))
     assert pyproject["project"]["requires-python"] == ">=3.10"
@@ -209,6 +213,7 @@ def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
     assert "docs/CLAUDE_NODE_FRONTEND_GUIDE.md" in comfyignore
     assert "docs/TRANSLATOR_REFACTOR_SPEC.md" in comfyignore
     assert "docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md" in comfyignore
+    assert "docs/nodes/" in comfyignore
     assert "docs/nodes/RANDOM_PROMPT_BOX.md" in comfyignore
     assert "docs/nodes/VISUAL_FOLD.md" in comfyignore
     assert "docs/handoff_archive/" in comfyignore

@@ -69,6 +69,20 @@ The user explicitly approved active parallel-agent use for this repo.
 
 Patch source first, then sync changed runtime-visible files into the active install. Do not assume source-only edits are visible in ComfyUI.
 
+## Runtime Verification Priority
+
+As of 2026-06-19, the user's main working target is Portable ComfyUI again. ComfyUI Desktop is not the primary user workflow.
+
+For local patches, the user will normally check Portable first. Codex should treat Portable as the first runtime target when syncing and explaining changes unless the user scopes a different target.
+
+Required validation coverage for ComfyUI UI/frontend/runtime behavior is now three surfaces:
+
+1. Portable ComfyUI, primary user baseline.
+2. Official ComfyUI Desktop.
+3. ComfyUI Easy-Install Desktop/EZi Desktop mode.
+
+When all three cannot be tested in the same turn, report the missing surface as `UNVERIFIED` instead of treating another runtime as equivalent. Keep exact paths and ports in `docs/COMFYUI_RUNTIME_MATRIX.md` and refresh them from the live process/install state before runtime work.
+
 ## Runtime Restart Rules
 
 Do not restart ComfyUI as a blind off/on reflex. First classify the current runtime state, then only replace it when replacement is actually needed.
@@ -85,6 +99,10 @@ Do not restart ComfyUI as a blind off/on reflex. First classify the current runt
 7. After stopping, confirm port `8188` is free or that the old PID is gone before launching.
 8. Start through the visible desktop shortcut only.
 9. Never start hidden/background ComfyUI processes.
+   - This includes temporary verification backends. Do not use `Start-Process -WindowStyle Hidden`
+     for ComfyUI, Desktop-adopted ComfyUI, Easy-Install, EZi, or Portable backends.
+   - If the intended visible launcher cannot be automated, stop and report the exact restart needed
+     instead of silently starting a hidden backend.
 10. Never launch first and clean later. Never leave stacked ComfyUI backends behind.
 11. After launch or no-restart refresh, verify the final state: one intended active runtime, `/object_info/<NodeName>`, served JS markers when relevant, queue idle, and the real canvas for UI work.
 

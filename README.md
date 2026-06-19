@@ -16,7 +16,7 @@ Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
-The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, the no-install **Video Compare** page, and the **Video to GIF/WebP** converter page.
+The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, optional **DENO Floating Tools** for Free VRAM and Portable update checks, the no-install **Video Compare** page, and the **Video to GIF/WebP** converter page.
 
 ## Release Notes
 
@@ -40,6 +40,12 @@ Select two or more nodes and a green `Fold` button appears near the top-right of
 You can also select one normal ComfyUI group and use `Fold Group` to collapse the nodes inside that group while keeping the workflow logic untouched. When two or more groups are selected, the same toolbar adds `Align` actions for left/right/top/bottom alignment and horizontal/vertical spacing.
 
 This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph, which can be powerful, but it may not be ideal when a workflow depends on keeping `Get` / `Set` nodes or parent-child graph structure visible in the main graph. Visual Fold is meant for simple visual organization only. It does not turn the selected nodes into a subgraph or change the workflow logic.
+
+## DENO Floating Tools
+
+DENO Floating Tools is an optional helper under `Settings > DENO > Tools`. It is off by default.
+
+When enabled, it adds a small draggable DENO icon to the ComfyUI screen. The panel can free ComfyUI VRAM through ComfyUI's built-in memory cleanup endpoint and can show read-only update status for Portable installs. It does not install, update, restart, or change workflows.
 
 ## Included Nodes
 
@@ -472,6 +478,10 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `visual fold`
 - `fold selected nodes`
 - `workflow tools`
+- `floating tools`
+- `free vram`
+- `update watch`
+- `portable update check`
 
 ## Install
 

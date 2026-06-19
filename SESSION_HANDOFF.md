@@ -20,11 +20,26 @@ Do not read `docs/handoff_archive/` during normal startup unless deep history is
 ## Current Paths
 
 - Source repo: `E:\DENO-Repos\comfyui-deno-custom-nodes`
-- Active ComfyUI runtime root: `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install`
-- Active custom node install: `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`
+- Primary user verification target: Portable ComfyUI. Detect the live Portable path/port before
+  syncing; the user will normally check Portable first after patches.
+- Easy-Install browser/main runtime root: `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install`
+- Easy-Install browser/main custom node install:
+  `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`
 - Shared model folder: `E:\ComfyUI\ComfyUI Model\models`
-- Main ComfyUI URL: `http://127.0.0.1:8188/`
-- Main launch shortcut: `C:\Users\aions\Desktop\ComfyUI - Sage Attention.lnk`
+- Easy-Install browser/main URL when running: `http://127.0.0.1:8188/`
+- Easy-Install browser/main launch shortcut: `C:\Users\aions\Desktop\ComfyUI - Sage Attention.lnk`
+- Current Desktop test target, per user instruction on 2026-06-19:
+  - Desktop base: `C:\Users\aions\Documents\ComfyUI`
+  - Desktop custom node install:
+    `C:\Users\aions\Documents\ComfyUI\custom_nodes\deno-custom-nodes`
+  - Desktop URL: `http://127.0.0.1:8000/`
+- Easy-Install Desktop/EZi Desktop mode is a separate required compatibility surface. It often shares
+  the Easy-Install base, but verify the live process, URL, and custom-node folder before testing.
+- Required UI/runtime verification matrix from 2026-06-19 onward:
+  1. Portable ComfyUI, primary user baseline.
+  2. Official ComfyUI Desktop.
+  3. Easy-Install Desktop/EZi Desktop mode.
+  Missing surfaces must be reported as `UNVERIFIED`.
 
 ## Documentation Map
 
@@ -37,10 +52,69 @@ Do not read `docs/handoff_archive/` during normal startup unless deep history is
 - Ideogram Director: `docs/nodes/ideogram-director/README.md`
 - Visual Fold: `docs/nodes/VISUAL_FOLD.md`
 - Runtime matrix: `docs/COMFYUI_RUNTIME_MATRIX.md`
+- DENO Floating Tools: `docs/nodes/DENO_FLOATING_TOOLS.md`
 - Translator paused state: `docs/nodes/CAPTION_TRANSLATE.md`
 - Random Prompt Box paused state: `docs/nodes/RANDOM_PROMPT_BOX.md`
 
 Rule: node-specific details go into node-specific docs, not into `AGENTS.md` or this handoff.
+
+## Current Release Scope
+
+DENO Floating Tools is the `0.7.50` release scope.
+
+- Source files:
+  - `web/js/deno_floating_tools.js`
+  - `web/js/assets/deno_floating_tools_icon.png`
+  - `__init__.py`
+  - `tests/test_floating_tools.py`
+  - `docs/nodes/DENO_FLOATING_TOOLS.md`
+  - `docs/NODE_WORK_INDEX.md`
+- Purpose: optional draggable DENO helper icon under `Settings > DENO > Tools`, with a compact
+  `Free VRAM` action and a Portable-focused read-only `Update Watch` helper.
+- User decision on 2026-06-19: remove canvas translation from this tool. ComfyUI canvas translation is
+  not clean/reliable enough to behave like Chrome auto-translate, and an approximate version is worse
+  than omitting it.
+- `deno_floating_tools.py` was removed. Floating Tools should stay frontend-only and call ComfyUI's
+  built-in `/free` endpoint directly.
+- Update Watch is read-only: it reads local `/system_stats`, compares ComfyUI/frontend/templates
+  versions against public GitHub/PyPI JSON, shows an `UP` badge when updates are available, and never
+  runs pip/git/subprocess/OS folder open/restart actions.
+- Runtime sync done to known local installs:
+  - C-drive official Desktop/adopted base:
+    `C:\Users\aions\Documents\ComfyUI\custom_nodes\deno-custom-nodes`
+  - E-drive Easy-Install main:
+    `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes`
+- Verification done on `http://127.0.0.1:8000/`:
+  - source/runtime hashes matched for JS, icon, and `__init__.py`
+  - served JS marker `r2026.06.19-floating-tools-d` found after Update Watch implementation
+  - served icon returned `200 image/png`
+  - real browser check passed: setting off hides the root, setting on shows the icon, icon loads,
+    panel opens, `Free VRAM` sends `{ unload_models: true, free_memory: true }`, drag position saves,
+    position restores after reload, and no DENO/floating console errors were logged.
+  - busy-queue guard passed with a mocked running queue: the panel showed `Queue busy`, the button was
+    disabled, and no `/free` request was sent.
+  - icon size is now `48px`.
+  - translation surface was removed from source: no `Canvas Translate` button, no canvas `fillText`
+    patch, no `/deno/floating_tools/translate_text` frontend call, and no floating-tools backend import.
+  - old translate route returned `404` on `GET` after the translation backend was removed.
+  - Update Watch headless Chrome check passed on official Desktop `8000`: panel showed
+    `ComfyUI 0.24.0 -> 0.25.1`, `Templates 0.10.0 / latest 0.10.0`, `Frontend 1.45.15 / latest
+    1.45.15`, and the icon badge showed `UP`. No install/update command text appeared in the panel.
+- Runtime verification status before public push:
+  - Official Desktop `8000`: verified for served JS and Update Watch panel.
+  - E-drive Easy-Install main files: hash-synced, but runtime not running on `8188`; runtime UI gate is
+    `UNVERIFIED`.
+  - Portable primary: live path/port must be detected when the user launches it; current turn did not
+    have a separate Portable server to verify, so Portable runtime UI gate is `UNVERIFIED`.
+- Local release checks for `0.7.50`:
+  - `node --check web/js/deno_floating_tools.js`
+  - `python -m py_compile __init__.py`
+  - `python -m pytest tests/test_floating_tools.py -q` -> `3 passed`
+  - `python -m pytest tests/test_registry_metadata.py -q` -> `13 passed`
+  - `python -m pytest tests -q` -> `214 passed`
+  - `git diff --check` passed with only normal Windows LF-to-CRLF warnings.
+- Public push, GitHub release, GitHub Actions, Registry publish, Registry Active status, CDN zip, and
+  Manager map checks are the remaining post-push gates for `0.7.50`.
 
 ## Release State
 

@@ -186,7 +186,7 @@ Negative preset 不是输出模式，而是自动填充下方 negative prompt �
 
 ## Search Tips
 
-可在 GitHub、ComfyUI Manager 和 Registry 中搜索：`deno custom nodes`、`ideogram`、`ideogram 4`、`ideogram director`、`json prompt`、`bbox`、`bounding boxes`、`layout prompt`、`rtx video super resolution`、`nvidia vfx`、`image compare`、`video compare`、`video preview`、`video to gif`、`gif webp`、`ltx 2.3`、`ltx model loader`、`ltx multi lora`、`prompt guide`、`system prompt`、`local llm loader`、`local llm prompt`、`local llm reviewer`、`prompt only`、`final prompt`、`bernini`、`bernini prompt guide`、`reference video edit`、`wan2.2`、`visual fold`。
+可在 GitHub、ComfyUI Manager 和 Registry 中搜索：`deno custom nodes`、`ideogram`、`ideogram 4`、`ideogram director`、`json prompt`、`bbox`、`bounding boxes`、`layout prompt`、`rtx video super resolution`、`nvidia vfx`、`image compare`、`video compare`、`video preview`、`video to gif`、`gif webp`、`ltx 2.3`、`ltx model loader`、`ltx multi lora`、`prompt guide`、`system prompt`、`local llm loader`、`local llm prompt`、`local llm reviewer`、`prompt only`、`final prompt`、`bernini`、`bernini prompt guide`、`reference video edit`、`wan2.2`、`visual fold`、`floating tools`、`free vram`、`update watch`、`portable update check`。
 
 ## Install
 

@@ -1,16 +1,22 @@
 # ComfyUI Runtime Matrix
 
-This repo must treat ComfyUI Portable/Easy-Install and ComfyUI Desktop as separate
-runtime surfaces. Passing in one runtime is not proof that custom frontend nodes are
-safe in the other.
+This repo must treat Portable ComfyUI, official ComfyUI Desktop, and ComfyUI
+Easy-Install Desktop/EZi Desktop mode as separate runtime surfaces. Passing in one
+runtime is not proof that custom frontend nodes are safe in the others.
+
+As of 2026-06-19, the user's main workflow target is Portable ComfyUI again. The
+user normally checks Portable first after Codex patches. ComfyUI Desktop remains a
+required compatibility surface, but it is no longer the primary workflow.
 
 ## Known Local Runtimes
 
 | Runtime | Launch | Default URL | Base path | DENO node install |
 |---|---|---|---|---|
-| Easy-Install main | `C:\Users\aions\Desktop\ComfyUI - Sage Attention.lnk` | `http://127.0.0.1:8188/` | `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install` | `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes` |
+| Portable primary | detect before use; often the user's normal Portable launcher/BAT | verify live port before use | verify live install before use | verify live custom-node folder before use |
+| Easy-Install main/browser | `C:\Users\aions\Desktop\ComfyUI - Sage Attention.lnk` | `http://127.0.0.1:8188/` when running | `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install` | `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install\ComfyUI\custom_nodes\deno-custom-nodes` |
 | Easy-Install test | manual/test BAT when explicitly needed | usually `http://127.0.0.1:8199/` | `E:\ComfyUI\ComfyUI-Easy-Install - TEST\ComfyUI-Easy-Install` | verify before use |
 | ComfyUI Desktop dashboard | `C:\Users\aions\Desktop\Comfy Desktop.lnk` | card-dependent; the adopted `ComfyUI` card uses `http://127.0.0.1:8000/` | read cards from `C:\Users\aions\AppData\Roaming\Comfy Desktop\installations.json` | detect per card; this PC's adopted `ComfyUI` card currently uses `C:\Users\aions\Documents\ComfyUI\custom_nodes\deno-custom-nodes` |
+| Easy-Install Desktop/EZi Desktop mode | launch from ComfyUI EZi Launcher desktop column | often shares the Easy-Install base but verify live process | `E:\ComfyUI\ComfyUI-Easy-Install\ComfyUI-Easy-Install` unless changed | verify whether it uses the same Easy-Install custom-node folder |
 
 Desktop details are discovered from:
 
@@ -28,9 +34,16 @@ Do not assume the custom node folder name. Registry/Git installs may be named
 `deno-custom-nodes` or `comfyui-deno-custom-nodes`; detect the package by `pyproject.toml`
 where possible.
 
-## When Dual Runtime Verification Is Required
+## Required Runtime Verification Order
 
-Verify both Easy-Install and Desktop when any of these are true:
+For ComfyUI UI/frontend/runtime behavior, verify in this order unless the user scopes
+a narrower target:
+
+1. Portable ComfyUI, primary baseline.
+2. Official ComfyUI Desktop.
+3. Easy-Install Desktop/EZi Desktop mode.
+
+Run the full three-surface matrix when any of these are true:
 
 - The user reports a Desktop-only or Portable-vs-Desktop mismatch.
 - A public hotfix/release touches a custom frontend node.
@@ -41,8 +54,9 @@ Verify both Easy-Install and Desktop when any of these are true:
 - The bug appears after "clicking the wrong place", F5/reload, Manager update, or loading an old
   saved workflow.
 
-If Desktop is unavailable or not installed for the current test, record the Desktop gate as
-`UNVERIFIED`, not as passed.
+If any runtime is unavailable or not installed for the current test, record that gate as
+`UNVERIFIED`, not as passed. Do not collapse Easy-Install browser mode and Easy-Install
+Desktop/EZi Desktop mode into one result when the user-facing behavior differs.
 
 ## Required Evidence Per Runtime
 

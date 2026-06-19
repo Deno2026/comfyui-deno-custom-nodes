@@ -59,7 +59,7 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
   1. Check source/runtime file hashes and copy only changed runtime-visible files.
   2. Classify the runtime before restart: is the target port already owned by the intended runtime `ComfyUI\main.py`, are there duplicate `main.py` processes, and is the matching visible launcher shell already open?
   3. For JS/static-only edits, prefer no backend restart: hash-match runtime file, fetch the served JS marker from the same URL/port, then hard-refresh/reopen the browser tab. Restart only if the served file is stale, the extension list needs reload, or the backend contract changed.
-  4. For backend/registration/dependency or `/object_info` changes, check `/queue`; if idle, stop only the identified active-runtime `main.py` and matching launcher shell, confirm the target port is released, then start once through the user's visible shortcut.
+  4. For backend/registration/dependency or `/object_info` changes, check `/queue`; if idle, stop only the identified active-runtime `main.py` and matching launcher shell, confirm the target port is released, then start once through the user's visible shortcut. Do not start a hidden/background verification backend; if the visible launcher cannot be automated, report the restart requirement instead.
   5. Never start a new ComfyUI first and clean up afterward. Never use a broad kill that can take down unrelated test ports, Claude, Node, launchers, or other ComfyUI installs.
   6. Check `/object_info/<NodeName>` and served extension JS marker strings from the same URL/port the user is viewing.
   7. Verify behavior through tests, backend logs, `/prompt`, `/history`, and WebSocket/custom progress events before touching the browser.
@@ -92,10 +92,12 @@ For visual direction, also read `docs/DENO_NODE_VISUAL_IDENTITY.md`.
   right-click `Recreate node` with both `Keep widget values` and `Reset widget values` when geometry,
   widget order, saved values, or generated controls changed; fresh-node and normal F5 tests can miss
   this path.
-- Portable/Easy-Install and Desktop can disagree. Desktop uses a different frontend root,
-  Electron shell, default port, base path, window size, and sometimes a different custom-node folder
-  name. A geometry fix that passes in the browser can still collapse in Desktop. For custom DOM
-  nodes, run the same click/resize/F5 path in Desktop before claiming a public hotfix is safe.
+- Portable, official Desktop, and Easy-Install Desktop/EZi Desktop mode can disagree. Desktop uses a
+  different frontend root, Electron shell, default port, base path, window size, and sometimes a
+  different custom-node folder name. Easy-Install Desktop can add another launcher/wrapper layer.
+  A geometry fix that passes in one surface can still collapse in another. For custom DOM nodes, run
+  the same click/resize/F5 path across the three-surface matrix before claiming a public hotfix is
+  safe, or mark the missing surface `UNVERIFIED`.
 - Media preview nodes must not call `setSize` on every image/video load after the user has resized the node. Auto-fit only for a first useful default or an explicit fit command; otherwise contain/letterbox the media inside the user's chosen node box.
 - Expanding/collapsing one area must not accidentally resize unrelated text areas.
 - If a value should persist across workflow reloads, do not normalize it back to defaults during frontend setup.
@@ -192,9 +194,9 @@ Run this before saying a node is done:
 6. Sync source to active install.
 7. Compare hashes between source and active install.
 8. Run the runtime matrix when runtime behavior matters. For custom frontend/geometry/interaction
-   fixes, verify Easy-Install and ComfyUI Desktop separately when Desktop is installed. If one
-   runtime is unavailable, mark that gate `UNVERIFIED`.
-9. Restart ComfyUI only if required. For JS/static-only edits, prefer source/runtime hash + served JS marker + hard browser refresh. For backend/registration changes, replace the active runtime in order: inspect port/processes -> queue idle -> stop only the matching active-runtime `main.py` and BAT shell -> confirm old PID/port is gone -> launch once through the visible shortcut.
+   fixes, verify Portable first, then official ComfyUI Desktop, then Easy-Install Desktop/EZi
+   Desktop mode. If one runtime is unavailable, mark that gate `UNVERIFIED`.
+9. Restart ComfyUI only if required. For JS/static-only edits, prefer source/runtime hash + served JS marker + hard browser refresh. For backend/registration changes, replace the active runtime in order: inspect port/processes -> queue idle -> stop only the matching active-runtime `main.py` and BAT shell -> confirm old PID/port is gone -> launch once through the visible shortcut. Never use a hidden/background ComfyUI backend for convenience verification.
 10. Confirm `/object_info` for changed nodes.
 11. If frontend changed, confirm served JS contains the new behavior.
 12. For public node registration/display changes, confirm `node_list.json` matches the public `NODE_CLASS_MAPPINGS` IDs and display names, then run registry metadata tests. Hidden aliases, paused WIP nodes, and compatibility-only replacements must not appear in `node_list.json`. For new or unreleased nodes, align the internal ID with the final display name before release: keep the `Deno` prefix and make the words after it match the display name words as closely as possible. Do not rename already-public internal IDs just for Manager cosmetics.
