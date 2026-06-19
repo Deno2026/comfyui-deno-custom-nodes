@@ -113,12 +113,56 @@ DENO Floating Tools is the `0.7.50` release scope.
   - `python -m pytest tests/test_registry_metadata.py -q` -> `13 passed`
   - `python -m pytest tests -q` -> `214 passed`
   - `git diff --check` passed with only normal Windows LF-to-CRLF warnings.
-- Public push, GitHub release, GitHub Actions, Registry publish, Registry Active status, CDN zip, and
-  Manager map checks are the remaining post-push gates for `0.7.50`.
+- Independent GPT-5.5 xhigh release reviewer `019edfbf-7fe4-7050-af68-cc9c98fc54dd`
+  returned `PASS WITH NOTES`; the only code-risk note was fixed before release by preventing an
+  `UP` badge when the installed version is unknown.
+- Public release completed on 2026-06-19:
+  - Release commit/tag target: `c1198792b9079e89cb8fa2d6d210249882bae53d` / `v0.7.50`
+  - GitHub release: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.50`
+  - GitHub Actions `ci`, `Publish to Comfy registry`, `pages-build-deployment`, and
+    `Dependency Graph` succeeded.
+  - CDN zip returned `200 application/zip`:
+    `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.50/node.zip`
+  - CDN package check passed: package version `0.7.50`, Floating Tools JS/icon included, marker
+    `r2026.06.19-floating-tools-d` present, no translation/backend command surface, and no
+    `tests/`, `SESSION_HANDOFF.md`, `AGENTS.md`, or `docs/nodes/` packaged.
+  - Registry versions endpoint and install endpoint resolve to `0.7.50`, but Registry status is
+    currently `NodeVersionStatusPending`.
+  - Manager `extension-node-map.json` uses the full URL key
+    `https://github.com/Deno2026/comfyui-deno-custom-nodes` and still lists
+    `DenoIdeogramDirector` and `DenoLocalLLMRefiner`.
+  - Active same-thread heartbeat monitor: `deno-0-7-50-registry-monitor`.
 
 ## Release State
 
-Current public release: `0.7.49`.
+Current public release: `0.7.50`.
+
+0.7.50 Floating Tools release scope:
+
+- Optional draggable DENO helper icon, default off under `Settings > DENO > Tools`.
+- `Free VRAM` calls ComfyUI's built-in `/free` endpoint with unload models plus free memory.
+- `Update Watch` is read-only and Portable-focused. It compares local ComfyUI/frontend/templates
+  versions to public GitHub/PyPI metadata and shows an `UP` badge only when local and latest versions
+  are both known and latest is newer.
+- No canvas translation feature, no OS folder open feature, no update execution, no backend route.
+
+0.7.50 public release state:
+
+- Release commit/tag target: `c1198792b9079e89cb8fa2d6d210249882bae53d` / `v0.7.50`
+- GitHub release: `https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag/v0.7.50`
+- GitHub Actions CI, Pages, Dependency Graph, and Publish to Comfy registry succeeded.
+- CDN zip exists and returned `200 application/zip`:
+  `https://cdn.comfy.org/deno2026/deno-custom-nodes/0.7.50/node.zip`
+- Registry versions endpoint and install endpoint both resolve to `0.7.50`, currently
+  `NodeVersionStatusPending` with empty `status_reason`.
+- Manager `extension-node-map.json` still lists this repo under the full GitHub URL key with
+  `DenoIdeogramDirector` and `DenoLocalLLMRefiner`.
+- Active monitor: `deno-0-7-50-registry-monitor`, heartbeat every 30 minutes in this thread.
+
+Next action:
+
+- Wait until Registry `0.7.50` becomes Active and the install endpoint still resolves to `0.7.50`.
+- After Active, verify CDN zip and Manager map again, then stop the 30-minute monitor.
 
 0.7.49 hotfix scope for GitHub #31 / ComfyUI EZi Desktop startup reports:
 
@@ -727,12 +771,12 @@ Post-0.7.37 local Ideogram WIP verification:
 ## Next Session Checklist
 
 1. Run `git status --short` first.
-2. Treat public `0.7.49` propagation as complete unless a live Registry/Manager check later proves
-   otherwise.
-3. If a user reports EZi/Desktop startup failure, verify whether they are actually on `0.7.49`.
+2. Treat public `0.7.50` as released but Registry propagation as pending until a live check reports
+   `NodeVersionStatusActive`; active monitor is `deno-0-7-50-registry-monitor`.
+3. If a user reports EZi/Desktop startup failure, verify whether they are at least on `0.7.49`.
    Older installs can still hit the pre-0.7.49 model-folder startup scan.
 4. If a user reports Ideogram Director showing `Translate On` or `Layout Presets`, treat it as a
-   stale install/cache/runtime-path signal first. Current `0.7.49` package uses `Language` and
+   stale install/cache/runtime-path signal first. Current public packages use `Language` and
    `Layouts`.
 5. Local active Easy-Install runtime may lag behind public release state; check runtime
    `pyproject.toml`, `/object_info`, and served JS before using it as evidence.
