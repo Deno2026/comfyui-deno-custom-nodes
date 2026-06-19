@@ -13,10 +13,9 @@ __pycache__/
 tests/
 
 # Internal developer / handoff / design docs: never part of an installed
-# node. The Registry security scanner reads every packaged text file and
-# substring-matches risky-looking call patterns with no code-vs-prose
-# awareness, so docs that merely mention or quote such patterns still get
-# flagged. Keep them on GitHub for collaboration, out of this package.
+# node package. These are local-only DENO operating assets, not public
+# product docs. Keep the exclusions here as a second guard for local builds
+# and registry packaging.
 SESSION_HANDOFF.md
 AGENTS.md
 docs/DENO_NODE_RETROSPECTIVE.md

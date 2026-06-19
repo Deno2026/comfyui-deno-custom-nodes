@@ -7,6 +7,7 @@ import re
 import sys
 import tempfile
 import os
+import subprocess
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -198,10 +199,8 @@ def test_registry_package_links_public_rtx_installer_but_excludes_flagged_files(
 
 
 def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
-    # The Registry security scanner reads every packaged text file and
-    # substring-matches dangerous tokens; internal handoff/process/design
-    # docs *describe* code (subprocess, .connect(, ...) so they MUST stay
-    # out of the published package. Regression guard for the 0.7.1 flag.
+    # Internal DENO operating notes are local-only assets and must never ship
+    # inside the installed node package.
     comfyignore = COMFYIGNORE_PATH.read_text(encoding="utf-8")
 
     assert "SESSION_HANDOFF.md" in comfyignore
@@ -219,6 +218,42 @@ def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
     assert "docs/handoff_archive/" in comfyignore
     assert "tmp/" in comfyignore
     assert "tools/comfyui_runtime_matrix.ps1" in comfyignore
+
+
+def test_public_git_surface_excludes_local_only_internal_docs():
+    tracked = subprocess.check_output(
+        ["git", "ls-files"],
+        cwd=REPO_ROOT,
+        text=True,
+        encoding="utf-8",
+    ).splitlines()
+
+    forbidden_exact = {
+        "AGENTS.md",
+        "SESSION_HANDOFF.md",
+        "docs/CLAUDE_NODE_FRONTEND_GUIDE.md",
+        "docs/COMFYUI_RUNTIME_MATRIX.md",
+        "docs/DENO_NODE_RETROSPECTIVE.md",
+        "docs/DENO_NODE_VISUAL_IDENTITY.md",
+        "docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md",
+        "docs/NODE_WORK_INDEX.md",
+        "docs/PORTABLE_TEST_BASELINE.md",
+        "tests/test_documentation_routing.py",
+        "tools/comfyui_runtime_matrix.ps1",
+        "tools/test_portable_baseline.ps1",
+    }
+    forbidden_prefixes = (
+        "docs/handoff_archive/",
+        "docs/nodes/",
+    )
+
+    leaked = [
+        path
+        for path in tracked
+        if path in forbidden_exact or any(path.startswith(prefix) for prefix in forbidden_prefixes)
+    ]
+
+    assert leaked == []
 
 
 def test_visual_fold_frontend_is_visual_only():

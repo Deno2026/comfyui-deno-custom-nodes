@@ -926,7 +926,7 @@
 .idd-btn.red.arm{background:rgba(190,84,84,.85) !important;color:#fff !important;border-color:transparent !important;}
 .idd-btn:disabled{opacity:.4;cursor:default;}
 /* panel-collapse edge tab on the board↔panel boundary (IDE convention) */
-.idd-railtab{position:absolute;right:248px;top:50%;transform:translate(50%,-50%);width:16px;height:46px;
+.idd-railtab{position:absolute;right:var(--railw);top:50%;transform:translate(50%,-50%);width:16px;height:46px;
   z-index:9;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#1a201c;color:#8d978f;
   cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;padding:0;line-height:1;}
 .idd-railtab:hover{color:#42bd7f;border-color:rgba(66,189,127,.45);}
@@ -1013,9 +1013,11 @@
     s.textContent = `
       .idd-wrap{--g:#48ff84;--gdim:rgba(72,255,132,.30);--gfaint:rgba(72,255,132,.13);
         --txt:#dfffea;--acc:#9dffba;--dim:#6f9a80;--red:rgba(150,40,40,.95);
+        --railw:248px;
         display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden;width:100%;min-width:0;max-width:100%;height:100%;align-self:stretch;
         background:rgba(3,10,7,.97);border:1px solid var(--gdim);border-radius:10px;
         color:var(--txt);font:12px 'Segoe UI',sans-serif;}
+      .idd-wrap.idd-railwide{--railw:380px;}
       /* fullscreen: break out to a viewport overlay. !important beats ComfyUI's per-frame inline styles. */
       .idd-wrap.idd-fs{position:fixed!important;inset:0!important;left:0!important;top:0!important;
         width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;
@@ -1205,6 +1207,8 @@
       /* Paste-JSON dialog: wider panel, tall monospace textarea, inline error */
       .idd-modal-panel.idd-paste-panel{width:520px;max-width:92%;}
       .idd-modal-panel.idd-paste-panel textarea{min-height:210px;font:12px/1.5 ui-monospace,"Consolas",monospace;}
+      .idd-modal-panel.idd-copy-panel{width:560px;max-width:92%;}
+      .idd-modal-panel.idd-copy-panel textarea{min-height:260px;font:12px/1.5 ui-monospace,"Consolas",monospace;}
       .idd-paste-err{color:#ff9b8a;font:12px 'Segoe UI';padding:2px 1px;}
       /* preset galleries — FULL-SCREEN overlay (mounted on body, above everything) */
       .idd-modal.idd-gal-fs{position:fixed;inset:0;z-index:100000;padding:2.5vh 2vw;}
@@ -1275,10 +1279,14 @@
       .idd-zoom{position:absolute;right:8px;top:8px;display:flex;align-items:center;gap:4px;z-index:8;}
       .idd-zoom button{width:24px;height:24px;border-radius:6px;border:1px solid var(--gfaint);
         background:rgba(1,6,4,.8);color:var(--acc);cursor:pointer;font-size:14px;line-height:1;}
-      .idd-rail{width:248px;flex:0 0 auto;border-left:1px solid var(--gfaint);background:rgba(1,6,4,.5);
+      .idd-rail{width:var(--railw);flex:0 0 auto;border-left:1px solid var(--gfaint);background:rgba(1,6,4,.5);
         overflow-y:auto;overscroll-behavior:contain;transition:width .15s ease;}
       .idd-rail.collapsed{width:0;border-left:none;}
       .idd-railpad{padding:9px;display:flex;flex-direction:column;gap:11px;min-width:230px;}
+      .idd-railtools{display:flex;align-items:center;justify-content:flex-end;margin:-1px 0 -4px;}
+      .idd-railwidebtn{cursor:pointer;background:#0c1611;border:1px solid var(--gfaint);border-radius:999px;
+        color:var(--acc);padding:4px 10px;font:700 10px 'Segoe UI';}
+      .idd-railwidebtn:hover,.idd-railwidebtn.on{border-color:var(--gdim);color:var(--g);background:rgba(72,255,132,.10);}
       .idd-sec{display:flex;flex-direction:column;gap:5px;}
       .idd-seclbl{font:bold 10px 'Segoe UI';letter-spacing:1px;color:var(--acc);text-transform:uppercase;}
       .idd-area{background:#050a08;border:1px solid var(--gfaint);border-radius:7px;color:var(--txt);
@@ -1311,6 +1319,9 @@
       .idd-elem .n{font:bold 10px monospace;color:var(--dim);width:16px;}
       .idd-elem .c{width:11px;height:11px;border-radius:3px;flex:0 0 auto;}
       .idd-elem .t{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--txt);}
+      .idd-wrap.idd-railwide .idd-elem{align-items:flex-start;}
+      .idd-wrap.idd-railwide .idd-elem .n,.idd-wrap.idd-railwide .idd-elem .c,.idd-wrap.idd-railwide .idd-elem .ty{margin-top:2px;}
+      .idd-wrap.idd-railwide .idd-elem .t{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.35;}
       .idd-elem .ty{font:bold 9px monospace;color:var(--acc);border:1px solid var(--gfaint);border-radius:4px;padding:1px 4px;cursor:pointer;}
       .idd-elem .x{color:var(--dim);cursor:pointer;padding:0 3px;}
       .idd-elem .x:hover{color:#ffd9d9;}
@@ -1382,6 +1393,7 @@
         let styleMode = "none";  // none | photo | art
         let mp = 1;              // megapixel budget (persisted in caption_data)
         let arLabel = "1:1";     // current aspect-ratio label (persisted in the aspect_ratio widget)
+        let railWide = false;    // Elements rail width preference (UI-only, restored on reload)
 
         const normBox = (b) => {
           const w = clamp01(+b.w || 0), h = clamp01(+b.h || 0);
@@ -1455,6 +1467,7 @@
             bdropDim: bdropDim, // backdrop darkening — UI-only, restored on reload
             resultDim: resultDim, // result-image dimming — UI-only, restored on reload
             bdropT: bdT,        // backdrop position/size (board-relative) — UI-only, restored on reload
+            railWide: !!railWide, // right-side Elements rail width — UI-only, restored on reload
           };
           setW("caption_data", JSON.stringify(cd));
           node.setDirtyCanvas(true, true);
@@ -1476,7 +1489,7 @@
         function snapshot() {
           return JSON.stringify({ boxes, stylePalette, styleMode, selId: selectedId,
             hld: summary.value, bg: bgArea.value, aes: aesIn.value, lig: ligIn.value,
-            med: medIn.value, photo: photoIn.value, art: artIn.value, bdropDim, resultDim, bdT });
+            med: medIn.value, photo: photoIn.value, art: artIn.value, bdropDim, resultDim, bdT, railWide });
         }
         function commit() {
           if (restoring) return;
@@ -1498,6 +1511,7 @@
           artIn.value = d.art || ""; setW("art_style", d.art || "");
           applyStyleMode(d.styleMode || "none"); setW("style_mode", d.styleMode || "none");
           bdropDim = +d.bdropDim || 0; resultDim = +d.resultDim || 0; if (d.bdT) bdT = Object.assign({}, d.bdT);
+          setRailWide(!!d.railWide, false);
           selectedId = boxes.some((b) => b.id === d.selId) ? d.selId : null;
           renderBoxes(); renderPalette(); renderElements(); layoutStage(); applyBackdrop(); applyResultDim();
           serialize(); restoring = false; paintHistory();   // persist; restoring guard kept commit() a no-op
@@ -1508,7 +1522,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.19-language-esc-a";
+        const IDD_REV = "r2026.06.20-copy-rail-a";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -3128,6 +3142,23 @@
 
         const rail = el("div", "idd-rail");
         const pad = el("div", "idd-railpad");
+        const railTools = el("div", "idd-railtools");
+        const railWideBtn = el("button", "idd-railwidebtn");
+        railWideBtn.type = "button";
+        railWideBtn.textContent = "Wide";
+        railWideBtn.title = "Make the Elements side panel wider";
+        function setRailWide(on, persist = true) {
+          railWide = !!on;
+          wrap.classList.toggle("idd-railwide", railWide);
+          railWideBtn.classList.toggle("on", railWide);
+          railWideBtn.textContent = railWide ? "Normal" : "Wide";
+          railWideBtn.title = railWide ? "Return the Elements side panel to normal width" : "Make the Elements side panel wider";
+          layoutStage();
+          node.setDirtyCanvas(true, true);
+          if (persist) serialize();
+        }
+        railWideBtn.onclick = (e) => { e.stopPropagation(); setRailWide(!railWide); };
+        railTools.append(railWideBtn);
 
         // Summary (high_level_description) + Background
         const summary = el("textarea", "idd-area"); summary.placeholder = 'Whole scene in 1–2 sentences — e.g. "A neon-lit ramen shop at night, steam rising, a lone customer at the counter"'; stop(summary);
@@ -3643,6 +3674,38 @@
           boxes = frontFirst.reverse();
           renderBoxes(); renderElements(); serialize();
         }
+        let lastElementClick = { id: null, time: 0 };
+        let lastElementEdit = { id: null, time: 0 };
+        function isElementActionTarget(e) {
+          return !!(e.target && e.target.closest && e.target.closest(".g,.ty,.dup,.x"));
+        }
+        function openElementById(id) {
+          const now = performance.now ? performance.now() : Date.now();
+          if (lastElementEdit.id === id && now - lastElementEdit.time < 250) return;
+          lastElementEdit = { id, time: now };
+          const idx = boxes.findIndex((x) => x.id === id);
+          if (idx >= 0) openElementEditor(idx);
+        }
+        function handleElementRowClick(e, boxId) {
+          if (isElementActionTarget(e)) return;
+          e.stopPropagation();
+          const now = performance.now ? performance.now() : Date.now();
+          const isFastRepeat = lastElementClick.id === boxId && now - lastElementClick.time < 480;
+          lastElementClick = { id: boxId, time: now };
+          setSel(boxId);
+          if (isFastRepeat) {
+            lastElementClick = { id: null, time: 0 };
+            openElementById(boxId);
+          }
+        }
+        function elementListText(b) {
+          if (!b) return "(no description)";
+          if (b.type === "text") return b.text ? ('"' + b.text + '"') : "(empty text)";
+          return b.desc || "(no description)";
+        }
+        function elementListTitle(b, i) {
+          return String(i + 1).padStart(2, "0") + " · " + (b.type === "text" ? "TEXT" : "OBJ") + " · " + elementListText(b);
+        }
 
         function renderElements() {
           ensureBoxUiColors();
@@ -3650,10 +3713,10 @@
           boxes.map((b, i) => ({ b, i })).reverse().forEach(({ b, i }) => {
             const row = el("div", "idd-elem" + (b.id === selectedId ? " sel" : ""));
             row.dataset.iddBoxId = String(b.id);
-            row.title = "Double-click to edit this element.";
+            row.title = elementListTitle(b, i);
             const n = el("span", "n"); n.textContent = String(i + 1).padStart(2, "0");
             const c = el("span", "c"); c.style.background = boxColor(b, i);
-            const t = el("span", "t"); t.textContent = b.type === "text" ? ('"' + (b.text || "") + '"') : (b.desc || "(no description)");
+            const t = el("span", "t"); t.textContent = elementListText(b); t.title = row.title;
             const ty = el("span", "ty"); ty.textContent = b.type;
             ty.onclick = (e) => { e.stopPropagation(); b.type = b.type === "text" ? "obj" : "text"; renderElements(); renderBoxes(); serialize(); };
             const dup = el("span", "dup"); dup.textContent = "⧉"; dup.title = "Duplicate";
@@ -3670,13 +3733,12 @@
               reorderElementDrop(e, b, row);
               clearElementDropPreview();
             });
-            row.onclick = () => setSel(b.id);
+            row.onclick = (e) => handleElementRowClick(e, b.id);
             row.addEventListener("dblclick", (e) => {
               e.stopPropagation();
-              if (e.target && e.target.closest && e.target.closest(".g,.ty,.dup,.x")) return;
+              if (isElementActionTarget(e)) return;
               setSel(b.id);
-              const idx = boxes.findIndex((x) => x.id === b.id);
-              if (idx >= 0) openElementEditor(idx);
+              openElementById(b.id);
             });
             row.addEventListener("mouseenter", () => { const bx = ov.querySelector(`[data-idd-box-id="${b.id}"]`); if (bx) bx.classList.add("hov"); });
             row.addEventListener("mouseleave", () => { const bx = ov.querySelector(`[data-idd-box-id="${b.id}"]`); if (bx) bx.classList.remove("hov"); });
@@ -3687,7 +3749,7 @@
 
         // rail order: Style is kept above Elements so Photo/Art stays visible at the compact default size.
         pad.append(
-          mkSec("Summary", summary), mkSec("Background", bgArea), styleSec, elemSec,
+          railTools, mkSec("Summary", summary), mkSec("Background", bgArea), styleSec, elemSec,
         );
         rail.append(pad);
         body.append(board, rail, railBtn);   // railBtn = edge tab pinned to the board↔panel boundary
@@ -3847,6 +3909,8 @@
           rail.classList.toggle("collapsed", !railOpen);
           railBtn.textContent = railOpen ? "»" : "«";            // chevron points where the panel will go
           railBtn.title = railOpen ? "Collapse panel" : "Expand panel";
+          layoutStage();
+          node.setDirtyCanvas(true, true);
         };
 
         // ── box overlay: render + draw / select / move / resize / desc-edit ──
@@ -4237,6 +4301,71 @@
           cap.compositional_deconstruction = { background: bgArea.value || "", elements: els };
           return cap;
         }
+        function legacyCopyText(text) {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          Object.assign(ta.style, {
+            position: "fixed",
+            left: "-10000px",
+            top: "0",
+            width: "1px",
+            height: "1px",
+            opacity: "0",
+          });
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          let ok = false;
+          try { ok = document.execCommand && document.execCommand("copy"); } catch (e) { ok = false; }
+          try { ta.remove(); } catch (e) {}
+          return !!ok;
+        }
+        async function copyTextBestEffort(text) {
+          try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+              await navigator.clipboard.writeText(text);
+              return true;
+            }
+          } catch (e) {}
+          return legacyCopyText(text);
+        }
+        function openCopyDialog(text) {
+          const modal = el("div", "idd-modal"); modal.tabIndex = -1;
+          const panel = el("div", "idd-modal-panel idd-copy-panel");
+          const h = el("div", "idd-modal-h");
+          const ht = el("span", "t"); ht.textContent = "Copy caption JSON"; h.append(ht);
+          const hint = el("div", "idd-ml"); hint.textContent = "Clipboard access is blocked here. Press Ctrl+C, or click Copy again.";
+          const ta = el("textarea"); ta.value = text; ta.readOnly = true; ta.spellcheck = false;
+          const acts = el("div", "idd-modal-acts");
+          const closeBtn = el("button", "idd-mbtn"); closeBtn.textContent = "Close";
+          const copyBtn = el("button", "idd-mbtn save"); copyBtn.textContent = "Copy";
+          acts.append(el("span", "sp"), closeBtn, copyBtn);
+          panel.append(h, hint, ta, acts);
+          modal.append(panel); wrap.appendChild(modal);
+          const selectAll = () => { ta.focus(); ta.select(); };
+          setTimeout(selectAll, 0);
+          const close = () => { try { modal.remove(); } catch (e) {} };
+          const retry = async () => {
+            selectAll();
+            if (await copyTextBestEffort(text)) {
+              copyBtn.textContent = "✓ Copied";
+              copy.textContent = "✓ Copied";
+              setTimeout(() => { copy.textContent = "Copy JSON"; close(); }, 900);
+            } else {
+              copyBtn.textContent = "Press Ctrl+C";
+              hint.textContent = "Copy is still blocked. The JSON is selected, so press Ctrl+C.";
+            }
+          };
+          modal.addEventListener("keydown", (e) => {
+            e.stopPropagation();
+            if (e.key === "Escape") { e.preventDefault(); close(); }
+            if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === "a") { e.preventDefault(); selectAll(); }
+          });
+          modal.addEventListener("pointerdown", (e) => { if (e.target === modal) close(); });
+          closeBtn.onclick = (e) => { e.stopPropagation(); close(); };
+          copyBtn.onclick = (e) => { e.stopPropagation(); retry(); };
+        }
         copy.addEventListener("click", async (e) => {
           e.stopPropagation();
           const done = (label) => {
@@ -4249,9 +4378,9 @@
               copy.textContent = "Translating...";
               cap = await translateCaptionToEnglishForOutput(cap, true, "the English JSON output");
             }
-            const written = navigator.clipboard.writeText(JSON.stringify(cap));
-            if (written && typeof written.then === "function") written.then(() => done("✓ Copied"), () => done("Copy failed"));
-            else done("✓ Copied");
+            const text = JSON.stringify(cap);
+            if (await copyTextBestEffort(text)) done("✓ Copied");
+            else { openCopyDialog(text); done("Copy manually"); }
           } catch (x) { done("Copy failed"); }
         });
         // Paste understands BOTH dialects: an OFFICIAL Ideogram caption (LLM output / shared
@@ -4530,6 +4659,7 @@
           if (typeof d.mp === "number" && d.mp > 0) mp = d.mp;
           if (typeof d.bdropDim === "number") bdropDim = Math.max(0, Math.min(0.8, d.bdropDim));
           if (typeof d.resultDim === "number") resultDim = Math.max(0, Math.min(0.85, d.resultDim));
+          setRailWide(!!d.railWide, false);
           applyResultDim();
           if (d.bdropT && typeof d.bdropT === "object") bdT = { nx: +d.bdropT.nx || 0, ny: +d.bdropT.ny || 0, nw: +d.bdropT.nw || 1, nh: +d.bdropT.nh || 1, set: true };
           // display label: a known preset shows as-is; anything else (pixel pairs, odd shapes) shows

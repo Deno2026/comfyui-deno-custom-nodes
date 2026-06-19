@@ -210,3 +210,24 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# DENO local-only agent/operations docs.
+# Public GitHub should stay product/user-facing; keep these files local.
+AGENTS.md
+SESSION_HANDOFF.md
+docs/CLAUDE_NODE_FRONTEND_GUIDE.md
+docs/COMFYUI_RUNTIME_MATRIX.md
+docs/DENO_NODE_RETROSPECTIVE.md
+docs/DENO_NODE_VISUAL_IDENTITY.md
+docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md
+docs/NODE_WORK_INDEX.md
+docs/PORTABLE_TEST_BASELINE.md
+docs/handoff_archive/
+docs/nodes/
+tests/test_documentation_routing.py
+tools/comfyui_runtime_matrix.ps1
+tools/test_portable_baseline.ps1
+tmp/
+scratch/
+reports/
+artifacts/

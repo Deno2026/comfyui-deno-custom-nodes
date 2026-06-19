@@ -29,4 +29,4 @@ https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/CHANGELOG.md
 
 ## Release Note Rule
 
-Keep the release body short. Use the collapsible sections only for optional context; implementation details stay in pull requests, issues, and `SESSION_HANDOFF.md`.
+Keep the release body short. Use the collapsible sections only for optional user-facing context; implementation details and local verification notes stay in private/local handoff notes.

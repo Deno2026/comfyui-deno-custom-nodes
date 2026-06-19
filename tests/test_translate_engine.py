@@ -1160,7 +1160,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.19-language-esc-a"' in script
+    assert 'const IDD_REV = "r2026.06.20-copy-rail-a"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script
@@ -1179,7 +1179,11 @@ def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     assert "Array.isArray(this._iddConfiguredSize)" not in script
     assert "preserveCurrent ? iddSizeValue(current, 1) : 0" in script
     assert "iddSizeValue(configured, 1)" in script
-    assert 'written.then(() => done("✓ Copied"), () => done("Copy failed"))' in script
+    assert "function copyTextBestEffort(text)" in script
+    assert "function legacyCopyText(text)" in script
+    assert "function openCopyDialog(text)" in script
+    assert 'else { openCopyDialog(text); done("Copy manually"); }' in script
+    assert 'written.then(() => done("✓ Copied"), () => done("Copy failed"))' not in script
 
 
 def test_ideogram_director_frontend_resolution_popup_ignores_arbitrary_import_sizes():

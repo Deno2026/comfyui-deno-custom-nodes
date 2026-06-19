@@ -10,8 +10,8 @@ body:
     id: deno_version
     attributes:
       label: Deno Custom Nodes version
-      description: "Example: v0.7.49"
-      placeholder: v0.7.49
+      description: "Example: v0.7.51"
+      placeholder: v0.7.51
     validations:
       required: true
   - type: input

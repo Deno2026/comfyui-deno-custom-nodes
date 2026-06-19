@@ -415,7 +415,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.19-language-esc-a"' in script
+    assert 'IDD_REV = "r2026.06.20-copy-rail-a"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
@@ -481,6 +481,14 @@ def test_ideogram_director_right_rail_keeps_local_wheel_scroll():
     assert "Deliberate local scroll areas keep their wheel." in script
     assert 't.closest(".idd-rail,.idd-gal-scroll,.idd-importlist,textarea,input,select")' in script
     assert "overflow-y:auto;overscroll-behavior:contain;transition:width .15s ease;" in script
+    assert "--railw:248px;" in script
+    assert ".idd-wrap.idd-railwide{--railw:380px;}" in script
+    assert 'const railWideBtn = el("button", "idd-railwidebtn")' in script
+    assert ".idd-railwidebtn:hover,.idd-railwidebtn.on" in script
+    assert ".idd-wrap.idd-railwide .idd-elem .t" in script
+    assert "white-space:normal;overflow:visible;text-overflow:clip" in script
+    assert "railWide: !!railWide" in script
+    assert "setRailWide(!!d.railWide, false)" in script
     assert "for (const elc of [seedIn, rail, summary, bgArea]) stop(elc);" in script
 
 
@@ -496,6 +504,13 @@ def test_ideogram_director_elements_list_is_front_to_back_without_reversing_outp
     assert 'const movingId = +e.dataTransfer.getData("text/plain");' in script
     assert "function paintElementDropPreview(e, row)" in script
     assert "function reorderElementDrop(e, targetBox, row)" in script
+    assert "function handleElementRowClick(e, boxId)" in script
+    assert "const isFastRepeat = lastElementClick.id === boxId" in script
+    assert "openElementById(boxId)" in script
+    assert "function elementListText(b)" in script
+    assert "row.title = elementListTitle(b, i)" in script
+    assert "t.title = row.title" in script
+    assert "Click to select. Double-click to edit this element." not in script
     assert "const frontFirst = boxes.slice().reverse().filter((x) => x.id !== movingId);" in script
     assert "frontFirst.splice(target + (elementDropAfter(e, row) ? 1 : 0), 0, moving);" in script
     assert "boxes = frontFirst.reverse();" in script

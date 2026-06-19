@@ -2,9 +2,15 @@
 
 Public, user-facing release notes for Deno Custom Nodes.
 
-This file intentionally stays short. Detailed engineering notes belong in issues, pull requests, and `SESSION_HANDOFF.md`.
+This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
 ## Unreleased
+
+## 0.7.51 - 2026-06-20
+
+- Improved Ideogram Director's Elements panel: crowded region lists can be widened, rows show the actual element text, and double-click editing is easier when boxes overlap.
+- Made Copy JSON more reliable by adding fallback copy paths and a manual copy dialog when the browser blocks clipboard access.
+- Cleaned the public GitHub surface so internal DENO operating notes stay local-only while user-facing docs remain public.
 
 ## 0.7.50 - 2026-06-19
 
@@ -200,4 +206,4 @@ This file intentionally stays short. Detailed engineering notes belong in issues
 - Keep each public entry short and outcome-focused.
 - Prefer what users can see or benefit from.
 - Avoid file-level or implementation-level detail here.
-- Put technical investigation, verification notes, and local runtime details in `SESSION_HANDOFF.md`.
+- Put technical investigation, verification notes, and local runtime details in private/local handoff notes.
