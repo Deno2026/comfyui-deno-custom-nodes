@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.54 - 2026-06-21
+
+- Fixed Ideogram Director bbox editing so drawing, moving, and resizing boxes keeps responding inside the node on more ComfyUI browser/runtime setups.
+- Fixed Ideogram Director's board preview so changing output resolution updates the canvas shape immediately even when a generated image is already shown.
+
 ## 0.7.53 - 2026-06-21
 
 - Added a Local LLM Loader Tip popup that shows how to chain LLM nodes for prompt generation, review, branching, and final cleanup.

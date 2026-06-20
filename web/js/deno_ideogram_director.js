@@ -1522,7 +1522,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.20-copy-rail-a";
+        const IDD_REV = "r2026.06.21-canvas-hotfix-a";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -2937,10 +2937,15 @@
         // overlay (hence every box) to the aspect-correct "stage" rect centered in the board. bbox
         // (x,y,w,h) is then relative to the ACTUAL generated image — exactly the coordinates the model
         // receives — so what you draw on the result is where it lands on regenerate.
-        function aspect() {
-          if (bimg.naturalWidth > 0 && bimg.naturalHeight > 0) return bimg.naturalWidth / bimg.naturalHeight;
+        function targetAspect() {
           const W2 = +getW("width", 1024), H2 = +getW("height", 1024);
-          return (W2 > 0 && H2 > 0) ? W2 / H2 : 1;
+          return (W2 > 0 && H2 > 0) ? W2 / H2 : 0;
+        }
+        function imageAspect() {
+          return (bimg.naturalWidth > 0 && bimg.naturalHeight > 0) ? bimg.naturalWidth / bimg.naturalHeight : 0;
+        }
+        function aspect() {
+          return targetAspect() || imageAspect() || 1;
         }
         function layoutStage() {
           const bw = board.clientWidth, bh = board.clientHeight;
@@ -3981,6 +3986,32 @@
         // markSel only toggles .sel (does NOT recreate box divs) so native dblclick-to-edit stays intact.
         function setSel(id) { selectedId = id; markSel(); renderElements(); }
         let drag = null;
+        function dragPointerMatches(e) {
+          return !e || !drag || drag.pointerId == null || e.pointerId == null || e.pointerId === drag.pointerId;
+        }
+        function releaseDragPointer() {
+          if (!drag || !drag.pointerTarget || !drag.captured || drag.pointerId == null) return;
+          try { drag.pointerTarget.releasePointerCapture(drag.pointerId); } catch (x) {}
+        }
+        function removeDragListeners() {
+          window.removeEventListener("pointermove", onMove, true);
+          window.removeEventListener("pointerup", onUp, true);
+          window.removeEventListener("pointercancel", onCancel, true);
+          window.removeEventListener("blur", onCancel, true);
+        }
+        function startDragListeners(e) {
+          if (drag && e && e.pointerId != null) {
+            drag.pointerId = e.pointerId;
+            drag.pointerTarget = e.currentTarget || e.target || null;
+            if (drag.pointerTarget && typeof drag.pointerTarget.setPointerCapture === "function") {
+              try { drag.pointerTarget.setPointerCapture(e.pointerId); drag.captured = true; } catch (x) {}
+            }
+          }
+          window.addEventListener("pointermove", onMove, true);
+          window.addEventListener("pointerup", onUp, true);
+          window.addEventListener("pointercancel", onCancel, true);
+          window.addEventListener("blur", onCancel, true);
+        }
         function cloneBoxForDrag(i) {
           const src = boxes[i];
           if (!src) return i;
@@ -4004,7 +4035,7 @@
           const p = rel(e), b = boxes[i];
           drag = { i, mode, dir, ox: p.x - b.x, oy: p.y - b.y, sx: e.clientX, sy: e.clientY,
                    bx: b.x, by: b.y, moved: false, copied: mode === "move" && (e.ctrlKey || e.metaKey) };
-          window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
+          startDragListeners(e);
         }
         ov.addEventListener("pointerdown", (e) => {
           if (e.button !== 0 || e.target !== ov) return; e.stopPropagation(); e.preventDefault();
@@ -4012,10 +4043,10 @@
           const b = { id: _bid++, x: p.x, y: p.y, w: 0, h: 0, type: "obj", text: "", desc: "", palette: [], uiColor: uiColorForIndex(boxes.length) };
           boxes.push(b); selectedId = b.id;
           drag = { i: boxes.length - 1, mode: "draw", ox: p.x, oy: p.y, sx: e.clientX, sy: e.clientY, moved: false };
-          window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
+          startDragListeners(e);
         });
         function onMove(e) {
-          if (!drag) return;
+          if (!drag || !dragPointerMatches(e)) return;
           // jitter guard ONLY for move/resize of an existing box (so a click doesn't recreate divs &
           // break dblclick). A draw is always intentional; tiny draws are dropped by the w<0.02 check.
           if (drag.mode !== "draw" && !drag.moved && Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) < 4) return;
@@ -4046,8 +4077,10 @@
           else { b.x = Math.min(drag.ox, p.x); b.y = Math.min(drag.oy, p.y); b.w = Math.abs(p.x - drag.ox); b.h = Math.abs(p.y - drag.oy); }
           hideDimTip(); renderBoxes();
         }
-        function onUp() {
-          window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp);
+        function onUp(e) {
+          if (!drag || !dragPointerMatches(e)) return;
+          removeDragListeners();
+          releaseDragPointer();
           hideDimTip();
           const wasDraw = !!drag && drag.mode === "draw";
           if (wasDraw) { const b = boxes[drag.i]; if (!b || b.w < 0.02 || b.h < 0.02) { boxes.splice(drag.i, 1); selectedId = null; } }
@@ -4055,6 +4088,15 @@
           drag = null;
           if (changed) { renderBoxes(); renderElements(); serialize(); }  // geometry changed → persist + re-render
           else { markSel(); }                                            // pure click → keep divs so dblclick fires
+        }
+        function onCancel(e) {
+          if (!drag || !dragPointerMatches(e)) return;
+          removeDragListeners();
+          releaseDragPointer();
+          hideDimTip();
+          drag = null;
+          renderBoxes();
+          markSel();
         }
         // ── element editor popup: pick type, enter text (text-type) + description, edit the element's
         // color palette, then Save. Replaces the cramped inline box. Anchored to wrap so it centers on

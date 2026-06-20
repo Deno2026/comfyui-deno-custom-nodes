@@ -1160,7 +1160,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.20-copy-rail-a"' in script
+    assert 'const IDD_REV = "r2026.06.21-canvas-hotfix-a"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script
