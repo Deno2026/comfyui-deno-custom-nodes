@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.52 - 2026-06-20
+
+- Polished DENO Floating Tools update display: the update badge now stays inside the icon area, the icon stays still, and the panel uses shorter English update copy.
+
 ## 0.7.51 - 2026-06-20
 
 - Improved Ideogram Director's Elements panel: crowded region lists can be widened, rows show the actual element text, and double-click editing is easier when boxes overlap.

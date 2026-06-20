@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const DENO_FLOATING_TOOLS_MARKER = "r2026.06.19-floating-tools-d";
+const DENO_FLOATING_TOOLS_MARKER = "r2026.06.20-floating-tools-english-update-a";
 const EXTENSION_NAME = "Deno.FloatingTools";
 const SETTING_ENABLED = "DENO.FloatingTools.Enabled";
 const POSITION_KEY = "denoFloatingTools.position.v1";
@@ -9,9 +9,14 @@ const UPDATE_CACHE_KEY = "denoFloatingTools.updateStatus.v1";
 const ICON_URL = new URL("./assets/deno_floating_tools_icon.png", import.meta.url).toString();
 const ROOT_ID = "deno-floating-tools-root";
 const ICON_SIZE = 48;
+const BADGE_TOP_PAD = 8;
+const BADGE_RIGHT_PAD = 10;
+const FLOATING_TOOLS_ROOT_WIDTH = ICON_SIZE + BADGE_RIGHT_PAD;
+const FLOATING_TOOLS_ROOT_HEIGHT = ICON_SIZE + BADGE_TOP_PAD;
 const PANEL_WIDTH = 268;
 const VIEWPORT_MARGIN = 12;
 const DEFAULT_POSITION = { x: 24, y: 140 };
+const FLOATING_TOOLS_Z_INDEX = 999;
 const UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const UPDATE_FETCH_TIMEOUT_MS = 10000;
 const COMFYUI_RELEASE_URL = "https://api.github.com/repos/comfyanonymous/ComfyUI/releases/latest";
@@ -69,11 +74,12 @@ function readSavedPosition() {
 }
 
 function clampPosition(position) {
-    const maxX = Math.max(VIEWPORT_MARGIN, window.innerWidth - ICON_SIZE - VIEWPORT_MARGIN);
+    const minY = VIEWPORT_MARGIN + BADGE_TOP_PAD;
+    const maxX = Math.max(VIEWPORT_MARGIN, window.innerWidth - FLOATING_TOOLS_ROOT_WIDTH - VIEWPORT_MARGIN);
     const maxY = Math.max(VIEWPORT_MARGIN, window.innerHeight - ICON_SIZE - VIEWPORT_MARGIN);
     return {
         x: clamp(Number(position?.x), VIEWPORT_MARGIN, maxX),
-        y: clamp(Number(position?.y), VIEWPORT_MARGIN, maxY),
+        y: clamp(Number(position?.y), minY, maxY),
     };
 }
 
@@ -106,7 +112,7 @@ function applyPosition(position, shouldSave = false) {
     if (!rootEl) return;
     const next = clampPosition(position);
     rootEl.style.left = `${next.x}px`;
-    rootEl.style.top = `${next.y}px`;
+    rootEl.style.top = `${next.y - BADGE_TOP_PAD}px`;
     if (shouldSave) savePosition(next);
     updatePanelDirection();
 }
@@ -115,7 +121,7 @@ function currentPosition() {
     if (!rootEl) return clampPosition(readSavedPosition());
     return clampPosition({
         x: Number.parseFloat(rootEl.style.left || `${DEFAULT_POSITION.x}`),
-        y: Number.parseFloat(rootEl.style.top || `${DEFAULT_POSITION.y}`),
+        y: Number.parseFloat(rootEl.style.top || `${DEFAULT_POSITION.y - BADGE_TOP_PAD}`) + BADGE_TOP_PAD,
     });
 }
 
@@ -126,9 +132,9 @@ function ensureStyles() {
     style.textContent = `
 #${ROOT_ID} {
     position: fixed;
-    width: ${ICON_SIZE}px;
-    height: ${ICON_SIZE}px;
-    z-index: 120000;
+    width: ${FLOATING_TOOLS_ROOT_WIDTH}px;
+    height: ${FLOATING_TOOLS_ROOT_HEIGHT}px;
+    z-index: ${FLOATING_TOOLS_Z_INDEX};
     pointer-events: auto;
     user-select: none;
     touch-action: none;
@@ -140,7 +146,9 @@ function ensureStyles() {
 }
 
 .deno-floating-tools-orb {
-    position: relative;
+    position: absolute;
+    left: 0;
+    bottom: 0;
     width: ${ICON_SIZE}px;
     height: ${ICON_SIZE}px;
     border: 1px solid rgba(92, 255, 139, 0.72);
@@ -149,40 +157,41 @@ function ensureStyles() {
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72), 0 10px 26px rgba(0, 0, 0, 0.42);
     cursor: grab;
     padding: 0;
-    overflow: hidden;
+    overflow: visible;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
-}
-
-#${ROOT_ID}.deno-floating-tools-dragging .deno-floating-tools-orb img,
-#${ROOT_ID}.deno-floating-tools-open .deno-floating-tools-orb img {
-    animation: none;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .deno-floating-tools-orb:hover,
 #${ROOT_ID}.deno-floating-tools-open .deno-floating-tools-orb {
     border-color: rgba(135, 255, 170, 0.95);
     box-shadow: 0 0 0 1px rgba(23, 255, 105, 0.3), 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 24px rgba(48, 255, 104, 0.2);
-    transform: translateY(-1px);
+}
+
+#${ROOT_ID}.deno-floating-tools-update-available .deno-floating-tools-orb,
+#${ROOT_ID}.deno-floating-tools-update-available .deno-floating-tools-orb:hover,
+#${ROOT_ID}.deno-floating-tools-update-available.deno-floating-tools-open .deno-floating-tools-orb {
+    border-color: rgba(245, 200, 75, 0.98);
+    box-shadow: 0 0 0 1px rgba(245, 200, 75, 0.5), 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 24px rgba(245, 200, 75, 0.32);
 }
 
 .deno-floating-tools-orb img {
     width: 100%;
     height: 100%;
     display: block;
+    border-radius: 12px;
     pointer-events: none;
-    animation: deno-floating-tools-bob 5.5s ease-in-out infinite;
 }
 
 .deno-floating-tools-update-badge {
     position: absolute;
-    top: -4px;
-    right: -4px;
-    min-width: 18px;
-    height: 16px;
-    padding: 0 4px;
+    top: 0;
+    right: 0;
+    min-width: 27px;
+    height: 18px;
+    padding: 0 5px;
     border-radius: 999px;
     display: none;
     align-items: center;
@@ -193,9 +202,10 @@ function ensureStyles() {
     box-shadow: 0 0 14px rgba(245, 200, 75, 0.42);
     font-size: 9px;
     font-weight: 900;
-    line-height: 16px;
+    line-height: 18px;
     box-sizing: border-box;
     pointer-events: none;
+    z-index: 2;
 }
 
 .deno-floating-tools-update-badge.checking {
@@ -220,7 +230,7 @@ function ensureStyles() {
 
 .deno-floating-tools-panel {
     position: absolute;
-    top: ${ICON_SIZE + 10}px;
+    top: ${FLOATING_TOOLS_ROOT_HEIGHT + 10}px;
     left: 0;
     width: ${PANEL_WIDTH}px;
     max-height: calc(100vh - 24px);
@@ -386,10 +396,6 @@ function ensureStyles() {
     line-height: 1.35;
 }
 
-@keyframes deno-floating-tools-bob {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-3px); }
-}
 `;
     document.head.appendChild(style);
 }
@@ -518,23 +524,6 @@ function packageVersion(system, packageName) {
     return found?.installed || found?.required || "";
 }
 
-function detectRuntimeKind(system) {
-    const deploy = String(system?.deploy_environment || "").toLowerCase();
-    const argv = Array.isArray(system?.argv) ? system.argv.join(" ").toLowerCase() : "";
-    if (deploy.includes("desktop") || argv.includes("comfy desktop")) return "desktop";
-    if (argv.includes("comfyui-ezi") || argv.includes("easy-install")) return "easy-install";
-    if (system?.embedded_python) return "portable";
-    return "portable";
-}
-
-function updateRuntimeHint(system) {
-    if (!updateHintEl) return;
-    const runtime = detectRuntimeKind(system || {});
-    updateHintEl.textContent = runtime === "desktop"
-        ? "Desktop usually manages updates. This helper is mainly for Portable installs."
-        : "Portable helper only. Use your launcher or Manager to update.";
-}
-
 async function fetchJsonWithTimeout(url) {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), UPDATE_FETCH_TIMEOUT_MS);
@@ -581,14 +570,22 @@ function setUpdateBadge(state) {
     if (!updateBadgeEl) return;
     updateBadgeEl.className = "deno-floating-tools-update-badge";
     updateBadgeEl.textContent = "";
+    rootEl?.classList.remove(
+        "deno-floating-tools-update-available",
+        "deno-floating-tools-update-checking",
+        "deno-floating-tools-update-error",
+    );
     const status = state?.status || "idle";
     if (status === "checking") {
+        rootEl?.classList.add("deno-floating-tools-update-checking");
         updateBadgeEl.classList.add("checking");
         updateBadgeEl.textContent = "...";
     } else if (status === "updates") {
+        rootEl?.classList.add("deno-floating-tools-update-available");
         updateBadgeEl.classList.add("available");
-        updateBadgeEl.textContent = "UP";
+        updateBadgeEl.textContent = "NEW";
     } else if (status === "error") {
+        rootEl?.classList.add("deno-floating-tools-update-error");
         updateBadgeEl.classList.add("error");
         updateBadgeEl.textContent = "?";
     }
@@ -642,7 +639,9 @@ function renderUpdateState(state) {
         setUpdateStatus("Not checked");
     }
     renderUpdateDetails(state);
-    if (state?.system) updateRuntimeHint(state.system);
+    if (updateHintEl) {
+        updateHintEl.textContent = state?.status === "updates" ? "New update available." : "";
+    }
 }
 
 function readCachedUpdateState() {
@@ -671,7 +670,6 @@ async function checkUpdates(force = false) {
         if (!localResponse.ok) throw new Error(`Local HTTP ${localResponse.status}`);
         const localData = await localResponse.json();
         const system = localData?.system || {};
-        updateRuntimeHint(system);
 
         const [comfyLatest, templatesLatest, frontendLatest] = await Promise.all([
             fetchComfyUiLatest(),
@@ -760,7 +758,7 @@ function createToolsRoot() {
     img.alt = "";
     updateBadgeEl = document.createElement("span");
     updateBadgeEl.className = "deno-floating-tools-update-badge";
-    orb.append(img, updateBadgeEl);
+    orb.append(img);
 
     panelEl = document.createElement("div");
     panelEl.className = "deno-floating-tools-panel";
@@ -809,12 +807,12 @@ function createToolsRoot() {
 
     updateHintEl = document.createElement("div");
     updateHintEl.className = "deno-floating-tools-update-hint";
-    updateHintEl.textContent = "Portable helper only. Use your launcher or Manager to update.";
+    updateHintEl.textContent = "";
 
     updateSection.append(updateTitle, updateButtonEl, updateDetailsEl, updateHintEl);
 
     panelEl.append(title, freeButtonEl, note, updateSection);
-    rootEl.append(orb, panelEl);
+    rootEl.append(orb, updateBadgeEl, panelEl);
     document.body.appendChild(rootEl);
     applyPosition(readSavedPosition(), false);
     initializeUpdateWatch();
