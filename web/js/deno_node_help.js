@@ -3,8 +3,11 @@ import { app } from "../../scripts/app.js";
 const DENO_HELP_EXTENSION = "Deno.NodeHelp";
 const HELP_CLASS = "deno-node-help-popup";
 const HELP_BUTTON_CLASS = "deno-node-help-button";
+const TIP_BUTTON_CLASS = "deno-node-tip-button";
 const HELP_ICON_SIZE = 15;
 const HELP_ICON_MARGIN = 7;
+const TIP_BUTTON_WIDTH = 31;
+const TIP_BUTTON_GAP = 5;
 const UPDATE_BADGE_RADIUS = 5;
 const UPDATE_BADGE_OFFSET_X = 6;
 const UPDATE_BADGE_OFFSET_Y = -5;
@@ -29,10 +32,47 @@ let denoVersionStatus = {
     release_url: "",
 };
 
+const LOCAL_LLM_CHAIN_TIP = Object.freeze({
+    title: "Tip: Using LLM nodes in a chain",
+    intro: [
+        "Local LLM Loader nodes can be connected in sequence inside one workflow.",
+        "For example, the first LLM can generate a JSON prompt for image creation. A second LLM can then review that prompt, clean it up, or check whether it matches your rules.",
+        "You can also use this pattern to expand a short idea, refine it again, or branch one prompt into several directions.",
+    ],
+    diagramTitle: "Recommended layout",
+    diagram: [
+        "[Prompt / Idea]",
+        "      ↓",
+        "[LLM 1: Generate JSON prompt]",
+        "Model After Run: Keep loaded",
+        "      ↓",
+        "[LLM 2: Review / refine]",
+        "Model After Run: Keep loaded",
+        "      ↓",
+        "[Last LLM: Final cleanup]",
+        "Model After Run: Unload after run",
+        "      ↓",
+        "[Sampler / Image workflow]",
+    ].join("\n"),
+    outro: [
+        "For chained LLM workflows, set the earlier LLM nodes to Keep loaded or Keep for minutes.",
+        "Set only the last LLM node to Unload after run.",
+        "This helps avoid unloading and reloading the same local model between prompt generation, review, and branching steps.",
+    ],
+});
+
+const nodeTips = new Map([
+    ["DenoLocalLLMRefiner", LOCAL_LLM_CHAIN_TIP],
+]);
+
 function isDenoNode(nodeData) {
     const category = String(nodeData?.category || "");
     const displayName = String(nodeData?.display_name || "");
     return category.startsWith("Deno/") || displayName.startsWith("(Deno");
+}
+
+function getNodeClassName(source) {
+    return String(source?.comfyClass || source?.type || source?.name || "");
 }
 
 function getNodeKey(node) {
@@ -41,6 +81,10 @@ function getNodeKey(node) {
 
 function getNodeDescription(node) {
     return nodeHelpDescriptions.get(node?.comfyClass) || nodeHelpDescriptions.get(node?.type) || "";
+}
+
+function getNodeTip(source) {
+    return nodeTips.get(getNodeClassName(source)) || null;
 }
 
 function parseCurrentVersion(description) {
@@ -391,6 +435,28 @@ function ensureHelpStyles() {
             background: rgba(10, 65, 28, 0.96);
             color: #dfffea;
         }
+        .${TIP_BUTTON_CLASS} {
+            position: relative;
+            min-width: 31px;
+            height: 17px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            border: 1px solid rgba(72, 255, 132, 0.58);
+            background: rgba(5, 24, 13, 0.92);
+            color: #b8ffd0;
+            font: 800 10px/1 sans-serif;
+            cursor: pointer;
+            user-select: none;
+            letter-spacing: 0;
+            box-shadow: 0 0 0 1px rgba(72, 255, 132, 0.1) inset;
+        }
+        .${TIP_BUTTON_CLASS}:hover {
+            border-color: rgba(151, 255, 180, 0.86);
+            background: rgba(19, 66, 35, 0.98);
+            color: #ffffff;
+        }
         .${HELP_CLASS} .deno-node-help-release {
             margin: 0 0 10px;
             padding: 8px 9px 9px;
@@ -462,8 +528,42 @@ function ensureHelpStyles() {
             background: rgba(26, 89, 45, 0.8);
             color: #ffffff;
         }
+        .${HELP_CLASS}.deno-node-tip-popup {
+            width: min(480px, calc(100vw - 32px));
+        }
+        .${HELP_CLASS} .deno-node-tip-section-title {
+            margin: 10px 0 6px;
+            color: #9dffba;
+            font-weight: 850;
+        }
+        .${HELP_CLASS} .deno-node-tip-diagram {
+            box-sizing: border-box;
+            width: 100%;
+            margin: 0 0 10px;
+            padding: 10px 11px;
+            border-radius: 9px;
+            border: 1px solid rgba(72, 255, 132, 0.32);
+            background: rgba(0, 0, 0, 0.42);
+            color: #dfffea;
+            font: 11px/1.45 "Cascadia Code", "Consolas", monospace;
+            white-space: pre-wrap;
+            overflow: auto;
+        }
     `;
     document.head.appendChild(style);
+}
+
+function roundedRectPath(ctx, x, y, width, height, radius) {
+    const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
 }
 
 function escapeHtml(value) {
@@ -540,6 +640,15 @@ function closeAllHelpPopups() {
     }
 }
 
+function closeNodeHelpPopups(node) {
+    const key = getNodeKey(node);
+    if (!key) {
+        return;
+    }
+    closeHelpPopup(key);
+    closeHelpPopup(`${key}:tip`);
+}
+
 function canvasEventToGraphPoint(event) {
     const canvas = app.canvas;
     const canvasEl = canvas?.canvas;
@@ -579,6 +688,9 @@ function isCanvasHelpButtonEvent(event) {
         return isCanvasHelpButtonHit(node, [
             graphPoint[0] - node.pos[0],
             graphPoint[1] - node.pos[1],
+        ]) || isCanvasTipButtonHit(node, [
+            graphPoint[0] - node.pos[0],
+            graphPoint[1] - node.pos[1],
         ]);
     });
 }
@@ -591,6 +703,7 @@ function isHelpPopupUiEvent(event) {
     return Boolean(
         target?.closest?.(`.${HELP_CLASS}`)
         || target?.closest?.(`.${HELP_BUTTON_CLASS}`)
+        || target?.closest?.(`.${TIP_BUTTON_CLASS}`)
     );
 }
 
@@ -620,6 +733,12 @@ function setupOutsidePopupClose() {
     setupOutsidePopupClose.ready = true;
     document.addEventListener("pointerdown", handleOutsideHelpPointerDown, true);
     document.addEventListener("wheel", handleOutsideHelpWheel, true);
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && popupState.size) {
+            closeAllHelpPopups();
+            app.graph?.setDirtyCanvas?.(true, true);
+        }
+    }, true);
 }
 
 function appendText(parent, className, text) {
@@ -719,6 +838,55 @@ function createPopupElement(title, description, onClose) {
     return popup;
 }
 
+function createTipContent(tip) {
+    const fragment = document.createDocumentFragment();
+    for (const line of tip.intro || []) {
+        appendText(fragment, "", line);
+    }
+    appendText(fragment, "deno-node-tip-section-title", tip.diagramTitle || "Recommended layout");
+    const diagram = document.createElement("pre");
+    diagram.className = "deno-node-tip-diagram";
+    diagram.textContent = tip.diagram || "";
+    fragment.appendChild(diagram);
+    for (const line of tip.outro || []) {
+        appendText(fragment, "", line);
+    }
+    return fragment;
+}
+
+function createTipPopupElement(tip, onClose) {
+    ensureHelpStyles();
+
+    const popup = document.createElement("div");
+    popup.className = `${HELP_CLASS} deno-node-tip-popup`;
+
+    const head = document.createElement("div");
+    head.className = "deno-node-help-head";
+
+    const titleEl = document.createElement("div");
+    titleEl.textContent = tip?.title || "Tip";
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "deno-node-help-close";
+    close.textContent = "x";
+    close.title = "Close";
+    close.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+    });
+
+    const content = document.createElement("div");
+    content.className = "deno-node-help-content";
+    content.appendChild(createTipContent(tip || {}));
+
+    head.append(titleEl, close);
+    popup.append(head, content);
+    document.body.appendChild(popup);
+    return popup;
+}
+
 function positionPopupNearNode(popup, node, ctx) {
     const rect = app.canvas?.canvas?.getBoundingClientRect?.();
     if (!rect) {
@@ -768,6 +936,28 @@ function openCanvasHelpPopup(node, nodeData, ctx) {
     positionPopupNearNode(popup, node, ctx);
 }
 
+function openCanvasTipPopup(node, ctx) {
+    const key = getNodeKey(node);
+    const tip = getNodeTip(node);
+    if (!key || !tip) {
+        return;
+    }
+    const popupKey = `${key}:tip`;
+    if (popupState.has(popupKey)) {
+        closeHelpPopup(popupKey);
+        return;
+    }
+
+    closeAllHelpPopups();
+    const popup = createTipPopupElement(tip, () => {
+        closeHelpPopup(popupKey);
+        app.graph?.setDirtyCanvas?.(true, true);
+    });
+
+    popupState.set(popupKey, { element: popup });
+    positionPopupNearNode(popup, node, ctx);
+}
+
 function getCanvasHelpButtonFrame(node) {
     const visual = versionVisualState();
     return {
@@ -776,6 +966,19 @@ function getCanvasHelpButtonFrame(node) {
         rightPad: visual.badgeLabel ? UPDATE_BADGE_RADIUS : 0,
         topPad: visual.badgeLabel ? UPDATE_BADGE_RADIUS : 0,
         visual,
+    };
+}
+
+function getCanvasTipButtonFrame(node) {
+    if (!getNodeTip(node)) {
+        return null;
+    }
+    const helpFrame = getCanvasHelpButtonFrame(node);
+    return {
+        x: helpFrame.x - TIP_BUTTON_GAP - TIP_BUTTON_WIDTH,
+        y: helpFrame.y,
+        width: TIP_BUTTON_WIDTH,
+        height: HELP_ICON_SIZE,
     };
 }
 
@@ -792,16 +995,36 @@ function isCanvasHelpButtonHit(node, localPos) {
     );
 }
 
-function setCanvasHelpButtonHover(node, active) {
+function isCanvasTipButtonHit(node, localPos) {
+    if (!Array.isArray(localPos)) {
+        return false;
+    }
+    const frame = getCanvasTipButtonFrame(node);
+    if (!frame) {
+        return false;
+    }
+    return (
+        localPos[0] >= frame.x
+        && localPos[0] <= frame.x + frame.width
+        && localPos[1] >= frame.y
+        && localPos[1] <= frame.y + frame.height
+    );
+}
+
+function setCanvasDenoButtonHover(node, property, active) {
     const next = active === true;
-    const changed = node.__denoHelpButtonHover !== next;
-    node.__denoHelpButtonHover = next;
+    const changed = node[property] !== next;
+    node[property] = next;
     const canvasEl = app.canvas?.canvas;
     if (canvasEl?.style) {
-        if (next) {
+        const anyHover = node.__denoHelpButtonHover === true || node.__denoTipButtonHover === true;
+        if (anyHover) {
             const ticket = ++canvasHelpCursorTicket;
             const forcePointer = () => {
-                if (canvasHelpCursorTicket === ticket && node.__denoHelpButtonHover === true) {
+                if (
+                    canvasHelpCursorTicket === ticket
+                    && (node.__denoHelpButtonHover === true || node.__denoTipButtonHover === true)
+                ) {
                     canvasEl.style.cursor = "pointer";
                 }
             };
@@ -818,12 +1041,45 @@ function setCanvasHelpButtonHover(node, active) {
     }
 }
 
+function setCanvasHelpButtonHover(node, active) {
+    setCanvasDenoButtonHover(node, "__denoHelpButtonHover", active);
+}
+
+function setCanvasTipButtonHover(node, active) {
+    setCanvasDenoButtonHover(node, "__denoTipButtonHover", active);
+}
+
+function drawCanvasTipButton(ctx, frame, hovered) {
+    if (!frame) {
+        return;
+    }
+    ctx.save();
+    ctx.beginPath();
+    roundedRectPath(ctx, frame.x, frame.y, frame.width, frame.height, 8);
+    ctx.fillStyle = hovered ? "rgba(32, 120, 56, 0.98)" : "rgba(5, 24, 13, 0.92)";
+    ctx.fill();
+    ctx.lineWidth = hovered ? 1.6 : 1;
+    ctx.strokeStyle = hovered ? "rgba(151, 255, 180, 0.92)" : "rgba(72, 255, 132, 0.58)";
+    ctx.stroke();
+    ctx.fillStyle = hovered ? "#ffffff" : "#b8ffd0";
+    ctx.font = hovered ? "900 10px sans-serif" : "800 10px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Tip", frame.x + frame.width / 2, frame.y + frame.height / 2 + 0.4);
+    ctx.restore();
+}
+
 function patchCanvasHelpButton(nodeType, nodeData) {
     const originalDraw = nodeType.prototype.onDrawForeground;
     nodeType.prototype.onDrawForeground = function (ctx) {
         const result = originalDraw?.apply(this, arguments);
         if (this.flags?.collapsed) {
             return result;
+        }
+
+        const tipFrame = getCanvasTipButtonFrame(this);
+        if (tipFrame) {
+            drawCanvasTipButton(ctx, tipFrame, this.__denoTipButtonHover === true);
         }
 
         const frame = getCanvasHelpButtonFrame(this);
@@ -863,8 +1119,14 @@ function patchCanvasHelpButton(nodeType, nodeData) {
         }
         ctx.restore();
 
-        if (popupState.has(getNodeKey(this))) {
-            positionPopupNearNode(popupState.get(getNodeKey(this)).element, this, ctx);
+        const nodeKey = getNodeKey(this);
+        const helpPopupState = popupState.get(nodeKey);
+        if (helpPopupState) {
+            positionPopupNearNode(helpPopupState.element, this, ctx);
+        }
+        const tipPopupState = popupState.get(`${nodeKey}:tip`);
+        if (tipPopupState) {
+            positionPopupNearNode(tipPopupState.element, this, ctx);
         }
 
         return result;
@@ -872,26 +1134,43 @@ function patchCanvasHelpButton(nodeType, nodeData) {
 
     const originalMouseMove = nodeType.prototype.onMouseMove;
     nodeType.prototype.onMouseMove = function (event, localPos) {
+        if (!this.flags?.collapsed && isCanvasTipButtonHit(this, localPos)) {
+            setCanvasHelpButtonHover(this, false);
+            setCanvasTipButtonHover(this, true);
+            return true;
+        }
         if (!this.flags?.collapsed && isCanvasHelpButtonHit(this, localPos)) {
+            setCanvasTipButtonHover(this, false);
             setCanvasHelpButtonHover(this, true);
             return true;
         }
         setCanvasHelpButtonHover(this, false);
+        setCanvasTipButtonHover(this, false);
         return originalMouseMove?.apply(this, arguments);
     };
 
     const originalMouseLeave = nodeType.prototype.onMouseLeave;
     nodeType.prototype.onMouseLeave = function () {
         setCanvasHelpButtonHover(this, false);
+        setCanvasTipButtonHover(this, false);
         return originalMouseLeave?.apply(this, arguments);
     };
 
     const originalMouseDown = nodeType.prototype.onMouseDown;
     nodeType.prototype.onMouseDown = function (event, localPos) {
+        if (isCanvasTipButtonHit(this, localPos)) {
+            event?.preventDefault?.();
+            event?.stopPropagation?.();
+            setCanvasHelpButtonHover(this, false);
+            setCanvasTipButtonHover(this, false);
+            openCanvasTipPopup(this, app.canvas?.ctx);
+            return true;
+        }
         if (isCanvasHelpButtonHit(this, localPos)) {
             event?.preventDefault?.();
             event?.stopPropagation?.();
             setCanvasHelpButtonHover(this, false);
+            setCanvasTipButtonHover(this, false);
             openCanvasHelpPopup(this, nodeData, app.canvas?.ctx);
             return true;
         }
@@ -902,7 +1181,8 @@ function patchCanvasHelpButton(nodeType, nodeData) {
     const originalRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
         setCanvasHelpButtonHover(this, false);
-        closeHelpPopup(getNodeKey(this));
+        setCanvasTipButtonHover(this, false);
+        closeNodeHelpPopups(this);
         return originalRemoved?.apply(this, arguments);
     };
 }
@@ -943,11 +1223,36 @@ function openDomHelpPopup(node, nodeEl) {
     state.raf = requestAnimationFrame(update);
 }
 
-function injectDomHelpButton(header) {
-    if (header.querySelector(`.${HELP_BUTTON_CLASS}`)) {
+function openDomTipPopup(node, nodeEl) {
+    const key = getNodeKey(node);
+    const tip = getNodeTip(node);
+    if (!key || !tip) {
+        return;
+    }
+    const popupKey = `${key}:tip`;
+    if (popupState.has(popupKey)) {
+        closeHelpPopup(popupKey);
         return;
     }
 
+    closeAllHelpPopups();
+    const popup = createTipPopupElement(tip, () => closeHelpPopup(popupKey));
+    const state = { element: popup, raf: 0 };
+    popupState.set(popupKey, state);
+
+    const update = () => {
+        if (!popup.parentNode) {
+            return;
+        }
+        const rect = nodeEl.getBoundingClientRect();
+        popup.style.left = `${Math.min(rect.right + 10, window.innerWidth - popup.offsetWidth - 14)}px`;
+        popup.style.top = `${Math.max(14, Math.min(rect.top, window.innerHeight - popup.offsetHeight - 14))}px`;
+        state.raf = requestAnimationFrame(update);
+    };
+    state.raf = requestAnimationFrame(update);
+}
+
+function injectDomHelpButton(header) {
     const nodeEl = header.closest("[data-node-id]");
     const node = getGraphNodeByDom(nodeEl);
     const description = getNodeDescription(node);
@@ -956,17 +1261,35 @@ function injectDomHelpButton(header) {
     }
 
     const container = header.querySelector(":scope > div") || header;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = HELP_BUTTON_CLASS;
-    applyVersionButtonState(button);
-    button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        openDomHelpPopup(node, nodeEl);
-    });
+    let helpButton = header.querySelector(`.${HELP_BUTTON_CLASS}`);
+    if (!helpButton) {
+        helpButton = document.createElement("button");
+        helpButton.type = "button";
+        helpButton.className = HELP_BUTTON_CLASS;
+        applyVersionButtonState(helpButton);
+        helpButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openDomHelpPopup(node, nodeEl);
+        });
 
-    container.appendChild(button);
+        container.appendChild(helpButton);
+    }
+
+    if (getNodeTip(node) && !header.querySelector(`.${TIP_BUTTON_CLASS}`)) {
+        const tipButton = document.createElement("button");
+        tipButton.type = "button";
+        tipButton.className = TIP_BUTTON_CLASS;
+        tipButton.textContent = "Tip";
+        tipButton.setAttribute("aria-label", "Open Local LLM chain tip");
+        tipButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openDomTipPopup(node, nodeEl);
+        });
+
+        helpButton.before(tipButton);
+    }
 }
 
 function setupDomHelpObserver() {

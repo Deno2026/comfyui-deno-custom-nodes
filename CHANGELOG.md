@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.53 - 2026-06-21
+
+- Added a Local LLM Loader Tip popup that shows how to chain LLM nodes for prompt generation, review, branching, and final cleanup.
+- Fixed the Tip button drawing so it does not affect ComfyUI's normal widget text alignment.
+
 ## 0.7.52 - 2026-06-20
 
 - Polished DENO Floating Tools update display: the update badge now stays inside the icon area, the icon stays still, and the panel uses shorter English update copy.
