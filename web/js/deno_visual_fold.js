@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 
 const EXTENSION_NAME = "Deno.VisualFold";
-const VISUAL_FOLD_REV = "r2026.06.22-fold-dom-widgets-hotfix-a";
+const VISUAL_FOLD_REV = "r2026.06.22-selection-toolbar-smooth-a";
 const META_KEY = "__denoVisualFold";
 const DOM_HIDDEN_KEY = "__denoVisualFoldDomHiddenStyle";
 const CHIP_W = 164;
@@ -34,6 +34,8 @@ let alignMenuEl = null;
 let fallbackToolbarEl = null;
 let renameDialogEl = null;
 let overlayTimer = null;
+let selectionUiFrame = 0;
+let selectionToolbarObserver = null;
 let visualStyleInstalled = false;
 let lastCanvasPointerEvent = null;
 let canvasPointerActive = false;
@@ -1075,6 +1077,30 @@ function isSelectionActionTarget(target) {
   );
 }
 
+function closestSelectionToolbarElement(target) {
+  if (typeof Element === "undefined" || !(target instanceof Element)) {
+    return null;
+  }
+
+  const selectors = [
+    '[data-testid="selection-toolbox"]',
+    '.selection-toolbox',
+    '[data-testid="selectionToolbox"]',
+    '[data-testid*="selection"][data-testid*="toolbox"]',
+    '[role="toolbar"]',
+    '[role="menu"]',
+    '[data-pc-name="menu"]',
+    '[data-pc-name="contextmenu"]',
+    '[data-pc-name="popover"]',
+    '.p-menu',
+    '.p-contextmenu',
+    '.p-tieredmenu',
+    '.p-popover',
+  ];
+
+  return target.closest?.(selectors.join(", ")) || null;
+}
+
 function selectionToolbarRoot() {
   if (typeof document === "undefined") return null;
   const selectors = [
@@ -1097,7 +1123,10 @@ function isSelectionToolbarTarget(target) {
   if (typeof Node === "undefined" || !(target instanceof Node)) {
     return false;
   }
-  return Boolean(selectionToolbarRoot()?.contains?.(target));
+  return Boolean(
+    selectionToolbarRoot()?.contains?.(target)
+    || closestSelectionToolbarElement(target)
+  );
 }
 
 function handleCanvasMove(event) {
@@ -1109,6 +1138,7 @@ function handleCanvasMove(event) {
     return;
   }
   updateHoverTooltip(event);
+  scheduleSelectionUiUpdate();
 }
 
 function rememberCanvasPointer(event) {
@@ -1118,22 +1148,27 @@ function rememberCanvasPointer(event) {
   }
   canvasPointerActive = true;
   suppressSelectionActions(SELECTION_POINTER_SUPPRESS_MS);
+  scheduleSelectionUiUpdate();
 }
 
 function releaseCanvasPointer(event) {
   if (isSelectionActionTarget(event?.target) || isSelectionToolbarTarget(event?.target)) {
+    scheduleSelectionUiUpdate();
     return;
   }
   canvasPointerActive = false;
   suppressSelectionActions(SELECTION_DRAG_SUPPRESS_MS);
+  scheduleSelectionUiUpdate();
 }
 
 function rememberDocumentPointer(event) {
   if (isSelectionActionTarget(event?.target) || isSelectionToolbarTarget(event?.target) || !isInsideCanvasRect(event)) {
+    scheduleSelectionUiUpdate();
     return;
   }
   canvasPointerActive = true;
   suppressSelectionActions(SELECTION_POINTER_SUPPRESS_MS);
+  scheduleSelectionUiUpdate();
 }
 
 function selectionActionsSuppressed() {
@@ -1184,6 +1219,70 @@ function setupMouseTracking() {
     }
     document.__denoVisualFoldPointerReleaseBound = true;
   }
+}
+
+function mutationTouchesSelectionSurface(mutation) {
+  if (!mutation) return false;
+  const target = mutation.target;
+  if (isSelectionToolbarTarget(target) || isSelectionActionTarget(target)) {
+    return true;
+  }
+  for (const node of mutation.addedNodes || []) {
+    if (isSelectionToolbarTarget(node) || isSelectionActionTarget(node)) {
+      return true;
+    }
+    if (typeof Element !== "undefined" && node instanceof Element) {
+      if (
+        node.querySelector?.('[data-testid="selection-toolbox"], .selection-toolbox, [data-testid="selectionToolbox"], [role="toolbar"], [role="menu"]')
+      ) {
+        return true;
+      }
+    }
+  }
+  for (const node of mutation.removedNodes || []) {
+    if (isSelectionToolbarTarget(node) || isSelectionActionTarget(node)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function installSelectionToolbarObserver() {
+  if (
+    selectionToolbarObserver
+    || typeof MutationObserver === "undefined"
+    || typeof document === "undefined"
+    || !document.body
+  ) {
+    return;
+  }
+
+  selectionToolbarObserver = new MutationObserver((mutations) => {
+    if (mutations.some(mutationTouchesSelectionSurface)) {
+      scheduleSelectionUiUpdate();
+    }
+  });
+  selectionToolbarObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+}
+
+function refreshSelectionActionsNow() {
+  selectionUiFrame = 0;
+  setupMouseTracking();
+  updateFoldButton();
+  updateRenameButton();
+  updateAlignButton();
+}
+
+function scheduleSelectionUiUpdate() {
+  if (selectionUiFrame) return;
+  if (typeof requestAnimationFrame === "function") {
+    selectionUiFrame = requestAnimationFrame(refreshSelectionActionsNow);
+    return;
+  }
+  selectionUiFrame = setTimeout(refreshSelectionActionsNow, 16);
 }
 
 function ensureFoldButton() {
@@ -1797,9 +1896,12 @@ function refreshFoldedLooks() {
 
 function setupOverlayLoop() {
   setupMouseTracking();
+  installSelectionToolbarObserver();
+  scheduleSelectionUiUpdate();
   if (overlayTimer) return;
   overlayTimer = setInterval(() => {
     setupMouseTracking();
+    installSelectionToolbarObserver();
     patchExistingGroups();
     refreshFoldedLooks();
     updateFoldButton();
@@ -2094,11 +2196,13 @@ function patchMotionSync() {
   if (!target) return false;
   if (target.__denoVisualFoldMotionPatched) return true;
 
-  const original = target.processMouseMove;
-  if (typeof original === "function") {
-    target.processMouseMove = function () {
+  for (const method of ["processMouseDown", "processMouseMove", "processMouseUp"]) {
+    const original = target[method];
+    if (typeof original !== "function") continue;
+    target[method] = function () {
       const result = original.apply(this, arguments);
       syncFoldedMotion();
+      scheduleSelectionUiUpdate();
       return result;
     };
   }

@@ -293,14 +293,19 @@ def test_visual_fold_frontend_is_visual_only():
     assert 'data-testid="selection-toolbox"' in script
     assert "deno-visual-fold-fallback-bar" in script
     assert "function attachButtonToSelectionSurface" in script
-    assert 'const VISUAL_FOLD_REV = "r2026.06.22-fold-dom-widgets-hotfix-a"' in script
+    assert 'const VISUAL_FOLD_REV = "r2026.06.22-selection-toolbar-smooth-a"' in script
     assert 'const DOM_HIDDEN_KEY = "__denoVisualFoldDomHiddenStyle"' in script
     assert "function widgetDomElements" in script
     assert "function setFoldDomWidgetsHidden" in script
     assert "setFoldDomWidgetsHidden(node, true)" in script
     assert "setFoldDomWidgetsHidden(item, false)" in script
     assert "function selectionToolbarRoot" in script
+    assert "function closestSelectionToolbarElement" in script
     assert "function isSelectionToolbarTarget" in script
+    assert "function installSelectionToolbarObserver" in script
+    assert "new MutationObserver" in script
+    assert "function scheduleSelectionUiUpdate" in script
+    assert "requestAnimationFrame(refreshSelectionActionsNow)" in script
     assert "isSelectionToolbarTarget(event?.target) || !isInsideCanvasRect(event)" in script
     assert "isSelectionToolbarTarget(event?.target))" in script
     assert "pointer-events: none;" in script

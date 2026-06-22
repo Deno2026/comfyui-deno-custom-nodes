@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.58 - 2026-06-23
+
+- Smoothed Visual Fold and Align integration with ComfyUI's multi-selection toolbar so the DENO buttons appear with the native toolbar and stay stable while native menus are open.
+
 ## 0.7.57 - 2026-06-22
 
 - Fixed Ideogram Director Regenerate so a connected JSON prompt no longer overwrites manual box and description edits when the same prompt was already applied.
