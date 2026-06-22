@@ -725,6 +725,116 @@ def test_ideogram_director_connected_prompt_always_replace_uses_upstream():
     assert packet["ui"]["idd_import"][0]["used"] is True
 
 
+def test_ideogram_director_always_replace_preserves_manual_edits_for_same_upstream_json():
+    node = deno_ideogram_director.DenoIdeogramDirector()
+    upstream_json = json.dumps(
+        {
+            "aspect_ratio": "1:1",
+            "high_level_description": "original upstream prompt",
+            "compositional_deconstruction": {
+                "background": "original upstream background",
+                "elements": [
+                    {"type": "obj", "bbox": [100, 100, 700, 700], "desc": "original upstream object"}
+                ],
+            },
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    manually_edited_board = {
+        "boxes": [
+            {
+                "id": 1,
+                "x": 0.33,
+                "y": 0.24,
+                "w": 0.28,
+                "h": 0.31,
+                "type": "obj",
+                "desc": "manual object after dragging the box",
+                "text": "",
+                "palette": [],
+            }
+        ],
+        "importSig": deno_ideogram_director._import_sig(upstream_json),
+    }
+
+    packet = node.build(
+        width=1024,
+        height=1024,
+        seed=12,
+        high_level_description="manual prompt after editing the board",
+        background="manual background after editing the board",
+        caption_data=json.dumps(manually_edited_board, ensure_ascii=False, separators=(",", ":")),
+        import_json=upstream_json,
+        import_mode="Always Replace",
+    )
+
+    prompt, _width, _height, _seed, bboxes = packet["result"]
+    decoded = json.loads(prompt)
+    assert decoded["high_level_description"] == "manual prompt after editing the board"
+    assert decoded["compositional_deconstruction"]["background"] == "manual background after editing the board"
+    assert decoded["compositional_deconstruction"]["elements"][0]["desc"] == "manual object after dragging the box"
+    assert bboxes[0][0] == {"x": 338, "y": 246, "width": 287, "height": 317}
+    assert packet["ui"]["idd_import"][0]["used"] is False
+    assert "original upstream object" not in prompt
+
+
+def test_ideogram_director_always_replace_still_uses_changed_upstream_json():
+    node = deno_ideogram_director.DenoIdeogramDirector()
+    old_upstream_json = json.dumps(
+        {
+            "high_level_description": "old upstream prompt",
+            "compositional_deconstruction": {
+                "background": "old upstream background",
+                "elements": [
+                    {"type": "obj", "bbox": [100, 100, 700, 700], "desc": "old upstream object"}
+                ],
+            },
+        },
+        separators=(",", ":"),
+    )
+    new_upstream = {
+        "high_level_description": "new LLM prompt after the user changed the upstream node",
+        "compositional_deconstruction": {
+            "background": "new upstream background",
+            "elements": [
+                {"type": "obj", "bbox": [200, 250, 850, 900], "desc": "new upstream object"}
+            ],
+        },
+    }
+    current_board = {
+        "boxes": [
+            {
+                "id": 1,
+                "x": 0.33,
+                "y": 0.24,
+                "w": 0.28,
+                "h": 0.31,
+                "type": "obj",
+                "desc": "manual object from the old prompt",
+                "text": "",
+                "palette": [],
+            }
+        ],
+        "importSig": deno_ideogram_director._import_sig(old_upstream_json),
+    }
+
+    packet = node.build(
+        width=1024,
+        height=1024,
+        seed=12,
+        high_level_description="manual prompt from the old board",
+        caption_data=json.dumps(current_board, separators=(",", ":")),
+        import_json=json.dumps(new_upstream, separators=(",", ":")),
+        import_mode="Always Replace",
+    )
+
+    decoded = json.loads(packet["result"][0])
+    assert decoded["high_level_description"] == "new LLM prompt after the user changed the upstream node"
+    assert decoded["compositional_deconstruction"]["elements"][0]["desc"] == "new upstream object"
+    assert packet["ui"]["idd_import"][0]["used"] is True
+
+
 def test_ideogram_director_legacy_auto_replace_maps_to_safe_review_mode():
     node = deno_ideogram_director.DenoIdeogramDirector()
     existing_board = {
@@ -1116,6 +1226,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
     assert "acceptPrompt" not in script
     assert "keepPrompt" not in script
     assert "function handleConnectedPromptEcho(cap, sig)" in script
+    assert "if (connectedPromptAlreadyCurrent(sig))" in script
     assert "function handleInputPromptRaw(raw)" in script
     assert "function isStaticImportJsonSource(src)" in script
     assert "if (src && isStaticImportJsonSource(src))" in script
@@ -1160,7 +1271,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.21-canvas-hotfix-a"' in script
+    assert 'const IDD_REV = "r2026.06.22-import-same-sig-guard-a"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script

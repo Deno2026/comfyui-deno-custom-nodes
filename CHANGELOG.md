@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.57 - 2026-06-22
+
+- Fixed Ideogram Director Regenerate so a connected JSON prompt no longer overwrites manual box and description edits when the same prompt was already applied.
+
 ## 0.7.56 - 2026-06-22
 
 - Fixed Visual Fold on Desktop so folded nodes with DOM text widgets no longer leave prompt boxes visible under the folded chip.

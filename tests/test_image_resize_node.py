@@ -435,7 +435,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.21-canvas-hotfix-a"' in script
+    assert 'IDD_REV = "r2026.06.22-import-same-sig-guard-a"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
