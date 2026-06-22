@@ -6,7 +6,7 @@ SCRIPT = (ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding=
 
 
 def test_ideogram_director_stage_aspect_follows_current_resolution():
-    assert 'const IDD_REV = "r2026.06.21-canvas-hotfix-a"' in SCRIPT
+    assert 'const IDD_REV = "r2026.06.22-import-same-sig-guard-a"' in SCRIPT
     assert "function targetAspect()" in SCRIPT
     assert 'const W2 = +getW("width", 1024), H2 = +getW("height", 1024);' in SCRIPT
     assert "return targetAspect() || imageAspect() || 1;" in SCRIPT

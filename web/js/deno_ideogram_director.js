@@ -1539,7 +1539,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.21-canvas-hotfix-a";
+        const IDD_REV = "r2026.06.22-import-same-sig-guard-a";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -1870,6 +1870,12 @@
         }
         function handleConnectedPromptEcho(cap, sig) {
           syncImportSigFromSaved();
+          if (connectedPromptAlreadyCurrent(sig)) {
+            pendingImport = null;
+            paintPendingPrompt();
+            clearRunAlert();
+            return false;
+          }
           const mode = getImportMode();
           const boardHasContent = hasBoardContent();
           if (mode === IMPORT_AUTO || (mode === IMPORT_REVIEW && !boardHasContent)) {

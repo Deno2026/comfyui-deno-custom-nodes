@@ -548,7 +548,8 @@ def _decide_import(caption_data, import_json, import_mode, board_has_content=Non
 
     Incoming JSON Prompt policy:
     - Ask Before Replacing: empty boards fill automatically; existing boards ask first.
-    - Always Replace: a connected caption always owns the board/output.
+    - Always Replace: a new connected caption owns the board/output, but the same caption that
+      already seeded the board must not overwrite later manual bbox/description edits.
     """
     imported = _loads_caption(import_json)
     if imported is None:
@@ -558,8 +559,8 @@ def _decide_import(caption_data, import_json, import_mode, board_has_content=Non
     if board_has_content is None:
         board_has_content = _board_has_content(caption_data)
     same_saved_import = sig and _caption_data_import_sig(caption_data) == sig
-    use_import = mode == IMPORT_AUTO or (
-        mode == IMPORT_REVIEW and not board_has_content and not same_saved_import
+    use_import = (not same_saved_import) and (
+        mode == IMPORT_AUTO or (mode == IMPORT_REVIEW and not board_has_content)
     )
     return imported, sig, use_import
 

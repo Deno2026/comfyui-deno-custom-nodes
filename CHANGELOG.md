@@ -6,6 +6,22 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.58 - 2026-06-23
+
+- Smoothed Visual Fold and Align integration with ComfyUI's multi-selection toolbar so the DENO buttons appear with the native toolbar and stay stable while native menus are open.
+
+## 0.7.57 - 2026-06-22
+
+- Fixed Ideogram Director Regenerate so a connected JSON prompt no longer overwrites manual box and description edits when the same prompt was already applied.
+
+## 0.7.56 - 2026-06-22
+
+- Fixed Visual Fold on Desktop so folded nodes with DOM text widgets no longer leave prompt boxes visible under the folded chip.
+
+## 0.7.55 - 2026-06-22
+
+- Fixed Visual Fold and Align so their toolbar integration no longer blocks ComfyUI's own multi-selection floating controls.
+
 ## 0.7.54 - 2026-06-21
 
 - Fixed Ideogram Director bbox editing so drawing, moving, and resizing boxes keeps responding inside the node on more ComfyUI browser/runtime setups.
