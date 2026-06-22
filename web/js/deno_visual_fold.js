@@ -1,6 +1,7 @@
 import { app } from "../../../scripts/app.js";
 
 const EXTENSION_NAME = "Deno.VisualFold";
+const VISUAL_FOLD_REV = "r2026.06.22-selection-toolbar-hotfix-a";
 const META_KEY = "__denoVisualFold";
 const CHIP_W = 164;
 const CHIP_H = 28;
@@ -648,6 +649,10 @@ function ensureVisualStyle() {
       background: rgba(4, 13, 8, 0.96);
       box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(82, 255, 145, 0.10) inset;
       transform: translate(-50%, -100%);
+      pointer-events: none;
+    }
+
+    .deno-visual-fold-fallback-bar .deno-visual-fold-button {
       pointer-events: auto;
     }
 
@@ -999,6 +1004,31 @@ function isSelectionActionTarget(target) {
   );
 }
 
+function selectionToolbarRoot() {
+  if (typeof document === "undefined") return null;
+  const selectors = [
+    '[data-testid="selection-toolbox"]',
+    '.selection-toolbox',
+    '[data-testid="selectionToolbox"]',
+    '[data-testid*="selection"][data-testid*="toolbox"]',
+  ];
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (!element?.isConnected) continue;
+    const rect = element.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+    return element;
+  }
+  return null;
+}
+
+function isSelectionToolbarTarget(target) {
+  if (typeof Node === "undefined" || !(target instanceof Node)) {
+    return false;
+  }
+  return Boolean(selectionToolbarRoot()?.contains?.(target));
+}
+
 function handleCanvasMove(event) {
   lastCanvasPointerEvent = event;
   syncFoldedMotion();
@@ -1020,7 +1050,7 @@ function rememberCanvasPointer(event) {
 }
 
 function releaseCanvasPointer(event) {
-  if (isSelectionActionTarget(event?.target)) {
+  if (isSelectionActionTarget(event?.target) || isSelectionToolbarTarget(event?.target)) {
     return;
   }
   canvasPointerActive = false;
@@ -1028,7 +1058,7 @@ function releaseCanvasPointer(event) {
 }
 
 function rememberDocumentPointer(event) {
-  if (isSelectionActionTarget(event?.target) || !isInsideCanvasRect(event)) {
+  if (isSelectionActionTarget(event?.target) || isSelectionToolbarTarget(event?.target) || !isInsideCanvasRect(event)) {
     return;
   }
   canvasPointerActive = true;
@@ -1466,20 +1496,23 @@ function clampNumber(value, min, max) {
 }
 
 function selectionToolbarContent() {
-  if (typeof document === "undefined") return null;
+  const root = selectionToolbarRoot();
+  if (!root) return null;
   const selectors = [
-    '[data-testid="selection-toolbox"] .p-panel-content',
-    '.selection-toolbox .p-panel-content',
-    '[data-testid="selection-toolbox"] [data-pc-section="content"]',
+    ':scope .p-panel-content',
+    ':scope [data-pc-section="content"]',
+    ':scope [role="toolbar"]',
+    ':scope [data-testid*="toolbar"]',
+    ':scope > div',
   ];
   for (const selector of selectors) {
-    const element = document.querySelector(selector);
+    const element = root.querySelector(selector);
     if (!element?.isConnected) continue;
     const rect = element.getBoundingClientRect?.();
     if (!rect || rect.width <= 0 || rect.height <= 0) continue;
     return element;
   }
-  return null;
+  return root;
 }
 
 function ensureFallbackToolbar(actionBounds) {

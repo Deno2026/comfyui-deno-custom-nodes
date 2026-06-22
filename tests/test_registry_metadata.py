@@ -293,6 +293,13 @@ def test_visual_fold_frontend_is_visual_only():
     assert 'data-testid="selection-toolbox"' in script
     assert "deno-visual-fold-fallback-bar" in script
     assert "function attachButtonToSelectionSurface" in script
+    assert 'const VISUAL_FOLD_REV = "r2026.06.22-selection-toolbar-hotfix-a"' in script
+    assert "function selectionToolbarRoot" in script
+    assert "function isSelectionToolbarTarget" in script
+    assert "isSelectionToolbarTarget(event?.target) || !isInsideCanvasRect(event)" in script
+    assert "isSelectionToolbarTarget(event?.target))" in script
+    assert "pointer-events: none;" in script
+    assert ".deno-visual-fold-fallback-bar .deno-visual-fold-button" in script
     assert "function selectionActionsSuppressed" in script
     assert "canvasPointerActive" in script
     assert "function rememberDocumentPointer" in script
