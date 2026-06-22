@@ -3656,7 +3656,7 @@ function ensureProviderWidgets(node) {
     const definitions = [
         ["ollama_model", "Ollama Model"],
         ["lm_studio_model", "LM Studio Model"],
-        ["custom_server_url", "Legacy Server"],
+        ["custom_server_url", "Server URL"],
         ["custom_model", "Legacy Model"],
     ];
     let anchor = getWidget(node, "provider");
@@ -3682,7 +3682,7 @@ function createInputWidgetFromNodeData(node, name, label) {
     const inputOptions = Array.isArray(spec) && spec[1] && typeof spec[1] === "object" ? spec[1] : {};
     const values = Array.isArray(inputType) ? inputType.map((value) => String(value)) : [];
     const widgetType = values.length ? "combo" : inputType === "BOOLEAN" ? "toggle" : inputType === "INT" || inputType === "FLOAT" ? "number" : "text";
-    const fallback = name === "custom_server_url" ? LEGACY_CUSTOM_DEFAULT_URL : values[0] || "";
+    const fallback = name === "custom_server_url" ? "" : values[0] || "";
     const initialValue = inputOptions.default ?? fallback;
     if (typeof node.addWidget !== "function") {
         return null;
@@ -3765,7 +3765,7 @@ function repairSavedWidgetValues(node) {
     const customServerWidget = getWidget(node, "custom_server_url");
     if (customServerWidget) {
         const value = String(customServerWidget.value || "").trim();
-        customServerWidget.value = value && isLikelyUrl(value) ? value : LEGACY_CUSTOM_DEFAULT_URL;
+        customServerWidget.value = value && isLikelyUrl(value) ? value : "";
     }
 
     const seedWidget = getWidget(node, "seed");
@@ -3832,23 +3832,11 @@ function repairLegacyProviderValues(node) {
     const keepWidget = getWidget(node, "keep_minutes");
     const comfyVramWidget = getWidget(node, "comfy_vram_policy");
 
-    const customServerValue = String(customServerWidget?.value ?? "").trim();
-    const customModelValue = String(customModelWidget?.value ?? "").trim();
-    const shiftedFromOldTwoProviderNode =
-        Boolean(customServerWidget) &&
-        Boolean(customModelWidget) &&
-        (!isLikelyUrl(customServerValue) || isShiftedCustomModelValue(customModelValue));
-
-    if (!shiftedFromOldTwoProviderNode) {
-        setWidgetHidden(customServerWidget, true);
-        setWidgetHidden(customModelWidget, true);
-        return;
-    }
-
     if (customServerWidget) {
-        customServerWidget.value = LEGACY_CUSTOM_DEFAULT_URL;
+        const value = String(customServerWidget.value || "").trim();
+        customServerWidget.value = value && isLikelyUrl(value) ? value : "";
     }
-    if (customModelWidget && isShiftedCustomModelValue(customModelValue)) {
+    if (customModelWidget && isShiftedCustomModelValue(String(customModelWidget.value || "").trim())) {
         customModelWidget.value = firstWidgetChoice(customModelWidget);
     }
     if (thinkingWidget && typeof thinkingWidget.value !== "boolean") {
@@ -3872,7 +3860,7 @@ function repairLegacyProviderValues(node) {
         syncComfyVramWidgetOptions(comfyVramWidget);
         comfyVramWidget.value = normalizeComfyVramValue(comfyVramWidget.value);
     }
-    setWidgetHidden(customServerWidget, true);
+    setWidgetHidden(customServerWidget, false);
     setWidgetHidden(customModelWidget, true);
 }
 
@@ -4024,7 +4012,7 @@ function polishWidgetLabels(node) {
         provider: "Provider",
         ollama_model: "Ollama Model",
         lm_studio_model: "LM Studio Model",
-        custom_server_url: "Legacy Server",
+        custom_server_url: "Server URL",
         custom_model: "Legacy Model",
         system_prompt: "System Prompt",
         prompt: "Prompt",
@@ -4071,6 +4059,10 @@ function activeModelWidget(node) {
 }
 
 function defaultServerForProvider(provider, node) {
+    const customUrl = String(getWidgetValue(node, "custom_server_url", "") || "").trim();
+    if (customUrl) {
+        return customUrl;
+    }
     if (provider === PROVIDER_LM_STUDIO) {
         return LM_STUDIO_DEFAULT_URL;
     }
@@ -4082,7 +4074,7 @@ function setActiveProviderModelVisibility(node) {
     const modelMemory = normalizeModelMemoryValue(getWidget(node, "model_memory")?.value);
     setWidgetHidden(getWidget(node, "ollama_model"), provider !== PROVIDER_OLLAMA);
     setWidgetHidden(getWidget(node, "lm_studio_model"), provider !== PROVIDER_LM_STUDIO);
-    setWidgetHidden(getWidget(node, "custom_server_url"), true);
+    setWidgetHidden(getWidget(node, "custom_server_url"), false);
     setWidgetHidden(getWidget(node, "custom_model"), true);
     setWidgetHidden(getWidget(node, "system_prompt"), true);
     setWidgetHidden(getWidget(node, "prompt"), true);

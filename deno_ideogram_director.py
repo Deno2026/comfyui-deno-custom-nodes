@@ -967,6 +967,81 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
             return web.json_response({"error": "copy failed: %s" % e}, status=500)
         return web.json_response({"saved": out_name, "subfolder": subfolder_out, "type": "output"})
 
+    @PromptServer.instance.routes.post("/deno/ideogram_director/analyze")
+    async def _deno_ideogram_director_analyze(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        image_b64 = (body.get("image") or "").strip()
+        if not image_b64:
+            return web.json_response({"error": "Missing 'image' field"}, status=400)
+
+        if image_b64.startswith("data:"):
+            _, b64_part = image_b64.split(",", 1)
+            image_b64 = b64_part.strip()
+
+        import base64, io
+        from PIL import Image
+        try:
+            image_bytes = base64.b64decode(image_b64)
+            pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        except Exception as e:
+            return web.json_response({"error": f"Failed to decode image: {e}"}, status=400)
+
+        img_w, img_h = pil_img.size
+
+        MAX_DIM = 2048
+        if img_w > MAX_DIM or img_h > MAX_DIM:
+            ratio = min(MAX_DIM / img_w, MAX_DIM / img_h)
+            pil_img = pil_img.resize((int(img_w * ratio), int(img_h * ratio)), Image.BICUBIC)
+            img_w, img_h = pil_img.size
+
+        model_name = (body.get("model_name") or "").strip()
+        precision = (body.get("precision") or "fp16").strip()
+        raw_tasks = body.get("tasks") or ["caption", "dense_region", "od", "ocr"]
+        if isinstance(raw_tasks, str):
+            tasks = [t.strip() for t in raw_tasks.split(",") if t.strip()]
+        else:
+            tasks = list(raw_tasks)
+        max_new_tokens = int(body.get("max_new_tokens") or 512)
+        num_beams = int(body.get("num_beams") or 3)
+        do_sample = bool(body.get("do_sample") or False)
+
+        from . import deno_florence_analyze as fa
+
+        try:
+            ideogram_data, image_size = fa.analyze_image(
+                pil_image=pil_img,
+                tasks=tasks,
+                model_name=model_name if model_name else None,
+                precision=precision,
+                max_new_tokens=max_new_tokens,
+                num_beams=num_beams,
+                do_sample=do_sample,
+            )
+        except ImportError as e:
+            return web.json_response({
+                "success": False,
+                "error": f"Florence-2 dependencies not available: {e}. pip install tokenizers tqdm",
+            }, status=500)
+        except FileNotFoundError as e:
+            return web.json_response({
+                "success": False,
+                "error": f"Florence model not found: {e}. Download from: huggingface.co/MiaoshouAI/Florence-2-large-PromptGen-v2.0 → ComfyUI/models/llm/Florence-2-large-PromptGen-v2.0/",
+            }, status=500)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        return web.json_response({
+            "success": True,
+            "ideogram_data": ideogram_data,
+            "image_size": image_size or [img_w, img_h],
+        })
+
 
 NODE_CLASS_MAPPINGS = {"DenoIdeogramDirector": DenoIdeogramDirector}
 NODE_DISPLAY_NAME_MAPPINGS = {"DenoIdeogramDirector": "(Deno) Ideogram Director"}

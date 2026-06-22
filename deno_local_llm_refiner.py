@@ -1680,7 +1680,7 @@ class DenoLocalLLMRefiner:
                 "custom_server_url": (
                     "STRING",
                     {
-                        "default": LEGACY_CUSTOM_SERVER_DEFAULT,
+                        "default": "",
                     },
                 ),
                 "custom_model": ([""], {"default": ""}),
@@ -1800,11 +1800,16 @@ class DenoLocalLLMRefiner:
         ) and ollama_model_value and not _looks_like_url(ollama_model_value):
             lm_studio_model_value = ollama_model_value
 
-        if provider_value == PROVIDER_LM_STUDIO:
+        custom_url = str(_extract_scalar(custom_server_url, "") or "").strip()
+        if custom_url:
+            server_value = custom_url
+        elif provider_value == PROVIDER_LM_STUDIO:
             server_value = LM_STUDIO_DEFAULT_SERVER
-            model_value = lm_studio_model_value
         else:
             server_value = OLLAMA_DEFAULT_SERVER
+        if provider_value == PROVIDER_LM_STUDIO:
+            model_value = lm_studio_model_value
+        else:
             model_value = ollama_model_value
         system_value = str(_extract_scalar(system_prompt, "") or "")
         thinking_value = _safe_bool(thinking, False)

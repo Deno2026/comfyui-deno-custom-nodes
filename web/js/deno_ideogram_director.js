@@ -694,6 +694,19 @@
 .idd-engine-url{width:100%;box-sizing:border-box;margin-top:8px;background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:8px;color:#e4e8e5;padding:9px 10px;font:12px "Cascadia Code","Consolas",ui-monospace,monospace;}
 .idd-engine-url:focus{outline:none;border-color:rgba(66,189,127,.55);box-shadow:0 0 0 2px rgba(66,189,127,.10);}
 .idd-engine-msg{min-height:16px;color:#ffb6a7;font:11px/1.35 "Segoe UI Variable Text","Segoe UI",sans-serif;margin-top:7px;}
+.idd-fl-panel{width:400px;max-width:92%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}
+.idd-fl-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;}
+.idd-fl-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.idd-fl-row label{color:#dbe0dc;font-weight:600;flex-shrink:0;}
+.idd-fl-sel{background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:6px;color:#e4e8e5;padding:6px 8px;font:12px "Segoe UI Variable Text","Segoe UI",sans-serif;width:110px;}
+.idd-fl-sel:focus{outline:none;border-color:rgba(66,189,127,.55);}
+.idd-fl-num{background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:6px;color:#e4e8e5;padding:6px 8px;font:12px "Segoe UI Variable Text","Segoe UI",sans-serif;width:90px;text-align:center;}
+.idd-fl-num:focus{outline:none;border-color:rgba(66,189,127,.55);}
+.idd-fl-label{color:#dbe0dc;font-weight:600;margin-top:2px;}
+.idd-fl-tasks{display:flex;flex-wrap:wrap;gap:8px;}
+.idd-fl-ck{cursor:pointer;display:flex;align-items:center;gap:5px;color:#dbe0dc;font:12px "Segoe UI Variable Text","Segoe UI",sans-serif;padding:4px 8px;border:1px solid rgba(255,255,255,.10);border-radius:6px;background:#0c100e;}
+.idd-fl-ck:hover{border-color:rgba(66,189,127,.48);}
+.idd-fl-ck input[type=checkbox]{accent-color:#42bd7f;}
 .idd-modal-panel.idd-import-panel{width:500px;max-width:92%;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
 .idd-importlist{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
 .idd-importrow{cursor:pointer;text-align:left;background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:8px;color:#dbe0dc;padding:9px 10px;font:12px "Segoe UI Variable Text","Segoe UI",sans-serif;}
@@ -725,7 +738,7 @@
 .idd-grid{background-image:
   linear-gradient(rgba(168,186,176,.045) 1px,transparent 1px),
   linear-gradient(90deg,rgba(168,186,176,.045) 1px,transparent 1px) !important;}
-.idd-ov{box-shadow:0 0 0 1px rgba(66,189,127,.35) !important;}
+.idd-ov{position:absolute;box-shadow:0 0 0 1px rgba(66,189,127,.35) !important;}
 .idd-zoom button{background:rgba(18,22,20,.85) !important;border:1px solid rgba(255,255,255,.10) !important;
   color:#b9c2bc !important;border-radius:6px !important;}
 .idd-zoom button:hover{border-color:var(--gdim) !important;color:var(--g) !important;}
@@ -808,7 +821,7 @@
 .idd-btn.red:hover{border-color:rgba(190,84,84,.7) !important;color:#e6b9b9 !important;background:rgba(120,46,46,.18) !important;}
 
 /* 10) Element editor modal */
-.idd-modal{background:rgba(8,10,9,.72) !important;}
+.idd-modal{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(8,10,9,.72) !important;}
 .idd-modal-panel{background:#181e1b !important;border:1px solid rgba(255,255,255,.10) !important;
   border-radius:12px !important;box-shadow:0 16px 48px rgba(0,0,0,.6) !important;}
 .idd-modal-h .t{color:#e4e8e5 !important;font-family:"Segoe UI Variable Display","Segoe UI Semibold","Segoe UI",sans-serif !important;font-weight:600 !important;}
@@ -1180,7 +1193,7 @@
       .idd-deed{position:absolute;z-index:5;background:#050a08;border:1px solid var(--gdim);border-radius:6px;
         color:var(--txt);font:12px 'Segoe UI';padding:5px 7px;outline:none;resize:none;box-shadow:0 4px 16px #000;}
       /* element editor popup */
-      .idd-modal{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+      .idd-modal{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;
         background:rgba(2,6,4,.74);}
       .idd-modal-panel{width:400px;max-width:92%;max-height:90%;overflow-y:auto;box-sizing:border-box;
         background:#08130d;border:1px solid var(--gdim);border-radius:12px;box-shadow:0 12px 44px #000;
@@ -1211,7 +1224,7 @@
       .idd-modal-panel.idd-copy-panel textarea{min-height:260px;font:12px/1.5 ui-monospace,"Consolas",monospace;}
       .idd-paste-err{color:#ff9b8a;font:12px 'Segoe UI';padding:2px 1px;}
       /* preset galleries — FULL-SCREEN overlay (mounted on body, above everything) */
-      .idd-modal.idd-gal-fs{position:fixed;inset:0;z-index:100000;padding:2.5vh 2vw;}
+      .idd-modal.idd-gal-fs{position:fixed;inset:0;z-index:100001;padding:2.5vh 2vw;}
       .idd-gal-panel{width:660px;}
       .idd-gal-fs .idd-gal-panel{width:100%;max-width:100%;height:100%;max-height:100%;}
       .idd-gal-fs .idd-modal-h .t{font-size:18px;}
@@ -1394,6 +1407,10 @@
         let mp = 1;              // megapixel budget (persisted in caption_data)
         let arLabel = "1:1";     // current aspect-ratio label (persisted in the aspect_ratio widget)
         let railWide = false;    // Elements rail width preference (UI-only, restored on reload)
+        // hidden file input for loading a reference image via the Fit Ref button
+        const refFileInput = el("input"); refFileInput.type = "file"; refFileInput.accept = "image/png,image/jpeg,image/webp";
+        // Florence settings (in-memory, node-scoped)
+        let florenceSettings = { precision: "fp16", tasks: ["caption", "dense_region", "od", "ocr"], max_new_tokens: 512, num_beams: 3 };
 
         const normBox = (b) => {
           const w = clamp01(+b.w || 0), h = clamp01(+b.h || 0);
@@ -1602,6 +1619,16 @@
         const layoutsBtn = mkBtn(LAYOUTS_BTN_LABEL); layoutsBtn.classList.add("idd-toplay");
         layoutsBtn.title = "Layout preset gallery — pick a composition and it fills the ratio + starter boxes; save your own too";
         layoutsBtn.onclick = (e) => { e.stopPropagation(); openLayoutGallery(); };
+        // Fit Ref: auto-match backdrop aspect ratio to the closest resolution template.
+        const fitRefBtn = mkBtn("Fit Ref"); fitRefBtn.classList.add("idd-toplay");
+        fitRefBtn.title = "Fit backdrop image to canvas — auto-match closest resolution template";
+        fitRefBtn.onclick = (e) => { e.stopPropagation(); fitReference(); };
+        // Florence: analyze backdrop image via Florence2 → populate the board.
+        const florenceBtn = mkBtn("Florence"); florenceBtn.classList.add("idd-toplay");
+        florenceBtn.title = "Analyze backdrop image with Florence2 → detect objects/text and populate the editor board";
+        florenceBtn.onclick = (e) => { e.stopPropagation(); analyzeBackdrop(); };
+        const florenceSetBtn = el("div", "idd-i idd-fl-setbtn"); florenceSetBtn.textContent = "\u2699"; florenceSetBtn.title = "Florence settings";
+        florenceSetBtn.onclick = (e) => { e.stopPropagation(); openFlorenceSettings(); };
         const IMPORT_REVIEW = "Ask Before Replacing";
         const IMPORT_AUTO = "Always Replace";
         const IMPORT_CHOICES = [IMPORT_REVIEW, IMPORT_AUTO];
@@ -2645,7 +2672,7 @@
         // the old caption-status text are intentionally not mounted; that keeps Seed visible at default size.
         // Regenerate owns the terminal top-right hotspot (Fitts / Figma·Canva convention); the
         // low-frequency fullscreen joins the board's view cluster instead of crowding the corner.
-        top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, regen);
+        top.append(layoutsBtn, fitRefBtn, florenceBtn, florenceSetBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, regen);
         paintRes();   // always populate the resolution chip on creation (not just on restore)
         setTimeout(fitTopBarAfterRestore, 0);
 
@@ -2809,7 +2836,7 @@
         const bdScaleRange = el("input", "idd-bdroprange"); bdScaleRange.type = "range"; bdScaleRange.min = "10"; bdScaleRange.max = "300"; bdScaleRange.step = "5"; bdScaleRange.value = "100"; bdScaleRange.style.display = "none";
         bdScaleRange.addEventListener("input", () => {
           const bw = board.clientWidth, bh = board.clientHeight, iar = (bdrop.naturalWidth / bdrop.naturalHeight) || 1;
-          bdT.nw = (+bdScaleRange.value) / 100; bdT.nh = (bdT.nw * bw / iar) / bh; layoutBackdrop(); serialize();
+          bdT.nw = (+bdScaleRange.value) / 100; bdT.nh = (bdT.nw * bw / iar) / bh; layoutStage(); serialize();
         });
         bdropCtl.append(bdropIco, bdropRange, bdScaleIco, bdScaleRange, bdEditBtn); board.append(bdropCtl);
 
@@ -2954,11 +2981,19 @@
           let sw = bw, sh = bw / ar;
           if (sh > bh) { sh = bh; sw = bh * ar; }
           const left = Math.round((bw - sw) / 2), top = Math.round((bh - sh) / 2);
-          for (const elx of [bimg, ov]) {
-            elx.style.left = left + "px"; elx.style.top = top + "px";
-            elx.style.width = Math.round(sw) + "px"; elx.style.height = Math.round(sh) + "px";
+          bimg.style.left = left + "px"; bimg.style.top = top + "px";
+          bimg.style.width = Math.round(sw) + "px"; bimg.style.height = Math.round(sh) + "px";
+          // layout backdrop first so its final position is known, then ov follows the visible image
+          layoutBackdrop();
+          const visBimg = bimg.style.display === "block" && bimg.getAttribute("src");
+          const visBdrop = bdrop.style.display === "block" && bdrop.getAttribute("src");
+          if (!visBimg && visBdrop) {
+            ov.style.left = bdrop.style.left; ov.style.top = bdrop.style.top;
+            ov.style.width = bdrop.style.width; ov.style.height = bdrop.style.height;
+          } else {
+            ov.style.left = left + "px"; ov.style.top = top + "px";
+            ov.style.width = Math.round(sw) + "px"; ov.style.height = Math.round(sh) + "px";
           }
-          layoutBackdrop();   // backdrop has its OWN transform (user move/resize), not stage-fit
         }
         // backdrop placement is independent + ratio-preserving (NOT stretched to the stage).
         function layoutBackdrop() {
@@ -3005,18 +3040,20 @@
         function applyBackdrop() {
           const url = getBackdrop();
           if (url) {
-            if (bdrop.dataset.url !== url) { bdrop.dataset.url = url; bdT.set = false; bdrop.src = url; }  // new image → re-fit on load
+            bdrop.dataset.local = "";
+            if (bdrop.dataset.url !== url) { bdrop.dataset.url = url; bdT.set = false; bdrop.src = url; }
             bdrop.style.display = "block"; bdropCtl.style.display = "";
           } else {
+            if (bdrop.dataset.local === "1") { layoutStage(); return; }
             bdrop.dataset.url = ""; bdrop.removeAttribute("src"); bdrop.style.display = "none"; bdropCtl.style.display = "none";
-            if (bdEdit) setBdEdit(false);   // no backdrop → leave adjust mode
+            if (bdEdit) setBdEdit(false);
           }
           bdrop.style.filter = "brightness(" + (1 - bdropDim) + ")";
           bdropRange.value = String(Math.round(bdropDim * 100));
           board.classList.toggle("empty", !url && bimg.style.display === "none");
           layoutStage();
         }
-        bdrop.addEventListener("load", () => { if (!bdT.set) fitBackdrop(); layoutBackdrop(); });
+        bdrop.addEventListener("load", () => { if (!bdT.set) fitBackdrop(); layoutStage(); });
         // adjust mode: drag the backdrop body to MOVE; drag the corner handle to RESIZE (keeps ratio).
         let bdDrag = null;
         bdrop.addEventListener("pointerdown", (e) => {
@@ -3043,11 +3080,183 @@
             bdT.nw = nw; bdT.nh = (nw * bw / iar) / bh;   // keep the image's true ratio
             bdScaleRange.value = String(Math.round(nw * 100));   // keep the size slider in sync
           }
-          layoutBackdrop();
+            layoutStage();
         }
         function onBdUp() {
           window.removeEventListener("pointermove", onBdMove); window.removeEventListener("pointerup", onBdUp);
           if (bdDrag) { bdDrag = null; serialize(); }
+        }
+        // Fit Ref: match the backdrop's aspect ratio to the closest resolution template.
+        function fitReference() {
+          // If backdrop is already loaded from a wire, fit immediately.
+          if (bdrop.src && bdrop.style.display !== "none" && bdrop.naturalWidth) {
+            fitBdToRes(); return;
+          }
+          // If backdrop wire is connected but image hasn't loaded yet, wait then fit.
+          bdrop.addEventListener("load", function _onBdLoad() { bdrop.removeEventListener("load", _onBdLoad); fitBdToRes(); }, { once: true });
+          // Try wire first.
+          applyBackdrop();
+          if (bdrop.src && bdrop.style.display !== "none") {
+            if (bdrop.complete && bdrop.naturalWidth) fitBdToRes();
+            return;
+          }
+          // No wire — open file picker.
+          refFileInput.onchange = function () {
+            var file = refFileInput.files && refFileInput.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function (ev) {
+              bdrop.dataset.url = ev.target.result;
+              bdrop.dataset.local = "1";
+              bdrop.src = ev.target.result;
+              bdrop.style.display = "block";
+              bdropCtl.style.display = "";
+              board.classList.remove("empty");
+              fitBackdrop();
+              var _onLoad = function () { bdrop.removeEventListener("load", _onLoad); fitBdToRes(); };
+              bdrop.addEventListener("load", _onLoad, { once: true });
+            };
+            reader.readAsDataURL(file);
+          };
+          refFileInput.value = "";
+          refFileInput.click();
+        }
+        function fitBdToRes() {
+          if (!bdrop.naturalWidth) {
+            flashBtn(fitRefBtn, "No Img", "Fit Ref"); return;
+          }
+          var ar = bdrop.naturalWidth / bdrop.naturalHeight;
+          var best = null, bestErr = 1;
+          for (var _i2 = 0; _i2 < RATIOS.length; _i2++) {
+            var _r2 = RATIOS[_i2], err = Math.abs(ar / (_r2[1] / _r2[2]) - 1);
+            if (err < bestErr) { bestErr = err; best = _r2[0]; }
+          }
+          if (!best) { flashBtn(fitRefBtn, "No Match", "Fit Ref"); return; }
+          var match = RATIOS.find(function (x) { return x[0] === best; });
+          if (!match) return;
+          var _d = dimsFor(match[1], match[2], mp);
+          setRes(_d[0], _d[1], best, best);
+          flashBtn(fitRefBtn, "\u2713 " + best, "Fit Ref");
+        }
+        // Florence: analyze the backdrop image and populate the editor board.
+        async function analyzeBackdrop() {
+          if (!bdrop.src || bdrop.style.display === "none" || !bdrop.naturalWidth) {
+            flashBtn(florenceBtn, "No Ref", "Florence"); return;
+          }
+          florenceBtn.disabled = true;
+          const origText = florenceBtn.textContent;
+          florenceBtn.textContent = "\u2026";
+          try {
+            const c = document.createElement("canvas");
+            c.width = bdrop.naturalWidth; c.height = bdrop.naturalHeight;
+            c.getContext("2d").drawImage(bdrop, 0, 0);
+            const fs = florenceSettings || { precision: "fp16", tasks: ["caption", "dense_region", "od", "ocr"], max_new_tokens: 512, num_beams: 3 };
+            const resp = await fetch("/deno/ideogram_director/analyze", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                image: c.toDataURL("image/jpeg", 0.92),
+                precision: fs.precision,
+                tasks: fs.tasks,
+                max_new_tokens: fs.max_new_tokens,
+                num_beams: fs.num_beams,
+              }),
+            });
+            const result = await resp.json();
+            if (!result.success) { flashBtn(florenceBtn, result.error || "Failed", "Florence"); return; }
+            const data = result.ideogram_data || {};
+            if (typeof data.high_level_description === "string" && data.high_level_description) {
+              summary.value = data.high_level_description;
+              setW("high_level_description", data.high_level_description);
+            }
+            const bg = data.compositional_deconstruction?.background;
+            if (typeof bg === "string" && bg) { bgArea.value = bg; setW("background", bg); }
+            const rawElements = data.compositional_deconstruction?.elements || [];
+            if (Array.isArray(rawElements) && rawElements.length) {
+              boxes = rawElements.map(function (el) {
+                var bb = Array.isArray(el.bbox) && el.bbox.length === 4 ? el.bbox : null;
+                var box = { type: el.type === "text" ? "text" : "obj", text: el.text || "", desc: el.desc || "", palette: Array.isArray(el.color_palette) ? el.color_palette : [] };
+                if (bb) { box.x = bb[1] / 1000; box.y = bb[0] / 1000; box.w = (bb[3] - bb[1]) / 1000; box.h = (bb[2] - bb[0]) / 1000; }
+                else { box.x = 0.03; box.y = 0.03; box.w = 0.22; box.h = 0.14; }
+                return normBox(box);
+              });
+            }
+            if (Array.isArray(result.image_size) && result.image_size.length === 2) {
+              var iar = result.image_size[0] / result.image_size[1], ibest = null, ibestErr = 1;
+              for (var _i3 = 0; _i3 < RATIOS.length; _i3++) {
+                var _r3 = RATIOS[_i3], ierr = Math.abs(iar / (_r3[1] / _r3[2]) - 1);
+                if (ierr < ibestErr) { ibestErr = ierr; ibest = _r3[0]; }
+              }
+              if (ibest) { var _rr2 = RATIOS.find(function (x) { return x[0] === ibest; }); if (_rr2) { var _d2 = dimsFor(_rr2[1], _rr2[2], mp); setRes(_d2[0], _d2[1], ibest, ibest); } }
+            }
+            selectedId = null;
+            renderBoxes(); renderElements(); layoutStage();
+            serialize();
+            flashBtn(florenceBtn, "\u2713 " + rawElements.length + " items", "Florence");
+          } catch (err) {
+            console.error("[Director] Florence analyze error:", err);
+            flashBtn(florenceBtn, err.message?.includes("404") ? "Not Found" : "Error", "Florence");
+          } finally {
+            florenceBtn.disabled = false;
+          }
+        }
+        function openFlorenceSettings() {
+          const modal = el("div", "idd-modal"); modal.tabIndex = -1; stop(modal);
+          const panel = el("div", "idd-modal-panel idd-fl-panel");
+          const h = el("div", "idd-modal-h");
+          const left = el("div", "idd-h-left"); const ht = el("span", "t"); ht.textContent = "Florence Settings"; left.append(ht);
+          const right = el("div", "idd-h-right");
+          const closeBtn = el("button", "idd-mbtn"); closeBtn.textContent = "Close";
+          right.append(closeBtn);
+          h.append(left, el("div", "idd-h-center"), right);
+          const body = el("div", "idd-fl-body");
+          const fs = florenceSettings || { precision: "fp16", tasks: ["caption", "dense_region", "od", "ocr"], max_new_tokens: 512, num_beams: 3 };
+          // Precision
+          const precRow = el("div", "idd-fl-row");
+          const precLabel = el("label"); precLabel.textContent = "Precision";
+          const precSel = el("select", "idd-fl-sel");
+          ["fp16","bf16","fp32"].forEach(function(v) { var o = el("option"); o.value = v; o.textContent = v; if (v === fs.precision) o.selected = true; precSel.appendChild(o); });
+          precRow.append(precLabel, precSel);
+          // Tasks
+          const tasksLabel = el("div", "idd-fl-label"); tasksLabel.textContent = "Tasks";
+          const tasksRow = el("div", "idd-fl-tasks");
+          var allTaskNames = ["caption","dense_region","od","ocr"];
+          var taskChecks = {};
+          allTaskNames.forEach(function(t) {
+            var lbl = el("label", "idd-fl-ck");
+            var cb = el("input"); cb.type = "checkbox"; cb.checked = fs.tasks.indexOf(t) >= 0;
+            var sp = el("span"); sp.textContent = t.replace(/_/g, " ");
+            lbl.append(cb, sp); tasksRow.appendChild(lbl); taskChecks[t] = cb;
+          });
+          // Max new tokens
+          const tokRow = el("div", "idd-fl-row");
+          const tokLabel = el("label"); tokLabel.textContent = "Max tokens";
+          const tokInput = el("input", "idd-fl-num"); tokInput.type = "number"; tokInput.min = 64; tokInput.max = 2048; tokInput.step = 64; tokInput.value = fs.max_new_tokens;
+          tokRow.append(tokLabel, tokInput);
+          // Num beams
+          const beamRow = el("div", "idd-fl-row");
+          const beamLabel = el("label"); beamLabel.textContent = "Beams";
+          const beamInput = el("input", "idd-fl-num"); beamInput.type = "number"; beamInput.min = 1; beamInput.max = 10; beamInput.step = 1; beamInput.value = fs.num_beams;
+          beamRow.append(beamLabel, beamInput);
+          body.append(precRow, tasksLabel, tasksRow, tokRow, beamRow);
+          const acts = el("div", "idd-modal-acts");
+          const cancel = el("button", "idd-mbtn"); cancel.textContent = "Cancel";
+          const apply = el("button", "idd-mbtn save"); apply.textContent = "Save";
+          acts.append(el("span", "sp"), cancel, apply);
+          panel.append(h, body, acts);
+          modal.append(panel); document.body.appendChild(modal);
+          var close = function() { try { modal.remove(); } catch(e) {} };
+          var doApply = function() {
+            var tasks = [];
+            allTaskNames.forEach(function(t) { if (taskChecks[t].checked) tasks.push(t); });
+            florenceSettings = { precision: precSel.value, tasks: tasks, max_new_tokens: parseInt(tokInput.value) || 512, num_beams: parseInt(beamInput.value) || 3 };
+            close();
+          };
+          modal.addEventListener("keydown", function(e) { e.stopPropagation(); if (e.key === "Escape") { e.preventDefault(); close(); } });
+          modal.addEventListener("pointerdown", function(e) { if (e.target === modal) close(); });
+          closeBtn.onclick = function(e) { e.stopPropagation(); close(); };
+          cancel.onclick = function(e) { e.stopPropagation(); close(); };
+          apply.onclick = function(e) { e.stopPropagation(); doApply(); };
         }
         // a STATIC upstream (e.g. Prompt Text) is readable the moment it's wired — sync the board
         // immediately. (A runtime upstream like an LLM can only sync via the executed event.)
@@ -3138,7 +3347,10 @@
             try { fsState.parent.insertBefore(wrap, fsState.next); } catch (e) {}
             fsState = null;
           } else return;
-          setTimeout(() => { layoutStage(); node.setDirtyCanvas(true, true); }, 0);
+          setTimeout(() => {
+            if (bdrop.style.display === "block" && bdrop.naturalWidth > 0) { bdT.set = false; fitBackdrop(); }
+            layoutStage(); node.setDirtyCanvas(true, true);
+          }, 0);
         }
         fsBtn.onclick = (e) => { e.stopPropagation(); setFullscreen(!fsState); };
         fsBtn.addEventListener("mousedown", (e) => e.stopPropagation());
@@ -4502,13 +4714,14 @@
           artIn.value = ""; setW("art_style", "");
           applyStyleMode("none"); setW("style_mode", "none");
           clearResultPreview();
+          bdrop.removeAttribute("src"); bdrop.style.display = "none"; bdrop.dataset.url = ""; bdropCtl.style.display = "none"; bdT.set = false;
           pendingImport = null;
           closeColorPop();
           renderBoxes();
           renderPalette();
           renderElements();
           layoutStage();
-          applyBackdrop();
+          board.classList.toggle("empty", bimg.style.display !== "block" && bdrop.style.display !== "block");
           paintSave();
           paintRegen();
           paintPendingPrompt();
