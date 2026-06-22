@@ -1,8 +1,9 @@
 import { app } from "../../../scripts/app.js";
 
 const EXTENSION_NAME = "Deno.VisualFold";
-const VISUAL_FOLD_REV = "r2026.06.22-selection-toolbar-hotfix-a";
+const VISUAL_FOLD_REV = "r2026.06.22-fold-dom-widgets-hotfix-a";
 const META_KEY = "__denoVisualFold";
+const DOM_HIDDEN_KEY = "__denoVisualFoldDomHiddenStyle";
 const CHIP_W = 164;
 const CHIP_H = 28;
 const HIDDEN_W = 2;
@@ -361,6 +362,7 @@ function baseMeta(node, groupId, index, count, anchorId, baseX, baseY) {
 function applyFoldLook(node, meta, visualBasePos = null, preserveAnchorPos = false) {
   node.flags = node.flags || {};
   node.flags.collapsed = true;
+  setFoldDomWidgetsHidden(node, true);
   const basePos = visualBasePos || meta.basePos;
   const chipWidth = foldedChipWidth(meta);
   if (meta.index === 0) {
@@ -381,6 +383,74 @@ function applyFoldLook(node, meta, visualBasePos = null, preserveAnchorPos = fal
   node.color = "#07180f";
   node.bgcolor = "#07180f";
   node._collapsed_width = chipWidth;
+}
+
+function isDomElement(value) {
+  return typeof Element !== "undefined" && value instanceof Element;
+}
+
+function addDomCandidate(result, value) {
+  if (!isDomElement(value) || result.includes(value)) return;
+  result.push(value);
+}
+
+function widgetDomElements(node) {
+  const result = [];
+  const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
+  const directKeys = [
+    "element",
+    "el",
+    "inputEl",
+    "input",
+    "textarea",
+    "root",
+    "container",
+    "domElement",
+    "htmlElement",
+    "widgetElement",
+  ];
+  const nestedKeys = ["options", "domWidget", "widget", "props"];
+
+  for (const widget of widgets) {
+    for (const key of directKeys) {
+      addDomCandidate(result, widget?.[key]);
+    }
+    for (const nestedKey of nestedKeys) {
+      const nested = widget?.[nestedKey];
+      if (!nested || typeof nested !== "object") continue;
+      for (const key of directKeys) {
+        addDomCandidate(result, nested?.[key]);
+      }
+    }
+  }
+  addDomCandidate(result, node?.domElement);
+  addDomCandidate(result, node?.htmlElement);
+  return result;
+}
+
+function setFoldDomWidgetsHidden(node, hidden) {
+  for (const element of widgetDomElements(node)) {
+    if (hidden) {
+      if (!element[DOM_HIDDEN_KEY]) {
+        element[DOM_HIDDEN_KEY] = {
+          display: element.style.display,
+          visibility: element.style.visibility,
+          pointerEvents: element.style.pointerEvents,
+        };
+      }
+      element.style.display = "none";
+      element.style.visibility = "hidden";
+      element.style.pointerEvents = "none";
+      continue;
+    }
+
+    const saved = element[DOM_HIDDEN_KEY];
+    if (!saved) continue;
+    element.style.display = saved.display;
+    element.style.visibility = saved.visibility;
+    element.style.pointerEvents = saved.pointerEvents;
+    delete element[DOM_HIDDEN_KEY];
+  }
 }
 
 function selectOnly(node) {
@@ -511,6 +581,7 @@ function unfoldGroup(node) {
     restoreOwnValue(item, "color", meta.color);
     restoreOwnValue(item, "bgcolor", meta.bgcolor);
     restoreOwnValue(item, "_collapsed_width", meta.collapsedWidth);
+    setFoldDomWidgetsHidden(item, false);
     delete item.properties[META_KEY];
   }
   const restoredGroup = restoreGroupSnapshot(sourceGroup, dx, dy);
