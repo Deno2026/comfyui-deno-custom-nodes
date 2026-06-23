@@ -26,6 +26,7 @@
 
 - [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 두 렌더 영상을 슬라이더, 나란히 보기, 차이 보기, 토글 방식으로 비교합니다.
 - [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 짧은 영상을 자르고, 크롭하고, 리사이즈해서 GIF 또는 작은 WebP로 내보냅니다.
+- [DENO 디스코드용 영상 압축](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 영상을 자르고, 크롭하고, 다운샘플링해서 가능하면 10MB 이하 디스코드용 MP4로 저장합니다.
 
 ## DENO Visual Fold
 

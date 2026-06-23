@@ -26,6 +26,7 @@ Deno Custom Nodes は、ComfyUI の実制作でよく繰り返す画像、動画
 
 - [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 2つの動画をスライダー、横並び、差分、トグル表示で比較します。
 - [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 短いクリップをトリム、クロップ、リサイズして GIF または軽量 WebP に書き出します。
+- [DENO 디스코드용 영상 압축](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 영상을 자르고, 크롭하고, 다운샘플링해서 가능하면 10MB 이하 디스코드용 MP4로 저장합니다.
 
 ## DENO Visual Fold
 

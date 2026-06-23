@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<title>Deno · 디스코드용 영상 압축</title>
+<style>
+  :root{
+    --bg:#050906; --panel:#0a1410; --panel2:#06100b;
+    --line:rgba(72,255,132,.32); --line-soft:rgba(72,255,132,.16);
+    --txt:#dfffea; --txt-strong:#9dffba; --txt-soft:#7fb893;
+    --accent:#48ff84; --accent-dim:rgba(72,255,132,.14);
+    --active:rgba(31,96,50,.92); --inactive:rgba(9,15,11,.92);
+    --warn:#ffcf6a; --r:12px;
+  }
+  @font-face{font-family:'Inter';font-style:normal;font-weight:400;font-display:swap;
+    src:url(vendor/fonts/inter-400.woff2) format('woff2')}
+  @font-face{font-family:'Inter';font-style:normal;font-weight:600;font-display:swap;
+    src:url(vendor/fonts/inter-600.woff2) format('woff2')}
+  @font-face{font-family:'Inter';font-style:normal;font-weight:800;font-display:swap;
+    src:url(vendor/fonts/inter-800.woff2) format('woff2')}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 50% -10%,#0c1a12 0%,var(--bg) 60%);
+    color:var(--txt);
+    font:400 14px/1.5 'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+    letter-spacing:.1px;
+    display:flex;flex-direction:column;height:100vh;overflow:hidden;
+    user-select:none;-webkit-user-select:none;
+  }
+  img,video{-webkit-user-drag:none;user-select:none}
+  #trim{touch-action:none}
+  .seg .btn,.go,.btn{touch-action:manipulation}
+  button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+  .btn{
+    background:var(--inactive);border:1px solid rgba(90,130,104,.6);color:var(--txt-strong);
+    padding:8px 13px;border-radius:999px;font-weight:800;font-size:12px;letter-spacing:.2px;
+    transition:.12s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;
+  }
+  .btn:hover{border-color:var(--accent);color:#f0fff4}
+  .btn.on{background:var(--active);border-color:rgba(72,255,132,.95);color:#f0fff4;
+    box-shadow:0 0 14px rgba(72,255,132,.28)}
+  .btn.icn{padding:8px 11px;min-width:38px;justify-content:center}
+  .btn[disabled]{opacity:.4;cursor:not-allowed}
+
+  header{
+    display:flex;align-items:center;gap:14px;padding:12px 16px;
+    border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--panel),var(--panel2));
+    flex:0 0 auto;flex-wrap:wrap;position:relative;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:900;font-size:16px;
+    color:var(--txt-strong);flex-wrap:wrap}
+  .bt{white-space:nowrap}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  .brand small{font-weight:600;font-size:11px;color:var(--txt-soft);letter-spacing:.3px}
+  .grow{margin-left:auto}
+  .ghost{
+    display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;
+    color:var(--txt-soft);border:1px solid var(--line-soft);border-radius:999px;
+    padding:7px 13px;transition:.12s;background:rgba(6,16,11,.5);
+  }
+  .ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .topnew{color:var(--accent);border-color:var(--accent);background:var(--accent-dim)}
+  .topnew:hover{background:rgba(72,255,132,.22);color:#f0fff4;
+    box-shadow:0 0 12px rgba(72,255,132,.32)}
+  .yt{display:inline-flex;align-items:center;justify-content:center;
+    width:36px;height:30px;border-radius:8px;
+    background:rgba(255,0,0,.10);border:1px solid rgba(255,70,70,.35);
+    transition:.13s;flex:0 0 auto}
+  .yt:hover{background:rgba(255,0,0,.22);border-color:#ff5252;
+    box-shadow:0 0 12px rgba(255,0,0,.30)}
+  .yt svg{width:20px;height:20px;display:block}
+
+  /* ---------- mobile / narrow screens ---------- */
+  @media (max-width:640px){
+    header{gap:8px 10px;padding:10px 13px}
+    .brand{font-size:15px;gap:8px;flex:1 1 100%}
+    .brand small{flex:1 1 100%;margin-left:18px;font-size:10px;line-height:1.3}
+    .grow{margin-left:0}
+    .ghost{font-size:11px;padding:6px 11px}
+    #stage{padding:14px}
+    .hint{gap:14px}
+    .hint h2{font-size:18px;line-height:1.3}
+    .hint p{font-size:12px}
+    .drop{width:86vw;max-width:340px;height:150px}
+    .editor{gap:16px}
+    .vwrap{height:44vh;min-height:240px}
+    .row > .lbl{min-width:62px}
+    .seg .btn{font-size:12px;padding:7px 12px}
+    .bigbtns{gap:10px}
+    .bigbtn{flex:1 1 44%;min-width:0;width:auto;height:96px}
+    .estimate .big{font-size:14px}
+  }
+
+  main{flex:1 1 auto;overflow:auto}
+  /* normal-flow scroll container: content starts at the top and main scrolls,
+     so the editor (incl. the top of the preview) is never clipped/unreachable */
+  #stage{min-height:100%;display:flex;align-items:center;justify-content:center;padding:22px}
+  body.has #stage{align-items:flex-start}
+
+  /* ---------- empty / drop state ---------- */
+  .hint{display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center;
+    color:var(--txt-soft);max-width:560px}
+  .hint h2{color:var(--txt-strong);font-size:21px;font-weight:900}
+  .hint p{font-size:13px;line-height:1.7}
+  .drop{
+    width:300px;height:170px;border:2px dashed var(--line);border-radius:16px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+    background:var(--panel2);cursor:pointer;transition:.15s;color:var(--txt-soft);
+  }
+  .drop:hover,.drop.over{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+  .drop .big{font-size:32px;font-weight:900;color:var(--accent);line-height:1}
+  .drop .sub{font-size:13px;font-weight:800}
+  .drop .tip{font-size:11px;opacity:.8}
+  body.dragging #stage{outline:2px dashed var(--accent);outline-offset:-10px}
+  .priv{font-size:12px;color:var(--txt-soft);line-height:1.7}
+  .priv b{color:var(--accent)}
+
+  /* ---------- editor ---------- */
+  .editor{display:none;gap:26px;width:100%;max-width:1140px;align-items:flex-start;flex-wrap:wrap}
+  body.has .hint{display:none}
+  body.has .editor{display:flex}
+  .previewcol{flex:1 1 460px;min-width:300px;display:flex;flex-direction:column;gap:12px}
+  .ctrlcol{flex:1 1 420px;min-width:320px;display:flex;flex-direction:column;gap:12px}
+  .vwrap{
+    position:relative;width:100%;height:54vh;min-height:260px;max-height:560px;
+    background:#020403;border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  }
+  /* fixed box + contain = whole frame always visible (portrait or landscape), never cropped */
+  .vwrap video,.vwrap img{display:block;width:100%;height:100%;object-fit:contain;background:#000}
+  .vtag{
+    position:absolute;top:10px;left:12px;z-index:6;font-size:11px;font-weight:800;
+    color:var(--txt-soft);background:rgba(6,16,11,.82);border:1px solid var(--line-soft);
+    border-radius:999px;padding:5px 12px;pointer-events:none;
+  }
+  .vtag b{color:var(--accent)}
+  .cropbox{
+    position:absolute;z-index:4;display:none;border:1.5px solid var(--accent);
+    border-radius:2px;touch-action:none;
+    box-shadow:0 0 0 9999px rgba(2,4,3,.62),0 0 14px rgba(72,255,132,.45) inset;
+  }
+  .cropbox::before{
+    content:"";position:absolute;inset:0;margin:auto;width:26px;height:26px;
+    border:2px solid rgba(234,255,241,.9);border-radius:50%;opacity:.85;
+    background:radial-gradient(circle,rgba(72,255,132,.25) 40%,transparent 42%);
+  }
+  .cropbox::after{
+    content:attr(data-r);position:absolute;left:50%;bottom:6px;transform:translateX(-50%);
+    font-size:11px;font-weight:800;color:var(--accent);background:rgba(6,16,11,.85);
+    border:1px solid var(--line-soft);border-radius:999px;padding:3px 10px;white-space:nowrap;
+  }
+  .cropbox.nomove::before{display:none}      /* box fills the frame — nothing to move */
+  /* corner grips — drag to resize the crop area (works with mouse and touch) */
+  .cropbox .cnr{
+    position:absolute;width:16px;height:16px;z-index:7;
+    background:var(--accent);border:2px solid #eafff1;border-radius:4px;
+    box-shadow:0 0 8px rgba(72,255,132,.75);touch-action:none;
+  }
+  .cropbox .cnr::after{content:"";position:absolute;inset:-15px}  /* finger-friendly hit area */
+  .cropbox .cnr.tl{left:0;top:0;transform:translate(-50%,-50%);cursor:nwse-resize}
+  .cropbox .cnr.tr{right:0;top:0;transform:translate(50%,-50%);cursor:nesw-resize}
+  .cropbox .cnr.bl{left:0;bottom:0;transform:translate(-50%,50%);cursor:nesw-resize}
+  .cropbox .cnr.br{right:0;bottom:0;transform:translate(50%,50%);cursor:nwse-resize}
+  .noprev{
+    position:absolute;inset:0;z-index:5;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px;
+    color:var(--txt-soft);font-weight:800;font-size:14px;
+  }
+  .noprev .ic{font-size:34px;color:var(--accent);line-height:1}
+  .noprev .s{font-weight:600;font-size:12px;color:var(--txt-soft);opacity:.8}
+  body.nometa #trim,body.nometa .tinfo{display:none}
+  .pp{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    z-index:6;cursor:pointer;color:var(--accent);font-size:46px;
+    text-shadow:0 0 18px rgba(72,255,132,.5);opacity:0;transition:.15s;pointer-events:none;
+  }
+  .vwrap.paused .pp{opacity:.92}
+
+  /* trim timeline — same scrub DNA as Video Compare */
+  .trim{position:relative;height:42px;display:flex;align-items:center;cursor:pointer;
+    margin:2px 2px 0;touch-action:none}
+  .trim .track{position:absolute;left:0;right:0;height:8px;border-radius:4px;background:rgba(72,255,132,.14)}
+  .trim .sel{position:absolute;height:8px;border-radius:4px;background:rgba(72,255,132,.34)}
+  .trim .play{position:absolute;width:2px;height:26px;background:#eafff1;border-radius:2px;
+    box-shadow:0 0 7px rgba(255,255,255,.5);transform:translateX(-1px);pointer-events:none}
+  .trim .h{position:absolute;width:18px;height:32px;border-radius:6px;background:var(--accent);
+    box-shadow:0 0 10px rgba(72,255,132,.7);transform:translateX(-50%);cursor:ew-resize;
+    border:1px solid #eafff1}
+  .trim .h::before{content:"";position:absolute;left:50%;top:50%;
+    transform:translate(-50%,-50%);width:2px;height:14px;border-radius:2px;
+    background:rgba(5,12,8,.6);box-shadow:-4px 0 0 rgba(5,12,8,.6),4px 0 0 rgba(5,12,8,.6)}
+  .trim .h::after{content:"";position:absolute;inset:-14px -16px;border-radius:12px}
+  .tinfo{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--txt-soft);
+    font-variant-numeric:tabular-nums;flex-wrap:wrap}
+  .tinfo b{color:var(--accent);font-weight:800}
+  .tinfo .grow{margin-left:auto}
+  .mediaBtn{width:38px;height:34px;padding:0;border-radius:10px}
+  .mediaBtn svg{width:18px;height:18px;display:block;fill:currentColor;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .mediaBtn .pause-mark{display:none}
+  .mediaBtn.playing .play-mark{display:none}
+  .mediaBtn.playing .pause-mark{display:block}
+  .soundbtn .slash{display:none}
+  .soundbtn.muted{color:var(--txt-soft);border-color:rgba(90,130,104,.6);background:var(--inactive);box-shadow:none}
+  .soundbtn.muted .wave{display:none}
+  .soundbtn.muted .slash{display:block}
+
+  .rows{display:flex;flex-direction:column;gap:9px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .row > .lbl{font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--txt-soft);
+    text-transform:uppercase;min-width:74px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg .btn{font-size:12px;padding:7px 14px}
+  .targetbox{
+    display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+    padding:10px 12px;border:1px solid var(--line);border-radius:14px;
+    background:rgba(6,16,11,.72);min-width:min(100%,360px);
+  }
+  .targetbox input{
+    width:104px;height:44px;border:1px solid rgba(72,255,132,.55);
+    border-radius:12px;background:#020403;color:var(--accent);
+    font:900 22px/1 'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;
+    text-align:center;outline:none;padding:0 8px;font-variant-numeric:tabular-nums;
+  }
+  .targetbox input:focus{border-color:var(--accent);box-shadow:0 0 16px rgba(72,255,132,.26)}
+  .targetbox .unit{font-size:15px;font-weight:900;color:var(--txt-strong)}
+  .targetbox .actual{flex:1 1 150px;font-size:12px;font-weight:800;color:var(--txt-soft);line-height:1.45}
+  .targetbox .actual b{color:var(--accent)}
+  .advanced{
+    border:1px solid var(--line-soft);border-radius:14px;background:rgba(6,16,11,.34);
+    padding:0;overflow:hidden;
+  }
+  .advanced summary{
+    list-style:none;cursor:pointer;padding:10px 13px;color:var(--txt-strong);
+    font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:space-between;
+  }
+  .advanced summary::-webkit-details-marker{display:none}
+  .advanced summary::after{content:"＋";color:var(--accent);font-size:16px;line-height:1}
+  .advanced[open] summary{border-bottom:1px solid var(--line-soft)}
+  .advanced[open] summary::after{content:"−"}
+  .advrows{display:flex;flex-direction:column;gap:9px;padding:11px 13px 13px}
+
+  .go{
+    margin-top:2px;align-self:flex-start;display:inline-flex;align-items:center;gap:9px;
+    padding:11px 26px;border:1px solid var(--accent);color:var(--accent);
+    background:var(--accent-dim);border-radius:999px;font-weight:900;font-size:14px;
+    letter-spacing:.3px;transition:.13s;
+  }
+  .go:hover{background:rgba(72,255,132,.22);color:#f0fff4;box-shadow:0 0 16px rgba(72,255,132,.4)}
+  .go[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none;background:var(--accent-dim)}
+  .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .out-meta{font-size:12px;color:var(--txt-soft);font-variant-numeric:tabular-nums}
+  .out-meta b{color:var(--accent);font-weight:800}
+  .warnline{font-size:12px;color:var(--warn);font-weight:700;display:none;line-height:1.5}
+  .warnline.show{display:block}
+  .estimate{
+    display:none;border:1px solid var(--line);border-radius:12px;padding:11px 14px;
+    background:rgba(6,16,11,.55);font-size:12px;line-height:1.55;color:var(--txt-soft);
+  }
+  .estimate.show{display:block}
+  .estimate .big{font-size:15px;font-weight:900;color:var(--accent);
+    font-variant-numeric:tabular-nums}
+  .estimate.over .big{color:var(--warn)}
+  .estimate .lim{display:block;margin-top:3px;font-size:11px;color:var(--txt-soft);opacity:.85}
+  .estimate .lim b{color:var(--accent)}
+  .estimate.over .lim b{color:var(--warn)}
+  .lower{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
+  .leftcol{flex:1 1 460px;min-width:300px;display:flex;flex-direction:column;gap:9px}
+  .bigbtns{display:flex;gap:14px;flex-wrap:wrap;align-content:flex-start}
+  .bigbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+    width:130px;height:108px;border:1px solid var(--line);border-radius:18px;
+    background:rgba(6,16,11,.6);color:var(--txt-strong);font-weight:800;font-size:14px;
+    letter-spacing:.2px;transition:.13s}
+  .bigbtn .bi{font-size:34px;line-height:1;color:var(--accent)}
+  .bigbtn:hover{border-color:var(--accent);background:var(--accent-dim);color:#f0fff4;
+    box-shadow:0 0 18px rgba(72,255,132,.32)}
+  .bigbtn:hover .bi{filter:drop-shadow(0 0 8px rgba(72,255,132,.6))}
+  .bigbtn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;
+    background:rgba(6,16,11,.6);border-color:var(--line);color:var(--txt-strong)}
+  .bigbtn.save:not(:disabled){border-color:var(--accent);color:var(--accent);
+    background:var(--accent-dim)}
+
+  footer{
+    flex:0 0 auto;border-top:1px solid var(--line);
+    background:linear-gradient(180deg,var(--panel2),var(--panel));padding:10px 16px;
+    display:flex;flex-direction:column;gap:8px;
+  }
+  .pbar{position:relative;height:6px;border-radius:3px;background:rgba(72,255,132,.12);overflow:hidden}
+  .pfill{position:absolute;left:0;top:0;height:6px;border-radius:3px;background:var(--accent);width:0;
+    transition:width .2s ease;box-shadow:0 0 10px rgba(72,255,132,.5)}
+  .pbar.idle .pfill{width:0}
+  .pbar.busy.indef .pfill{width:32% !important;animation:slide 1.1s ease-in-out infinite}
+  @keyframes slide{0%{left:-32%}100%{left:100%}}
+  .statusrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px}
+  .status{font-weight:800;color:var(--txt-strong)}
+  .status.err{color:#ff9a9a}
+  .status.ok{color:var(--accent)}
+  .footnote{color:var(--txt-soft);font-size:11px;margin-left:auto;font-variant-numeric:tabular-nums}
+
+  .toast{
+    position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:40;
+    background:rgba(6,16,11,.96);border:1px solid var(--line);border-radius:999px;
+    padding:9px 18px;font-size:13px;font-weight:800;color:var(--txt-strong);
+    opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;max-width:90vw;
+  }
+  .toast.show{opacity:1}
+  .help{
+    position:fixed;right:14px;bottom:60px;z-index:40;background:rgba(6,16,11,.97);
+    border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:12px;
+    color:var(--txt-soft);max-width:320px;display:none;line-height:1.95;
+  }
+  .help.show{display:block}
+  .help h3{color:var(--txt-strong);font-size:13px;margin-bottom:6px}
+  .help kbd{background:#0e2016;border:1px solid var(--line);border-radius:5px;
+    padding:1px 6px;color:var(--accent);font-size:11px;font-weight:800}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span><span class="bt">디스코드용 영상 압축</span>
+    <small>· 브라우저에서 처리 · 업로드 없음</small></div>
+  <button class="ghost grow" id="helpBtn2">? 도움말</button>
+  <a class="yt" href="https://www.youtube.com/@Denoise-AI" target="_blank"
+     rel="noopener noreferrer" title="Denoise AI · 유튜브 채널">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#ff3b3b" d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12 31 31 0 0 0 1 16.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6A3 3 0 0 0 23 16.8 31 31 0 0 0 23.5 12 31 31 0 0 0 23 7.2Z"/>
+      <path fill="#050906" d="M9.8 15.3V8.7L15.5 12Z"/>
+    </svg>
+  </a>
+</header>
+
+<main>
+  <div id="stage">
+    <!-- empty state -->
+    <div class="hint" id="hint">
+      <h2>디스코드에 올릴 영상을 작게 줄입니다</h2>
+      <div class="drop" id="drop">
+        <span class="big">＋</span>
+        <span class="sub">영상을 여기에 놓으세요</span>
+        <span class="tip">또는 클릭해서 선택 · mp4 · webm · mov · mkv</span>
+      </div>
+      <p class="priv">디스코드에 올릴 영상이 10MB를 넘을 때 사용합니다.<br>
+        <b>모든 처리는 브라우저 안에서만 진행됩니다</b> — 영상은 어디에도 업로드되지 않습니다.</p>
+    </div>
+
+    <!-- editor -->
+    <div class="editor" id="editor">
+      <div class="previewcol">
+      <div class="vwrap paused" id="vwrap">
+        <video id="vid" playsinline preload="auto" loop></video>
+        <video id="outVid" playsinline controls loop style="display:none"></video>
+        <span class="vtag" id="vtag">원본</span>
+        <div class="cropbox" id="cropbox" data-r="">
+          <span class="cnr tl"></span><span class="cnr tr"></span>
+          <span class="cnr bl"></span><span class="cnr br"></span>
+        </div>
+        <div class="noprev" id="noprev">
+          <span class="ic">▣</span>
+          <span>이 영상은 브라우저에서 미리보기할 수 없습니다</span>
+          <span class="s">압축은 계속 가능합니다 — 옵션을 고른 뒤 저장하세요</span>
+        </div>
+        <div class="pp" id="pp">►</div>
+      </div>
+
+      <div class="trim" id="trim">
+        <div class="track"></div>
+        <div class="sel" id="tsel"></div>
+        <div class="play" id="tplay"></div>
+        <div class="h" id="hStart" style="left:0%"></div>
+        <div class="h" id="hEnd" style="left:100%"></div>
+      </div>
+      <div class="tinfo">
+        <button class="btn icn mediaBtn" id="playBtn" title="미리보기 재생" aria-label="미리보기 재생">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path class="play-mark" d="M8 5v14l11-7z"></path>
+            <path class="pause-mark" d="M7 5h4v14H7zM13 5h4v14h-4z"></path>
+          </svg>
+        </button>
+        <button class="btn icn mediaBtn soundbtn on" id="muteBtn" title="음소거" aria-label="음소거">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path class="speaker" d="M4 9v6h4l5 4V5L8 9H4z"></path>
+            <path class="wave" d="M16 8c1.2 1.1 1.8 2.4 1.8 4s-.6 2.9-1.8 4" fill="none"></path>
+            <path class="wave" d="M18.8 5.5c2.1 1.8 3.2 4 3.2 6.5s-1.1 4.7-3.2 6.5" fill="none"></path>
+            <path class="slash" d="M4 4l16 16" fill="none"></path>
+          </svg>
+        </button>
+        <span>시작 <b id="lStart">00:00.0</b></span>
+        <span>끝 <b id="lEnd">00:00.0</b></span>
+        <span>구간 <b id="lDur">0.0s</b></span>
+        <span class="grow"></span>
+        <button class="btn" id="fullBtn">전체 영상</button>
+      </div>
+      </div><!-- /previewcol -->
+      <div class="ctrlcol">
+      <div class="rows">
+        <div class="row">
+          <span class="lbl">목표 용량</span>
+          <div class="targetbox">
+            <input id="targetMb" type="number" min="1" max="10" step="0.01" value="10" inputmode="decimal" aria-label="목표 용량 MB">
+            <span class="unit">MB</span>
+            <span class="actual" id="targetActual">실제 압축 목표 <b>9.98MB</b></span>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lbl">소리</span>
+          <div class="seg" id="segAudio">
+            <button class="btn on" data-audio="auto">포함</button>
+            <button class="btn" data-audio="96">선명하게</button>
+            <button class="btn" data-audio="64">작게</button>
+            <button class="btn" data-audio="mute">무음</button>
+          </div>
+        </div>
+        <details class="advanced" id="advanced">
+          <summary>세부 설정</summary>
+          <div class="advrows">
+        <div class="row">
+          <span class="lbl">크기</span>
+          <div class="seg" id="segSize">
+            <button class="btn on" data-w="0">자동</button>
+            <button class="btn" data-w="1280">1280 px</button>
+            <button class="btn" data-w="960">960 px</button>
+            <button class="btn" data-w="720">720 px</button>
+            <button class="btn" data-w="540">540 px</button>
+            <button class="btn" data-w="360">360 px</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lbl">비율</span>
+          <div class="seg" id="segRatio">
+            <button class="btn on" data-r="orig">원본</button>
+            <button class="btn" data-r="1:1">1:1 <span style="opacity:.7;font-weight:700">(정사각형)</span></button>
+            <button class="btn" data-r="4:5">4:5</button>
+            <button class="btn" data-r="4:3">4:3</button>
+            <button class="btn" data-r="16:9">16:9</button>
+            <button class="btn" data-r="9:16">9:16</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lbl">프레임</span>
+          <div class="seg" id="segFps">
+            <button class="btn on" data-fps="0">자동</button>
+            <button class="btn" data-fps="30">30</button>
+            <button class="btn" data-fps="24">24</button>
+            <button class="btn" data-fps="20">20</button>
+            <button class="btn" data-fps="15">15</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="lbl">화질</span>
+          <div class="seg" id="segQ">
+            <button class="btn" data-q="low">더 작게</button>
+            <button class="btn on" data-q="med">균형</button>
+            <button class="btn" data-q="high">더 선명하게</button>
+          </div>
+        </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="estimate" id="estimate"></div>
+      <div class="warnline" id="warnline"></div>
+      <div class="bigbtns">
+        <button class="bigbtn" id="newBtn" title="다른 영상을 엽니다">
+          <span class="bi">＋</span><span>새 영상</span></button>
+        <button class="bigbtn save" id="saveBtn" disabled title="압축하고 바로 저장합니다">
+          <span class="bi">⤓</span><span id="saveLbl">저장</span></button>
+      </div>
+      <div class="out-meta" id="outMeta"></div>
+      </div><!-- /ctrlcol -->
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="pbar idle" id="pbar"><div class="pfill" id="pfill"></div></div>
+  <div class="statusrow">
+    <span class="status" id="status">영상을 넣으면 시작합니다.</span>
+    <span class="footnote" id="footnote">브라우저 처리 · ffmpeg.wasm · 빌드 1</span>
+  </div>
+</footer>
+
+<div class="toast" id="toast"></div>
+<div class="help" id="help">
+  <h3>단축키</h3>
+  <kbd>O</kbd> 영상 열기 · <kbd>스페이스</kbd> 미리보기 재생 / 정지<br>
+  <kbd>[</kbd> 현재 위치를 시작점으로 · <kbd>]</kbd> 현재 위치를 끝점으로<br>
+  <kbd>←</kbd><kbd>→</kbd> 미리보기 이동 · <kbd>엔터</kbd> MP4 저장<br>
+  <kbd>N</kbd> 새 영상 · <kbd>?</kbd> 도움말<br>
+  <span style="color:var(--txt-soft);opacity:.8">비율을 고른 뒤 초록색 박스의 <b>모서리를 드래그하면 크기</b>를 조절하고, <b>안쪽을 드래그하면 위치</b>를 옮길 수 있습니다. 박스 안쪽만 저장됩니다.</span><br>
+  <span style="color:var(--txt-soft);opacity:.8">목표 용량에 10을 입력하면 실제 압축 목표를 9.98MB로 잡아 안전 여유를 둡니다.</span>
+</div>
+
+<input type="file" id="file" accept="video/*,.mp4,.webm,.mov,.mkv,.m4v,.ogv,.avi">
+
+<!-- ffmpeg.wasm (pinned). Engine core is fetched only on the first convert. -->
+<script src="vendor/ffmpeg.js"></script>
+<script src="vendor/util.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const vid=$("vid"), vwrap=$("vwrap"), outVid=$("outVid"), vtag=$("vtag"),
+        trim=$("trim"), tsel=$("tsel"), tplay=$("tplay"),
+        hStart=$("hStart"), hEnd=$("hEnd"),
+        lStart=$("lStart"), lEnd=$("lEnd"), lDur=$("lDur"),
+        pbar=$("pbar"), pfill=$("pfill"), statusEl=$("status"),
+        footnote=$("footnote"), saveBtn=$("saveBtn"),
+        playBtn=$("playBtn"), muteBtn=$("muteBtn"),
+        outMeta=$("outMeta"), warnline=$("warnline"), estimateEl=$("estimate"),
+        toastEl=$("toast"), helpEl=$("help"), targetMb=$("targetMb"),
+        targetActual=$("targetActual");
+  const DISCORD_LIMIT = 10*1024*1024;
+  const MAX_TARGET_MB = 10;
+  const TARGET_HEADROOM_MB = 0.02; // 10MB input becomes a 9.98MB encode target
+  const CROP_MIN = 0.12;           // smallest the crop box can be dragged (12% of full)
+
+  const S = {
+    targetMB:10, w:0, fps:0, q:"med", audio:"auto", ratio:"orig", previewMuted:false,
+    cropX:0.5, cropY:0.5, cropScale:1,
+    dur:0, start:0, end:0, fileName:"clip", busy:false,
+    drag:null, outURL:null, outBlob:null, ext:".mp4", outAudioMissing:false,
+  };
+  const even = n => { n=Math.round(n); return Math.max(2, n-(n%2)); };
+  const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+  function ratioVal(){
+    if(S.ratio==="orig") return null;
+    const p=S.ratio.split(":"); return (+p[0])/(+p[1]);   // target width/height
+  }
+  function cropDims(){
+    const iw=vid.videoWidth||0, ih=vid.videoHeight||0, ar=ratioVal();
+    if(!ar||!iw||!ih) return {cw:even(iw),ch:even(ih),crop:false};
+    const s=clamp(S.cropScale||1,CROP_MIN,1);   // crop-box zoom (drag the corners)
+    return {cw:even(Math.min(iw, ih*ar)*s), ch:even(Math.min(ih, iw/ar)*s), crop:true};
+  }
+  function outDims(widthOverride){
+    const targetW = typeof widthOverride==="number" ? widthOverride : S.w;
+    const vw=vid.videoWidth||0, vh=vid.videoHeight||0, ar=ratioVal();
+    if(ar){ const c=cropDims();
+      if(targetW>0){ const ow=even(targetW); return {w:ow,h:even(ow*c.ch/c.cw)}; }
+      return {w:c.cw,h:c.ch}; }
+    if(targetW>0) return {w:even(targetW), h:even(targetW*vh/Math.max(vw,1))};
+    return {w:even(vw), h:even(vh)};
+  }
+  function effectiveDuration(){
+    return S.dur>0 ? Math.max(0.1,S.end-S.start) : 60;
+  }
+  function readTargetMB(){
+    const raw = Number(String(targetMb.value||"").replace(",","."));
+    return clamp(Number.isFinite(raw) ? raw : MAX_TARGET_MB, 1, MAX_TARGET_MB);
+  }
+  function effectiveTargetMB(){
+    return Math.max(0.5, Math.min(readTargetMB(), MAX_TARGET_MB) - TARGET_HEADROOM_MB);
+  }
+  function effectiveTargetBytes(){
+    return Math.floor(effectiveTargetMB() * 1024 * 1024);
+  }
+  function fmtMB(v){
+    return v.toFixed(2).replace(/\.00$/,"");
+  }
+  function updateTargetActual(){
+    S.targetMB = readTargetMB();
+    if(targetActual) targetActual.innerHTML = `실제 압축 목표 <b>${fmtMB(effectiveTargetMB())}MB</b>`;
+  }
+  function baseDims(){
+    const d=outDims(0);
+    if(d.w&&d.h) return d;
+    return {w:1280,h:720};
+  }
+  function targetBytesForAttempt(attempt){
+    updateTargetActual();
+    const qualityFactor = S.q==="low" ? 0.86 : 1;
+    return Math.max(512*1024, Math.floor(effectiveTargetBytes() * qualityFactor * Math.pow(0.86,attempt||0)));
+  }
+  function pickFps(dur,totalKbps,attempt){
+    let fps = S.fps || (dur>75 ? 20 : dur>35 ? 24 : 30);
+    if(totalKbps<420) fps=Math.min(fps,20);
+    if(totalKbps<260) fps=Math.min(fps,15);
+    if(attempt>0) fps=Math.min(fps,24);
+    if(attempt>1) fps=Math.min(fps,20);
+    if(attempt>2) fps=Math.min(fps,15);
+    return Math.max(12,fps);
+  }
+  function pickAudioKbps(dur,totalKbps,attempt){
+    if(S.audio==="mute") return 0;
+    if(S.audio!=="auto") return Math.max(32,Number(S.audio)||64);
+    let kbps = dur>80 ? 64 : dur>35 ? 80 : 96;
+    if(totalKbps<520) kbps=64;
+    if(totalKbps<300) kbps=48;
+    if(totalKbps<220) kbps=32;
+    if(attempt>1) kbps=Math.min(kbps,64);
+    return kbps;
+  }
+  function pickWidth(videoKbps,dur,fps,attempt){
+    const src=baseDims();
+    if(S.w>0) return even(Math.max(2,Math.min(src.w,S.w)));
+    let maxW = 1280;
+    if(videoKbps<2200) maxW=960;
+    if(videoKbps<1250) maxW=720;
+    if(videoKbps<720) maxW=540;
+    if(videoKbps<430) maxW=480;
+    if(videoKbps<260) maxW=360;
+    if(dur>90) maxW=Math.min(maxW,720);
+    if(fps<=15) maxW=Math.min(maxW,540);
+    if(attempt>0) maxW=Math.min(maxW,960);
+    if(attempt>1) maxW=Math.min(maxW,720);
+    if(attempt>2) maxW=Math.min(maxW,540);
+    return even(Math.max(2,Math.min(src.w,maxW)));
+  }
+  function planEncode(attempt){
+    const dur=effectiveDuration();
+    const target=targetBytesForAttempt(attempt||0);
+    const totalKbps=Math.max(160,Math.floor(target*8/dur/1000));
+    const fps=pickFps(dur,totalKbps,attempt||0);
+    let audioKbps=pickAudioKbps(dur,totalKbps,attempt||0);
+    if(audioKbps>0 && totalKbps-audioKbps<120){
+      audioKbps=Math.max(32,Math.min(audioKbps,totalKbps-120));
+    }
+    const videoKbps=Math.max(100,totalKbps-audioKbps);
+    const width=pickWidth(videoKbps,dur,fps,attempt||0);
+    const dims=outDims(width);
+    return {target,dur,totalKbps,videoKbps,audioKbps,fps,width,w:dims.w,h:dims.h};
+  }
+  function estClip(){
+    const p=planEncode(0);
+    if(!p.w||!p.h) return null;
+    const frames=Math.max(1,Math.round(p.dur*p.fps));
+    return {...p,bytes:p.target,frames};
+  }
+  function updateEstimate(){
+    if(!S._file || !document.body.classList.contains("has")){
+      estimateEl.classList.remove("show","over"); return;
+    }
+    const e=estClip();
+    estimateEl.classList.add("show");
+    if(!e){
+      estimateEl.classList.remove("over");
+      estimateEl.innerHTML =
+        `압축 계획: <span class="big">—</span>`+
+        `<span class="lim">영상을 읽으면 표시됩니다. <b>입력 목표 ${fmtMB(readTargetMB())}MB · 실제 목표 ${fmtMB(effectiveTargetMB())}MB</b></span>`;
+      return;
+    }
+    const over = e.bytes > DISCORD_LIMIT;
+    estimateEl.classList.toggle("over",over);
+    estimateEl.innerHTML =
+      `압축 계획: <span class="big">≤ ${fmtSize(e.bytes)}</span> `+
+      `<span style="opacity:.8">· ${e.w}×${e.h} · ${e.dur.toFixed(1)}초 · ${e.fps}fps · 영상 ${e.videoKbps}k`+
+      (e.audioKbps ? ` · 소리 ${e.audioKbps}k` : ` · 무음`) + `</span>`+
+      `<span class="lim"><b>입력 목표 ${fmtMB(readTargetMB())}MB · 실제 목표 ${fmtMB(effectiveTargetMB())}MB</b> — `+
+      (over ? `더 짧게 자르거나 목표 용량을 낮추면 더 안전합니다.`
+            : `첫 결과가 크면 자동으로 더 낮춰 다시 시도합니다.`)+`</span>`;
+  }
+  // full ffmpeg filter chain: fps -> (center-crop to shape, fill) -> scale
+  function buildVChain(fps,widthOverride){
+    const targetW = typeof widthOverride==="number" ? widthOverride : S.w;
+    const ar=ratioVal();
+    if(ar){
+      if(vid.videoWidth && vid.videoHeight){
+        const c=cropDims(), o=outDims(targetW);
+        const iw=vid.videoWidth, ih=vid.videoHeight;
+        const x=Math.round(clamp((iw-c.cw)*S.cropX,0,iw-c.cw));
+        const y=Math.round(clamp((ih-c.ch)*S.cropY,0,ih-c.ch));
+        return `fps=${fps},crop=${c.cw}:${c.ch}:${x}:${y},scale=${o.w}:${o.h}:flags=lanczos`;
+      }
+      // dimensions unknown (no preview): crop via ffmpeg expressions
+      const cropExpr=`crop='trunc(min(iw,ih*${ar})/2)*2':'trunc(min(ih,iw/${ar})/2)*2'`;
+      return `fps=${fps},${cropExpr}` +
+        (targetW>0 ? `,scale=${even(targetW)}:-2:flags=lanczos` : "");
+    }
+    if(targetW>0) return `fps=${fps},scale=${targetW}:-2:flags=lanczos`;
+    return `fps=${fps},scale=trunc(iw/2)*2:trunc(ih/2)*2`;
+  }
+  let cropGeo=null, _cropRetry=0;
+  function drawCrop(){
+    const box=$("cropbox"), ar=ratioVal();
+    if(!ar || outVid.style.display!=="none"){
+      box.style.display="none"; cropGeo=null; return;
+    }
+    const er=vid.getBoundingClientRect(), wr=vwrap.getBoundingClientRect();
+    // source not measured / laid out yet (esp. mobile right after the <video>
+    // is un-hidden post-conversion or on ratio change) — don't draw a stale
+    // box, retry on following frames until it's ready (no user tap needed)
+    if(!vid.videoWidth || er.width<4 || er.height<4){
+      box.style.display="none"; cropGeo=null;
+      if(vid.src && _cropRetry<120){ _cropRetry++; requestAnimationFrame(drawCrop); }
+      return;
+    }
+    _cropRetry=0;
+    const vAR=vid.videoWidth/vid.videoHeight, eAR=er.width/er.height;
+    let pw,ph;
+    if(eAR>vAR){ ph=er.height; pw=ph*vAR; } else { pw=er.width; ph=pw/vAR; }
+    // cw0/ch0 = largest box of the chosen shape that fits the painted video …
+    let cw0,ch0;
+    if(ar > pw/ph){ cw0=pw; ch0=cw0/ar; } else { ch0=ph; cw0=ch0*ar; }
+    // … then shrink it by the user's zoom (drag the corner grips to resize)
+    const s=clamp(S.cropScale||1,CROP_MIN,1);
+    const cw=cw0*s, ch=ch0*s;
+    const pl=(er.left-wr.left)+(er.width-pw)/2;   // painted video top-left
+    const pt=(er.top-wr.top)+(er.height-ph)/2;
+    const availW=Math.max(0,pw-cw), availH=Math.max(0,ph-ch);
+    const movable = availW>2 || availH>2;
+    const cd=cropDims();
+    box.dataset.r = (S.ratio==="orig" ? "원본" : S.ratio) + " · " + cd.cw + "×" + cd.ch;
+    box.classList.toggle("nomove",!movable);
+    box.style.display="block";
+    box.style.pointerEvents="auto";
+    box.style.cursor = movable ? "move" : "default";
+    box.style.width=cw+"px"; box.style.height=ch+"px";
+    box.style.left=(pl+availW*clamp(S.cropX,0,1))+"px";
+    box.style.top =(pt+availH*clamp(S.cropY,0,1))+"px";
+    cropGeo={availW,availH,pw,ph,pl,pt,cw0,ch0};
+  }
+  window.addEventListener("resize",()=>{ requestAnimationFrame(drawCrop); });
+  // Robust redraw: after un-hiding the <video> (post-conversion / ratio change)
+  // its box & intrinsic size settle a few frames later, esp. on mobile. Re-run
+  // then via several signals so the crop box self-corrects without a tap.
+  function scheduleCropRedraw(){
+    _cropRetry=0;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ updateVTag(); drawCrop(); }));
+    setTimeout(()=>{ updateVTag(); drawCrop(); },140);
+    setTimeout(()=>{ updateVTag(); drawCrop(); },450);
+  }
+  ["loadeddata","loadedmetadata","playing","seeked","canplay","resize"]
+    .forEach(ev=>vid.addEventListener(ev,()=>{ updateVTag(); drawCrop(); }));
+  if(window.ResizeObserver){
+    try{ const ro=new ResizeObserver(()=>drawCrop()); ro.observe(vwrap); ro.observe(vid); }
+    catch(e){}
+  }
+  // drag the crop box to pick which part of a wider/taller clip is kept
+  (()=>{
+    const box=$("cropbox"); let d=null;
+    box.addEventListener("pointerdown",e=>{
+      if(!cropGeo || (cropGeo.availW<=2 && cropGeo.availH<=2)) return;
+      e.preventDefault(); e.stopPropagation();
+      d={px:e.clientX,py:e.clientY,x0:S.cropX,y0:S.cropY};
+      box.setPointerCapture(e.pointerId);
+    });
+    box.addEventListener("pointermove",e=>{
+      if(!d||!cropGeo) return;
+      if(cropGeo.availW>2) S.cropX=clamp(d.x0+(e.clientX-d.px)/cropGeo.availW,0,1);
+      if(cropGeo.availH>2) S.cropY=clamp(d.y0+(e.clientY-d.py)/cropGeo.availH,0,1);
+      drawCrop();
+    });
+    const end=()=>{ if(d){ d=null; clearOutput(); toast("크롭 위치가 적용됐습니다. 저장하면 반영됩니다."); } };
+    box.addEventListener("pointerup",end);
+    box.addEventListener("pointercancel",end);
+    box.addEventListener("click",e=>e.stopPropagation());
+  })();
+  /* drag a corner grip to resize the crop box — pick just one part / zoom in.
+     The opposite corner stays pinned; the shape's aspect ratio stays locked. */
+  (()=>{
+    const box=$("cropbox");
+    let d=null;
+    function start(e,cnr){
+      if(!cropGeo) return;
+      e.preventDefault(); e.stopPropagation();
+      const g=cropGeo, s=clamp(S.cropScale||1,CROP_MIN,1);
+      d={
+        cnr, w:g.cw0*s, h:g.ch0*s,
+        L:g.pl+g.availW*clamp(S.cropX,0,1),
+        T:g.pt+g.availH*clamp(S.cropY,0,1),
+        wr:vwrap.getBoundingClientRect(),
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    function move(e){
+      if(!d || !cropGeo) return;
+      const g=cropGeo;
+      const mx=e.clientX-d.wr.left, my=e.clientY-d.wr.top;   // painted-area coords
+      const bAR=g.cw0/g.ch0, minCW=g.cw0*CROP_MIN;
+      let rawW,rawH,anchorL,anchorT;
+      // anchor = the corner opposite the grip being dragged (it stays put)
+      if(d.cnr==="br"){      anchorL=d.L;       anchorT=d.T;       rawW=mx-anchorL;  rawH=my-anchorT;  }
+      else if(d.cnr==="bl"){ anchorL=d.L+d.w;  anchorT=d.T;       rawW=anchorL-mx;  rawH=my-anchorT;  }
+      else if(d.cnr==="tr"){ anchorL=d.L;       anchorT=d.T+d.h;  rawW=mx-anchorL;  rawH=anchorT-my;  }
+      else {                 anchorL=d.L+d.w;  anchorT=d.T+d.h;  rawW=anchorL-mx;  rawH=anchorT-my;  } // tl
+      const cw=clamp(Math.max(rawW,rawH*bAR),minCW,g.cw0);
+      const ch=cw/bAR;
+      let L=(d.cnr==="br"||d.cnr==="tr") ? anchorL : anchorL-cw;
+      let T=(d.cnr==="br"||d.cnr==="bl") ? anchorT : anchorT-ch;
+      L=clamp(L,g.pl,g.pl+g.pw-cw);   // keep the box inside the painted video
+      T=clamp(T,g.pt,g.pt+g.ph-ch);
+      S.cropScale=clamp(cw/g.cw0,CROP_MIN,1);
+      const aW=g.pw-cw, aH=g.ph-ch;
+      S.cropX = aW>2 ? clamp((L-g.pl)/aW,0,1) : 0.5;
+      S.cropY = aH>2 ? clamp((T-g.pt)/aH,0,1) : 0.5;
+      drawCrop(); updateVTag(); updateEstimate();
+    }
+    const end=()=>{ if(d){ d=null; clearOutput(); toast("크롭 영역이 적용됐습니다. 저장하면 반영됩니다."); } };
+    ["tl","tr","bl","br"].forEach(k=>{
+      const el=box.querySelector(".cnr."+k); if(!el) return;
+      el.addEventListener("pointerdown",e=>start(e,k));
+      el.addEventListener("pointermove",move);
+      el.addEventListener("pointerup",end);
+      el.addEventListener("pointercancel",end);
+      el.addEventListener("click",e=>e.stopPropagation());
+    });
+  })();
+  function updateVTag(){
+    if(!vid.videoWidth) return;
+    const o=planEncode(0);
+    vtag.innerHTML=`원본 <b>${vid.videoWidth}×${vid.videoHeight}</b> → 예상 <b>${o.w}×${o.h}</b>`;
+  }
+
+  /* ---------- helpers ---------- */
+  function fmtT(s){
+    s=Math.max(0,s||0);
+    const mm=Math.floor(s/60), ss=Math.floor(s%60), t=Math.floor((s*10)%10);
+    return `${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}.${t}`;
+  }
+  function fmtSize(b){
+    if(b>=1048576) return (b/1048576).toFixed(b>=10485760?0:1)+" MB";
+    if(b>=1024) return (b/1024).toFixed(0)+" KB";
+    return b+" B";
+  }
+  let toastT;
+  function toast(m){
+    toastEl.textContent=m; toastEl.classList.add("show");
+    clearTimeout(toastT); toastT=setTimeout(()=>toastEl.classList.remove("show"),2200);
+  }
+  function status(msg,cls){
+    statusEl.textContent=msg;
+    statusEl.className="status"+(cls?(" "+cls):"");
+  }
+  function setBar(pct){
+    pbar.classList.remove("indef");
+    pbar.classList.toggle("idle",pct<=0);
+    pbar.classList.toggle("busy",pct>0);
+    pfill.style.width=Math.max(0,Math.min(100,pct))+"%";
+  }
+  function setBarIndef(on){
+    pbar.classList.toggle("idle",!on);
+    pbar.classList.toggle("busy",on);
+    pbar.classList.toggle("indef",on);
+    if(on) pfill.style.width="32%";
+  }
+
+  /* ---------- load a source video ---------- */
+  function openFile(file){
+    if(!file) return;
+    const okType = (file.type && file.type.startsWith("video/")) ||
+      /\.(mp4|webm|mov|mkv|m4v|ogv|avi)$/i.test(file.name);
+    if(!okType){ toast("영상 파일로 보이지 않습니다."); return; }
+    clearOutput();
+    clearTimeout(S._metaTimer);
+    if(vid.src) URL.revokeObjectURL(vid.src);
+    const m=/\.[a-z0-9]+$/i.exec(file.name||"");
+    S.ext = m ? m[0].toLowerCase() : ".mp4";
+    S.fileName = (file.name||"video").replace(/\.[^.]+$/,"") || "video";
+    S._file=file; S._noMeta=false;
+    S.previewMuted=false; S.outAudioMissing=false;
+    updateMediaButtons();
+    // Show the editor right away. Conversion is done by ffmpeg.wasm, which
+    // decodes the file itself — it never needs the browser to PREVIEW the
+    // source codec. So a clip the browser can't play (e.g. HEVC .mov from a
+    // phone / screen recorder) must still be convertible.
+    document.body.classList.remove("nometa");
+    document.body.classList.add("has");
+    $("noprev").style.display="none";
+    vid.style.display="";
+    status("미리보기를 불러오는 중입니다…");
+    footnote.textContent=`${(file.size/1048576).toFixed(1)} MB · ${file.name||"영상"}`;
+    vid.onloadedmetadata=()=>{
+      clearTimeout(S._metaTimer);
+      S.dur=vid.duration||0;
+      // late metadata must not disrupt an active or finished conversion
+      if(S.busy || S.outBlob) return;
+      S._noMeta=false; document.body.classList.remove("nometa");
+      $("noprev").style.display="none"; vid.style.display="";
+      S.dur=vid.duration||0; S.start=0; S.end=S.dur;
+      updateVTag(); checkWarn();
+      drawTrim(); status("구간과 옵션을 고른 뒤 저장하세요.");
+      seekPreview(0); playPreview(true);
+      scheduleCropRedraw();
+      footnote.textContent=`원본 ${vid.videoWidth}×${vid.videoHeight} · ${(file.size/1048576).toFixed(1)} MB`;
+    };
+    vid.onerror=()=>onNoMeta();
+    vid.src=URL.createObjectURL(file);
+    vid.load();
+    S._metaTimer=setTimeout(()=>{ if(!vid.videoWidth) onNoMeta(); },5000);
+  }
+  // Browser can't preview this source — fall back to whole-clip convert.
+  function onNoMeta(){
+    clearTimeout(S._metaTimer);
+    if(vid.videoWidth) return;                 // metadata raced in — keep it
+    S._noMeta=true; S.dur=0; S.start=0; S.end=0;
+    document.body.classList.add("nometa");
+    vid.style.display="none"; try{vid.pause();}catch(e){}
+    $("noprev").style.display="flex";
+    vtag.innerHTML=`<b>미리보기 불가</b> · 압축은 가능합니다`;
+    checkWarn(); updateGoLabel();
+    status("이 영상은 브라우저에서 미리보기할 수 없습니다. 전체 영상 기준으로 최대 60초까지 압축합니다.");
+    updateMediaButtons();
+  }
+  function checkWarn(){
+    const msgs=[];
+    if(S._noMeta){
+      msgs.push("미리보기가 어려운 파일입니다. 전체 영상 기준으로 최대 60초까지 압축합니다.");
+    } else if(S.dur>0){
+      const plan=planEncode(0);
+      const o={w:plan.w,h:plan.h};
+      if(o.w&&o.h){
+        const dur=Math.max(0.1,S.end-S.start);
+        const work=Math.round(dur*plan.fps)*o.w*o.h;   // frames × pixels
+      if(work>1.4e8) msgs.push("처리량이 큰 영상입니다. 브라우저 압축이 느릴 수 있습니다. 짧게 자르거나 목표 용량을 낮추면 빠릅니다.");
+      }
+    }
+    warnline.textContent=msgs.join("  ");
+    warnline.classList.toggle("show",msgs.length>0);
+  }
+
+  /* ---------- trim timeline ---------- */
+  function drawTrim(){
+    const d=S.dur||1;
+    const a=Math.max(0,Math.min(1,S.start/d))*100;
+    const b=Math.max(0,Math.min(1,S.end/d))*100;
+    hStart.style.left=a+"%"; hEnd.style.left=b+"%";
+    tsel.style.left=a+"%"; tsel.style.width=Math.max(0,b-a)+"%";
+    lStart.textContent=fmtT(S.start);
+    lEnd.textContent=fmtT(S.end);
+    lDur.textContent=(Math.max(0,S.end-S.start)).toFixed(1)+"s";
+    updateGoLabel();
+  }
+  function trimFrac(clientX){
+    const r=trim.getBoundingClientRect();
+    return Math.max(0,Math.min(1,(clientX-r.left)/r.width));
+  }
+  trim.addEventListener("pointerdown",e=>{
+    if(!S.dur) return;
+    const f=trimFrac(e.clientX), t=f*S.dur;
+    const dA=Math.abs(t-S.start), dB=Math.abs(t-S.end);
+    S.drag = dA<=dB ? "start":"end";
+    trim.setPointerCapture(e.pointerId);
+    moveHandle(t);
+  });
+  trim.addEventListener("pointermove",e=>{ if(S.drag) moveHandle(trimFrac(e.clientX)*S.dur); });
+  const endDrag=()=>{ if(S.drag){ S.drag=null; seekPreview(S.start); } };
+  trim.addEventListener("pointerup",endDrag);
+  trim.addEventListener("pointercancel",endDrag);
+  function moveHandle(t){
+    t=Math.max(0,Math.min(S.dur,t));
+    if(S.drag==="start") S.start=Math.min(t,S.end-0.1);
+    else S.end=Math.max(t,S.start+0.1);
+    S.start=Math.max(0,S.start); S.end=Math.min(S.dur,S.end);
+    drawTrim();
+  }
+  $("fullBtn").onclick=()=>{ S.start=0; S.end=S.dur; drawTrim(); seekPreview(0); };
+
+  /* ---------- preview playback (loops the selected range) ---------- */
+  function seekPreview(t){ try{ vid.currentTime=Math.max(0,Math.min(S.dur,t)); }catch(e){} }
+  function activeVideo(){
+    return outVid.style.display!=="none" ? outVid : vid;
+  }
+  function applyPreviewMute(){
+    const muted = S.audio==="mute" || S.previewMuted;
+    vid.muted = muted;
+    outVid.muted = muted || S.outAudioMissing;
+  }
+  function updateMediaButtons(){
+    const has = document.body.classList.contains("has") && !!S._file;
+    const active = activeVideo();
+    const muted = active===outVid ? (outVid.muted || S.outAudioMissing) : vid.muted;
+    if(playBtn){
+      playBtn.disabled = !has;
+      playBtn.classList.toggle("playing", has && !active.paused);
+      playBtn.title = active.paused ? "미리보기 재생" : "미리보기 정지";
+      playBtn.setAttribute("aria-label", playBtn.title);
+    }
+    if(muteBtn){
+      muteBtn.disabled = !has;
+      muteBtn.classList.toggle("muted", !has || muted);
+      muteBtn.classList.toggle("on", has && !muted);
+      muteBtn.title = muted ? "소리 켜기" : "음소거";
+      muteBtn.setAttribute("aria-label", muteBtn.title);
+    }
+  }
+  function playPreview(withSound){
+    if(withSound && S.audio!=="mute") S.previewMuted=false;
+    applyPreviewMute();
+    vid.play()
+      .then(()=>{ vwrap.classList.remove("paused"); updateMediaButtons(); })
+      .catch(()=>{
+        vwrap.classList.add("paused"); updateMediaButtons();
+        if(withSound && S.audio!=="mute") toast("소리 자동 재생이 막히면 재생 버튼을 눌러 주세요.");
+      });
+  }
+  function pausePreview(){ vid.pause(); vwrap.classList.add("paused"); updateMediaButtons(); }
+  function togglePreview(){
+    const active=activeVideo();
+    if(active===outVid){
+      if(active.paused) active.play().catch(()=>toast("재생 버튼을 한 번 더 눌러 주세요."));
+      else active.pause();
+      updateMediaButtons();
+      return;
+    }
+    vid.paused?playPreview(true):pausePreview();
+  }
+  vid.addEventListener("timeupdate",()=>{
+    if(vid.currentTime<S.start-0.05 || vid.currentTime>S.end) seekPreview(S.start);
+    if(S.dur>0){
+      tplay.style.left=(Math.max(0,Math.min(1,vid.currentTime/S.dur))*100)+"%";
+    }
+  });
+  vwrap.addEventListener("click",()=>{
+    if(outVid.style.display!=="none") return;
+    togglePreview();
+  });
+  playBtn.onclick=togglePreview;
+  muteBtn.onclick=()=>{
+    if(!S._file) return;
+    if(S.audio==="mute"){
+      S.audio="auto";
+      [...$("segAudio").children].forEach(b=>b.classList.toggle("on",b.getAttribute("data-audio")==="auto"));
+    }
+    S.previewMuted=!S.previewMuted;
+    applyPreviewMute();
+    const active=activeVideo();
+    if(!S.previewMuted && active.paused){
+      if(active===vid) playPreview(true);
+      else active.play().catch(()=>toast("재생 버튼을 한 번 더 눌러 주세요."));
+    }
+    updateMediaButtons();
+  };
+  [vid,outVid].forEach(el=>{
+    ["play","pause","volumechange","ended","loadedmetadata"].forEach(ev=>el.addEventListener(ev,updateMediaButtons));
+  });
+
+  /* ---------- option segments ---------- */
+  function wireSeg(id,attr,key,cb){
+    $(id).addEventListener("click",e=>{
+      const b=e.target.closest("button[data-"+attr+"]"); if(!b) return;
+      [...$(id).children].forEach(x=>x.classList.toggle("on",x===b));
+      let v=b.getAttribute("data-"+attr);
+      if(attr==="w"||attr==="fps"||attr==="target") v=+v;
+      S[key]=v; if(cb) cb();
+    });
+  }
+  function updateGoLabel(){
+    const lbl=$("saveLbl");
+    if(lbl) lbl.textContent = S.busy ? "저장 중…" : "MP4 저장";
+    saveBtn.disabled = S.busy || !S._file;
+    updateTargetActual();
+    updateEstimate();
+    checkWarn();
+    updateMediaButtons();
+  }
+  targetMb.addEventListener("input",()=>{
+    updateTargetActual();
+    clearOutput();
+  });
+  targetMb.addEventListener("blur",()=>{
+    targetMb.value = fmtMB(readTargetMB());
+    updateTargetActual();
+    clearOutput();
+  });
+  wireSeg("segSize","w","w",clearOutput);
+  wireSeg("segRatio","r","ratio",()=>{
+    S.cropX=0.5; S.cropY=0.5; S.cropScale=1;
+    clearOutput(); scheduleCropRedraw();
+    if(ratioVal() && !S._cropHintShown){
+      S._cropHintShown=true;
+      toast("모서리를 드래그해 크기 조절 · 안쪽을 드래그해 위치 이동");
+    }
+  });
+  wireSeg("segFps","fps","fps",clearOutput);
+  wireSeg("segAudio","audio","audio",()=>{
+    S.previewMuted = S.audio==="mute";
+    clearOutput();
+    applyPreviewMute();
+    updateMediaButtons();
+  });
+  wireSeg("segQ","q","q",clearOutput);
+
+  /* ---------- ffmpeg engine (lazy) ---------- */
+  let ff=null, ffReady=false, ffLoading=null;
+  async function ensureFF(){
+    if(ffReady) return ff;
+    if(ffLoading) return ffLoading;
+    ffLoading=(async()=>{
+      const FFmpeg = window.FFmpegWASM && window.FFmpegWASM.FFmpeg;
+      const util   = window.FFmpegUtil;
+      if(!FFmpeg || !util) throw new Error("변환 엔진을 불러오지 못했습니다. 네트워크나 차단 설정을 확인해 주세요");
+      ff=new FFmpeg();
+      ff.on("progress",({progress})=>{
+        if(S._phase==null) return;
+        let p=Math.max(0,Math.min(1,progress||0));
+        const pct = S._phase==="palette" ? p*32 : (32 + p*66);
+        setBar(pct);
+      });
+      // ffmpeg.js and its worker (vendor/814.ffmpeg.js) are served from the
+      // same origin, so it spawns a normal classic worker that can import the
+      // core — no cross-origin worker hacks. Only the big (~32 MB) wasm binary
+      // is pulled from the CDN (fetched to a blob so it always loads).
+      const coreURL = new URL("vendor/ffmpeg-core.js", location.href).href;
+      const wasmCDN = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm";
+      setBarIndef(true);
+      status("변환 엔진을 준비하는 중입니다. 처음 한 번 약 30MB를 불러옵니다…");
+      await ff.load({
+        coreURL,
+        wasmURL: await util.toBlobURL(wasmCDN,"application/wasm"),
+      });
+      ffReady=true;
+      return ff;
+    })();
+    return ffLoading;
+  }
+
+  async function encodeMp4(f,inName,plan,attempt,hasDur){
+    const ss = hasDur ? String(S.start.toFixed(3)) : "0";
+    const tt = String(plan.dur.toFixed(3));
+    const outName=`out-${attempt}.mp4`;
+    const args=["-ss",ss,"-t",tt,"-i",inName,"-map","0:v:0"];
+    if(plan.audioKbps>0) args.push("-map","0:a?");
+    else args.push("-an");
+    args.push(
+      "-vf",buildVChain(plan.fps,plan.width),
+      "-c:v","libx264",
+      "-preset","veryfast",
+      "-b:v",`${plan.videoKbps}k`,
+      "-maxrate",`${Math.round(plan.videoKbps*1.24)}k`,
+      "-bufsize",`${Math.round(plan.videoKbps*2)}k`,
+      "-pix_fmt","yuv420p",
+      "-movflags","+faststart"
+    );
+    if(plan.audioKbps>0){
+      args.push("-c:a","aac","-b:a",`${plan.audioKbps}k`,"-ac","2");
+    }
+    args.push("-y",outName);
+    await f.exec(args);
+    return outName;
+  }
+
+  async function convert(){
+    if(S.busy || !S._file) return;
+    const hasDur = S.dur>0;
+    S.busy=true; outMeta.textContent=""; updateGoLabel();
+    clearOutputView();
+    const t0=performance.now();
+    try{
+      const f=await ensureFF();
+      setBarIndef(false); setBar(2);
+      status("영상을 읽는 중입니다…");
+      const inName="in"+S.ext;
+      await f.writeFile(inName, await window.FFmpegUtil.fetchFile(S._file));
+      let blob=null, finalPlan=null, finalAttempt=0;
+      const selectedLimit = Math.min(DISCORD_LIMIT, targetBytesForAttempt(0));
+      for(let attempt=0; attempt<4; attempt++){
+        finalAttempt=attempt;
+        const plan=planEncode(attempt);
+        finalPlan=plan;
+        S._phase="encode";
+        status(attempt===0
+          ? `디스코드용 MP4로 압축 중입니다… ${plan.w}×${plan.h}, ${plan.fps}fps`
+          : `아직 큽니다. 설정을 낮춰 다시 시도합니다 (${attempt+1}/4)…`);
+        setBar(attempt===0 ? 8 : 14 + attempt*18);
+        const outName=await encodeMp4(f,inName,plan,attempt,hasDur);
+        const data=await f.readFile(outName);
+        try{ await f.deleteFile(outName); }catch(e){}
+        blob=new Blob([data.buffer],{type:"video/mp4"});
+        if(blob.size<=selectedLimit || (attempt===3 && blob.size<=DISCORD_LIMIT)) break;
+      }
+      S._phase=null;
+      try{ await f.deleteFile(inName); }catch(e){}
+      if(!blob || blob.size>DISCORD_LIMIT){
+        throw new Error("아직 10MB를 넘습니다. 더 짧게 자르거나 더 작은 크기를 선택해 주세요");
+      }
+      if(S.outURL) URL.revokeObjectURL(S.outURL);
+      S.outBlob=blob; S.outURL=URL.createObjectURL(blob);
+
+      S.outAudioMissing=finalPlan.audioKbps<=0;
+      applyPreviewMute();
+      outVid.volume=1;
+      outVid.src=S.outURL; outVid.style.display="";
+      vid.style.display="none"; vwrap.classList.remove("paused");
+      try{ outVid.load(); outVid.play().catch(()=>{}); }catch(e){}
+      vtag.innerHTML=`결과 · <b>MP4</b>`;
+      const secs=((performance.now()-t0)/1000).toFixed(1);
+      setBar(100); status("압축 완료 — 저장 중입니다…","ok");
+      outMeta.innerHTML=`저장 파일: <b>MP4</b> · ${fmtSize(blob.size)} · ${finalPlan.dur.toFixed(1)}초 · ${finalPlan.fps}fps · ${finalPlan.w}×${finalPlan.h}`+
+        ` · 영상 ${finalPlan.videoKbps}k`+(finalPlan.audioKbps?` · 소리 ${finalPlan.audioKbps}k`:` · 무음`)+
+        ` · 처리 ${secs}초`+(finalAttempt?` · 재시도 ${finalAttempt+1}`:"");
+      setTimeout(()=>{ if(!S.busy) setBar(0); },1400);
+    }catch(err){
+      S._phase=null; setBarIndef(false); setBar(0);
+      console.error(err);
+      status("압축 실패: "+(err&&err.message||err),"err");
+      toast("더 짧게 자르거나 목표 용량을 낮춰 주세요.");
+    }finally{
+      S.busy=false; updateGoLabel();
+    }
+  }
+
+  function clearOutputView(){
+    try{ outVid.pause(); }catch(e){}
+    S.outAudioMissing=false;
+    outVid.style.display="none"; outVid.removeAttribute("src");
+    try{ outVid.load(); }catch(e){}
+    if(S._noMeta){
+      vid.style.display="none"; $("noprev").style.display="flex";
+      vtag.innerHTML=`<b>미리보기 불가</b> · 압축은 가능합니다`;
+      return;
+    }
+    vid.style.display=""; updateVTag();
+    if(vid.src) playPreview(!S.previewMuted && S.audio!=="mute");
+    scheduleCropRedraw();
+    updateMediaButtons();
+  }
+  function clearOutput(){
+    if(S.outURL){ URL.revokeObjectURL(S.outURL); S.outURL=null; }
+    S.outBlob=null;
+    outMeta.textContent="";
+    if(document.body.classList.contains("has")) clearOutputView();
+    updateGoLabel();
+  }
+
+  // One step: Save = convert (shows "Saving…") then auto-download.
+  async function saveFlow(){
+    if(S.busy || !S._file) return;
+    await convert();
+    if(!S.outBlob) return;            // conversion failed — status already set
+    const name=`${S.fileName}-디스코드.mp4`;
+    const a=document.createElement("a");
+    a.href=S.outURL; a.download=name;
+    document.body.appendChild(a); a.click(); a.remove();
+    status("저장됨: "+name,"ok");
+    toast("저장됨 · "+fmtSize(S.outBlob.size));
+  }
+  saveBtn.onclick=saveFlow;
+  // "New video" goes straight to the file picker
+  $("newBtn").onclick=()=>$("file").click();
+  function resetAll(){
+    pausePreview(); clearOutput();
+    clearTimeout(S._metaTimer);
+    if(vid.src) URL.revokeObjectURL(vid.src);
+    vid.removeAttribute("src"); vid.load();
+    document.body.classList.remove("has","nometa");
+    $("noprev").style.display="none"; vid.style.display="";
+    S.dur=0; S.start=0; S.end=0; S._file=null; S._noMeta=false;
+    S.cropX=0.5; S.cropY=0.5; S.cropScale=1; S.previewMuted=false; S.outAudioMissing=false;
+    status("영상을 넣으면 시작합니다."); footnote.textContent="브라우저 처리 · ffmpeg.wasm · 빌드 1";
+    setBar(0); updateMediaButtons();
+  }
+
+  /* ---------- pickers + drag & drop ---------- */
+  $("drop").onclick=()=>$("file").click();
+  $("file").onchange=e=>openFile(e.target.files[0]);
+  let dd=0;
+  window.addEventListener("dragenter",e=>{e.preventDefault(); if(++dd) document.body.classList.add("dragging");});
+  window.addEventListener("dragover",e=>e.preventDefault());
+  window.addEventListener("dragleave",e=>{e.preventDefault(); if(--dd<=0) document.body.classList.remove("dragging");});
+  window.addEventListener("drop",e=>{
+    e.preventDefault(); dd=0; document.body.classList.remove("dragging");
+    const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(f) openFile(f);
+  });
+  const dz=$("drop");
+  dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over");});
+  dz.addEventListener("dragleave",()=>dz.classList.remove("over"));
+  dz.addEventListener("drop",()=>dz.classList.remove("over"));
+
+  /* ---------- help + keyboard ---------- */
+  function toggleHelp(){ helpEl.classList.toggle("show"); }
+  $("helpBtn2").onclick=toggleHelp;
+  window.addEventListener("keydown",e=>{
+    if(e.target.tagName==="INPUT") return;
+    const k=e.key;
+    if(k==="o"||k==="O"){ e.preventDefault(); $("file").click(); }
+    else if(k==="n"||k==="N"){ e.preventDefault(); $("file").click(); }
+    else if(k==="?") toggleHelp();
+    else if(!document.body.classList.contains("has")) return;
+    else if(k===" "){ e.preventDefault(); togglePreview(); }
+    else if(k==="Enter"){ e.preventDefault(); saveFlow(); }
+    else if(k==="["){ S.start=Math.min(vid.currentTime,S.end-0.1); drawTrim(); toast("시작 "+fmtT(S.start)); }
+    else if(k==="]"){ S.end=Math.max(vid.currentTime,S.start+0.1); drawTrim(); toast("끝 "+fmtT(S.end)); }
+    else if(k==="ArrowLeft"){ e.preventDefault(); seekPreview(vid.currentTime-(e.shiftKey?1:1/Math.max(S.fps,1))); }
+    else if(k==="ArrowRight"){ e.preventDefault(); seekPreview(vid.currentTime+(e.shiftKey?1:1/Math.max(S.fps,1))); }
+  });
+
+  applyPreviewMute();
+  updateGoLabel();
+  updateMediaButtons();
+})();
+</script>
+</body>
+</html>
