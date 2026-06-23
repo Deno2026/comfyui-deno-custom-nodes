@@ -17,6 +17,12 @@ from deno_ltx_tiled_nodes import (
 from deno_ltx_tiling import build_tile_plan
 
 
+pytestmark = pytest.mark.skipif(
+    not hasattr(torch, "zeros"),
+    reason="LTX tiled predictor tests require real torch tensor ops.",
+)
+
+
 class _FakeCond:
     def __init__(self, cond):
         self.cond = cond
