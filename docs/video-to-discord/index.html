@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
-<title>Deno · 디스코드용 영상 압축</title>
+<title>Deno · 디스코드용 영상 / 이미지 압축</title>
 <style>
   :root{
     --bg:#050906; --panel:#0a1410; --panel2:#06100b;
@@ -174,6 +174,8 @@
   .noprev .ic{font-size:34px;color:var(--accent);line-height:1}
   .noprev .s{font-weight:600;font-size:12px;color:var(--txt-soft);opacity:.8}
   body.nometa #trim,body.nometa .tinfo{display:none}
+  body.image #trim,body.image .tinfo,body.image .videoOnly{display:none}
+  body.image .pp{display:none}
   .pp{
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
     z-index:6;cursor:pointer;color:var(--accent);font-size:46px;
@@ -322,7 +324,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot"></span><span class="bt">디스코드용 영상 압축</span>
+  <div class="brand"><span class="dot"></span><span class="bt">디스코드용 영상 / 이미지 압축</span>
     <small>· 브라우저에서 처리 · 업로드 없음</small></div>
   <button class="ghost grow" id="helpBtn2">? 도움말</button>
   <a class="yt" href="https://www.youtube.com/@Denoise-AI" target="_blank"
@@ -338,14 +340,14 @@
   <div id="stage">
     <!-- empty state -->
     <div class="hint" id="hint">
-      <h2>디스코드에 올릴 영상을 작게 줄입니다</h2>
+      <h2>디스코드에 올릴 영상 / 이미지를 작게 줄입니다</h2>
       <div class="drop" id="drop">
         <span class="big">＋</span>
-        <span class="sub">영상을 여기에 놓으세요</span>
-        <span class="tip">또는 클릭해서 선택 · mp4 · webm · mov · mkv</span>
+        <span class="sub">영상이나 이미지를 여기에 놓으세요</span>
+        <span class="tip">또는 클릭해서 선택 · mp4 · webm · mov · jpg · png · webp</span>
       </div>
-      <p class="priv">디스코드에 올릴 영상이 10MB를 넘을 때 사용합니다.<br>
-        <b>모든 처리는 브라우저 안에서만 진행됩니다</b> — 영상은 어디에도 업로드되지 않습니다.</p>
+      <p class="priv">디스코드에 올릴 영상이나 이미지가 10MB를 넘을 때 사용합니다.<br>
+        <b>모든 처리는 브라우저 안에서만 진행됩니다</b> — 파일은 어디에도 업로드되지 않습니다.</p>
     </div>
 
     <!-- editor -->
@@ -354,6 +356,7 @@
       <div class="vwrap paused" id="vwrap">
         <video id="vid" playsinline preload="auto" loop></video>
         <video id="outVid" playsinline controls loop style="display:none"></video>
+        <img id="imgPrev" alt="이미지 미리보기" style="display:none">
         <span class="vtag" id="vtag">원본</span>
         <div class="cropbox" id="cropbox" data-r="">
           <span class="cnr tl"></span><span class="cnr tr"></span>
@@ -406,7 +409,7 @@
             <span class="actual" id="targetActual">실제 압축 목표 <b>9.98MB</b></span>
           </div>
         </div>
-        <div class="row">
+        <div class="row videoOnly">
           <span class="lbl">소리</span>
           <div class="seg" id="segAudio">
             <button class="btn on" data-audio="auto">포함</button>
@@ -440,7 +443,7 @@
             <button class="btn" data-r="9:16">9:16</button>
           </div>
         </div>
-        <div class="row">
+        <div class="row videoOnly">
           <span class="lbl">프레임</span>
           <div class="seg" id="segFps">
             <button class="btn on" data-fps="0">자동</button>
@@ -465,8 +468,8 @@
       <div class="estimate" id="estimate"></div>
       <div class="warnline" id="warnline"></div>
       <div class="bigbtns">
-        <button class="bigbtn" id="newBtn" title="다른 영상을 엽니다">
-          <span class="bi">＋</span><span>새 영상</span></button>
+        <button class="bigbtn" id="newBtn" title="다른 파일을 엽니다">
+          <span class="bi">＋</span><span>새 파일</span></button>
         <button class="bigbtn save" id="saveBtn" disabled title="압축하고 바로 저장합니다">
           <span class="bi">⤓</span><span id="saveLbl">저장</span></button>
       </div>
@@ -479,23 +482,23 @@
 <footer>
   <div class="pbar idle" id="pbar"><div class="pfill" id="pfill"></div></div>
   <div class="statusrow">
-    <span class="status" id="status">영상을 넣으면 시작합니다.</span>
-    <span class="footnote" id="footnote">브라우저 처리 · ffmpeg.wasm · 빌드 1</span>
+    <span class="status" id="status">영상이나 이미지를 넣으면 시작합니다.</span>
+    <span class="footnote" id="footnote">브라우저 처리 · ffmpeg.wasm · 빌드 2</span>
   </div>
 </footer>
 
 <div class="toast" id="toast"></div>
 <div class="help" id="help">
   <h3>단축키</h3>
-  <kbd>O</kbd> 영상 열기 · <kbd>스페이스</kbd> 미리보기 재생 / 정지<br>
+  <kbd>O</kbd> 파일 열기 · <kbd>스페이스</kbd> 영상 미리보기 재생 / 정지<br>
   <kbd>[</kbd> 현재 위치를 시작점으로 · <kbd>]</kbd> 현재 위치를 끝점으로<br>
-  <kbd>←</kbd><kbd>→</kbd> 미리보기 이동 · <kbd>엔터</kbd> MP4 저장<br>
-  <kbd>N</kbd> 새 영상 · <kbd>?</kbd> 도움말<br>
+  <kbd>←</kbd><kbd>→</kbd> 영상 미리보기 이동 · <kbd>엔터</kbd> 저장<br>
+  <kbd>N</kbd> 새 파일 · <kbd>?</kbd> 도움말<br>
   <span style="color:var(--txt-soft);opacity:.8">비율을 고른 뒤 초록색 박스의 <b>모서리를 드래그하면 크기</b>를 조절하고, <b>안쪽을 드래그하면 위치</b>를 옮길 수 있습니다. 박스 안쪽만 저장됩니다.</span><br>
   <span style="color:var(--txt-soft);opacity:.8">목표 용량에 10을 입력하면 실제 압축 목표를 9.98MB로 잡아 안전 여유를 둡니다.</span>
 </div>
 
-<input type="file" id="file" accept="video/*,.mp4,.webm,.mov,.mkv,.m4v,.ogv,.avi">
+<input type="file" id="file" accept="video/*,image/png,image/jpeg,image/webp,image/avif,.mp4,.webm,.mov,.mkv,.m4v,.ogv,.avi,.png,.jpg,.jpeg,.webp,.avif">
 
 <!-- ffmpeg.wasm (pinned). Engine core is fetched only on the first convert. -->
 <script src="vendor/ffmpeg.js"></script>
@@ -504,7 +507,7 @@
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
-  const vid=$("vid"), vwrap=$("vwrap"), outVid=$("outVid"), vtag=$("vtag"),
+  const vid=$("vid"), vwrap=$("vwrap"), outVid=$("outVid"), imgPrev=$("imgPrev"), vtag=$("vtag"),
         trim=$("trim"), tsel=$("tsel"), tplay=$("tplay"),
         hStart=$("hStart"), hEnd=$("hEnd"),
         lStart=$("lStart"), lEnd=$("lEnd"), lDur=$("lDur"),
@@ -520,30 +523,43 @@
   const CROP_MIN = 0.12;           // smallest the crop box can be dragged (12% of full)
 
   const S = {
-    targetMB:10, w:0, fps:0, q:"med", audio:"auto", ratio:"orig", previewMuted:false,
+    kind:"video", targetMB:10, w:0, fps:0, q:"med", audio:"auto", ratio:"orig", previewMuted:false,
     cropX:0.5, cropY:0.5, cropScale:1,
     dur:0, start:0, end:0, fileName:"clip", busy:false,
-    drag:null, outURL:null, outBlob:null, ext:".mp4", outAudioMissing:false,
+    drag:null, srcURL:null, outURL:null, outBlob:null, ext:".mp4", outExt:"mp4",
+    imgW:0, imgH:0, outAudioMissing:false,
   };
   const even = n => { n=Math.round(n); return Math.max(2, n-(n%2)); };
   const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+  const isImage = () => S.kind==="image";
+  function sourceW(){ return isImage() ? (S.imgW||0) : (vid.videoWidth||0); }
+  function sourceH(){ return isImage() ? (S.imgH||0) : (vid.videoHeight||0); }
+  function sourceEl(){ return isImage() ? imgPrev : vid; }
   function ratioVal(){
     if(S.ratio==="orig") return null;
     const p=S.ratio.split(":"); return (+p[0])/(+p[1]);   // target width/height
   }
   function cropDims(){
-    const iw=vid.videoWidth||0, ih=vid.videoHeight||0, ar=ratioVal();
+    const iw=sourceW(), ih=sourceH(), ar=ratioVal();
     if(!ar||!iw||!ih) return {cw:even(iw),ch:even(ih),crop:false};
     const s=clamp(S.cropScale||1,CROP_MIN,1);   // crop-box zoom (drag the corners)
     return {cw:even(Math.min(iw, ih*ar)*s), ch:even(Math.min(ih, iw/ar)*s), crop:true};
   }
   function outDims(widthOverride){
     const targetW = typeof widthOverride==="number" ? widthOverride : S.w;
-    const vw=vid.videoWidth||0, vh=vid.videoHeight||0, ar=ratioVal();
+    const vw=sourceW(), vh=sourceH(), ar=ratioVal();
     if(ar){ const c=cropDims();
       if(targetW>0){ const ow=even(targetW); return {w:ow,h:even(ow*c.ch/c.cw)}; }
+      if(isImage()){
+        const scale=Math.min(1,4096/Math.max(c.cw,c.ch));
+        return {w:even(c.cw*scale),h:even(c.ch*scale)};
+      }
       return {w:c.cw,h:c.ch}; }
     if(targetW>0) return {w:even(targetW), h:even(targetW*vh/Math.max(vw,1))};
+    if(isImage()){
+      const scale=Math.min(1,4096/Math.max(vw,vh));
+      return {w:even(vw*scale), h:even(vh*scale)};
+    }
     return {w:even(vw), h:even(vh)};
   }
   function effectiveDuration(){
@@ -631,9 +647,31 @@
     const frames=Math.max(1,Math.round(p.dur*p.fps));
     return {...p,bytes:p.target,frames};
   }
+  function estImage(){
+    const d=outDims(S.w);
+    if(!d.w||!d.h) return null;
+    return {w:d.w,h:d.h,bytes:effectiveTargetBytes(),type:"WebP"};
+  }
   function updateEstimate(){
     if(!S._file || !document.body.classList.contains("has")){
       estimateEl.classList.remove("show","over"); return;
+    }
+    if(isImage()){
+      const e=estImage();
+      estimateEl.classList.add("show");
+      estimateEl.classList.remove("over");
+      if(!e){
+        estimateEl.innerHTML =
+          `압축 계획: <span class="big">—</span>`+
+          `<span class="lim">이미지를 읽으면 표시됩니다. <b>입력 목표 ${fmtMB(readTargetMB())}MB · 실제 목표 ${fmtMB(effectiveTargetMB())}MB</b></span>`;
+        return;
+      }
+      estimateEl.innerHTML =
+        `압축 계획: <span class="big">≤ ${fmtSize(e.bytes)}</span> `+
+        `<span style="opacity:.8">· ${e.w}×${e.h} · ${e.type} 우선</span> `+
+        `<span class="lim"><b>입력 목표 ${fmtMB(readTargetMB())}MB · 실제 목표 ${fmtMB(effectiveTargetMB())}MB</b> — `+
+        `결과가 크면 품질과 크기를 자동으로 낮춰 다시 시도합니다.</span>`;
+      return;
     }
     const e=estClip();
     estimateEl.classList.add("show");
@@ -677,20 +715,21 @@
   let cropGeo=null, _cropRetry=0;
   function drawCrop(){
     const box=$("cropbox"), ar=ratioVal();
-    if(!ar || outVid.style.display!=="none"){
+    if(!ar || outVid.style.display!=="none" || (isImage() && S.outBlob)){
       box.style.display="none"; cropGeo=null; return;
     }
-    const er=vid.getBoundingClientRect(), wr=vwrap.getBoundingClientRect();
+    const el=sourceEl();
+    const er=el.getBoundingClientRect(), wr=vwrap.getBoundingClientRect();
     // source not measured / laid out yet (esp. mobile right after the <video>
     // is un-hidden post-conversion or on ratio change) — don't draw a stale
     // box, retry on following frames until it's ready (no user tap needed)
-    if(!vid.videoWidth || er.width<4 || er.height<4){
+    if(!sourceW() || !sourceH() || er.width<4 || er.height<4){
       box.style.display="none"; cropGeo=null;
-      if(vid.src && _cropRetry<120){ _cropRetry++; requestAnimationFrame(drawCrop); }
+      if((vid.src || imgPrev.src) && _cropRetry<120){ _cropRetry++; requestAnimationFrame(drawCrop); }
       return;
     }
     _cropRetry=0;
-    const vAR=vid.videoWidth/vid.videoHeight, eAR=er.width/er.height;
+    const vAR=sourceW()/sourceH(), eAR=er.width/er.height;
     let pw,ph;
     if(eAR>vAR){ ph=er.height; pw=ph*vAR; } else { pw=er.width; ph=pw/vAR; }
     // cw0/ch0 = largest box of the chosen shape that fits the painted video …
@@ -726,8 +765,9 @@
   }
   ["loadeddata","loadedmetadata","playing","seeked","canplay","resize"]
     .forEach(ev=>vid.addEventListener(ev,()=>{ updateVTag(); drawCrop(); }));
+  ["load"].forEach(ev=>imgPrev.addEventListener(ev,()=>{ updateVTag(); drawCrop(); }));
   if(window.ResizeObserver){
-    try{ const ro=new ResizeObserver(()=>drawCrop()); ro.observe(vwrap); ro.observe(vid); }
+    try{ const ro=new ResizeObserver(()=>drawCrop()); ro.observe(vwrap); ro.observe(vid); ro.observe(imgPrev); }
     catch(e){}
   }
   // drag the crop box to pick which part of a wider/taller clip is kept
@@ -801,7 +841,16 @@
     });
   })();
   function updateVTag(){
-    if(!vid.videoWidth) return;
+    if(!sourceW() || !sourceH()) return;
+    if(isImage()){
+      if(S.outBlob){
+        vtag.innerHTML=`결과 · <b>${prettyImageType(S.outBlob.type || S.outExt)}</b>`;
+        return;
+      }
+      const o=outDims(S.w);
+      vtag.innerHTML=`원본 이미지 <b>${sourceW()}×${sourceH()}</b> → 예상 <b>${o.w}×${o.h}</b>`;
+      return;
+    }
     const o=planEncode(0);
     vtag.innerHTML=`원본 <b>${vid.videoWidth}×${vid.videoHeight}</b> → 예상 <b>${o.w}×${o.h}</b>`;
   }
@@ -839,28 +888,41 @@
     if(on) pfill.style.width="32%";
   }
 
-  /* ---------- load a source video ---------- */
   function openFile(file){
     if(!file) return;
+    const isImg = (file.type && file.type.startsWith("image/")) ||
+      /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(file.name||"");
+    const isVid = (file.type && file.type.startsWith("video/")) ||
+      /\.(mp4|webm|mov|mkv|m4v|ogv|avi)$/i.test(file.name||"");
+    if(isImg) return openImageFile(file);
+    if(isVid) return openVideoFile(file);
+    toast("영상이나 이미지 파일로 보이지 않습니다.");
+  }
+
+  /* ---------- load a source video ---------- */
+  function openVideoFile(file){
     const okType = (file.type && file.type.startsWith("video/")) ||
       /\.(mp4|webm|mov|mkv|m4v|ogv|avi)$/i.test(file.name);
     if(!okType){ toast("영상 파일로 보이지 않습니다."); return; }
     clearOutput();
     clearTimeout(S._metaTimer);
+    if(S.srcURL) URL.revokeObjectURL(S.srcURL);
     if(vid.src) URL.revokeObjectURL(vid.src);
     const m=/\.[a-z0-9]+$/i.exec(file.name||"");
     S.ext = m ? m[0].toLowerCase() : ".mp4";
     S.fileName = (file.name||"video").replace(/\.[^.]+$/,"") || "video";
-    S._file=file; S._noMeta=false;
+    S.kind="video"; S._file=file; S._noMeta=false; S.srcURL=null; S.imgW=0; S.imgH=0; S.outExt="mp4";
     S.previewMuted=false; S.outAudioMissing=false;
     updateMediaButtons();
     // Show the editor right away. Conversion is done by ffmpeg.wasm, which
     // decodes the file itself — it never needs the browser to PREVIEW the
     // source codec. So a clip the browser can't play (e.g. HEVC .mov from a
     // phone / screen recorder) must still be convertible.
-    document.body.classList.remove("nometa");
-    document.body.classList.add("has");
+    document.body.classList.remove("nometa","image");
+    document.body.classList.add("has","video");
     $("noprev").style.display="none";
+    imgPrev.style.display="none";
+    outVid.style.display="none";
     vid.style.display="";
     status("미리보기를 불러오는 중입니다…");
     footnote.textContent=`${(file.size/1048576).toFixed(1)} MB · ${file.name||"영상"}`;
@@ -883,6 +945,47 @@
     vid.load();
     S._metaTimer=setTimeout(()=>{ if(!vid.videoWidth) onNoMeta(); },5000);
   }
+  /* ---------- load a source image ---------- */
+  function openImageFile(file){
+    const okType = (file.type && /^image\/(png|jpeg|webp|avif)$/i.test(file.type)) ||
+      /\.(png|jpe?g|webp|avif)$/i.test(file.name||"");
+    if(!okType){
+      toast(/\.(gif|svg)$/i.test(file.name||"") ? "움직이는 GIF와 SVG는 아직 지원하지 않습니다." : "이미지 파일로 보이지 않습니다.");
+      return;
+    }
+    clearOutput();
+    clearTimeout(S._metaTimer);
+    try{ vid.pause(); }catch(e){}
+    if(vid.src) URL.revokeObjectURL(vid.src);
+    if(S.srcURL) URL.revokeObjectURL(S.srcURL);
+    const m=/\.[a-z0-9]+$/i.exec(file.name||"");
+    S.ext = m ? m[0].toLowerCase() : ".png";
+    S.fileName = (file.name||"image").replace(/\.[^.]+$/,"") || "image";
+    S.kind="image"; S._file=file; S._noMeta=false; S.dur=0; S.start=0; S.end=0;
+    S.imgW=0; S.imgH=0; S.outExt="webp"; S.srcURL=URL.createObjectURL(file);
+    S.outAudioMissing=false; S.previewMuted=false;
+    document.body.classList.remove("nometa","video");
+    document.body.classList.add("has","image");
+    $("noprev").style.display="none";
+    vid.style.display="none"; outVid.style.display="none"; imgPrev.style.display="";
+    vwrap.classList.remove("paused");
+    status("이미지를 불러오는 중입니다…");
+    footnote.textContent=`${(file.size/1048576).toFixed(1)} MB · ${file.name||"이미지"}`;
+    imgPrev.onload=()=>{
+      S.imgW=imgPrev.naturalWidth||0; S.imgH=imgPrev.naturalHeight||0;
+      S.cropX=0.5; S.cropY=0.5; S.cropScale=1;
+      updateVTag(); checkWarn(); updateGoLabel(); scheduleCropRedraw();
+      status("목표 용량을 확인한 뒤 저장하세요.");
+      footnote.textContent=`원본 이미지 ${S.imgW}×${S.imgH} · ${(file.size/1048576).toFixed(1)} MB`;
+      imgPrev.onload=null;
+    };
+    imgPrev.onerror=()=>{
+      status("이미지를 불러오지 못했습니다.","err");
+      toast("이 이미지는 브라우저에서 열 수 없습니다.");
+    };
+    imgPrev.src=S.srcURL;
+    updateMediaButtons();
+  }
   // Browser can't preview this source — fall back to whole-clip convert.
   function onNoMeta(){
     clearTimeout(S._metaTimer);
@@ -898,7 +1001,10 @@
   }
   function checkWarn(){
     const msgs=[];
-    if(S._noMeta){
+    if(isImage()){
+      if(S._file && S._file.size>effectiveTargetBytes()) msgs.push("이미지가 목표 용량보다 큽니다. 저장하면 WebP로 줄입니다.");
+      if(sourceW()*sourceH()>50000000) msgs.push("매우 큰 이미지입니다. 처리 중 브라우저가 잠시 느릴 수 있습니다.");
+    } else if(S._noMeta){
       msgs.push("미리보기가 어려운 파일입니다. 전체 영상 기준으로 최대 60초까지 압축합니다.");
     } else if(S.dur>0){
       const plan=planEncode(0);
@@ -961,7 +1067,7 @@
     outVid.muted = muted || S.outAudioMissing;
   }
   function updateMediaButtons(){
-    const has = document.body.classList.contains("has") && !!S._file;
+    const has = document.body.classList.contains("has") && !!S._file && !isImage();
     const active = activeVideo();
     const muted = active===outVid ? (outVid.muted || S.outAudioMissing) : vid.muted;
     if(playBtn){
@@ -979,6 +1085,7 @@
     }
   }
   function playPreview(withSound){
+    if(isImage()) return;
     if(withSound && S.audio!=="mute") S.previewMuted=false;
     applyPreviewMute();
     vid.play()
@@ -990,6 +1097,7 @@
   }
   function pausePreview(){ vid.pause(); vwrap.classList.add("paused"); updateMediaButtons(); }
   function togglePreview(){
+    if(isImage()) return;
     const active=activeVideo();
     if(active===outVid){
       if(active.paused) active.play().catch(()=>toast("재생 버튼을 한 번 더 눌러 주세요."));
@@ -1006,6 +1114,7 @@
     }
   });
   vwrap.addEventListener("click",()=>{
+    if(isImage()) return;
     if(outVid.style.display!=="none") return;
     togglePreview();
   });
@@ -1041,7 +1150,7 @@
   }
   function updateGoLabel(){
     const lbl=$("saveLbl");
-    if(lbl) lbl.textContent = S.busy ? "저장 중…" : "MP4 저장";
+    if(lbl) lbl.textContent = S.busy ? "저장 중…" : (isImage() ? "이미지 저장" : "MP4 저장");
     saveBtn.disabled = S.busy || !S._file;
     updateTargetActual();
     updateEstimate();
@@ -1134,6 +1243,101 @@
     return outName;
   }
 
+  function canvasBlob(canvas,type,quality){
+    return new Promise((resolve,reject)=>{
+      canvas.toBlob(blob=>blob ? resolve(blob) : reject(new Error("이미지를 저장할 수 없습니다.")),type,quality);
+    });
+  }
+  function imageQualityBase(){
+    return S.q==="high" ? 0.94 : S.q==="low" ? 0.78 : 0.88;
+  }
+  function prettyImageType(type){
+    const t=String(type||"").toLowerCase();
+    if(t.includes("webp")) return "WebP";
+    if(t.includes("png")) return "PNG";
+    if(t.includes("jpeg")||t.includes("jpg")) return "JPG";
+    if(t.includes("avif")) return "AVIF";
+    return "이미지";
+  }
+  function imageCropRect(){
+    const iw=sourceW(), ih=sourceH(), ar=ratioVal();
+    if(!ar) return {sx:0,sy:0,sw:iw,sh:ih};
+    const c=cropDims();
+    return {
+      sx:Math.round(clamp((iw-c.cw)*S.cropX,0,Math.max(0,iw-c.cw))),
+      sy:Math.round(clamp((ih-c.ch)*S.cropY,0,Math.max(0,ih-c.ch))),
+      sw:c.cw,
+      sh:c.ch,
+    };
+  }
+  function renderImageCanvas(scale){
+    const d=outDims(S.w);
+    const w=even(Math.max(2,d.w*scale));
+    const h=even(Math.max(2,d.h*scale));
+    const r=imageCropRect();
+    const canvas=document.createElement("canvas");
+    canvas.width=w; canvas.height=h;
+    const ctx=canvas.getContext("2d",{alpha:true});
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality="high";
+    ctx.drawImage(imgPrev,r.sx,r.sy,r.sw,r.sh,0,0,w,h);
+    return {canvas,w,h};
+  }
+  async function convertImage(){
+    if(S.busy || !S._file) return;
+    S.busy=true; outMeta.textContent=""; updateGoLabel();
+    clearOutputView();
+    const t0=performance.now();
+    try{
+      const selectedLimit=Math.min(DISCORD_LIMIT,effectiveTargetBytes());
+      const unchanged = S._file.size<=selectedLimit && S.ratio==="orig" && S.w===0;
+      let blob=null, final={w:sourceW(),h:sourceH(),q:1,scale:1,type:S._file.type||"image"};
+      if(unchanged){
+        blob=S._file;
+        S.outExt=(S.ext||".png").replace(/^\./,"") || "png";
+      }else{
+        status("디스코드용 이미지로 압축 중입니다…");
+        setBar(8);
+        const baseQ=imageQualityBase();
+        const qualities=[];
+        for(let q=baseQ;q>=0.38;q-=0.08) qualities.push(Math.max(0.34,Number(q.toFixed(2))));
+        const scales=[1,0.92,0.84,0.76,0.68,0.60,0.52,0.44,0.36,0.30];
+        let step=0, total=scales.length*qualities.length;
+        for(const scale of scales){
+          const rendered=renderImageCanvas(scale);
+          for(const q of qualities){
+            blob=await canvasBlob(rendered.canvas,"image/webp",q);
+            final={w:rendered.w,h:rendered.h,q,scale,type:"WebP"};
+            setBar(8 + (++step/total)*86);
+            if(blob.size<=selectedLimit) break;
+          }
+          if(blob && blob.size<=selectedLimit) break;
+        }
+        S.outExt="webp";
+      }
+      if(!blob || blob.size>selectedLimit){
+        throw new Error(`아직 목표 용량 ${fmtMB(effectiveTargetMB())}MB를 넘습니다. 크기를 더 작게 선택해 주세요`);
+      }
+      if(S.outURL){ URL.revokeObjectURL(S.outURL); S.outURL=null; }
+      S.outBlob=blob; S.outURL=URL.createObjectURL(blob);
+      imgPrev.src=S.outURL; imgPrev.style.display="";
+      vid.style.display="none"; outVid.style.display="none";
+      const label=prettyImageType(final.type);
+      vtag.innerHTML=`결과 · <b>${label}</b>`;
+      const secs=((performance.now()-t0)/1000).toFixed(1);
+      setBar(100); status("이미지 압축 완료 — 저장 중입니다…","ok");
+      outMeta.innerHTML=`저장 파일: <b>${label}</b> · ${fmtSize(blob.size)} · ${final.w}×${final.h}`+
+        (unchanged ? ` · 원본 유지` : ` · 품질 ${Math.round(final.q*100)}%`)+` · 처리 ${secs}초`;
+      setTimeout(()=>{ if(!S.busy) setBar(0); },1400);
+    }catch(err){
+      setBar(0); console.error(err);
+      status("이미지 압축 실패: "+(err&&err.message||err),"err");
+      toast("더 작은 크기나 더 작게 화질을 선택해 주세요.");
+    }finally{
+      S.busy=false; updateGoLabel();
+    }
+  }
+
   async function convert(){
     if(S.busy || !S._file) return;
     const hasDur = S.dur>0;
@@ -1195,6 +1399,16 @@
   }
 
   function clearOutputView(){
+    if(isImage()){
+      try{ outVid.pause(); }catch(e){}
+      outVid.style.display="none"; outVid.removeAttribute("src");
+      try{ outVid.load(); }catch(e){}
+      vid.style.display="none"; $("noprev").style.display="none";
+      imgPrev.style.display="";
+      if(S.srcURL && imgPrev.src!==S.srcURL) imgPrev.src=S.srcURL;
+      updateVTag(); scheduleCropRedraw(); updateMediaButtons();
+      return;
+    }
     try{ outVid.pause(); }catch(e){}
     S.outAudioMissing=false;
     outVid.style.display="none"; outVid.removeAttribute("src");
@@ -1220,9 +1434,10 @@
   // One step: Save = convert (shows "Saving…") then auto-download.
   async function saveFlow(){
     if(S.busy || !S._file) return;
-    await convert();
+    if(isImage()) await convertImage();
+    else await convert();
     if(!S.outBlob) return;            // conversion failed — status already set
-    const name=`${S.fileName}-디스코드.mp4`;
+    const name=`${S.fileName}-디스코드.${isImage() ? (S.outExt||"webp") : "mp4"}`;
     const a=document.createElement("a");
     a.href=S.outURL; a.download=name;
     document.body.appendChild(a); a.click(); a.remove();
@@ -1236,12 +1451,14 @@
     pausePreview(); clearOutput();
     clearTimeout(S._metaTimer);
     if(vid.src) URL.revokeObjectURL(vid.src);
+    if(S.srcURL) URL.revokeObjectURL(S.srcURL);
     vid.removeAttribute("src"); vid.load();
-    document.body.classList.remove("has","nometa");
-    $("noprev").style.display="none"; vid.style.display="";
-    S.dur=0; S.start=0; S.end=0; S._file=null; S._noMeta=false;
-    S.cropX=0.5; S.cropY=0.5; S.cropScale=1; S.previewMuted=false; S.outAudioMissing=false;
-    status("영상을 넣으면 시작합니다."); footnote.textContent="브라우저 처리 · ffmpeg.wasm · 빌드 1";
+    imgPrev.removeAttribute("src");
+    document.body.classList.remove("has","nometa","image","video");
+    $("noprev").style.display="none"; vid.style.display=""; imgPrev.style.display="none";
+    S.kind="video"; S.dur=0; S.start=0; S.end=0; S._file=null; S._noMeta=false; S.srcURL=null;
+    S.imgW=0; S.imgH=0; S.cropX=0.5; S.cropY=0.5; S.cropScale=1; S.previewMuted=false; S.outAudioMissing=false;
+    status("영상이나 이미지를 넣으면 시작합니다."); footnote.textContent="브라우저 처리 · ffmpeg.wasm · 빌드 2";
     setBar(0); updateMediaButtons();
   }
 
@@ -1272,12 +1489,12 @@
     else if(k==="n"||k==="N"){ e.preventDefault(); $("file").click(); }
     else if(k==="?") toggleHelp();
     else if(!document.body.classList.contains("has")) return;
-    else if(k===" "){ e.preventDefault(); togglePreview(); }
+    else if(k===" " && !isImage()){ e.preventDefault(); togglePreview(); }
     else if(k==="Enter"){ e.preventDefault(); saveFlow(); }
-    else if(k==="["){ S.start=Math.min(vid.currentTime,S.end-0.1); drawTrim(); toast("시작 "+fmtT(S.start)); }
-    else if(k==="]"){ S.end=Math.max(vid.currentTime,S.start+0.1); drawTrim(); toast("끝 "+fmtT(S.end)); }
-    else if(k==="ArrowLeft"){ e.preventDefault(); seekPreview(vid.currentTime-(e.shiftKey?1:1/Math.max(S.fps,1))); }
-    else if(k==="ArrowRight"){ e.preventDefault(); seekPreview(vid.currentTime+(e.shiftKey?1:1/Math.max(S.fps,1))); }
+    else if(k==="[" && !isImage()){ S.start=Math.min(vid.currentTime,S.end-0.1); drawTrim(); toast("시작 "+fmtT(S.start)); }
+    else if(k==="]" && !isImage()){ S.end=Math.max(vid.currentTime,S.start+0.1); drawTrim(); toast("끝 "+fmtT(S.end)); }
+    else if(k==="ArrowLeft" && !isImage()){ e.preventDefault(); seekPreview(vid.currentTime-(e.shiftKey?1:1/Math.max(S.fps,1))); }
+    else if(k==="ArrowRight" && !isImage()){ e.preventDefault(); seekPreview(vid.currentTime+(e.shiftKey?1:1/Math.max(S.fps,1))); }
   });
 
   applyPreviewMute();

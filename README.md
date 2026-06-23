@@ -16,7 +16,7 @@ Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
-The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, optional **DENO Floating Tools** for Free VRAM and Portable update checks, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the 한국어 전용 **디스코드용 영상 압축** page.
+The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, optional **DENO Floating Tools** for Free VRAM and Portable update checks, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the 한국어 전용 **디스코드용 영상 / 이미지 압축** page.
 
 ## Release Notes
 
@@ -28,7 +28,7 @@ Run these directly in your browser:
 
 - [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - compare two rendered videos with slider, side-by-side, difference, and toggle views.
 - [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - trim, crop, resize, and export short clips as GIF or smaller WebP files.
-- [DENO 디스코드용 영상 압축](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 영상을 자르고, 크롭하고, 다운샘플링해서 가능하면 10MB 이하 디스코드용 MP4로 저장합니다.
+- [DENO 디스코드용 영상 / 이미지 압축](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 영상이나 이미지를 줄여 가능하면 10MB 이하 디스코드용 파일로 저장합니다.
 
 ## DENO Visual Fold
 
