@@ -269,20 +269,15 @@ def test_visual_fold_frontend_is_visual_only():
     assert "function foldedChipWidth" in script
     assert "function graphGroups" in script
     assert "function selectedGroups" in script
-    assert "const hasSelectedNodes = selectedNodes().length > 0;" in script
-    assert "Normal node selection wins." in script
     assert "clean.length === 0 && groups.length === 1" in script
     assert "function groupBounds" in script
     assert "function setGroupBounds" in script
     assert "function nodesInGroup" in script
     assert "function collapseGroupToFoldChip" in script
     assert "sourceGroup" in script
-    assert "function ensureRenameButton" in script
-    assert "function updateRenameButton" in script
     assert "function showRenameDialog" in script
     assert "deno-visual-rename-dialog" in script
     assert "Rename Fold Group" in script
-    assert "Deno Rename Fold Group" in script
     assert "function foldedAnchorFromCanvas" in script
     assert "function rememberCanvasPointer" in script
     assert "function supportsExtensionMenuApi" in script
@@ -290,46 +285,47 @@ def test_visual_fold_frontend_is_visual_only():
     assert "function buildNodeMenuItems" in script
     assert "getCanvasMenuItems(canvas)" in script
     assert "getNodeMenuItems(node)" in script
-    assert 'data-testid="selection-toolbox"' in script
-    assert "deno-visual-fold-fallback-bar" in script
-    assert "function attachButtonToSelectionSurface" in script
-    assert 'const VISUAL_FOLD_REV = "r2026.06.22-selection-toolbar-smooth-a"' in script
+    assert 'const VISUAL_FOLD_REV = "r2026.06.23-selection-commands-a"' in script
+    assert "const COMMANDS = Object.freeze" in script
+    assert "commands: VISUAL_FOLD_COMMANDS" in script
+    assert "getSelectionToolboxCommands(selectedItem)" in script
+    assert "function buildSelectionToolboxCommands" in script
+    assert "function selectionSnapshot" in script
+    assert "function deriveActionModel" in script
+    assert "function executeSelectionCommand" in script
+    assert "function selectedItemsSnapshot" in script
+    assert "return Array.from(selectedItems).filter(Boolean);" in script
+    assert "function replaceSelection" in script
+    assert "canvas.selectItems(clean, false)" in script
+    assert "function selectionActionClientRect" in script
     assert 'const DOM_HIDDEN_KEY = "__denoVisualFoldDomHiddenStyle"' in script
     assert "function widgetDomElements" in script
     assert "function setFoldDomWidgetsHidden" in script
     assert "setFoldDomWidgetsHidden(node, true)" in script
     assert "setFoldDomWidgetsHidden(item, false)" in script
-    assert "function selectionToolbarRoot" in script
-    assert "function closestSelectionToolbarElement" in script
-    assert "function isSelectionToolbarTarget" in script
-    assert "function installSelectionToolbarObserver" in script
-    assert "new MutationObserver" in script
-    assert "function scheduleSelectionUiUpdate" in script
-    assert "requestAnimationFrame(refreshSelectionActionsNow)" in script
-    assert "isSelectionToolbarTarget(event?.target) || !isInsideCanvasRect(event)" in script
-    assert "isSelectionToolbarTarget(event?.target))" in script
-    assert "pointer-events: none;" in script
-    assert ".deno-visual-fold-fallback-bar .deno-visual-fold-button" in script
-    assert "function selectionActionsSuppressed" in script
-    assert "canvasPointerActive" in script
-    assert "function rememberDocumentPointer" in script
-    assert "typeof Node === \"undefined\" || !(target instanceof Node)" in script
-    assert "document.addEventListener(\"pointerdown\", rememberDocumentPointer, { capture: true, passive: true })" in script
-    assert "document.addEventListener(\"pointerup\", releaseCanvasPointer, { capture: true, passive: true })" in script
-    assert "document.addEventListener(\"pointercancel\", releaseCanvasPointer, { capture: true, passive: true })" in script
-    assert "window.addEventListener(\"blur\", () => releaseCanvasPointer(), { passive: true })" in script
-    assert "canvas?.isDragging" in script
-    assert "canvas?.state?.draggingItems" in script
-    assert "canvas?.node_dragged" in script
-    assert "canvas?.dragging_group" in script
-    assert "isSelectionActionTarget" in script
-    assert "selectionActionsSuppressed())" in script
     assert "window.prompt" not in script
     assert "__denoVisualFold" in script
     assert "function appGraph()" in script
     assert "deno-visual-fold-tooltip" in script
-    assert "deno-visual-fold-button" in script
-    assert "Deno Align Selected Nodes" in script
+    assert "Fold selected nodes" in script
+    assert "Fold selected group" in script
+    assert "Unfold group" in script
+    assert "Rename folded group" in script
+    assert "Align selection" in script
+    assert "deno-visual-fold-command-icon" in script
+    assert "deno-visual-unfold-command-icon" in script
+    assert "deno-visual-rename-command-icon" in script
+    assert "deno-visual-align-command-icon" in script
+    assert 'content: "Fold";' in script
+    assert 'content: "Align";' in script
+    assert 'content: "Fold selected nodes";' in script
+    assert 'content: "Align or distribute";' in script
+    assert "function refreshCommandButtonAccessibility" in script
+    assert "function scheduleCommandButtonAccessibilityRefresh" in script
+    assert "button.setAttribute(\"aria-label\", label)" in script
+    assert "button.setAttribute(\"title\", label)" in script
+    assert "button.dataset.denoVisualFoldCommand = label" in script
+    assert "ensureVisualStyle();" in script
     assert "Align Left" in script
     assert "Align Right" in script
     assert "Align Top" in script
@@ -345,16 +341,12 @@ def test_visual_fold_frontend_is_visual_only():
     assert "function addAlignMenuOptions" in script
     assert "function patchGroupMenuTarget" in script
     assert "function selectedNodesFromRaw" in script
-    assert "for (const node of selectedNodesFromRaw(raw)) addUnique(result, node);" in script
     assert "if (node?.selected) addUnique(result, node);" in script
-    assert "let usedSelectedItems = false;" in script
     assert "node?.flags?.collapsed" in script
     assert "_collapsed_width" in script
     assert "foldedAnchorAt" in script
     assert "foldedAnchorAtClient" in script
     assert "refreshFoldedLooks" in script
-    assert "updateFoldButton" in script
-    assert "updateAlignButton" in script
     assert "syncFoldedMotion" in script
     assert "patchMotionSync" in script
     assert "canvasPrototype" in script
@@ -364,6 +356,26 @@ def test_visual_fold_frontend_is_visual_only():
     assert "getNodeMenuOptions" in script
     assert "installLatePatches" in script
     assert "nodeCreated(node)" in script
+    assert "deno-visual-fold-button" not in script
+    assert "deno-visual-fold-fallback-bar" not in script
+    assert 'data-testid="selection-toolbox"' not in script
+    assert "function selectionToolbarRoot" not in script
+    assert "function closestSelectionToolbarElement" not in script
+    assert "function isSelectionToolbarTarget" not in script
+    assert "function attachButtonToSelectionSurface" not in script
+    assert "function insertSelectionButton" not in script
+    assert "function installSelectionToolbarObserver" not in script
+    assert "new MutationObserver" not in script
+    assert "function scheduleSelectionUiUpdate" not in script
+    assert "requestAnimationFrame(refreshSelectionActionsNow)" not in script
+    assert "selectionActionsSuppressed" not in script
+    assert "nativeSelectionToolbarActionActive" not in script
+    assert "canvasPointerActive" not in script
+    assert "function rememberDocumentPointer" not in script
+    assert "document.addEventListener(\"pointerdown\", rememberDocumentPointer" not in script
+    assert "setInterval(" not in script
+    assert "pi pi-compress" not in script
+    assert "pi pi-align-center" not in script
     assert ".at(" not in script
     assert "NODE_CLASS_MAPPINGS" not in script
     assert "graph.links" not in script

@@ -42,9 +42,6 @@ def install_torch_stub():
 
 
 def install_ltx_stub():
-    if "comfy_extras.nodes_lt" in sys.modules:
-        return
-
     comfy_extras = types.ModuleType("comfy_extras")
     nodes_lt = types.ModuleType("comfy_extras.nodes_lt")
 
@@ -70,74 +67,78 @@ def install_ltx_stub():
 
 
 def install_comfyui_dependency_stubs():
-    if "folder_paths" not in sys.modules:
-        folder_paths = types.ModuleType("folder_paths")
-        folder_paths.models_dir = str(REPO_ROOT / "models")
-        folder_paths.folder_names_and_paths = {}
-        folder_paths.get_filename_list = lambda folder_name: []
-        folder_paths.get_full_path = lambda folder_name, filename: str(REPO_ROOT / "models" / folder_name / filename)
-        folder_paths.get_full_path_or_raise = folder_paths.get_full_path
-        folder_paths.get_folder_paths = lambda folder_name: [str(REPO_ROOT / "models" / folder_name)]
-        folder_paths.get_input_directory = lambda: str(REPO_ROOT / "input")
-        folder_paths.get_user_directory = lambda: str(REPO_ROOT / "user")
-        folder_paths.get_temp_directory = lambda: str(REPO_ROOT / "tmp" / "test-temp")
-        sys.modules["folder_paths"] = folder_paths
+    for module_name in list(sys.modules):
+        if module_name.startswith("comfy."):
+            del sys.modules[module_name]
 
-    if "nodes" not in sys.modules:
-        nodes_stub = types.ModuleType("nodes")
+    folder_paths = types.ModuleType("folder_paths")
+    folder_paths.models_dir = str(REPO_ROOT / "models")
+    folder_paths.folder_names_and_paths = {}
+    folder_paths.get_filename_list = lambda folder_name: []
+    folder_paths.get_full_path = lambda folder_name, filename: str(REPO_ROOT / "models" / folder_name / filename)
+    folder_paths.get_full_path_or_raise = folder_paths.get_full_path
+    folder_paths.get_folder_paths = lambda folder_name: [str(REPO_ROOT / "models" / folder_name)]
+    folder_paths.get_input_directory = lambda: str(REPO_ROOT / "input")
+    folder_paths.get_user_directory = lambda: str(REPO_ROOT / "user")
+    folder_paths.get_temp_directory = lambda: str(REPO_ROOT / "tmp" / "test-temp")
+    sys.modules["folder_paths"] = folder_paths
 
-        class CheckpointLoaderSimple:
-            def load_checkpoint(self, ckpt_name):
-                return "model", "clip", "video_vae"
+    nodes_stub = types.ModuleType("nodes")
 
-        class UNETLoader:
-            def load_unet(self, unet_name, weight_dtype):
-                return ("model",)
+    class CheckpointLoaderSimple:
+        def load_checkpoint(self, ckpt_name):
+            return "model", "clip", "video_vae"
 
-        class DualCLIPLoader:
-            def load_clip(self, clip_name1, clip_name2, clip_type, device="default"):
-                return ("clip",)
+    class UNETLoader:
+        def load_unet(self, unet_name, weight_dtype):
+            return ("model",)
 
-        class PreviewImage:
-            OUTPUT_NODE = True
+    class DualCLIPLoader:
+        def load_clip(self, clip_name1, clip_name2, clip_type, device="default"):
+            return ("clip",)
 
-            def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
-                return {
-                    "ui": {
-                        "images": [{
-                            "filename": f"{filename_prefix}00001_.png",
-                            "subfolder": "",
-                            "type": "temp",
-                        }]
-                    }
+    class PreviewImage:
+        OUTPUT_NODE = True
+
+        def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+            return {
+                "ui": {
+                    "images": [{
+                        "filename": f"{filename_prefix}00001_.png",
+                        "subfolder": "",
+                        "type": "temp",
+                    }]
                 }
+            }
 
-        nodes_stub.CheckpointLoaderSimple = CheckpointLoaderSimple
-        nodes_stub.UNETLoader = UNETLoader
-        nodes_stub.DualCLIPLoader = DualCLIPLoader
-        nodes_stub.PreviewImage = PreviewImage
-        nodes_stub.NODE_CLASS_MAPPINGS = {}
-        sys.modules["nodes"] = nodes_stub
+    nodes_stub.CheckpointLoaderSimple = CheckpointLoaderSimple
+    nodes_stub.UNETLoader = UNETLoader
+    nodes_stub.DualCLIPLoader = DualCLIPLoader
+    nodes_stub.PreviewImage = PreviewImage
+    nodes_stub.NODE_CLASS_MAPPINGS = {}
+    sys.modules["nodes"] = nodes_stub
 
-    if "node_helpers" not in sys.modules:
-        node_helpers = types.ModuleType("node_helpers")
-        node_helpers.conditioning_set_values = lambda conditioning, values: conditioning
-        sys.modules["node_helpers"] = node_helpers
+    node_helpers = types.ModuleType("node_helpers")
+    node_helpers.conditioning_set_values = lambda conditioning, values: conditioning
+    sys.modules["node_helpers"] = node_helpers
 
-    if "comfy" not in sys.modules:
-        comfy = types.ModuleType("comfy")
-        comfy.lora = types.ModuleType("comfy.lora")
-        comfy.lora_convert = types.ModuleType("comfy.lora_convert")
-        comfy.utils = types.ModuleType("comfy.utils")
-        comfy.lora.model_lora_keys_unet = lambda model, key_map: key_map
-        comfy.lora.model_lora_keys_clip = lambda clip, key_map: key_map
-        comfy.lora.load_lora = lambda lora_sd, key_map: {}
-        comfy.lora_convert.convert_lora = lambda lora_sd: lora_sd
-        comfy.utils.load_torch_file = lambda *args, **kwargs: {}
-        sys.modules["comfy"] = comfy
-        sys.modules["comfy.lora"] = comfy.lora
-        sys.modules["comfy.lora_convert"] = comfy.lora_convert
-        sys.modules["comfy.utils"] = comfy.utils
+    comfy = types.ModuleType("comfy")
+    comfy.lora = types.ModuleType("comfy.lora")
+    comfy.lora_convert = types.ModuleType("comfy.lora_convert")
+    comfy.utils = types.ModuleType("comfy.utils")
+    comfy.model_management = types.ModuleType("comfy.model_management")
+    comfy.lora.model_lora_keys_unet = lambda model, key_map: key_map
+    comfy.lora.model_lora_keys_clip = lambda clip, key_map: key_map
+    comfy.lora.load_lora = lambda lora_sd, key_map: {}
+    comfy.lora_convert.convert_lora = lambda lora_sd: lora_sd
+    comfy.utils.load_torch_file = lambda *args, **kwargs: {}
+    comfy.model_management.InterruptProcessingException = RuntimeError
+    comfy.model_management.throw_exception_if_processing_interrupted = lambda: None
+    sys.modules["comfy"] = comfy
+    sys.modules["comfy.lora"] = comfy.lora
+    sys.modules["comfy.lora_convert"] = comfy.lora_convert
+    sys.modules["comfy.utils"] = comfy.utils
+    sys.modules["comfy.model_management"] = comfy.model_management
 
     if "aiohttp" not in sys.modules:
         aiohttp = types.ModuleType("aiohttp")
@@ -165,6 +166,9 @@ def install_comfyui_dependency_stubs():
 
 
 def load_package():
+    for name in list(sys.modules):
+        if name == "comfyui_deno_custom_nodes" or name.startswith("comfyui_deno_custom_nodes."):
+            del sys.modules[name]
     install_torch_stub()
     install_ltx_stub()
     install_comfyui_dependency_stubs()
@@ -193,6 +197,8 @@ def test_node_registration_exports_expected_nodes():
         "DenoMultiLoraLoader",
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
+        "DenoLTXTiledSpatialUpscaler",
+        "DenoLTXStepFusedTiledSampler",
         "DenoBerniniPromptGuide",
         "DenoIdeogramDirector",
         "DenoLocalLLMRefiner",
@@ -226,6 +232,8 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiLoraLoader"] == "(Deno) Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXTiledSpatialUpscaler"] == "[BETA] (Deno) LTX Tiled Spatial Upscaler"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXStepFusedTiledSampler"] == "[BETA] (Deno) LTX Step-Fused Tiled Sampler"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoBerniniPromptGuide"] == "(Deno) Bernini Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoIdeogramDirector"] == "(Deno) Ideogram Director"
     assert "DenoTranslate" not in package.NODE_CLASS_MAPPINGS

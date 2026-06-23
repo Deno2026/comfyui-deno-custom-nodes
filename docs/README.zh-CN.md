@@ -135,6 +135,18 @@ NVIDIA 官方链接：[NVIDIA Maxine Windows Getting Started](https://docs.nvidi
 
 主要功能：Checkpoint Style、KJ Style、GGUF Style，输出 `model`、`clip`、`video_vae`、`audio_vae`，尽量使用 ComfyUI 内置加载路径，并兼容 KJNodes 与 ComfyUI-GGUF。
 
+### `[BETA] (Deno) LTX Tiled Spatial Upscaler`
+
+用于高分辨率 LTX video latent 二次处理的 beta 辅助节点。它会把 video latent 切成带重叠区域的 spatial tile，逐 tile 运行 latent spatial upscaler，再混合回一个 latent。
+
+请用于 video-only LTX latent。如果 workflow 中使用的是 video/audio 合并 latent，建议先分离音频路径，再在 tiled video pass 后重新合并。
+
+### `[BETA] (Deno) LTX Step-Fused Tiled Sampler`
+
+用于 video-only LTX refinement pass 的 beta sampler。它保持一条全局 sampler trajectory，同时通过重叠 spatial tile 计算并融合 model prediction。
+
+这个首个 beta 版本用于 tiled video refinement 实验，不是完整 AV final sampler 的替代品。
+
 ### `(Deno) Easy Model Download Helper`
 
 基于预设的模型文件安装辅助工具。内置 LTX 2.3 8GB VRAM GGUF 入门文件组。
@@ -186,7 +198,7 @@ Negative preset 不是输出模式，而是自动填充下方 negative prompt �
 
 ## Search Tips
 
-可在 GitHub、ComfyUI Manager 和 Registry 中搜索：`deno custom nodes`、`ideogram`、`ideogram 4`、`ideogram director`、`json prompt`、`bbox`、`bounding boxes`、`layout prompt`、`rtx video super resolution`、`nvidia vfx`、`image compare`、`video compare`、`video preview`、`video to gif`、`gif webp`、`ltx 2.3`、`ltx model loader`、`ltx multi lora`、`prompt guide`、`system prompt`、`local llm loader`、`local llm prompt`、`local llm reviewer`、`prompt only`、`final prompt`、`bernini`、`bernini prompt guide`、`reference video edit`、`wan2.2`、`visual fold`、`floating tools`、`free vram`、`update watch`、`portable update check`。
+可在 GitHub、ComfyUI Manager 和 Registry 中搜索：`deno custom nodes`、`ideogram`、`ideogram 4`、`ideogram director`、`json prompt`、`bbox`、`bounding boxes`、`layout prompt`、`rtx video super resolution`、`nvidia vfx`、`image compare`、`video compare`、`video preview`、`video to gif`、`gif webp`、`ltx 2.3`、`ltx model loader`、`ltx tiled`、`ltx tiled sampler`、`ltx spatial upscaler`、`ltx multi lora`、`prompt guide`、`system prompt`、`local llm loader`、`local llm prompt`、`local llm reviewer`、`prompt only`、`final prompt`、`bernini`、`bernini prompt guide`、`reference video edit`、`wan2.2`、`visual fold`、`floating tools`、`free vram`、`update watch`、`portable update check`。
 
 ## Install
 

@@ -413,6 +413,8 @@ _OPTIONAL_NODES = (
     ("deno_multi_lora_loader", "DenoMultiLoraLoader", "(Deno) Multi LoRA Loader"),
     ("deno_ltx_multi_lora_loader", "DenoLTXMultiLoraLoader", "(Deno) LTX Multi LoRA Loader"),
     ("deno_ltx_prompt_guide", "DenoLTXPromptGuide", "(Deno) LTX Prompt Guide"),
+    ("deno_ltx_tiled_nodes", "DenoLTXTiledSpatialUpscaler", "[BETA] (Deno) LTX Tiled Spatial Upscaler"),
+    ("deno_ltx_tiled_nodes", "DenoLTXStepFusedTiledSampler", "[BETA] (Deno) LTX Step-Fused Tiled Sampler"),
     ("deno_bernini_prompt_guide", "DenoBerniniPromptGuide", "(Deno) Bernini Prompt Guide"),
     ("deno_ideogram_director", "DenoIdeogramDirector", "(Deno) Ideogram Director"),
     ("deno_local_llm_refiner", "DenoLocalLLMRefiner", "(Deno) Local LLM Loader"),

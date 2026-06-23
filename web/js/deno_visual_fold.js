@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 
 const EXTENSION_NAME = "Deno.VisualFold";
-const VISUAL_FOLD_REV = "r2026.06.22-selection-toolbar-smooth-a";
+const VISUAL_FOLD_REV = "r2026.06.23-selection-commands-a";
 const META_KEY = "__denoVisualFold";
 const DOM_HIDDEN_KEY = "__denoVisualFoldDomHiddenStyle";
 const CHIP_W = 164;
@@ -14,32 +14,68 @@ const FOLD_LABEL = "Deno: Fold Selected";
 const FOLD_GROUP_LABEL = "Deno: Fold Selected Group";
 const UNFOLD_LABEL = "Deno: Unfold Group";
 const RENAME_LABEL = "Deno: Rename Fold Group";
-const FLOAT_BUTTON_LABEL = "Fold";
-const FLOAT_FOLD_GROUP_LABEL = "Fold Group";
-const FLOAT_UNFOLD_LABEL = "Unfold";
-const FLOAT_RENAME_LABEL = "Rename";
-const FLOAT_ALIGN_LABEL = "Align";
 const ALIGN_MENU_PREFIX = "Deno: Align";
 const GROUP_ALIGN_MENU_PREFIX = "Deno: Align Groups";
 const CHIP_MAX_W = 260;
 const LABEL_MAX_LENGTH = 34;
-const SELECTION_DRAG_SUPPRESS_MS = 320;
-const SELECTION_POINTER_SUPPRESS_MS = 180;
+const COMMANDS = Object.freeze({
+  fold: "deno.visualFold.fold",
+  foldGroup: "deno.visualFold.foldGroup",
+  unfold: "deno.visualFold.unfold",
+  rename: "deno.visualFold.rename",
+  align: "deno.visualFold.align",
+});
+const VISUAL_FOLD_COMMANDS = [
+  {
+    id: COMMANDS.fold,
+    label: "Fold selected nodes",
+    tooltip: "Fold selected nodes",
+    icon: "deno-visual-fold-command-icon",
+    function: () => executeSelectionCommand(COMMANDS.fold),
+  },
+  {
+    id: COMMANDS.foldGroup,
+    label: "Fold selected group",
+    tooltip: "Fold selected group",
+    icon: "deno-visual-fold-command-icon",
+    function: () => executeSelectionCommand(COMMANDS.foldGroup),
+  },
+  {
+    id: COMMANDS.unfold,
+    label: "Unfold group",
+    tooltip: "Unfold group",
+    icon: "deno-visual-unfold-command-icon",
+    function: () => executeSelectionCommand(COMMANDS.unfold),
+  },
+  {
+    id: COMMANDS.rename,
+    label: "Rename folded group",
+    tooltip: "Rename folded group",
+    icon: "deno-visual-rename-command-icon",
+    function: () => executeSelectionCommand(COMMANDS.rename),
+  },
+  {
+    id: COMMANDS.align,
+    label: "Align selection",
+    tooltip: "Align selection",
+    icon: "deno-visual-align-command-icon",
+    function: () => executeSelectionCommand(COMMANDS.align),
+  },
+];
 
 let tooltipEl = null;
-let foldButtonEl = null;
-let renameButtonEl = null;
-let alignButtonEl = null;
 let alignMenuEl = null;
-let fallbackToolbarEl = null;
 let renameDialogEl = null;
-let overlayTimer = null;
-let selectionUiFrame = 0;
-let selectionToolbarObserver = null;
 let visualStyleInstalled = false;
 let lastCanvasPointerEvent = null;
-let canvasPointerActive = false;
-let suppressSelectionUiUntil = 0;
+let commandButtonA11yFrame = 0;
+
+const COMMAND_ICON_LABELS = Object.freeze([
+  [".deno-visual-fold-command-icon", "Fold selected nodes"],
+  [".deno-visual-unfold-command-icon", "Unfold this group"],
+  [".deno-visual-rename-command-icon", "Rename folded group"],
+  [".deno-visual-align-command-icon", "Align or distribute"],
+]);
 
 function appGraph() {
   return app.canvas?.graph || null;
@@ -90,26 +126,42 @@ function selectedNodesFromRaw(raw) {
   return result;
 }
 
+function selectedItemsSnapshot() {
+  const selectedItems = app.canvas?.selectedItems;
+  if (!selectedItems || typeof selectedItems[Symbol.iterator] !== "function") {
+    return null;
+  }
+  return Array.from(selectedItems).filter(Boolean);
+}
+
+function isGraphNode(item) {
+  return graphNodes().includes(item);
+}
+
+function isGraphGroup(item) {
+  return graphGroups().includes(item);
+}
+
 function selectedNodes(fallback) {
   const result = [];
-  const raw = app.canvas?.selected_nodes;
-  if (raw && typeof raw === "object") {
-    for (const node of selectedNodesFromRaw(raw)) addUnique(result, node);
+  const selectedItems = selectedItemsSnapshot();
+
+  if (selectedItems) {
+    for (const item of selectedItems) {
+      if (isGraphNode(item)) addUnique(result, item);
+    }
   } else {
-    const selectedItems = app.canvas?.selectedItems;
-    if (selectedItems && typeof selectedItems.has === "function") {
-      for (const node of graphNodes()) {
-        if (selectedItems.has(node)) addUnique(result, node);
-      }
+    const raw = app.canvas?.selected_nodes;
+    if (raw && typeof raw === "object") {
+      for (const node of selectedNodesFromRaw(raw)) addUnique(result, node);
     } else {
       for (const node of graphNodes()) {
         if (node?.selected) addUnique(result, node);
       }
     }
   }
-  if (fallback && !result.includes(fallback)) {
-    result.push(fallback);
-  }
+
+  if (fallback && isGraphNode(fallback)) addUnique(result, fallback);
   return result.filter(Boolean);
 }
 
@@ -119,40 +171,142 @@ function selectedAlignNodes(fallback) {
 
 function selectedGroups(fallback) {
   const result = [];
-  const groups = graphGroups();
-  const selectedItems = app.canvas?.selectedItems;
-  const hasSelectedNodes = selectedNodes().length > 0;
+  const selectedItems = selectedItemsSnapshot();
 
-  // ComfyUI can leave legacy selected_group / selectedGroup state behind
-  // after node alignment or selection changes. Normal node selection wins.
-  if (!hasSelectedNodes) {
-    let usedSelectedItems = false;
-    if (selectedItems && typeof selectedItems.has === "function") {
-      usedSelectedItems = true;
-      for (const group of groups) {
-        if (selectedItems.has(group)) addUnique(result, group);
-      }
+  if (selectedItems) {
+    for (const item of selectedItems) {
+      if (isGraphGroup(item)) addUnique(result, item);
     }
+  } else if (!selectedNodes().length) {
+    addUnique(result, app.canvas?.selected_group);
+    addUnique(result, app.canvas?.selectedGroup);
 
-    if (!usedSelectedItems) {
-      addUnique(result, app.canvas?.selected_group);
-      addUnique(result, app.canvas?.selectedGroup);
-
-      for (const group of groups) {
-        if (group?.selected) addUnique(result, group);
-      }
+    for (const group of graphGroups()) {
+      if (group?.selected) addUnique(result, group);
     }
   }
 
-  if (fallback && groups.includes(fallback)) {
-    addUnique(result, fallback);
-  }
+  if (fallback && isGraphGroup(fallback)) addUnique(result, fallback);
 
-  return result.filter((group) => groups.includes(group));
+  return result.filter((group) => isGraphGroup(group));
 }
 
 function selectedAlignGroups(fallback) {
   return selectedGroups(fallback).filter((group) => !!groupBounds(group));
+}
+
+function selectionSnapshot(fallback = null) {
+  const nodes = selectedNodes(fallback);
+  const groups = selectedGroups(fallback);
+  const foldedAnchors = nodes.filter((node) => foldMeta(node)?.index === 0);
+  const foldedMembers = nodes.filter((node) => foldMeta(node));
+  const normalNodes = nodes.filter((node) => !foldMeta(node));
+  const primary = foldedAnchors[0] || foldedMembers[0] || normalNodes[0] || groups[0] || null;
+
+  return {
+    nodes,
+    groups,
+    foldedAnchors,
+    foldedMembers,
+    normalNodes,
+    primary,
+  };
+}
+
+function deriveActionModel(snapshot = selectionSnapshot()) {
+  const commandIds = [];
+  const folded = snapshot.foldedAnchors[0] || snapshot.foldedMembers[0] || null;
+  const foldableGroup = !folded
+    && snapshot.normalNodes.length === 0
+    && snapshot.groups.length === 1
+    && nodesInGroup(snapshot.groups[0]).length
+    ? snapshot.groups[0]
+    : null;
+
+  if (folded) {
+    commandIds.push(COMMANDS.unfold, COMMANDS.rename);
+  } else if (foldableGroup) {
+    commandIds.push(COMMANDS.foldGroup);
+  } else if (snapshot.normalNodes.length >= 2) {
+    commandIds.push(COMMANDS.fold);
+  }
+
+  if (selectedAlignGroups().length >= 2 || selectedAlignNodes().length >= 2) {
+    commandIds.push(COMMANDS.align);
+  }
+
+  return {
+    commandIds,
+    folded,
+    foldableGroup,
+  };
+}
+
+function buildSelectionToolboxCommands(_selectedItem) {
+  const snapshot = selectionSnapshot();
+  const model = deriveActionModel(snapshot);
+  if (!model.commandIds.length) return [];
+
+  scheduleCommandButtonAccessibilityRefresh();
+  return model.commandIds;
+}
+
+function executeSelectionCommand(commandId) {
+  const snapshot = selectionSnapshot();
+  const model = deriveActionModel(snapshot);
+
+  if (!model.commandIds.includes(commandId)) {
+    return;
+  }
+
+  if (commandId === COMMANDS.fold && snapshot.normalNodes.length >= 2) {
+    foldNodes(snapshot.normalNodes);
+    return;
+  }
+
+  if (commandId === COMMANDS.foldGroup && model.foldableGroup) {
+    foldGroup(model.foldableGroup);
+    return;
+  }
+
+  if (commandId === COMMANDS.unfold && model.folded) {
+    unfoldGroup(model.folded);
+    return;
+  }
+
+  if (commandId === COMMANDS.rename && model.folded) {
+    renameFoldGroup(model.folded);
+    return;
+  }
+
+  if (commandId === COMMANDS.align) {
+    toggleAlignMenu();
+  }
+  scheduleCommandButtonAccessibilityRefresh();
+}
+
+function refreshCommandButtonAccessibility() {
+  commandButtonA11yFrame = 0;
+  if (typeof document === "undefined") return;
+
+  for (const [selector, label] of COMMAND_ICON_LABELS) {
+    for (const icon of document.querySelectorAll(selector)) {
+      const button = icon.closest?.("button");
+      if (!button) continue;
+      button.setAttribute("aria-label", label);
+      button.setAttribute("title", label);
+      button.dataset.denoVisualFoldCommand = label;
+    }
+  }
+}
+
+function scheduleCommandButtonAccessibilityRefresh() {
+  if (commandButtonA11yFrame) return;
+  if (typeof requestAnimationFrame === "function") {
+    commandButtonA11yFrame = requestAnimationFrame(refreshCommandButtonAccessibility);
+    return;
+  }
+  commandButtonA11yFrame = setTimeout(refreshCommandButtonAccessibility, 16);
 }
 
 function foldMeta(node) {
@@ -459,46 +613,51 @@ function selectOnly(node) {
   selectMany([node]);
 }
 
-function selectMany(nodes) {
+function replaceSelection(items) {
   const canvas = app.canvas;
-  const clean = Array.from(new Set((nodes || []).filter(Boolean)));
-  if (!canvas || !clean.length) return;
-  const selectedSet = new Set(clean);
+  const clean = Array.from(new Set((items || []).filter(Boolean)));
+  if (!canvas || !clean.length) return false;
+
+  if (typeof canvas.selectItems === "function") {
+    canvas.selectItems(clean, false);
+    return true;
+  }
+
+  if (typeof canvas.deselectAll === "function") {
+    canvas.deselectAll();
+  }
 
   for (const item of graphNodes()) {
-    item.selected = selectedSet.has(item);
+    item.selected = clean.includes(item);
   }
   for (const group of graphGroups()) {
-    group.selected = false;
+    group.selected = clean.includes(group);
   }
+
   canvas.selected_nodes = {};
-  for (const item of clean) {
+  for (const item of clean.filter(isGraphNode)) {
     canvas.selected_nodes[item.id] = item;
   }
+
   canvas.selectedItems?.clear?.();
   for (const item of clean) {
     canvas.selectedItems?.add?.(item);
   }
-  canvas.selected_group = null;
-  canvas.selectedGroup = null;
+
+  const groups = clean.filter(isGraphGroup);
+  canvas.selected_group = groups[0] || null;
+  canvas.selectedGroup = groups[0] || null;
+  canvas.onSelectionChange?.(canvas.selected_nodes);
+  canvas.setDirty?.(true, true);
+  return true;
+}
+
+function selectMany(nodes) {
+  return replaceSelection(nodes);
 }
 
 function selectGroup(group) {
-  const canvas = app.canvas;
-  if (!canvas || !group) return false;
-
-  for (const item of graphNodes()) {
-    item.selected = false;
-  }
-  for (const item of graphGroups()) {
-    item.selected = item === group;
-  }
-  canvas.selected_nodes = {};
-  canvas.selectedItems?.clear?.();
-  canvas.selectedItems?.add?.(group);
-  canvas.selected_group = group;
-  canvas.selectedGroup = group;
-  return true;
+  return replaceSelection([group]);
 }
 
 function canvasPrototype() {
@@ -686,47 +845,94 @@ function ensureVisualStyle() {
       visibility: hidden !important;
     }
 
-    .deno-visual-fold-button {
+    .deno-visual-fold-command-icon,
+    .deno-visual-unfold-command-icon,
+    .deno-visual-rename-command-icon,
+    .deno-visual-align-command-icon {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      height: 32px;
-      min-width: 54px;
-      padding: 0 12px;
-      border: 1px solid rgba(82, 255, 145, 0.86);
-      border-radius: 8px;
-      background: rgba(6, 18, 10, 0.96);
+      min-width: 46px;
+      height: 22px;
+      box-sizing: border-box;
+      padding: 0 8px;
+      border: 1px solid rgba(72, 255, 132, 0.86);
+      border-radius: 999px;
+      background: rgba(5, 30, 14, 0.98);
       color: #dfffe8;
-      cursor: pointer;
-      font: 700 12px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+      font: 900 12px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-style: normal;
+      letter-spacing: 0;
       white-space: nowrap;
+      box-shadow: 0 0 0 1px rgba(72, 255, 132, 0.12) inset;
     }
 
-    .deno-visual-fold-button:hover {
-      background: rgba(27, 118, 62, 0.98);
-      border-color: rgba(110, 255, 165, 0.96);
+    .deno-visual-fold-command-icon::before {
+      content: "Fold";
+    }
+
+    .deno-visual-unfold-command-icon::before {
+      content: "Unfold";
+    }
+
+    .deno-visual-rename-command-icon::before {
+      content: "Name";
+    }
+
+    .deno-visual-align-command-icon::before {
+      content: "Align";
+    }
+
+    button:has(.deno-visual-fold-command-icon),
+    button:has(.deno-visual-unfold-command-icon),
+    button:has(.deno-visual-rename-command-icon),
+    button:has(.deno-visual-align-command-icon) {
+      overflow: visible;
+    }
+
+    button:has(.deno-visual-fold-command-icon):hover .deno-visual-fold-command-icon,
+    button:has(.deno-visual-unfold-command-icon):hover .deno-visual-unfold-command-icon,
+    button:has(.deno-visual-rename-command-icon):hover .deno-visual-rename-command-icon,
+    button:has(.deno-visual-align-command-icon):hover .deno-visual-align-command-icon {
+      border-color: rgba(126, 255, 166, 0.96);
+      background: rgba(22, 90, 44, 0.98);
       color: #ffffff;
     }
 
-    .deno-visual-fold-fallback-bar {
-      position: fixed;
-      z-index: 10010;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 6px;
-      border: 1px solid rgba(82, 255, 145, 0.74);
-      border-radius: 12px;
-      background: rgba(4, 13, 8, 0.96);
-      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(82, 255, 145, 0.10) inset;
-      transform: translate(-50%, -100%);
+    button:has(.deno-visual-fold-command-icon):hover::after,
+    button:has(.deno-visual-unfold-command-icon):hover::after,
+    button:has(.deno-visual-rename-command-icon):hover::after,
+    button:has(.deno-visual-align-command-icon):hover::after {
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 9px);
+      z-index: 10050;
+      transform: translateX(-50%);
+      padding: 5px 8px;
+      border: 1px solid rgba(126, 255, 166, 0.74);
+      border-radius: 8px;
+      background: rgba(3, 10, 7, 0.98);
+      color: #dfffe8;
+      font: 800 11px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      white-space: nowrap;
       pointer-events: none;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
     }
 
-    .deno-visual-fold-fallback-bar .deno-visual-fold-button {
-      pointer-events: auto;
+    button:has(.deno-visual-fold-command-icon):hover::after {
+      content: "Fold selected nodes";
+    }
+
+    button:has(.deno-visual-unfold-command-icon):hover::after {
+      content: "Unfold this group";
+    }
+
+    button:has(.deno-visual-rename-command-icon):hover::after {
+      content: "Rename folded group";
+    }
+
+    button:has(.deno-visual-align-command-icon):hover::after {
+      content: "Align or distribute";
     }
 
     .deno-visual-align-menu {
@@ -1039,164 +1245,15 @@ function syncFoldedMotion() {
   refreshFoldedLooks();
 }
 
-function eventHasPressedButton(event) {
-  return Number(event?.buttons || 0) !== 0;
-}
-
-function canvasClientRect() {
-  return app.canvas?.canvas?.getBoundingClientRect?.() || null;
-}
-
-function isInsideCanvasRect(event) {
-  const rect = canvasClientRect();
-  if (!rect || !Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) {
-    return false;
-  }
-  return event.clientX >= rect.left
-    && event.clientX <= rect.right
-    && event.clientY >= rect.top
-    && event.clientY <= rect.bottom;
-}
-
-function suppressSelectionActions(ms = SELECTION_POINTER_SUPPRESS_MS) {
-  suppressSelectionUiUntil = Math.max(suppressSelectionUiUntil, Date.now() + ms);
-  detachSelectionActionButtons();
-  hideTooltip();
-}
-
-function isSelectionActionTarget(target) {
-  if (typeof Node === "undefined" || !(target instanceof Node)) {
-    return false;
-  }
-  return Boolean(
-    foldButtonEl?.contains?.(target)
-    || renameButtonEl?.contains?.(target)
-    || alignButtonEl?.contains?.(target)
-    || alignMenuEl?.contains?.(target)
-    || fallbackToolbarEl?.contains?.(target)
-  );
-}
-
-function closestSelectionToolbarElement(target) {
-  if (typeof Element === "undefined" || !(target instanceof Element)) {
-    return null;
-  }
-
-  const selectors = [
-    '[data-testid="selection-toolbox"]',
-    '.selection-toolbox',
-    '[data-testid="selectionToolbox"]',
-    '[data-testid*="selection"][data-testid*="toolbox"]',
-    '[role="toolbar"]',
-    '[role="menu"]',
-    '[data-pc-name="menu"]',
-    '[data-pc-name="contextmenu"]',
-    '[data-pc-name="popover"]',
-    '.p-menu',
-    '.p-contextmenu',
-    '.p-tieredmenu',
-    '.p-popover',
-  ];
-
-  return target.closest?.(selectors.join(", ")) || null;
-}
-
-function selectionToolbarRoot() {
-  if (typeof document === "undefined") return null;
-  const selectors = [
-    '[data-testid="selection-toolbox"]',
-    '.selection-toolbox',
-    '[data-testid="selectionToolbox"]',
-    '[data-testid*="selection"][data-testid*="toolbox"]',
-  ];
-  for (const selector of selectors) {
-    const element = document.querySelector(selector);
-    if (!element?.isConnected) continue;
-    const rect = element.getBoundingClientRect?.();
-    if (!rect || rect.width <= 0 || rect.height <= 0) continue;
-    return element;
-  }
-  return null;
-}
-
-function isSelectionToolbarTarget(target) {
-  if (typeof Node === "undefined" || !(target instanceof Node)) {
-    return false;
-  }
-  return Boolean(
-    selectionToolbarRoot()?.contains?.(target)
-    || closestSelectionToolbarElement(target)
-  );
-}
-
 function handleCanvasMove(event) {
   lastCanvasPointerEvent = event;
   syncFoldedMotion();
-  if (eventHasPressedButton(event)) {
-    canvasPointerActive = true;
-    suppressSelectionActions(SELECTION_DRAG_SUPPRESS_MS);
-    return;
-  }
   updateHoverTooltip(event);
-  scheduleSelectionUiUpdate();
 }
 
 function rememberCanvasPointer(event) {
   lastCanvasPointerEvent = event;
-  if (event?.type !== "pointerdown") {
-    return;
-  }
-  canvasPointerActive = true;
-  suppressSelectionActions(SELECTION_POINTER_SUPPRESS_MS);
-  scheduleSelectionUiUpdate();
-}
-
-function releaseCanvasPointer(event) {
-  if (isSelectionActionTarget(event?.target) || isSelectionToolbarTarget(event?.target)) {
-    scheduleSelectionUiUpdate();
-    return;
-  }
-  canvasPointerActive = false;
-  suppressSelectionActions(SELECTION_DRAG_SUPPRESS_MS);
-  scheduleSelectionUiUpdate();
-}
-
-function rememberDocumentPointer(event) {
-  if (isSelectionActionTarget(event?.target) || isSelectionToolbarTarget(event?.target) || !isInsideCanvasRect(event)) {
-    scheduleSelectionUiUpdate();
-    return;
-  }
-  canvasPointerActive = true;
-  suppressSelectionActions(SELECTION_POINTER_SUPPRESS_MS);
-  scheduleSelectionUiUpdate();
-}
-
-function selectionActionsSuppressed() {
-  const canvas = app.canvas;
-  if (canvasPointerActive || Date.now() < suppressSelectionUiUntil) {
-    return true;
-  }
-  return Boolean(
-    canvas?.isDragging
-    || canvas?.state?.draggingItems
-    || canvas?.state?.draggingCanvas
-    || canvas?.state?.draggingSelection
-    || canvas?.state?.draggingNode
-    || canvas?.state?.draggingGroup
-    || canvas?.node_dragged
-    || canvas?.dragging_canvas
-    || canvas?.dragging_group
-    || canvas?.group_dragged
-    || canvas?.selected_group_dragged
-    || canvas?.resizingGroup
-    || canvas?.dragging
-  );
-}
-
-function detachSelectionActionButtons() {
-  detachFoldButton();
-  detachRenameButton();
-  detachAlignButton();
+  syncFoldedMotion();
 }
 
 function setupMouseTracking() {
@@ -1209,154 +1266,6 @@ function setupMouseTracking() {
   element.addEventListener("contextmenu", rememberCanvasPointer, { passive: true });
   element.addEventListener("mouseleave", hideTooltip, { passive: true });
   element.__denoVisualFoldMouseBound = true;
-
-  if (typeof document !== "undefined" && !document.__denoVisualFoldPointerReleaseBound) {
-    document.addEventListener("pointerdown", rememberDocumentPointer, { capture: true, passive: true });
-    document.addEventListener("pointerup", releaseCanvasPointer, { capture: true, passive: true });
-    document.addEventListener("pointercancel", releaseCanvasPointer, { capture: true, passive: true });
-    if (typeof window !== "undefined") {
-      window.addEventListener("blur", () => releaseCanvasPointer(), { passive: true });
-    }
-    document.__denoVisualFoldPointerReleaseBound = true;
-  }
-}
-
-function mutationTouchesSelectionSurface(mutation) {
-  if (!mutation) return false;
-  const target = mutation.target;
-  if (isSelectionToolbarTarget(target) || isSelectionActionTarget(target)) {
-    return true;
-  }
-  for (const node of mutation.addedNodes || []) {
-    if (isSelectionToolbarTarget(node) || isSelectionActionTarget(node)) {
-      return true;
-    }
-    if (typeof Element !== "undefined" && node instanceof Element) {
-      if (
-        node.querySelector?.('[data-testid="selection-toolbox"], .selection-toolbox, [data-testid="selectionToolbox"], [role="toolbar"], [role="menu"]')
-      ) {
-        return true;
-      }
-    }
-  }
-  for (const node of mutation.removedNodes || []) {
-    if (isSelectionToolbarTarget(node) || isSelectionActionTarget(node)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function installSelectionToolbarObserver() {
-  if (
-    selectionToolbarObserver
-    || typeof MutationObserver === "undefined"
-    || typeof document === "undefined"
-    || !document.body
-  ) {
-    return;
-  }
-
-  selectionToolbarObserver = new MutationObserver((mutations) => {
-    if (mutations.some(mutationTouchesSelectionSurface)) {
-      scheduleSelectionUiUpdate();
-    }
-  });
-  selectionToolbarObserver.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-}
-
-function refreshSelectionActionsNow() {
-  selectionUiFrame = 0;
-  setupMouseTracking();
-  updateFoldButton();
-  updateRenameButton();
-  updateAlignButton();
-}
-
-function scheduleSelectionUiUpdate() {
-  if (selectionUiFrame) return;
-  if (typeof requestAnimationFrame === "function") {
-    selectionUiFrame = requestAnimationFrame(refreshSelectionActionsNow);
-    return;
-  }
-  selectionUiFrame = setTimeout(refreshSelectionActionsNow, 16);
-}
-
-function ensureFoldButton() {
-  if (foldButtonEl || typeof document === "undefined") return foldButtonEl;
-  ensureVisualStyle();
-  foldButtonEl = document.createElement("button");
-  foldButtonEl.type = "button";
-  foldButtonEl.className = "deno-visual-fold-button";
-  foldButtonEl.textContent = FLOAT_BUTTON_LABEL;
-  foldButtonEl.title = "Fold selected nodes";
-  foldButtonEl.setAttribute("aria-label", "Deno Fold Selected Nodes");
-  foldButtonEl.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  });
-  foldButtonEl.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (selectionActionsSuppressed()) {
-      detachSelectionActionButtons();
-      return;
-    }
-    const folded = selectedNodes().find((node) => foldMeta(node));
-    if (folded) {
-      unfoldGroup(folded);
-      updateFoldButton();
-      return;
-    }
-
-    const groups = selectedGroups();
-    if (groups.length === 1 && nodesInGroup(groups[0]).length) {
-      foldGroup(groups[0]);
-      updateFoldButton();
-      return;
-    }
-
-    const clean = selectedNodes().filter((node) => !foldMeta(node));
-    if (clean.length > 1) {
-      foldNodes(clean);
-      updateFoldButton();
-    }
-  });
-  return foldButtonEl;
-}
-
-function ensureRenameButton() {
-  if (renameButtonEl || typeof document === "undefined") return renameButtonEl;
-  ensureVisualStyle();
-  renameButtonEl = document.createElement("button");
-  renameButtonEl.type = "button";
-  renameButtonEl.className = "deno-visual-fold-button deno-visual-rename-button";
-  renameButtonEl.textContent = FLOAT_RENAME_LABEL;
-  renameButtonEl.title = "Rename this folded group";
-  renameButtonEl.setAttribute("aria-label", "Deno Rename Fold Group");
-  renameButtonEl.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  });
-  renameButtonEl.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (selectionActionsSuppressed()) {
-      detachSelectionActionButtons();
-      return;
-    }
-    const folded = selectedNodes().find((node) => foldMeta(node))
-      || foldedAnchorFromCanvas(app.canvas);
-    if (folded) {
-      renameFoldGroup(folded);
-      updateFoldButton();
-      updateRenameButton();
-    }
-  });
-  return renameButtonEl;
 }
 
 function nodeSize(node) {
@@ -1517,10 +1426,6 @@ function distributeSelectedGroups(axis) {
 
 function runAlignAction(action) {
   hideAlignMenu();
-  if (selectionActionsSuppressed()) {
-    detachSelectionActionButtons();
-    return;
-  }
   const groups = selectedAlignGroups();
   if (groups.length >= 2) {
     if (action === "horizontal") distributeSelectedGroups("horizontal");
@@ -1529,8 +1434,8 @@ function runAlignAction(action) {
   } else if (action === "horizontal") distributeSelectedNodes("horizontal");
   else if (action === "vertical") distributeSelectedNodes("vertical");
   else alignSelectedNodes(action);
-  updateFoldButton();
-  updateAlignButton();
+  refreshFoldedLooks();
+  dirty();
 }
 
 function ensureAlignMenu() {
@@ -1571,7 +1476,7 @@ function ensureAlignMenu() {
   document.body.appendChild(alignMenuEl);
   document.addEventListener("pointerdown", (event) => {
     if (!alignMenuEl || alignMenuEl.style.display === "none") return;
-    if (alignMenuEl.contains(event.target) || alignButtonEl?.contains(event.target)) return;
+    if (alignMenuEl.contains(event.target)) return;
     hideAlignMenu();
   }, true);
   window.addEventListener("resize", hideAlignMenu, { passive: true });
@@ -1586,9 +1491,10 @@ function hideAlignMenu() {
 
 function showAlignMenu() {
   const menu = ensureAlignMenu();
-  if (!menu || !alignButtonEl) return;
+  if (!menu) return;
 
-  const rect = alignButtonEl.getBoundingClientRect();
+  const rect = selectionActionClientRect();
+  if (!rect) return;
   const groups = selectedAlignGroups();
   const canDistribute = groups.length >= 2 ? groups.length >= 3 : selectedAlignNodes().length >= 3;
   for (const button of menu.querySelectorAll(".deno-visual-align-item")) {
@@ -1612,31 +1518,6 @@ function showAlignMenu() {
 function toggleAlignMenu() {
   if (alignMenuEl?.style.display === "grid") hideAlignMenu();
   else showAlignMenu();
-}
-
-function ensureAlignButton() {
-  if (alignButtonEl || typeof document === "undefined") return alignButtonEl;
-  ensureVisualStyle();
-  alignButtonEl = document.createElement("button");
-  alignButtonEl.type = "button";
-  alignButtonEl.className = "deno-visual-fold-button deno-visual-align-button";
-  alignButtonEl.textContent = FLOAT_ALIGN_LABEL;
-  alignButtonEl.title = "Align or distribute selected nodes or groups";
-  alignButtonEl.setAttribute("aria-label", "Deno Align Selected Nodes or Groups");
-  alignButtonEl.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  });
-  alignButtonEl.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (selectionActionsSuppressed()) {
-      detachSelectionActionButtons();
-      return;
-    }
-    toggleAlignMenu();
-  });
-  return alignButtonEl;
 }
 
 function selectedBounds(nodes) {
@@ -1665,217 +1546,39 @@ function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, number));
 }
 
-function selectionToolbarContent() {
-  const root = selectionToolbarRoot();
-  if (!root) return null;
-  const selectors = [
-    ':scope .p-panel-content',
-    ':scope [data-pc-section="content"]',
-    ':scope [role="toolbar"]',
-    ':scope [data-testid*="toolbar"]',
-    ':scope > div',
-  ];
-  for (const selector of selectors) {
-    const element = root.querySelector(selector);
-    if (!element?.isConnected) continue;
-    const rect = element.getBoundingClientRect?.();
-    if (!rect || rect.width <= 0 || rect.height <= 0) continue;
-    return element;
-  }
-  return root;
-}
-
-function ensureFallbackToolbar(actionBounds) {
-  if (typeof document === "undefined" || !document.body || !actionBounds) return null;
-  ensureVisualStyle();
-  if (!fallbackToolbarEl) {
-    fallbackToolbarEl = document.createElement("div");
-    fallbackToolbarEl.className = "deno-visual-fold-fallback-bar";
-    fallbackToolbarEl.setAttribute("data-deno-visual-fold", "fallback-toolbar");
-    fallbackToolbarEl.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
-    fallbackToolbarEl.addEventListener("click", (event) => {
-      event.stopPropagation();
-    });
-    document.body.appendChild(fallbackToolbarEl);
-  }
-
-  if (!positionFallbackToolbar(actionBounds)) {
-    fallbackToolbarEl.style.display = "none";
-    return null;
-  }
-  return fallbackToolbarEl;
-}
-
-function positionFallbackToolbar(actionBounds) {
-  if (!fallbackToolbarEl || !actionBounds || typeof window === "undefined") return false;
-  const anchor = graphToClient((actionBounds.minX + actionBounds.maxX) / 2, actionBounds.minY);
-  if (!anchor) return false;
-
-  fallbackToolbarEl.style.display = "flex";
-  const width = fallbackToolbarEl.offsetWidth || 180;
-  const height = fallbackToolbarEl.offsetHeight || 44;
-  const left = clampNumber(anchor[0], 18 + width / 2, window.innerWidth - 18 - width / 2);
-  const top = clampNumber(anchor[1] - 12, 60 + height, window.innerHeight - 18);
-  fallbackToolbarEl.style.left = `${left}px`;
-  fallbackToolbarEl.style.top = `${top}px`;
-  return true;
-}
-
-function hideFallbackToolbarIfEmpty() {
-  if (!fallbackToolbarEl) return;
-  if (!fallbackToolbarEl.querySelector(".deno-visual-fold-button")) {
-    fallbackToolbarEl.style.display = "none";
-  }
-}
-
-function insertSelectionButton(surface, button, referenceButton) {
-  if (button.parentElement !== surface) {
-    const reference = referenceButton?.parentElement === surface
-      ? referenceButton.nextSibling
-      : surface.querySelector?.('[aria-label="More Options"]');
-    surface.insertBefore(button, reference || null);
-  }
-}
-
-function attachButtonToSelectionSurface(button, actionBounds, referenceButton = null) {
-  const toolbar = selectionToolbarContent();
-  if (toolbar) {
-    insertSelectionButton(toolbar, button, referenceButton);
-    hideFallbackToolbarIfEmpty();
-    return true;
-  }
-
-  const fallback = ensureFallbackToolbar(actionBounds);
-  if (!fallback) return false;
-  insertSelectionButton(fallback, button, referenceButton);
-  positionFallbackToolbar(actionBounds);
-  return true;
-}
-
-function detachFoldButton() {
-  if (foldButtonEl?.parentElement) {
-    foldButtonEl.parentElement.removeChild(foldButtonEl);
-  }
-  hideFallbackToolbarIfEmpty();
-}
-
-function detachRenameButton() {
-  if (renameButtonEl?.parentElement) {
-    renameButtonEl.parentElement.removeChild(renameButtonEl);
-  }
-  hideFallbackToolbarIfEmpty();
-}
-
-function detachAlignButton() {
-  hideAlignMenu();
-  if (alignButtonEl?.parentElement) {
-    alignButtonEl.parentElement.removeChild(alignButtonEl);
-  }
-  hideFallbackToolbarIfEmpty();
-}
-
-function attachFoldButtonToToolbar(button, actionBounds) {
-  return attachButtonToSelectionSurface(button, actionBounds);
-}
-
-function attachAlignButtonToToolbar(button, actionBounds) {
-  return attachButtonToSelectionSurface(button, actionBounds, foldButtonEl);
-}
-
-function attachRenameButtonToToolbar(button, actionBounds) {
-  return attachButtonToSelectionSurface(button, actionBounds, foldButtonEl);
-}
-
-function updateFoldButton() {
-  const button = ensureFoldButton();
-  if (!button) return;
-
-  if (selectionActionsSuppressed()) {
-    detachSelectionActionButtons();
-    return;
-  }
-
-  const selected = selectedNodes();
-  const folded = selected.find((node) => foldMeta(node));
-  const groups = selectedGroups();
-  const clean = selected.filter((node) => !foldMeta(node));
-  const foldableGroup = !folded && clean.length === 0 && groups.length === 1 && nodesInGroup(groups[0]).length ? groups[0] : null;
-  const actionNodes = folded ? [folded] : clean;
-  const action = folded ? FLOAT_UNFOLD_LABEL : (foldableGroup ? FLOAT_FOLD_GROUP_LABEL : FLOAT_BUTTON_LABEL);
-
-  if (!folded && !foldableGroup && clean.length < 2) {
-    detachFoldButton();
-    return;
-  }
-
-  const actionBounds = foldableGroup ? selectedGroupBounds([foldableGroup]) : selectedBounds(actionNodes);
-  if (!actionBounds || !attachFoldButtonToToolbar(button, actionBounds)) {
-    detachFoldButton();
-    return;
-  }
-
-  button.textContent = !folded && !foldableGroup && clean.length > 9 ? `Fold ${clean.length}` : action;
-  button.title = folded ? "Unfold this group" : (foldableGroup ? "Fold selected ComfyUI group" : "Fold selected nodes");
-  button.setAttribute("aria-label", folded ? "Deno Unfold Group" : (foldableGroup ? "Deno Fold Selected Group" : "Deno Fold Selected Nodes"));
-}
-
-function updateRenameButton() {
-  const button = ensureRenameButton();
-  if (!button) return;
-
-  if (selectionActionsSuppressed()) {
-    detachRenameButton();
-    return;
-  }
-
-  const folded = selectedNodes().find((node) => foldMeta(node));
-  const actionBounds = folded ? selectedBounds([folded]) : null;
-  if (!folded || !actionBounds || !attachRenameButtonToToolbar(button, actionBounds)) {
-    detachRenameButton();
-    return;
-  }
-
-  button.textContent = FLOAT_RENAME_LABEL;
-  button.title = "Rename this folded group";
-}
-
-function updateAlignButton() {
-  const button = ensureAlignButton();
-  if (!button) return;
-
-  if (selectionActionsSuppressed()) {
-    detachAlignButton();
-    return;
-  }
-
+function selectionActionClientRect() {
   const groups = selectedAlignGroups();
-  if (groups.length >= 2) {
-    const actionBounds = selectedGroupBounds(groups);
-    if (!actionBounds || !attachAlignButtonToToolbar(button, actionBounds)) {
-      detachAlignButton();
-      return;
-    }
-    button.title = "Align or distribute selected groups";
-    button.setAttribute("aria-label", "Deno Align Selected Groups");
-    return;
+  const graphBounds = groups.length >= 2
+    ? selectedGroupBounds(groups)
+    : selectedBounds(selectedAlignNodes());
+
+  if (!graphBounds) {
+    const canvasRect = app.canvas?.canvas?.getBoundingClientRect?.();
+    if (!canvasRect) return null;
+    return {
+      left: canvasRect.left + canvasRect.width / 2,
+      right: canvasRect.left + canvasRect.width / 2,
+      top: canvasRect.top + 64,
+      bottom: canvasRect.top + 64,
+      width: 0,
+      height: 0,
+    };
   }
 
-  const clean = selectedAlignNodes();
-  if (clean.length < 2) {
-    detachAlignButton();
-    return;
-  }
+  const topLeft = graphToClient(graphBounds.minX, graphBounds.minY);
+  const bottomRight = graphToClient(graphBounds.maxX, graphBounds.maxY);
+  if (!topLeft || !bottomRight) return null;
 
-  const actionBounds = selectedBounds(clean);
-  if (!actionBounds || !attachAlignButtonToToolbar(button, actionBounds)) {
-    detachAlignButton();
-    return;
-  }
-  button.title = "Align or distribute selected nodes";
-  button.setAttribute("aria-label", "Deno Align Selected Nodes");
+  const left = clampNumber((topLeft[0] + bottomRight[0]) / 2, 8, Math.max(8, window.innerWidth - 8));
+  const top = clampNumber(Math.min(topLeft[1], bottomRight[1]), 8, Math.max(8, window.innerHeight - 8));
+  return {
+    left,
+    right: left,
+    top,
+    bottom: top,
+    width: 0,
+    height: 0,
+  };
 }
 
 function refreshFoldedLooks() {
@@ -1896,18 +1599,8 @@ function refreshFoldedLooks() {
 
 function setupOverlayLoop() {
   setupMouseTracking();
-  installSelectionToolbarObserver();
-  scheduleSelectionUiUpdate();
-  if (overlayTimer) return;
-  overlayTimer = setInterval(() => {
-    setupMouseTracking();
-    installSelectionToolbarObserver();
-    patchExistingGroups();
-    refreshFoldedLooks();
-    updateFoldButton();
-    updateRenameButton();
-    updateAlignButton();
-  }, 140);
+  patchExistingGroups();
+  refreshFoldedLooks();
 }
 
 function addFoldMenuOptions(node, options) {
@@ -2202,7 +1895,6 @@ function patchMotionSync() {
     target[method] = function () {
       const result = original.apply(this, arguments);
       syncFoldedMotion();
-      scheduleSelectionUiUpdate();
       return result;
     };
   }
@@ -2236,8 +1928,14 @@ function installLatePatches(attempt = 0) {
 
 app.registerExtension({
   name: EXTENSION_NAME,
+  commands: VISUAL_FOLD_COMMANDS,
   setup() {
+    ensureVisualStyle();
+    scheduleCommandButtonAccessibilityRefresh();
     installLatePatches();
+  },
+  getSelectionToolboxCommands(selectedItem) {
+    return buildSelectionToolboxCommands(selectedItem);
   },
   getCanvasMenuItems(canvas) {
     return buildCanvasMenuItems(canvas);

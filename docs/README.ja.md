@@ -135,6 +135,18 @@ LTX 2.3 のよく使うモデル読み込みパターンを1つにまとめた�
 
 主な機能: Checkpoint Style、KJ Style、GGUF Style、`model`, `clip`, `video_vae`, `audio_vae` 出力、ComfyUI 標準ローダー、KJNodes、ComfyUI-GGUF の流れをサポート。
 
+### `[BETA] (Deno) LTX Tiled Spatial Upscaler`
+
+高解像度 LTX video latent の二次パス向けベータ helper です。video latent を重なりのある spatial tile に分け、tile ごとに latent spatial upscaler を実行して、1つの latent にブレンドします。
+
+video-only の LTX latent に使ってください。video/audio 結合 latent を使う場合は、先に audio 経路を分離し、tiled video pass の後で再結合する流れを推奨します。
+
+### `[BETA] (Deno) LTX Step-Fused Tiled Sampler`
+
+video-only LTX refinement pass 向けのベータ sampler です。1つの global sampler trajectory を保ちながら、model prediction だけを重なりのある spatial tile で計算して融合します。
+
+最初のベータは tiled video refinement 実験用で、完全な AV final sampler の置き換えではありません。
+
 ### `(Deno) Easy Model Download Helper`
 
 推奨モデルファイルセットを案内するプリセット型セットアップヘルパーです。
@@ -186,7 +198,7 @@ Negative preset は出力モードではなく、下の negative prompt 欄を�
 
 ## Search Tips
 
-GitHub、ComfyUI Manager、Registry では `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `update watch`, `portable update check` などで探せます。
+GitHub、ComfyUI Manager、Registry では `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `update watch`, `portable update check` などで探せます。
 
 ## Install
 

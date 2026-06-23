@@ -135,6 +135,18 @@ Cargador compacto para patrones comunes de carga de modelos LTX 2.3.
 
 Funciones principales: Checkpoint Style, KJ Style y GGUF Style, salidas `model`, `clip`, `video_vae`, `audio_vae`, compatibilidad con loaders de ComfyUI, KJNodes y ComfyUI-GGUF.
 
+### `[BETA] (Deno) LTX Tiled Spatial Upscaler`
+
+Ayudante beta para segundas pasadas de video latent LTX en alta resolución. Divide el video latent en spatial tiles superpuestos, ejecuta el upscaler por tile y vuelve a mezclar el resultado en un solo latent.
+
+Úsalo con latents LTX solo de video. Si el workflow lleva video/audio combinados, separa primero el audio y vuelve a unirlo después del pase de video tiled.
+
+### `[BETA] (Deno) LTX Step-Fused Tiled Sampler`
+
+Sampler beta para pases de refinement LTX solo de video. Mantiene una trayectoria global de sampler mientras calcula y fusiona las predicciones del modelo por spatial tiles superpuestos.
+
+Esta primera beta es para experimentos de tiled video refinement, no para reemplazar por completo un sampler final AV.
+
 ### `(Deno) Easy Model Download Helper`
 
 Ayudante de instalación por presets para conjuntos recomendados de archivos de modelo.
@@ -186,7 +198,7 @@ Estos nodos reducen la fricción repetida en trabajos reales con ComfyUI. El obj
 
 ## Search Tips
 
-Puedes buscar `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `update watch`, `portable update check`.
+Puedes buscar `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `update watch`, `portable update check`.
 
 ## Install
 

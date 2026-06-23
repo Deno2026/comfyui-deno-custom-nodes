@@ -35,9 +35,9 @@ Run these directly in your browser:
 
 DENO Visual Fold is a visual-only cleanup helper for large ComfyUI graphs. It is enabled automatically when the latest Deno Custom Nodes package is installed or updated.
 
-Select two or more nodes and a green `Fold` button appears near the top-right of the canvas. Click it to collapse the selected nodes into one compact visual group; use `Unfold` to restore them.
+Select two or more nodes and the native ComfyUI selection toolbar shows a readable green `Fold` badge. Click it to collapse the selected nodes into one compact visual group; use `Unfold` to restore them.
 
-You can also select one normal ComfyUI group and use `Fold Group` to collapse the nodes inside that group while keeping the workflow logic untouched. When two or more groups are selected, the same toolbar adds `Align` actions for left/right/top/bottom alignment and horizontal/vertical spacing.
+You can also select one normal ComfyUI group and use `Fold Group` to collapse the nodes inside that group while keeping the workflow logic untouched. When two or more groups are selected, the same toolbar adds readable `Align` badges for left/right/top/bottom alignment and horizontal/vertical spacing.
 
 This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph, which can be powerful, but it may not be ideal when a workflow depends on keeping `Get` / `Set` nodes or parent-child graph structure visible in the main graph. Visual Fold is meant for simple visual organization only. It does not turn the selected nodes into a subgraph or change the workflow logic.
 
@@ -310,6 +310,18 @@ Main features:
 - uses ComfyUI-GGUF UNet loading for GGUF workflows
 - includes clearer dependency errors and an audio VAE compatibility fallback for mixed ComfyUI/KJNodes environments
 
+### `[BETA] (Deno) LTX Tiled Spatial Upscaler`
+
+Beta helper for high-resolution LTX video-latent second passes. It splits a video latent into overlapping spatial tiles, runs the LTX latent spatial upscaler per tile, and blends the result back into one latent.
+
+Use it on video-only LTX latents. If your workflow carries combined video/audio latents, separate the audio path first and rejoin it after the tiled video pass.
+
+### `[BETA] (Deno) LTX Step-Fused Tiled Sampler`
+
+Beta sampler for video-only LTX refinement passes. It keeps one global sampler trajectory while model predictions are evaluated through overlapping spatial tiles and fused before the sampler update.
+
+This first beta is for tiled video refinement experiments, not a full AV final-sampler replacement.
+
 ### `(Deno) Easy Model Download Helper`
 
 Preset-based setup helper for recommended model file sets. The first built-in preset is the LTX 2.3 8GB VRAM GGUF starter set.
@@ -447,6 +459,9 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `ltx 2.3`
 - `ltx sequencer`
 - `ltx model loader`
+- `ltx tiled`
+- `ltx tiled sampler`
+- `ltx spatial upscaler`
 - `ltx multi lora`
 - `prompt guide`
 - `system prompt`

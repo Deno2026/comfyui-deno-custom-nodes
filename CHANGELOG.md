@@ -6,6 +6,12 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.59 - 2026-06-23
+
+- Added `[BETA] (Deno) LTX Tiled Spatial Upscaler` for tiled video-latent spatial upscale experiments in high-resolution LTX workflows.
+- Added `[BETA] (Deno) LTX Step-Fused Tiled Sampler` for video-only tiled second-pass sampler experiments.
+- Improved the Visual Fold toolbar buttons so Fold and Align appear as readable DENO badges with hover descriptions while staying inside ComfyUI's native selection toolbar.
+
 ## 0.7.58 - 2026-06-23
 
 - Smoothed Visual Fold and Align integration with ComfyUI's multi-selection toolbar so the DENO buttons appear with the native toolbar and stay stable while native menus are open.
