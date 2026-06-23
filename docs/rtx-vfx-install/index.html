@@ -3,22 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DENO RTX VFX Step-by-Step Install Guide</title>
+<meta name="description" content="Beginner-friendly visual install guide for DENO RTX VFX in ComfyUI.">
+<title>DENO RTX VFX Visual Install Guide</title>
 <style>
   :root {
-    --bg: #f5f7fb;
+    --bg: #eef4f8;
     --paper: #ffffff;
-    --ink: #15202b;
-    --muted: #5b6775;
-    --line: #d8e1ec;
-    --line-strong: #bac7d6;
+    --ink: #101827;
+    --muted: #546270;
+    --line: #d6e1eb;
+    --line-strong: #b8c7d6;
+    --deno: #16a34a;
+    --deno-dark: #0f7a39;
     --blue: #2563eb;
-    --blue-dark: #1d4ed8;
-    --blue-soft: #eaf1ff;
-    --green: #138a52;
-    --yellow: #9a6700;
+    --amber: #b45309;
     --red: #c2410c;
-    --shadow: 0 14px 36px rgba(21, 32, 43, .08);
+    --dark: #0b1220;
+    --shadow: 0 16px 42px rgba(16, 24, 39, .10);
     --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
   }
@@ -27,43 +28,50 @@
   html { scroll-behavior: smooth; }
   body {
     margin: 0;
-    background: var(--bg);
+    background:
+      linear-gradient(rgba(16, 24, 39, .035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(16, 24, 39, .035) 1px, transparent 1px),
+      linear-gradient(180deg, #f8fbfd 0%, var(--bg) 44%, #f7fafc 100%);
+    background-size: 28px 28px, 28px 28px, auto;
     color: var(--ink);
-    font: 400 16px/1.65 var(--sans);
+    font: 400 16px/1.62 var(--sans);
     letter-spacing: 0;
     overflow-x: hidden;
   }
 
   a { color: var(--blue); }
-  h1, h2, h3, p, li, strong, .mini, .notice, .path-card, .btn {
-    overflow-wrap: anywhere;
-  }
+  a:hover { color: var(--deno-dark); }
+  h1, h2, h3, p, li, strong, code, .btn, .step-title, .path-chip { overflow-wrap: anywhere; }
 
   code {
     font-family: var(--mono);
-    background: #f2f5f9;
+    background: #f2f6fa;
     border: 1px solid var(--line);
     border-radius: 6px;
     padding: 1px 5px;
-    color: #111827;
+    color: #0f172a;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
   }
 
   .wrap {
-    width: min(1120px, calc(100% - 32px));
+    width: min(1120px, calc(100% - 36px));
     margin: 0 auto;
+    min-width: 0;
   }
 
   .top {
     position: sticky;
     top: 0;
-    z-index: 20;
-    background: rgba(255, 255, 255, .94);
+    z-index: 30;
+    background: rgba(255, 255, 255, .95);
     border-bottom: 1px solid var(--line);
     backdrop-filter: blur(14px);
   }
 
   .bar {
-    min-height: 62px;
+    min-height: 64px;
     display: flex;
     align-items: center;
     gap: 14px;
@@ -75,20 +83,21 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-weight: 800;
+    font-weight: 850;
   }
 
   .brand-mark {
-    width: 26px;
-    height: 26px;
-    border-radius: 7px;
-    background: linear-gradient(135deg, #2563eb, #60a5fa);
-    box-shadow: 0 8px 18px rgba(37, 99, 235, .22);
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--deno), #38bdf8);
+    box-shadow: 0 8px 20px rgba(22, 163, 74, .22);
   }
 
   .nav {
     margin-left: auto;
     display: flex;
+    align-items: center;
     gap: 8px;
     flex-wrap: wrap;
   }
@@ -98,367 +107,403 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 8px;
     border: 1px solid var(--line-strong);
-    border-radius: 9px;
+    border-radius: 8px;
     background: #fff;
     color: var(--ink);
-    padding: 0 15px;
-    font-weight: 750;
+    padding: 0 14px;
+    font-weight: 800;
     text-decoration: none;
-    white-space: nowrap;
+    white-space: normal;
+    text-align: center;
     cursor: pointer;
   }
 
   .btn.primary {
-    background: var(--blue);
-    border-color: var(--blue);
+    background: var(--deno);
+    border-color: var(--deno);
     color: #fff;
   }
 
-  .btn.primary:hover { background: var(--blue-dark); }
+  .btn.primary:hover {
+    background: var(--deno-dark);
+    color: #fff;
+  }
 
-  .intro {
-    padding: 34px 0 22px;
+  .hero {
+    padding: 44px 0 30px;
     border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, #fff 0%, #f7faff 100%);
-  }
-
-  .intro-grid {
-    display: grid;
-    grid-template-columns: 1fr 330px;
-    gap: 24px;
-    align-items: start;
-  }
-
-  .intro-grid > *,
-  .step > *,
-  .prompt-card > *,
-  .path-strip > * {
-    min-width: 0;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(248, 251, 253, .76));
   }
 
   .eyebrow {
-    color: var(--blue);
+    margin: 0 0 10px;
+    color: var(--deno-dark);
     font-size: 13px;
-    font-weight: 850;
-    letter-spacing: .08em;
+    font-weight: 900;
+    letter-spacing: 0;
     text-transform: uppercase;
-    margin-bottom: 10px;
   }
 
   h1 {
-    margin: 0 0 12px;
-    font-size: clamp(34px, 4.2vw, 54px);
-    line-height: 1.04;
+    max-width: 860px;
+    margin: 0;
+    font-size: 52px;
+    line-height: 1.05;
     letter-spacing: 0;
   }
 
   .lead {
-    max-width: 780px;
-    margin: 0 0 16px;
+    max-width: 820px;
+    margin: 16px 0 0;
     color: var(--muted);
-    font-size: 18px;
+    font-size: 19px;
   }
 
-  .important {
-    display: grid;
+  .hero-actions {
+    display: flex;
     gap: 10px;
-    margin-top: 18px;
+    flex-wrap: wrap;
+    margin-top: 22px;
+  }
+
+  .safety-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 26px;
   }
 
   .notice {
-    overflow-wrap: anywhere;
     border: 1px solid var(--line);
-    border-left: 5px solid var(--blue);
-    border-radius: 12px;
-    background: #fff;
+    border-left: 5px solid var(--deno);
+    border-radius: 8px;
+    background: var(--paper);
     padding: 13px 14px;
-    color: var(--muted);
+    box-shadow: 0 10px 28px rgba(16, 24, 39, .06);
   }
 
   .notice strong {
     display: block;
+    margin-bottom: 4px;
     color: var(--ink);
-    margin-bottom: 2px;
   }
 
-  .notice.warning { border-left-color: var(--yellow); }
-  .notice.success { border-left-color: var(--green); }
-
-  .quick-card {
-    position: sticky;
-    top: 82px;
-    background: var(--paper);
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 16px;
-    box-shadow: var(--shadow);
-  }
-
-  .quick-card h2 {
-    margin: 0 0 8px;
-    font-size: 19px;
-  }
-
-  .quick-card ol {
-    margin: 10px 0 14px;
-    padding-left: 22px;
+  .notice p {
+    margin: 0;
     color: var(--muted);
   }
 
-  .quick-card li { margin: 5px 0; }
+  .notice.warning { border-left-color: var(--amber); }
+  .notice.stop { border-left-color: var(--red); }
 
-  .quick-actions {
-    display: grid;
-    gap: 8px;
-  }
-
-  section { padding: 30px 0; }
+  section { padding: 38px 0; }
+  section[id] { scroll-margin-top: 82px; }
 
   .section-head {
-    margin-bottom: 16px;
+    max-width: 820px;
+    margin-bottom: 20px;
   }
 
   .section-head h2 {
     margin: 0;
-    font-size: 30px;
-    line-height: 1.1;
+    font-size: 32px;
+    line-height: 1.15;
+    letter-spacing: 0;
   }
 
   .section-head p {
-    margin: 6px 0 0;
+    margin: 8px 0 0;
+    color: var(--muted);
+  }
+
+  .route {
+    display: grid;
+    gap: 10px;
+    margin: 20px 0 28px;
+    padding: 0;
+    list-style: none;
+  }
+
+  .route li {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    gap: 12px;
+    align-items: start;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .86);
+    padding: 12px;
+    min-width: 0;
+  }
+
+  .route-number {
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: var(--dark);
+    color: #fff;
+    font-weight: 900;
+  }
+
+  .route strong {
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .route p {
+    margin: 0;
     color: var(--muted);
   }
 
   .steps {
     display: grid;
-    gap: 14px;
+    gap: 28px;
   }
 
-  .path-strip {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1.15fr;
-    gap: 12px;
-    margin: 18px 0;
-  }
-
-  .path-card {
+  .step-card {
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--paper);
-    padding: 14px;
-    box-shadow: 0 8px 24px rgba(21, 32, 43, .05);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    min-width: 0;
   }
 
-  .path-card strong {
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--line);
+    background: #fbfdff;
+  }
+
+  .step-no {
+    display: inline-flex;
+    width: 52px;
+    height: 52px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: var(--deno);
+    color: #fff;
+    font-size: 24px;
+    font-weight: 950;
+    flex: 0 0 auto;
+  }
+
+  .step-title {
+    margin: 0;
+    font-size: 26px;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+
+  .step-media {
+    padding: 20px 20px 0;
+    background: linear-gradient(180deg, #f6fafc, #ffffff);
+  }
+
+  .step-media img {
     display: block;
-    margin-bottom: 6px;
-    font-size: 15px;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 12px 34px rgba(16, 24, 39, .12);
   }
 
-  .path-card .big {
-    display: block;
-    margin: 8px 0;
-    color: var(--blue-dark);
-    font: 800 16px/1.35 var(--mono);
-    overflow-wrap: anywhere;
+  .step-body {
+    padding: 20px;
   }
 
-  .path-card p {
+  .step-body > p {
     margin: 0;
     color: var(--muted);
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 17px;
   }
 
-  .path-card.warning {
-    border-left: 5px solid var(--yellow);
-  }
-
-  .path-arrow {
-    color: var(--blue);
-    font-weight: 900;
-  }
-
-  .step {
+  .step-points {
     display: grid;
-    grid-template-columns: 110px 320px 1fr;
-    gap: 18px;
-    align-items: center;
-    background: var(--paper);
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    margin-top: 18px;
     border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 16px;
-    box-shadow: 0 8px 26px rgba(21, 32, 43, .05);
+    border-radius: 8px;
     overflow: hidden;
   }
 
-  .step-badge {
-    align-self: stretch;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 6px;
-    border-radius: 12px;
-    background: var(--blue-soft);
-    color: var(--blue-dark);
-    text-align: center;
-    font-weight: 900;
-    padding: 12px 8px;
+  .point {
+    padding: 14px;
+    min-width: 0;
   }
 
-  .step-badge span:first-child {
-    font-size: 13px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
+  .point + .point {
+    border-left: 1px solid var(--line);
   }
 
-  .step-badge span:last-child {
-    font-size: 34px;
-    line-height: 1;
-  }
-
-  .step img {
-    width: 100%;
-    height: auto;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: #fff;
-  }
-
-  .step h3 {
-    margin: 0 0 8px;
-    font-size: 24px;
-    line-height: 1.15;
-  }
-
-  .step p {
-    margin: 0 0 10px;
-    color: var(--muted);
-  }
-
-  .do-check {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin-top: 12px;
-  }
-
-  .mini {
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: #f8fafc;
-    padding: 10px;
-    color: var(--muted);
-  }
-
-  .mini b {
+  .point b {
     display: block;
+    margin-bottom: 4px;
     color: var(--ink);
-    margin-bottom: 3px;
+  }
+
+  .point span {
+    display: block;
+    color: var(--muted);
+  }
+
+  .path-chip {
+    display: inline-block;
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 8px 10px;
+    color: var(--blue);
+    font: 800 14px/1.5 var(--mono);
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .prompt-card {
-    display: grid;
-    grid-template-columns: 1fr 300px;
-    gap: 16px;
-    background: var(--paper);
     border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 16px;
+    border-radius: 8px;
+    background: var(--paper);
     box-shadow: var(--shadow);
     overflow: hidden;
   }
 
-  .prompt-card h3 {
-    margin: 0 0 8px;
-    font-size: 21px;
+  .prompt-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--line);
+    background: #fbfdff;
   }
 
-  .prompt-card p {
-    margin: 0 0 12px;
-    color: var(--muted);
+  .prompt-top h3 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: 0;
+  }
+
+  .prompt-body {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 18px;
+    padding: 20px;
   }
 
   textarea {
     width: 100%;
-    min-height: 260px;
+    min-height: 310px;
     resize: vertical;
     border: 1px solid #172033;
-    border-radius: 12px;
+    border-radius: 8px;
     background: #0f172a;
     color: #e2e8f0;
     padding: 14px;
     font: 12px/1.55 var(--mono);
   }
 
-  .side-list {
+  .helper-notes {
     display: grid;
-    gap: 10px;
+    align-content: start;
+    gap: 12px;
   }
 
   .footer {
-    padding: 38px 0 52px;
+    padding: 32px 0 50px;
     color: var(--muted);
     font-size: 13px;
   }
 
-  @media (max-width: 980px) {
-    .intro-grid,
-    .step,
-    .path-strip,
-    .prompt-card {
+  @media (max-width: 860px) {
+    .wrap { width: min(720px, calc(100% - 28px)); }
+    h1 { font-size: 40px; }
+    .safety-strip,
+    .prompt-body {
       grid-template-columns: 1fr;
     }
-
-    .quick-card { position: static; }
-    .step-badge {
-      align-self: auto;
-      flex-direction: row;
-      justify-content: flex-start;
-      text-align: left;
-      padding: 10px 12px;
-    }
-    .step-badge span:last-child { font-size: 20px; }
+    .nav { margin-left: 0; }
   }
 
   @media (max-width: 560px) {
+    body { font-size: 15px; }
     .wrap {
-      width: min(calc(100vw - 24px), 366px);
+      width: auto;
+      max-width: none;
       margin-left: 12px;
       margin-right: 12px;
-      padding-left: 0;
-      padding-right: 0;
     }
-
-    .intro-grid,
-    .intro-grid > *,
-    .quick-card,
-    .notice,
-    .step,
-    .prompt-card,
-    .lead,
-    h1 {
-      max-width: 100%;
+    .bar {
+      align-items: stretch;
+      flex-direction: column;
     }
-
-    .nav { margin-left: 0; }
-    .btn { width: 100%; }
-    .nav .btn { width: auto; }
-    h1 { font-size: 30px; line-height: 1.12; }
+    .brand { width: 100%; }
+    .nav {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      width: 100%;
+      margin-left: 0;
+    }
+    .nav .btn {
+      min-width: 0;
+      min-height: 36px;
+      padding: 0 8px;
+    }
+    h1 { font-size: 34px; }
     .lead { font-size: 16px; }
-    .notice { padding: 12px; }
-    .notice strong { font-size: 15px; line-height: 1.35; }
-    .path-card .big { font-size: 14px; }
-    .do-check { grid-template-columns: 1fr; }
+    .section-head h2 { font-size: 26px; }
+    .hero-actions .btn { width: 100%; }
+    .route li { grid-template-columns: 40px 1fr; }
+    .step-header {
+      align-items: flex-start;
+      padding: 14px;
+    }
+    .step-no {
+      width: 42px;
+      height: 42px;
+      font-size: 20px;
+    }
+    .step-title { font-size: 21px; }
+    .step-media { padding: 12px 12px 0; }
+    .step-body { padding: 14px; }
+    .step-body > p { font-size: 15px; }
+    .step-points { grid-template-columns: 1fr; }
+    .point + .point {
+      border-left: 0;
+      border-top: 1px solid var(--line);
+    }
+    .prompt-top {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+    .prompt-top .btn { width: 100%; }
+  }
+
+  @media (max-width: 430px) {
+    h1 { font-size: 30px; }
+    .eyebrow { font-size: 12px; }
+    .nav .btn { font-size: 14px; }
   }
 </style>
 </head>
 <body>
   <header class="top">
     <div class="wrap bar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>RTX VFX Install Guide</span></div>
-      <nav class="nav">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>DENO RTX VFX Install</span></div>
+      <nav class="nav" aria-label="Page navigation">
         <a class="btn" href="#steps">Steps</a>
         <a class="btn" href="#gpt">GPT Help</a>
         <a class="btn" href="https://github.com/Deno2026/comfyui-deno-custom-nodes">GitHub</a>
@@ -467,165 +512,186 @@
   </header>
 
   <main>
-    <section class="intro">
-      <div class="wrap intro-grid">
-        <div>
-          <div class="eyebrow">Follow the steps in order</div>
-          <h1>Install DENO RTX VFX for ComfyUI</h1>
-          <p class="lead">
-            Use this guide when the DENO RTX Video Super Resolution node says NVIDIA RTX VFX is missing.
-            You do not need to understand technical setup details. Just follow each step and check what is shown on screen.
-          </p>
+    <section class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Visual step-by-step guide for Windows users</p>
+        <h1>Install DENO RTX VFX for ComfyUI without guessing paths</h1>
+        <p class="lead">
+          Use this page when the DENO RTX Video Super Resolution node says NVIDIA RTX VFX is missing.
+          The screenshots below show exactly where the ZIP goes, where the BAT should run, and when it is safe to type <code>Y</code>.
+        </p>
 
-          <div class="important">
-            <div class="notice warning">
-              <strong>Close ComfyUI first.</strong>
-              The installer must run while every ComfyUI window and process is closed.
-            </div>
-            <div class="notice">
-              <strong>Use only the official download link on this page.</strong>
-              Do not run BAT files from mirrors, reuploads, Discord attachments, or random websites.
-            </div>
-            <div class="notice success">
-              <strong>The installer uses NVIDIA's official package path.</strong>
-              It prepares <code>nvidia-vfx</code> from <code>https://pypi.nvidia.com</code> for the ComfyUI app you confirm.
-            </div>
-          </div>
+        <div class="hero-actions">
+          <a class="btn primary" href="https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip">Download installer ZIP</a>
+          <button class="btn" id="copyStepsTop" type="button">Copy short steps</button>
         </div>
 
-        <aside class="quick-card">
-          <h2>Quick checklist</h2>
-          <ol>
-            <li>Close ComfyUI.</li>
-            <li>Open <code>ComfyUI\custom_nodes\deno-custom-nodes\tools</code>.</li>
-            <li>Put the installer ZIP there.</li>
-            <li>Extract it inside <code>tools</code>.</li>
-            <li>Run the BAT from that tools folder.</li>
-            <li>Confirm the shown ComfyUI location.</li>
-            <li>Wait for INSTALL COMPLETE.</li>
-            <li>Restart ComfyUI.</li>
-          </ol>
-          <div class="quick-actions">
-            <a class="btn primary" href="https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip">Download installer ZIP</a>
-            <button class="btn" id="copyStepsTop" type="button">Copy short steps</button>
+        <div class="safety-strip" aria-label="Important safety checks">
+          <div class="notice warning">
+            <strong>Close ComfyUI first.</strong>
+            <p>The installer must run while every ComfyUI window and process is closed.</p>
           </div>
-        </aside>
+          <div class="notice stop">
+            <strong>Use only this official ZIP.</strong>
+            <p>Do not run BAT files from mirrors, reuploads, Discord attachments, or random websites.</p>
+          </div>
+          <div class="notice">
+            <strong>Confirm the path before <code>Y</code>.</strong>
+            <p>Type <code>Y</code> only when the installer points to the same ComfyUI app you just closed.</p>
+          </div>
+        </div>
       </div>
     </section>
 
     <section id="steps">
       <div class="wrap">
         <div class="section-head">
-          <h2>Step-by-step installation</h2>
-          <p>Do not skip ahead. Each step has one action and one check.</p>
+          <h2>Follow this exact order</h2>
+          <p>The important rule is simple: download the ZIP, move it into DENO's <code>tools</code> folder, extract it there, then run the BAT from there.</p>
         </div>
 
-        <div class="path-strip" aria-label="Where to place and run the installer">
-          <div class="path-card">
-            <strong>1. Open this folder first</strong>
-            <span class="big">ComfyUI\custom_nodes\deno-custom-nodes\tools\</span>
-            <p>This is the DENO custom node tools folder. The installer should be handled here, not from a random folder.</p>
-          </div>
-          <div class="path-card">
-            <strong>2. Put and extract the ZIP here</strong>
-            <span class="big">...\deno-custom-nodes\tools\install_rtx_vfx_bat.zip</span>
-            <p>Move the downloaded ZIP into <code>tools</code>, then right-click it and choose <code>Extract All</code>.</p>
-          </div>
-          <div class="path-card warning">
-            <strong>3. Run only this file</strong>
-            <span class="big">...\deno-custom-nodes\tools\install_rtx_vfx.bat</span>
-            <p>If Windows creates an <code>install_rtx_vfx_bat</code> subfolder, open that subfolder and run the BAT inside it.</p>
-          </div>
-        </div>
+        <ol class="route">
+          <li>
+            <span class="route-number">1</span>
+            <div>
+              <strong>Where the ZIP starts</strong>
+              <p>Windows usually downloads <code>install_rtx_vfx_bat.zip</code> into <code>Downloads</code>.</p>
+            </div>
+          </li>
+          <li>
+            <span class="route-number">2</span>
+            <div>
+              <strong>Where the ZIP must go</strong>
+              <p>Move it into <code>ComfyUI\custom_nodes\deno-custom-nodes\tools\</code>.</p>
+            </div>
+          </li>
+          <li>
+            <span class="route-number">3</span>
+            <div>
+              <strong>Where the BAT must run</strong>
+              <p>Run <code>install_rtx_vfx.bat</code> from the extracted installer files inside that same <code>tools</code> area.</p>
+            </div>
+          </li>
+        </ol>
 
         <div class="steps">
-          <article class="step">
-            <div class="step-badge"><span>Step</span><span>1</span></div>
-            <img src="../images/rtx-vfx-install/step-1-open-guide.svg" alt="How to install button inside the RTX node">
-            <div>
-              <h3>Open the install guide from the node</h3>
+          <article class="step-card">
+            <div class="step-header">
+              <span class="step-no">1</span>
+              <h3 class="step-title">Open the install guide from the RTX node</h3>
+            </div>
+            <div class="step-media">
+              <img loading="lazy" src="../images/rtx-vfx-install/step-1-open-guide.png" alt="ComfyUI RTX node with the How to install button highlighted">
+            </div>
+            <div class="step-body">
               <p>In ComfyUI, add <code>(Deno) RTX Video Super Resolution</code>. If NVIDIA RTX VFX is missing, click <code>How to install</code>.</p>
-              <div class="do-check">
-                <div class="mini"><b>Do this</b>Click <code>How to install</code>.</div>
-                <div class="mini"><b>Check this</b>This guide page opens in your browser.</div>
+              <div class="step-points">
+                <div class="point"><b>Do this</b><span>Click <code>How to install</code> in the node panel.</span></div>
+                <div class="point"><b>Check this</b><span>This visual install page opens in your browser.</span></div>
               </div>
             </div>
           </article>
 
-          <article class="step">
-            <div class="step-badge"><span>Step</span><span>2</span></div>
-            <img src="../images/rtx-vfx-install/step-2-download-zip.svg" alt="Download the installer ZIP">
-            <div>
-              <h3>Download the installer ZIP</h3>
+          <article class="step-card">
+            <div class="step-header">
+              <span class="step-no">2</span>
+              <h3 class="step-title">Download the official installer ZIP</h3>
+            </div>
+            <div class="step-media">
+              <img loading="lazy" src="../images/rtx-vfx-install/step-2-download-zip.png" alt="Official installer ZIP download button and Windows Downloads folder">
+            </div>
+            <div class="step-body">
               <p>Download <a href="https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip">install_rtx_vfx_bat.zip</a> from the official Deno2026 GitHub link. It may first appear in your Windows <code>Downloads</code> folder.</p>
-              <div class="do-check">
-                <div class="mini"><b>Do this</b>Click the ZIP download link.</div>
-                <div class="mini"><b>Check this</b>You see <code>install_rtx_vfx_bat.zip</code>.</div>
+              <div class="step-points">
+                <div class="point"><b>Do this</b><span>Press <code>Download installer ZIP</code> on this page.</span></div>
+                <div class="point"><b>Check this</b><span>You can see <code>install_rtx_vfx_bat.zip</code> after the download finishes.</span></div>
               </div>
             </div>
           </article>
 
-          <article class="step">
-            <div class="step-badge"><span>Step</span><span>3</span></div>
-            <img src="../images/rtx-vfx-install/step-3-extract-zip.svg" alt="Move ZIP into the DENO tools folder">
-            <div>
-              <h3>Move the ZIP into the DENO tools folder</h3>
+          <article class="step-card">
+            <div class="step-header">
+              <span class="step-no">3</span>
+              <h3 class="step-title">Move the ZIP into the DENO tools folder</h3>
+            </div>
+            <div class="step-media">
+              <img loading="lazy" src="../images/rtx-vfx-install/step-3-extract-zip.png" alt="Move the installer ZIP from Downloads into the DENO tools folder">
+            </div>
+            <div class="step-body">
               <p>Open your ComfyUI install, then open <code>custom_nodes\deno-custom-nodes\tools\</code>. Move <code>install_rtx_vfx_bat.zip</code> into that <code>tools</code> folder.</p>
-              <div class="do-check">
-                <div class="mini"><b>Do this</b>Put the ZIP inside <code>deno-custom-nodes\tools</code>.</div>
-                <div class="mini"><b>Check this</b>The ZIP is now next to <code>OPEN_INSTALL_GUIDE.txt</code> or other DENO tools files.</div>
+              <span class="path-chip">ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx_bat.zip</span>
+              <div class="step-points">
+                <div class="point"><b>Do this</b><span>Drag or copy the ZIP from <code>Downloads</code> into <code>deno-custom-nodes\tools</code>.</span></div>
+                <div class="point"><b>Check this</b><span>The ZIP is now inside the DENO <code>tools</code> folder, not still sitting in <code>Downloads</code>.</span></div>
               </div>
             </div>
           </article>
 
-          <article class="step">
-            <div class="step-badge"><span>Step</span><span>4</span></div>
-            <img src="../images/rtx-vfx-install/step-4-open-folder.svg" alt="Open the extracted folder">
-            <div>
-              <h3>Extract the ZIP inside tools</h3>
+          <article class="step-card">
+            <div class="step-header">
+              <span class="step-no">4</span>
+              <h3 class="step-title">Extract the ZIP inside the tools folder</h3>
+            </div>
+            <div class="step-media">
+              <img loading="lazy" src="../images/rtx-vfx-install/step-4-open-folder.png" alt="Right-click the installer ZIP and choose Extract All inside the tools folder">
+            </div>
+            <div class="step-body">
               <p>In <code>deno-custom-nodes\tools</code>, right-click <code>install_rtx_vfx_bat.zip</code>, choose <code>Extract All</code>, then press <code>Extract</code>.</p>
-              <div class="do-check">
-                <div class="mini"><b>Do this</b>Extract the ZIP from inside the <code>tools</code> folder.</div>
-                <div class="mini"><b>Check this</b>You can now see <code>install_rtx_vfx.bat</code>, either directly in <code>tools</code> or in a new extracted subfolder.</div>
+              <div class="step-points">
+                <div class="point"><b>Do this</b><span>Extract the ZIP from inside <code>deno-custom-nodes\tools</code>.</span></div>
+                <div class="point"><b>Check this</b><span>You can now see <code>install_rtx_vfx.bat</code>, either directly in <code>tools</code> or inside a new extracted subfolder.</span></div>
               </div>
             </div>
           </article>
 
-          <article class="step">
-            <div class="step-badge"><span>Step</span><span>5</span></div>
-            <img src="../images/rtx-vfx-install/step-5-run-bat.svg" alt="Run install_rtx_vfx.bat">
-            <div>
-              <h3>Run the BAT from the DENO tools folder</h3>
-              <p>Double-click <code>install_rtx_vfx.bat</code> from the extracted installer files inside <code>deno-custom-nodes\tools</code>. A black installer window opens.</p>
-              <div class="do-check">
-                <div class="mini"><b>Do this</b>Run <code>...\ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat</code>, or the BAT inside the extracted folder under <code>tools</code>.</div>
-                <div class="mini"><b>Check this</b>The installer shows a Windows path for the ComfyUI app before asking for confirmation.</div>
+          <article class="step-card">
+            <div class="step-header">
+              <span class="step-no">5</span>
+              <h3 class="step-title">Run install_rtx_vfx.bat from that extracted folder</h3>
+            </div>
+            <div class="step-media">
+              <img loading="lazy" src="../images/rtx-vfx-install/step-5-run-bat.png" alt="Double-click install_rtx_vfx.bat from the extracted installer files">
+            </div>
+            <div class="step-body">
+              <p>Double-click <code>install_rtx_vfx.bat</code> from the extracted installer files inside the DENO <code>tools</code> area. A black Command Prompt installer window opens.</p>
+              <span class="path-chip">...\ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat</span>
+              <div class="step-points">
+                <div class="point"><b>Do this</b><span>Run only the BAT that came from the official ZIP and was extracted inside the DENO <code>tools</code> folder.</span></div>
+                <div class="point"><b>Check this</b><span>The black installer window shows a ComfyUI path before it asks for confirmation.</span></div>
               </div>
             </div>
           </article>
 
-          <article class="step" id="confirm-location">
-            <div class="step-badge"><span>Step</span><span>6</span></div>
-            <img src="../images/rtx-vfx-install/step-6-confirm-python.svg" alt="Confirm the shown ComfyUI location">
-            <div>
-              <h3>Confirm the shown ComfyUI location</h3>
-              <p>The black installer window asks <code>Install RTX VFX here?</code> and shows a Windows path. Type <code>Y</code> only if that path is inside the same ComfyUI app you just closed. If it points somewhere unfamiliar, type <code>N</code> and stop.</p>
-              <div class="do-check">
-                <div class="mini"><b>Do this</b>Look for your ComfyUI folder name in the path, then type <code>Y</code> only when it matches.</div>
-                <div class="mini"><b>Check this</b>Seeing <code>python_embeded</code> or <code>python.exe</code> is normal. The important part is that the path belongs to your ComfyUI install.</div>
+          <article class="step-card" id="confirm-location">
+            <div class="step-header">
+              <span class="step-no">6</span>
+              <h3 class="step-title">Confirm the shown ComfyUI location before typing Y</h3>
+            </div>
+            <div class="step-media">
+              <img loading="lazy" src="../images/rtx-vfx-install/step-6-confirm-python.png" alt="Command Prompt asking to confirm the detected ComfyUI Python path">
+            </div>
+            <div class="step-body">
+              <p>The installer asks <code>Install RTX VFX here?</code> and shows a Windows path. Type <code>Y</code> only if that path is inside the same ComfyUI app you just closed. If it points somewhere unfamiliar, type <code>N</code> and stop.</p>
+              <div class="step-points">
+                <div class="point"><b>Do this</b><span>Look for your ComfyUI folder name in the shown path, then type <code>Y</code> only when it matches.</span></div>
+                <div class="point"><b>Check this</b><span>Seeing <code>python_embeded</code> or <code>python.exe</code> is normal. The important part is that the path belongs to your ComfyUI install.</span></div>
               </div>
             </div>
           </article>
 
-          <article class="step">
-            <div class="step-badge"><span>Step</span><span>7</span></div>
-            <img src="../images/rtx-vfx-install/step-7-complete-restart.svg" alt="Install complete and restart ComfyUI">
-            <div>
-              <h3>Wait for completion, then restart ComfyUI</h3>
+          <article class="step-card">
+            <div class="step-header">
+              <span class="step-no">7</span>
+              <h3 class="step-title">Wait for INSTALL COMPLETE, then restart ComfyUI</h3>
+            </div>
+            <div class="step-media">
+              <img loading="lazy" src="../images/rtx-vfx-install/step-7-complete-restart.png" alt="Installer complete message and ComfyUI restart check">
+            </div>
+            <div class="step-body">
               <p>When the installer says <code>INSTALL COMPLETE</code>, close the installer window and start ComfyUI again.</p>
-              <div class="do-check">
-                <div class="mini"><b>Do this</b>Restart ComfyUI completely.</div>
-                <div class="mini"><b>Check this</b>Run the RTX node again. It should now load NVIDIA RTX VFX.</div>
+              <div class="step-points">
+                <div class="point"><b>Do this</b><span>Restart ComfyUI completely after the installer finishes.</span></div>
+                <div class="point"><b>Check this</b><span>Run the RTX node again. It should now load NVIDIA RTX VFX.</span></div>
               </div>
             </div>
           </article>
@@ -641,9 +707,11 @@
         </div>
 
         <div class="prompt-card">
-          <div>
+          <div class="prompt-top">
             <h3>Copy this helper prompt</h3>
-            <p>Paste it into GPT, then tell GPT what you see after each step.</p>
+            <button class="btn primary" id="copyPrompt" type="button">Copy GPT prompt</button>
+          </div>
+          <div class="prompt-body">
             <textarea id="promptBox" spellcheck="false">I am a beginner using ComfyUI on Windows.
 
 Please guide me step by step to install DENO RTX VFX for the ComfyUI node:
@@ -667,13 +735,21 @@ Important safety checks:
 12. After INSTALL COMPLETE, tell me to fully restart ComfyUI before testing the node again.
 
 Please do not skip steps. Ask me what I see on screen after each step.</textarea>
+            <div class="helper-notes">
+              <div class="notice">
+                <strong>What GPT should do</strong>
+                <p>It should guide you step by step and ask what you see after each action.</p>
+              </div>
+              <div class="notice warning">
+                <strong>What you should not do</strong>
+                <p>Do not type <code>Y</code> if the installer path does not clearly belong to your ComfyUI app.</p>
+              </div>
+              <div class="notice stop">
+                <strong>Download rule</strong>
+                <p>Use only the official Deno2026 GitHub ZIP linked from this page.</p>
+              </div>
+            </div>
           </div>
-
-          <aside class="side-list">
-            <button class="btn primary" id="copyPrompt" type="button">Copy GPT prompt</button>
-            <div class="notice"><strong>What GPT should do</strong>It should guide you step by step, not ask you to guess.</div>
-            <div class="notice warning"><strong>Safety rule</strong>Only use the official Deno2026 GitHub download link from this page.</div>
-          </aside>
         </div>
       </div>
     </section>

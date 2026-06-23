@@ -58,7 +58,7 @@ This GPT prompt is only a helper. It cannot guarantee safety by itself. The real
 
 Open ComfyUI, add the RTX node, then click `How to install`.
 
-![Step 1 - open install guide](images/rtx-vfx-install/step-1-open-guide.svg)
+![Step 1 - open install guide](images/rtx-vfx-install/step-1-open-guide.png)
 
 ## Step 2. Download the installer ZIP
 
@@ -68,7 +68,7 @@ On this page, click this link:
 
 Your browser will usually save it into the Windows `Downloads` folder first.
 
-![Step 2 - download ZIP](images/rtx-vfx-install/step-2-download-zip.svg)
+![Step 2 - download ZIP](images/rtx-vfx-install/step-2-download-zip.png)
 
 ## Step 3. Move the ZIP into the DENO tools folder
 
@@ -82,7 +82,7 @@ Move `install_rtx_vfx_bat.zip` from `Downloads` into that `tools` folder.
 
 Do not extract it in `Downloads`.
 
-![Step 3 - extract ZIP](images/rtx-vfx-install/step-3-extract-zip.svg)
+![Step 3 - extract ZIP](images/rtx-vfx-install/step-3-extract-zip.png)
 
 ## Step 4. Extract the ZIP inside `tools`
 
@@ -101,7 +101,7 @@ Inside it, you should see:
 - `install_rtx_vfx.bat`
 - `README_RTX_VFX_EASY_INSTALL.md`
 
-![Step 4 - open extracted folder](images/rtx-vfx-install/step-4-open-folder.svg)
+![Step 4 - open extracted folder](images/rtx-vfx-install/step-4-open-folder.png)
 
 ## Step 5. Run `install_rtx_vfx.bat`
 
@@ -115,7 +115,7 @@ If Windows created an `install_rtx_vfx_bat` subfolder, open that subfolder and r
 
 If Windows shows a security warning, continue only if the file came from this official Deno2026 GitHub repository.
 
-![Step 5 - run BAT](images/rtx-vfx-install/step-5-run-bat.svg)
+![Step 5 - run BAT](images/rtx-vfx-install/step-5-run-bat.png)
 
 ## Step 6. Confirm the shown ComfyUI location
 
@@ -145,7 +145,7 @@ N
 
 Then press Enter. Nothing is changed when you choose `N`.
 
-![Step 6 - confirm shown ComfyUI location](images/rtx-vfx-install/step-6-confirm-python.svg)
+![Step 6 - confirm shown ComfyUI location](images/rtx-vfx-install/step-6-confirm-python.png)
 
 ## Step 7. Wait for `INSTALL COMPLETE`
 
@@ -155,7 +155,7 @@ When you see `INSTALL COMPLETE`, press any key to close the window.
 
 Then start ComfyUI again and run the RTX node.
 
-![Step 7 - complete and restart](images/rtx-vfx-install/step-7-complete-restart.svg)
+![Step 7 - complete and restart](images/rtx-vfx-install/step-7-complete-restart.png)
 
 ## If It Still Fails
 
