@@ -94,6 +94,9 @@
     .bigbtns{gap:10px}
     .bigbtn{flex:1 1 44%;min-width:0;width:auto;height:96px}
     .estimate .big{font-size:14px}
+    .filemeter{gap:8px}
+    .filemeter .fm-size{font-size:22px}
+    .filemeter .fm-note{flex-basis:100%}
   }
 
   main{flex:1 1 auto;overflow:auto}
@@ -232,6 +235,31 @@
   .targetbox .unit{font-size:15px;font-weight:900;color:var(--txt-strong)}
   .targetbox .actual{flex:1 1 150px;font-size:12px;font-weight:800;color:var(--txt-soft);line-height:1.45}
   .targetbox .actual b{color:var(--accent)}
+  .target-presets{
+    flex:1 1 100%;display:flex;gap:6px;flex-wrap:wrap;margin-top:1px;
+  }
+  .target-presets .btn{font-size:12px;padding:7px 12px}
+  .filemeter{
+    display:flex;align-items:center;gap:11px;flex-wrap:wrap;
+    border:1px solid rgba(72,255,132,.38);border-radius:14px;
+    background:linear-gradient(135deg,rgba(72,255,132,.13),rgba(6,16,11,.82));
+    padding:10px 12px;min-height:54px;
+  }
+  body:not(.has) .filemeter{display:none}
+  .filemeter .fm-label{
+    font-size:11px;font-weight:900;color:var(--txt-soft);
+    letter-spacing:.2px;white-space:nowrap;
+  }
+  .filemeter .fm-size{
+    color:var(--accent);font-size:26px;font-weight:900;line-height:1;
+    font-variant-numeric:tabular-nums;
+  }
+  .filemeter .fm-note{
+    flex:1 1 160px;color:var(--txt-soft);font-size:12px;font-weight:800;line-height:1.45;
+  }
+  .filemeter .fm-note b{color:var(--accent)}
+  .filemeter.over{border-color:rgba(255,211,106,.62);background:linear-gradient(135deg,rgba(255,211,106,.13),rgba(6,16,11,.82))}
+  .filemeter.over .fm-size,.filemeter.over .fm-note b{color:var(--warn)}
   .advanced{
     border:1px solid var(--line-soft);border-radius:14px;background:rgba(6,16,11,.34);
     padding:0;overflow:hidden;
@@ -346,7 +374,7 @@
         <span class="sub">영상이나 이미지를 여기에 놓으세요</span>
         <span class="tip">또는 클릭해서 선택 · mp4 · webm · mov · jpg · png · webp</span>
       </div>
-      <p class="priv">디스코드에 올릴 영상이나 이미지가 10MB를 넘을 때 사용합니다.<br>
+      <p class="priv">디스코드에 올릴 영상이나 이미지를 10MB / 25MB / 50MB 목표로 줄일 때 사용합니다.<br>
         <b>모든 처리는 브라우저 안에서만 진행됩니다</b> — 파일은 어디에도 업로드되지 않습니다.</p>
     </div>
 
@@ -404,10 +432,20 @@
         <div class="row">
           <span class="lbl">목표 용량</span>
           <div class="targetbox">
-            <input id="targetMb" type="number" min="1" max="10" step="0.01" value="10" inputmode="decimal" aria-label="목표 용량 MB">
+            <input id="targetMb" type="number" min="1" max="50" step="0.01" value="10" inputmode="decimal" aria-label="목표 용량 MB">
             <span class="unit">MB</span>
             <span class="actual" id="targetActual">실제 압축 목표 <b>9.98MB</b></span>
+            <div class="target-presets" id="targetPresets" aria-label="목표 용량 프리셋">
+              <button class="btn on" data-target="10">10 MB</button>
+              <button class="btn" data-target="25">25 MB</button>
+              <button class="btn" data-target="50">50 MB</button>
+            </div>
           </div>
+        </div>
+        <div class="filemeter" id="fileMeter" aria-live="polite">
+          <span class="fm-label">현재 파일</span>
+          <b class="fm-size" id="sourceSize">--</b>
+          <span class="fm-note" id="sourceDelta">파일을 선택하면 용량이 표시됩니다.</span>
         </div>
         <div class="row videoOnly">
           <span class="lbl">소리</span>
@@ -495,7 +533,7 @@
   <kbd>←</kbd><kbd>→</kbd> 영상 미리보기 이동 · <kbd>엔터</kbd> 저장<br>
   <kbd>N</kbd> 새 파일 · <kbd>?</kbd> 도움말<br>
   <span style="color:var(--txt-soft);opacity:.8">비율을 고른 뒤 초록색 박스의 <b>모서리를 드래그하면 크기</b>를 조절하고, <b>안쪽을 드래그하면 위치</b>를 옮길 수 있습니다. 박스 안쪽만 저장됩니다.</span><br>
-  <span style="color:var(--txt-soft);opacity:.8">목표 용량에 10을 입력하면 실제 압축 목표를 9.98MB로 잡아 안전 여유를 둡니다.</span>
+  <span style="color:var(--txt-soft);opacity:.8">목표 용량은 프리셋을 누르거나 직접 입력할 수 있습니다. 실제 압축 목표는 0.02MB 여유를 두고 잡습니다.</span>
 </div>
 
 <input type="file" id="file" accept="video/*,image/png,image/jpeg,image/webp,image/avif,.mp4,.webm,.mov,.mkv,.m4v,.ogv,.avi,.png,.jpg,.jpeg,.webp,.avif">
@@ -516,9 +554,10 @@
         playBtn=$("playBtn"), muteBtn=$("muteBtn"),
         outMeta=$("outMeta"), warnline=$("warnline"), estimateEl=$("estimate"),
         toastEl=$("toast"), helpEl=$("help"), targetMb=$("targetMb"),
-        targetActual=$("targetActual");
-  const DISCORD_LIMIT = 10*1024*1024;
-  const MAX_TARGET_MB = 10;
+        targetActual=$("targetActual"), targetPresets=$("targetPresets"), fileMeter=$("fileMeter"),
+        sourceSize=$("sourceSize"), sourceDelta=$("sourceDelta");
+  const MAX_TARGET_MB = 50;
+  const DISCORD_LIMIT = MAX_TARGET_MB*1024*1024;
   const TARGET_HEADROOM_MB = 0.02; // 10MB input becomes a 9.98MB encode target
   const CROP_MIN = 0.12;           // smallest the crop box can be dragged (12% of full)
 
@@ -581,6 +620,31 @@
   function updateTargetActual(){
     S.targetMB = readTargetMB();
     if(targetActual) targetActual.innerHTML = `실제 압축 목표 <b>${fmtMB(effectiveTargetMB())}MB</b>`;
+    syncTargetPreset();
+  }
+  function syncTargetPreset(){
+    if(!targetPresets) return;
+    const now=readTargetMB();
+    [...targetPresets.querySelectorAll("button[data-target]")].forEach(btn=>{
+      btn.classList.toggle("on", Math.abs(Number(btn.dataset.target)-now)<0.005);
+    });
+  }
+  function updateFileMeter(){
+    if(!fileMeter || !sourceSize || !sourceDelta) return;
+    if(!S._file){
+      fileMeter.classList.remove("over");
+      sourceSize.textContent="--";
+      sourceDelta.textContent="파일을 선택하면 용량이 표시됩니다.";
+      return;
+    }
+    const bytes=S._file.size||0;
+    const gap=bytes-effectiveTargetBytes();
+    const over=gap>0;
+    fileMeter.classList.toggle("over",over);
+    sourceSize.textContent=fmtSize(bytes);
+    sourceDelta.innerHTML=over
+      ? `목표보다 <b>${fmtSize(gap)}</b> 큽니다. 저장하면 자동으로 줄입니다.`
+      : `목표보다 <b>${fmtSize(Math.abs(gap))}</b> 여유가 있습니다.`;
   }
   function baseDims(){
     const d=outDims(0);
@@ -926,6 +990,7 @@
     vid.style.display="";
     status("미리보기를 불러오는 중입니다…");
     footnote.textContent=`${(file.size/1048576).toFixed(1)} MB · ${file.name||"영상"}`;
+    updateGoLabel();
     vid.onloadedmetadata=()=>{
       clearTimeout(S._metaTimer);
       S.dur=vid.duration||0;
@@ -971,6 +1036,7 @@
     vwrap.classList.remove("paused");
     status("이미지를 불러오는 중입니다…");
     footnote.textContent=`${(file.size/1048576).toFixed(1)} MB · ${file.name||"이미지"}`;
+    updateGoLabel();
     imgPrev.onload=()=>{
       S.imgW=imgPrev.naturalWidth||0; S.imgH=imgPrev.naturalHeight||0;
       S.cropX=0.5; S.cropY=0.5; S.cropScale=1;
@@ -1153,6 +1219,7 @@
     if(lbl) lbl.textContent = S.busy ? "저장 중…" : (isImage() ? "이미지 저장" : "MP4 저장");
     saveBtn.disabled = S.busy || !S._file;
     updateTargetActual();
+    updateFileMeter();
     updateEstimate();
     checkWarn();
     updateMediaButtons();
@@ -1166,6 +1233,13 @@
     updateTargetActual();
     clearOutput();
   });
+  if(targetPresets){
+    targetPresets.addEventListener("click",e=>{
+      const b=e.target.closest("button[data-target]"); if(!b) return;
+      targetMb.value = fmtMB(clamp(Number(b.dataset.target)||10,1,MAX_TARGET_MB));
+      clearOutput();
+    });
+  }
   wireSeg("segSize","w","w",clearOutput);
   wireSeg("segRatio","r","ratio",()=>{
     S.cropX=0.5; S.cropY=0.5; S.cropScale=1;
@@ -1365,12 +1439,12 @@
         const data=await f.readFile(outName);
         try{ await f.deleteFile(outName); }catch(e){}
         blob=new Blob([data.buffer],{type:"video/mp4"});
-        if(blob.size<=selectedLimit || (attempt===3 && blob.size<=DISCORD_LIMIT)) break;
+        if(blob.size<=selectedLimit) break;
       }
       S._phase=null;
       try{ await f.deleteFile(inName); }catch(e){}
-      if(!blob || blob.size>DISCORD_LIMIT){
-        throw new Error("아직 10MB를 넘습니다. 더 짧게 자르거나 더 작은 크기를 선택해 주세요");
+      if(!blob || blob.size>selectedLimit){
+        throw new Error(`아직 목표 용량 ${fmtMB(effectiveTargetMB())}MB를 넘습니다. 더 짧게 자르거나 더 작은 크기를 선택해 주세요`);
       }
       if(S.outURL) URL.revokeObjectURL(S.outURL);
       S.outBlob=blob; S.outURL=URL.createObjectURL(blob);
@@ -1459,7 +1533,7 @@
     S.kind="video"; S.dur=0; S.start=0; S.end=0; S._file=null; S._noMeta=false; S.srcURL=null;
     S.imgW=0; S.imgH=0; S.cropX=0.5; S.cropY=0.5; S.cropScale=1; S.previewMuted=false; S.outAudioMissing=false;
     status("영상이나 이미지를 넣으면 시작합니다."); footnote.textContent="브라우저 처리 · ffmpeg.wasm · 빌드 2";
-    setBar(0); updateMediaButtons();
+    setBar(0); updateGoLabel();
   }
 
   /* ---------- pickers + drag & drop ---------- */
