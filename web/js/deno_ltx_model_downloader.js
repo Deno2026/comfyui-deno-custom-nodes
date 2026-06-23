@@ -6,7 +6,12 @@ const ROUTE = "/deno/ltx_model_downloader";
 const MIN_SIZE = [560, 430];
 const PANEL_MIN_HEIGHT = 352;
 const NODE_CHROME_HEIGHT = 62;
-const PRESET_STORAGE_KEY = "deno_ltx_model_downloader_presets_v1";
+const PRESET_STORAGE_KEY = "deno_ltx_model_downloader_presets_v3";
+const LEGACY_PRESET_STORAGE_KEYS = [
+    "deno_ltx_model_downloader_presets_v1",
+    "deno_ltx_model_downloader_presets_v2",
+];
+const LTX_MODEL_DOWNLOADER_REV = "r2026.06.23-root-intent-c";
 
 const DEFAULT_PACKAGE = {
     id: "ltx_23_8gb_vram",
@@ -307,7 +312,10 @@ function buildUi(node, rootWidget, presetsWidget) {
     bottomRow.append(refreshButton, status);
 
     const state = {
-        selectedRootId: "",
+        rootMode: "auto",
+        explicitRootId: "",
+        effectiveRootId: "",
+        refreshSequence: 0,
         roots: [],
         files: [],
         modelsRoot: "",
@@ -316,6 +324,32 @@ function buildUi(node, rootWidget, presetsWidget) {
         presetsState: readPresetsState(presetsWidget),
         editorPresetId: "",
     };
+
+    function resetRootToAuto() {
+        state.rootMode = "auto";
+        state.explicitRootId = "";
+    }
+
+    function requestedRootId() {
+        return state.rootMode === "explicit" ? state.explicitRootId : "";
+    }
+
+    function selectRootByUser(rootId) {
+        if (!rootId) {
+            resetRootToAuto();
+            refreshInfo();
+            return;
+        }
+        state.rootMode = "explicit";
+        state.explicitRootId = rootId;
+        const rootInfo = state.roots.find((rootItem) => rootItem.id === rootId);
+        if (rootInfo) {
+            rootSelect.value = rootId;
+            writeRootWidget(rootInfo.path || "");
+        }
+        renderRootList();
+        refreshInfo();
+    }
 
     const editor = buildEditor(
         () => currentPackage(state.presetsState),
@@ -421,7 +455,8 @@ function buildUi(node, rootWidget, presetsWidget) {
                 presetMenu.style.display = "none";
                 setEditingMode(false);
                 editor.load(currentPackage(state.presetsState));
-                refreshInfo(state.selectedRootId);
+                resetRootToAuto();
+                refreshInfo();
             }, item.id === state.presetsState.active_preset_id);
             presetMenu.append(option);
         }
@@ -430,7 +465,7 @@ function buildUi(node, rootWidget, presetsWidget) {
     function renderRoots(payload) {
         const roots = payload.roots || [];
         state.roots = roots;
-        state.selectedRootId = payload.selected_root_id || roots[0]?.id || "";
+        state.effectiveRootId = payload.selected_root_id || roots[0]?.id || "";
         state.modelsRoot = payload.models_root || "";
         state.modelSubdirs = payload.model_subdirs || state.modelSubdirs || [];
         hint.textContent = payload.instructions || currentPackage(state.presetsState).description || "Open links, download with your browser, then move files into the shown target paths.";
@@ -444,7 +479,7 @@ function buildUi(node, rootWidget, presetsWidget) {
                 : rootInfo.path;
             rootSelect.append(option);
         }
-        rootSelect.value = state.selectedRootId;
+        rootSelect.value = state.effectiveRootId;
         pathText.textContent = state.modelsRoot || "No model root selected";
         writeRootWidget(state.modelsRoot);
         renderRootList();
@@ -462,7 +497,7 @@ function buildUi(node, rootWidget, presetsWidget) {
         }
 
         roots.forEach((rootInfo, index) => {
-            const selected = rootInfo.id === state.selectedRootId;
+            const selected = rootInfo.id === state.effectiveRootId;
             const chip = document.createElement("button");
             chip.type = "button";
             chip.style.cssText = rootChipStyle(selected);
@@ -499,14 +534,10 @@ function buildUi(node, rootWidget, presetsWidget) {
 
             chip.append(indexBadge, path, stateLabel);
             chip.onclick = () => {
-                if (rootInfo.id === state.selectedRootId) {
+                if (state.rootMode === "explicit" && rootInfo.id === state.explicitRootId) {
                     return;
                 }
-                state.selectedRootId = rootInfo.id;
-                rootSelect.value = rootInfo.id;
-                writeRootWidget(rootInfo.path || "");
-                renderRootList();
-                refreshInfo(rootInfo.id);
+                selectRootByUser(rootInfo.id);
             };
             rootList.append(chip);
         });
@@ -566,23 +597,28 @@ function buildUi(node, rootWidget, presetsWidget) {
     function reloadFromWidgets() {
         state.presetsState = readPresetsState(presetsWidget);
         state.editorPresetId = currentPackage(state.presetsState).id;
+        resetRootToAuto();
         renderPresetButton();
         editor.load(currentPackage(state.presetsState));
         setEditingMode(false);
-        refreshInfo("");
+        refreshInfo();
     }
 
-    async function refreshInfo(rootId = state.selectedRootId) {
+    async function refreshInfo() {
+        const sequence = ++state.refreshSequence;
         try {
             renderPresetButton();
             setStatus("Checking local model files...");
             const active = currentPackage(state.presetsState);
             const payload = await postJson(`${ROUTE}/check`, {
-                root_id: rootId || "",
+                root_id: requestedRootId(),
                 model_root: rootWidget?.value || "",
                 presets_state: state.presetsState,
                 package: active,
             });
+            if (sequence !== state.refreshSequence) {
+                return;
+            }
             renderRoots(payload);
             renderFiles(payload.files || []);
             const total = (payload.files || []).length;
@@ -590,6 +626,9 @@ function buildUi(node, rootWidget, presetsWidget) {
             setProgress(existing, total);
             setStatus(existing === total ? "All files found. Press R if model lists need refresh." : "Open missing links, then move files to the shown paths.");
         } catch (error) {
+            if (sequence !== state.refreshSequence) {
+                return;
+            }
             setStatus(error.message || String(error), true);
         }
     }
@@ -629,7 +668,7 @@ function buildUi(node, rootWidget, presetsWidget) {
         markWorkflowDirty();
         state.editorPresetId = packageId;
         setEditingMode(false);
-        refreshInfo(state.selectedRootId);
+        refreshInfo();
         setStatus("Preset saved in this browser and workflow.");
     }
 
@@ -640,14 +679,13 @@ function buildUi(node, rootWidget, presetsWidget) {
     }
 
     rootSelect.addEventListener("change", () => {
-        state.selectedRootId = rootSelect.value;
-        refreshInfo(state.selectedRootId);
+        selectRootByUser(rootSelect.value);
     });
     copyRootButton.addEventListener("click", async () => {
         await copyText(state.modelsRoot || pathText.textContent || "");
         setStatus("Copied selected models root.");
     });
-    refreshButton.addEventListener("click", () => refreshInfo(state.selectedRootId));
+    refreshButton.addEventListener("click", () => refreshInfo());
     presetButton.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1247,14 +1285,13 @@ function readPresetsState(widget) {
     } catch (_error) {
         widgetState = normalizePresetsState(DEFAULT_STATE);
     }
-    if (!hasCustomPresets(widgetState)) {
-        const storedState = readStoredPresetsState();
-        if (storedState && hasCustomPresets(storedState)) {
-            if (widget) {
-                widget.value = JSON.stringify(storedState, null, 2);
-            }
-            return storedState;
+    const storedState = readStoredPresetsState();
+    if (storedState && hasCustomPresets(storedState)) {
+        const mergedState = mergePresetLibrary(widgetState, storedState);
+        if (widget && JSON.stringify(normalizePresetsState(widgetState)) !== JSON.stringify(mergedState)) {
+            widget.value = JSON.stringify(mergedState, null, 2);
         }
+        return mergedState;
     }
     return widgetState;
 }
@@ -1270,23 +1307,53 @@ function writePresetsState(widget, value) {
 }
 
 function readStoredPresetsState() {
-    try {
-        const raw = localStorage.getItem(PRESET_STORAGE_KEY);
-        if (!raw) {
-            return null;
+    for (const key of [PRESET_STORAGE_KEY, ...LEGACY_PRESET_STORAGE_KEYS]) {
+        try {
+            const raw = localStorage.getItem(key);
+            if (!raw) {
+                continue;
+            }
+            const stored = normalizePresetsState(JSON.parse(raw));
+            return {
+                active_preset_id: DEFAULT_PACKAGE.id,
+                presets: stored.presets,
+            };
+        } catch (_error) {
+            // Ignore stale browser storage and keep the workflow as authority.
         }
-        return normalizePresetsState(JSON.parse(raw));
-    } catch (_error) {
-        return null;
     }
+    return null;
 }
 
 function writeStoredPresetsState(value) {
     try {
-        localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(normalizePresetsState(value)));
+        const normalized = normalizePresetsState(value);
+        localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify({
+            active_preset_id: DEFAULT_PACKAGE.id,
+            presets: normalized.presets,
+        }));
     } catch (_error) {
         // Browser storage may be unavailable in hardened profiles; the workflow widget still saves.
     }
+}
+
+function mergePresetLibrary(workflowState, storedState) {
+    const workflow = normalizePresetsState(workflowState);
+    const stored = normalizePresetsState(storedState);
+    const byId = new Map(workflow.presets.map((item) => [item.id, item]));
+    for (const item of stored.presets) {
+        if (item.id !== DEFAULT_PACKAGE.id && !byId.has(item.id)) {
+            byId.set(item.id, item);
+        }
+    }
+    const presets = Array.from(byId.values());
+    const activeId = presets.some((item) => item.id === workflow.active_preset_id)
+        ? workflow.active_preset_id
+        : DEFAULT_PACKAGE.id;
+    return normalizePresetsState({
+        active_preset_id: activeId,
+        presets,
+    });
 }
 
 function hasCustomPresets(state) {

@@ -94,8 +94,16 @@ def _norm(path: Path | str) -> str:
     return str(Path(path).expanduser().resolve())
 
 
+def _canonical_root_key(path: Path | str) -> str:
+    expanded = Path(path).expanduser()
+    real_path = os.path.realpath(str(expanded))
+    return os.path.normcase(os.path.normpath(real_path))
+
+
 def _root_id(root: str) -> str:
-    return hashlib.sha1(root.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    canonical = _canonical_root_key(root)
+    digest = hashlib.sha256(canonical.encode("utf-8", errors="ignore")).hexdigest()[:16]
+    return f"root_{digest}"
 
 
 def _paths_from_folder_paths_entry(value) -> Iterable[str]:
@@ -112,29 +120,47 @@ def _paths_from_folder_paths_entry(value) -> Iterable[str]:
                 yield str(item)
 
 
+def _looks_like_model_root(root_path: Path, source: str) -> bool:
+    if source == "default":
+        return True
+    if root_path.name.lower() == "models":
+        return True
+    required_sibling_count = sum(
+        1
+        for name in ("unet", "text_encoders", "vae")
+        if (root_path / name).is_dir()
+    )
+    return required_sibling_count >= 2
+
+
 def _collect_model_roots() -> List[Dict]:
     roots: Dict[str, Dict] = {}
 
     def add(path: Path | str, source: str) -> None:
         try:
             root = _norm(path)
+            canonical = _canonical_root_key(root)
         except (OSError, RuntimeError):
             return
         if not Path(root).exists():
             return
         root_path = Path(root)
-        required_sibling_count = sum(1 for name in ("unet", "text_encoders", "vae") if (root_path / name).is_dir())
-        if source != "default" and root_path.name.lower() != "models" and required_sibling_count < 2:
+        if not _looks_like_model_root(root_path, source):
             return
-        rid = _root_id(root)
-        if rid not in roots:
-            roots[rid] = {
+        rid = _root_id(canonical)
+        if canonical not in roots:
+            roots[canonical] = {
                 "id": rid,
                 "path": root,
                 "label": root,
                 "source": source,
+                "sources": [source],
+                "canonical_path": canonical,
                 "existing_count": 0,
             }
+        elif source not in roots[canonical]["sources"]:
+            roots[canonical]["sources"].append(source)
+            roots[canonical]["source"] = ", ".join(roots[canonical]["sources"])
 
     add(folder_paths.models_dir, "default")
 
@@ -164,26 +190,17 @@ def _root_widget_choices() -> List[str]:
     return [root["path"] for root in roots]
 
 
-def _select_root(root_id: Optional[str], root_path: Optional[str] = None) -> Tuple[Dict, List[Dict]]:
+def _select_root(root_id: Optional[str]) -> Tuple[Dict, List[Dict], str, str]:
     roots = _collect_model_roots()
     if not roots:
         raise RuntimeError("No ComfyUI model roots were found.")
     if root_id:
         for root in roots:
             if root["id"] == root_id:
-                return root, roots
-    if root_path:
-        try:
-            normalized_path = _norm(root_path)
-        except (OSError, RuntimeError):
-            normalized_path = ""
-        if normalized_path:
-            for root in roots:
-                if root["path"] == normalized_path:
-                    return root, roots
+                return root, roots, "explicit", "valid_explicit_root"
     if root_id:
-        raise ValueError("Selected model root is not registered in ComfyUI.")
-    return roots[0], roots
+        return roots[0], roots, "auto", "invalid_explicit_root_fallback"
+    return roots[0], roots, "auto", "auto_best_ready_files"
 
 
 def _hf_file_url(item: Dict) -> str:
@@ -295,8 +312,7 @@ def _target_path_candidates(models_root: str, target_subdir: str, filename: str)
     folder_type = relative_parts[0]
     nested_parts = relative_parts[1:-1]
     for model_dir in _registered_model_dirs(folder_type):
-        if _is_relative_to_or_same(model_dir, root):
-            add(model_dir.joinpath(*nested_parts, filename))
+        add(model_dir.joinpath(*nested_parts, filename))
 
     return candidates
 
@@ -606,10 +622,9 @@ def _public_package_files(models_root: str, package: Dict) -> List[Dict]:
 
 
 def _build_payload(root_id: str | None, state_value=None, package_value=None, model_root: str | None = None) -> Dict:
-    selected, roots = _select_root(root_id, model_root)
+    selected, roots, selection_mode, selection_reason = _select_root(root_id)
     state = _parse_presets_state(state_value)
     package = _normalize_package(package_value) if package_value is not None else _active_package_from_state(state)
-    files = _public_package_files(selected["path"], package)
     roots = [
         {
             **root,
@@ -621,8 +636,23 @@ def _build_payload(root_id: str | None, state_value=None, package_value=None, mo
         }
         for root in roots
     ]
+    if selection_mode == "auto" and roots:
+        selected_count = next(
+            (root["existing_count"] for root in roots if root["id"] == selected["id"]),
+            0,
+        )
+        best = max(roots, key=lambda root: root["existing_count"])
+        if best["existing_count"] > selected_count:
+            selected = best
+            selection_reason = "auto_highest_ready_count"
+
+    files = _public_package_files(selected["path"], package)
     return {
         "mode": "manual_setup_helper",
+        "frontend_protocol": 3,
+        "selection_mode": selection_mode,
+        "selection_reason": selection_reason,
+        "legacy_model_root": model_root or "",
         "preset_id": package["id"],
         "preset_label": package["title"],
         "package": package,

@@ -6,6 +6,12 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.60 - 2026-06-23
+
+- Fixed Easy Model Download Helper model-root detection for ComfyUI setups with more than one registered model folder.
+- Selecting a model root now changes the displayed/copy target path without hiding files that ComfyUI can already find through another registered model path.
+- Kept model discovery limited to ComfyUI-registered model paths instead of probing nearby folders.
+
 ## 0.7.59 - 2026-06-23
 
 - Added `[BETA] (Deno) LTX Tiled Spatial Upscaler` for tiled video-latent spatial upscale experiments in high-resolution LTX workflows.

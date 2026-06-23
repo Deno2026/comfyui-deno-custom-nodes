@@ -1971,6 +1971,167 @@ def test_ltx_model_setup_helper_checks_registered_model_folder_names():
     assert result["relative_path"].replace("\\", "/") == "TextEncoders/flux2-klein-9b-uncensored-q6_k.gguf"
 
 
+def test_ltx_model_setup_helper_does_not_probe_unregistered_nearby_roots():
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_models_dir = folder_paths.models_dir
+    original_folder_map = folder_paths.folder_names_and_paths
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        comfy_root = base / "ComfyUI"
+        default_root = comfy_root / "models"
+        sibling_root = base / "ComfyUI Model" / "models"
+        default_root.mkdir(parents=True)
+        sibling_root.mkdir(parents=True)
+        (sibling_root / "unet").mkdir()
+        (sibling_root / "text_encoders").mkdir()
+        (sibling_root / "vae").mkdir()
+
+        folder_paths.models_dir = str(default_root)
+        folder_paths.folder_names_and_paths = {}
+        try:
+            roots = module._collect_model_roots()
+        finally:
+            folder_paths.models_dir = original_models_dir
+            folder_paths.folder_names_and_paths = original_folder_map
+
+    paths = {Path(root["path"]) for root in roots}
+    assert default_root.resolve() in paths
+    assert sibling_root.resolve() not in paths
+
+
+def test_ltx_model_setup_helper_includes_registered_yaml_model_root():
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_models_dir = folder_paths.models_dir
+    original_folder_map = folder_paths.folder_names_and_paths
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        default_root = Path(temp_dir) / "ComfyUI" / "models"
+        yaml_root = Path(temp_dir) / "ComfyUI Model" / "models"
+        default_root.mkdir(parents=True)
+        (yaml_root / "unet").mkdir(parents=True)
+        (yaml_root / "text_encoders").mkdir()
+        (yaml_root / "vae").mkdir()
+
+        folder_paths.models_dir = str(default_root)
+        folder_paths.folder_names_and_paths = {
+            "text_encoders": ([str(yaml_root / "text_encoders")], set()),
+            "vae": ([str(yaml_root / "vae")], set()),
+        }
+        try:
+            payload = module._build_payload(None, module._default_presets_state(), model_root=str(yaml_root))
+        finally:
+            folder_paths.models_dir = original_models_dir
+            folder_paths.folder_names_and_paths = original_folder_map
+
+    assert Path(payload["models_root"]) == default_root.resolve()
+    assert payload["legacy_model_root"] == str(yaml_root)
+    assert any(Path(root["path"]) == yaml_root.resolve() for root in payload["roots"])
+    assert payload["selection_mode"] == "auto"
+
+
+def test_ltx_model_setup_helper_autoselects_registered_root_with_ready_files():
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_models_dir = folder_paths.models_dir
+    original_folder_map = folder_paths.folder_names_and_paths
+    package = {
+        "id": "tiny_pack",
+        "title": "Tiny Pack",
+        "files": [
+            {
+                "url": "https://example.com/model-a.safetensors",
+                "target_subdir": "diffusion_models",
+                "filename": "model-a.safetensors",
+                "size": 1,
+            },
+            {
+                "url": "https://example.com/model-b.safetensors",
+                "target_subdir": "text_encoders",
+                "filename": "model-b.safetensors",
+                "size": 1,
+            },
+        ],
+    }
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        default_root = Path(temp_dir) / "ComfyUI" / "models"
+        registered_root = Path(temp_dir) / "ComfyUI Model" / "models"
+        default_root.mkdir(parents=True)
+        diffusion_dir = registered_root / "diffusion_models"
+        text_dir = registered_root / "text_encoders"
+        diffusion_dir.mkdir(parents=True)
+        text_dir.mkdir()
+        (diffusion_dir / "model-a.safetensors").write_bytes(b"a")
+        (text_dir / "model-b.safetensors").write_bytes(b"b")
+
+        folder_paths.models_dir = str(default_root)
+        folder_paths.folder_names_and_paths = {
+            "diffusion_models": ([str(diffusion_dir)], set()),
+            "text_encoders": ([str(text_dir)], set()),
+        }
+        try:
+            payload = module._build_payload(None, module._default_presets_state(), package, str(default_root))
+            explicit = module._build_payload(payload["roots"][0]["id"], module._default_presets_state(), package)
+        finally:
+            folder_paths.models_dir = original_models_dir
+            folder_paths.folder_names_and_paths = original_folder_map
+
+    assert Path(payload["models_root"]) == default_root.resolve()
+    assert payload["existing_count"] == 2
+    assert all(file["status"] == "exists" for file in payload["files"])
+    assert Path(explicit["models_root"]) == default_root.resolve()
+    assert explicit["existing_count"] == 2
+    assert all(file["status"] == "exists" for file in explicit["files"])
+    assert explicit["selection_mode"] == "explicit"
+
+
+def test_ltx_model_setup_helper_uses_path_stable_root_ids_and_invalid_fallback():
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_models_dir = folder_paths.models_dir
+    original_folder_map = folder_paths.folder_names_and_paths
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        default_root = Path(temp_dir) / "ComfyUI" / "models"
+        shared_root = Path(temp_dir) / "ComfyUI Model" / "models"
+        default_root.mkdir(parents=True)
+        diffusion_dir = shared_root / "diffusion_models"
+        text_dir = shared_root / "text_encoders"
+        diffusion_dir.mkdir(parents=True)
+        text_dir.mkdir()
+
+        folder_paths.models_dir = str(default_root)
+        folder_paths.folder_names_and_paths = {
+            "diffusion_models": ([str(diffusion_dir)], set()),
+            "text_encoders": ([str(text_dir)], set()),
+        }
+        try:
+            first_roots = module._collect_model_roots()
+            invalid = module._build_payload("root_missing_legacy_id", module._default_presets_state())
+            folder_paths.folder_names_and_paths = {
+                "text_encoders": ([str(text_dir)], set()),
+                "diffusion_models": ([str(diffusion_dir)], set()),
+            }
+            second_roots = module._collect_model_roots()
+        finally:
+            folder_paths.models_dir = original_models_dir
+            folder_paths.folder_names_and_paths = original_folder_map
+
+    first_ids = {Path(root["path"]): root["id"] for root in first_roots}
+    second_ids = {Path(root["path"]): root["id"] for root in second_roots}
+    assert first_ids[shared_root.resolve()] == second_ids[shared_root.resolve()]
+    assert first_ids[shared_root.resolve()].startswith("root_")
+    assert invalid["selection_mode"] == "auto"
+    assert invalid["selection_reason"] == "invalid_explicit_root_fallback"
+
+
 def test_ltx_model_setup_helper_deep_scan_is_explicit_opt_in():
     load_package()
     module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
@@ -2016,6 +2177,25 @@ def test_ltx_model_setup_helper_has_no_backend_download_code():
     assert "shutil.copy" not in source
     assert "ClientSession" not in source
     assert "resolve_civitai" not in source
+
+
+def test_ltx_model_setup_helper_frontend_keeps_auto_root_selection_available():
+    script = (REPO_ROOT / "web" / "js" / "deno_ltx_model_downloader.js").read_text(encoding="utf-8")
+
+    assert "r2026.06.23-root-intent-c" in script
+    assert "rootMode" in script
+    assert "explicitRootId" in script
+    assert "effectiveRootId" in script
+    assert "refreshSequence" in script
+    assert 'return state.rootMode === "explicit" ? state.explicitRootId : "";' in script
+    assert 'refreshButton.addEventListener("click", () => refreshInfo())' in script
+    assert "selectRootByUser(rootInfo.id)" in script
+    assert "resetRootToAuto();" in script
+    assert 'refreshButton.addEventListener("click", () => refreshInfo(state.selectedRootId))' not in script
+    assert "userSelectedRootId" not in script
+    assert "selectedRootId" not in script
+    assert "const sequence = ++state.refreshSequence;" in script
+    assert "sequence !== state.refreshSequence" in script
 
 
 def test_ltx_multi_lora_loader_declares_compact_av_controls():
