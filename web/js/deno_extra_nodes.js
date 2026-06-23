@@ -8,6 +8,14 @@ const LOADER_MIN_SIZE = [360, 520];
 const LOADER_KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
 const LOADER_PRESET_MODE = "Preset Ratio";
 const LOADER_MANUAL_MODE = "Manual Input";
+const SEQUENCER_LAYOUT_VERSION = 3;
+const SEQUENCER_CLONE_PROPERTY_NAMES = [
+    "num_images",
+    "insert_mode",
+    "frame_rate",
+    "strength_sync",
+    "bypass",
+];
 const LTX_MODE_NAMES = ["Checkpoint Style", "KJ Style", "GGUF Style"];
 const LTX_SERIALIZED_WIDGET_COUNT = 10;
 const LTX_SERIALIZED_WIDGET_NAMES = [
@@ -1893,19 +1901,214 @@ function patchSequencer(nodeType) {
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
         const result = onNodeCreated?.apply(this, arguments);
-        setupSequencer(this);
+        setTimeout(() => {
+            if (!this.__denoSequencerReady) {
+                setupSequencer(this);
+            }
+        }, 0);
+        return result;
+    };
+
+    const configure = nodeType.prototype.configure;
+    nodeType.prototype.configure = function (info) {
+        // Mark nodes restored from workflow serialization so we do not overwrite
+        // saved dynamic values with peer clone defaults.
+        this.__denoLoadedFromWorkflow = true;
+        const phase = beginSequencerConfigurePhase(this, info);
+        let result;
+        try {
+            result = configure?.apply(this, arguments);
+            if (this.__denoSequencerLastFinalizedConfigureInfo !== info) {
+                finalizeSequencerConfiguredNode(this, info);
+            }
+        } finally {
+            endSequencerConfigurePhase(this, phase);
+        }
         return result;
     };
 
     const onConfigure = nodeType.prototype.onConfigure;
-    nodeType.prototype.onConfigure = function () {
+    nodeType.prototype.onConfigure = function (info) {
         // Mark nodes restored from workflow serialization so we do not overwrite
         // saved dynamic values with peer clone defaults.
         this.__denoLoadedFromWorkflow = true;
-        const result = onConfigure?.apply(this, arguments);
-        setupSequencer(this);
+        const phase = beginSequencerConfigurePhase(this, info);
+        let result;
+        try {
+            result = onConfigure?.apply(this, arguments);
+            finalizeSequencerConfiguredNode(this, info);
+        } finally {
+            endSequencerConfigurePhase(this, phase);
+        }
         return result;
     };
+}
+
+function beginSequencerConfigurePhase(node, info) {
+    if (!node) {
+        return null;
+    }
+    const alreadyConfiguring = node.__denoSequencerConfiguring === true;
+    if (!alreadyConfiguring) {
+        node.__denoSequencerConfigureGeneration = Number(node.__denoSequencerConfigureGeneration || 0) + 1;
+        node.__denoSequencerConfiguring = true;
+    }
+    node.__denoSequencerConfiguredDynamicWidgetValues = getSequencerConfiguredDynamicWidgetValues(info);
+    return {
+        ownsPhase: !alreadyConfiguring,
+        generation: node.__denoSequencerConfigureGeneration,
+    };
+}
+
+function endSequencerConfigurePhase(node, phase) {
+    if (!node || !phase?.ownsPhase) {
+        return;
+    }
+    node.__denoSequencerConfiguring = false;
+}
+
+function finalizeSequencerConfiguredNode(node, info) {
+    applySequencerConfiguredLayoutState(node, info);
+    applySequencerConfiguredDynamicState(node, info);
+    setupSequencer(node);
+    if (node) {
+        node.__denoSequencerLastFinalizedConfigureInfo = info;
+        delete node.__denoSequencerConfiguredDynamicWidgetValues;
+    }
+}
+
+function applySequencerConfiguredLayoutState(node, info) {
+    if (!node) {
+        return;
+    }
+    const incomingProperties = info && typeof info.properties === "object" && info.properties
+        ? info.properties
+        : {};
+    const incomingInputs = Array.isArray(info?.inputs) ? info.inputs : [];
+    const incomingMultiInput = incomingInputs.find((input) => input?.name === "multi_input");
+    node.__denoHadInputLink = getInputLinkIds(incomingMultiInput).length > 0;
+    node.__denoSequencerLayoutStateConfigured = true;
+    const hasIncomingLock = Object.prototype.hasOwnProperty.call(
+        incomingProperties,
+        "denoSequencerManualSizeLocked"
+    );
+    const incomingLock = hasIncomingLock
+        ? normalizeBooleanValue(incomingProperties.denoSequencerManualSizeLocked)
+        : false;
+    node.properties = node.properties || {};
+
+    if (!incomingLock) {
+        node.__denoSequencerManualSizeLocked = false;
+        node.__denoSequencerManualHeight = null;
+        node.__denoSequencerInitialAutoFitPending = true;
+        node.properties.denoSequencerLayoutVersion = SEQUENCER_LAYOUT_VERSION;
+        node.properties.denoSequencerManualSizeLocked = false;
+        delete node.properties.denoSequencerManualHeight;
+        return;
+    }
+
+    const incomingManualHeight = Number(incomingProperties.denoSequencerManualHeight);
+    const fallbackHeight = Number(info?.size?.[1]);
+    const manualHeight =
+        Number.isFinite(incomingManualHeight) && incomingManualHeight > 0
+            ? incomingManualHeight
+            : Number.isFinite(fallbackHeight) && fallbackHeight > 0
+                ? fallbackHeight
+                : null;
+    node.__denoSequencerManualSizeLocked = true;
+    node.__denoSequencerManualHeight = manualHeight;
+    node.__denoSequencerInitialAutoFitPending = false;
+    node.properties.denoSequencerLayoutVersion = SEQUENCER_LAYOUT_VERSION;
+    node.properties.denoSequencerManualSizeLocked = true;
+    if (manualHeight) {
+        node.properties.denoSequencerManualHeight = manualHeight;
+    } else {
+        delete node.properties.denoSequencerManualHeight;
+    }
+}
+
+function applySequencerConfiguredDynamicState(node, info) {
+    if (!node) {
+        return;
+    }
+    const incomingProperties = info && typeof info.properties === "object" && info.properties
+        ? info.properties
+        : {};
+    const configuredWidgetValues =
+        node.__denoSequencerConfiguredDynamicWidgetValues ||
+        getSequencerConfiguredDynamicWidgetValues(info);
+    node.properties = node.properties || {};
+
+    for (const name of getSequencerDynamicInputNames()) {
+        const widget = getSequencerDynamicWidget(node, name) || getWidget(node, name);
+        if (Object.prototype.hasOwnProperty.call(incomingProperties, name)) {
+            const value = normalizeSequencerOrDefault(name, incomingProperties[name]);
+            node.properties[name] = value;
+            if (widget) {
+                widget.value = value;
+            }
+            continue;
+        }
+
+        delete node.properties[name];
+        const configuredValue = configuredWidgetValues?.get?.(name);
+        const value = configuredWidgetValues?.has?.(name)
+            ? normalizeSequencerOrDefault(name, configuredValue)
+            : getSequencerDefaultValue(name);
+        if (widget) {
+            widget.value = value;
+        }
+    }
+}
+
+function getSequencerConfiguredDynamicWidgetValues(info) {
+    const values = Array.isArray(info?.widgets_values) ? info.widgets_values : null;
+    if (!values) {
+        return new Map();
+    }
+    const dynamicNames = getSequencerDynamicInputNames();
+    const dynamicStart = getSequencerSerializedDynamicStart(values, dynamicNames.length);
+    const result = new Map();
+    if (dynamicStart < 0) {
+        return result;
+    }
+    for (let offset = 0; offset < dynamicNames.length; offset += 1) {
+        const valueIndex = dynamicStart + offset;
+        if (valueIndex >= values.length) {
+            break;
+        }
+        const name = dynamicNames[offset];
+        result.set(name, normalizeSequencerOrDefault(name, values[valueIndex]));
+    }
+    return result;
+}
+
+function getSequencerSerializedDynamicStart(values, dynamicCount) {
+    const candidates = [6, 5, values.length - dynamicCount].filter((index) => Number.isInteger(index) && index >= 0);
+    for (const start of candidates) {
+        if (values.length >= start + dynamicCount) {
+            return start;
+        }
+    }
+    return -1;
+}
+
+function shouldIgnoreSequencerConfigureCallback(node, generation, name, rawValue) {
+    if (!node || generation === null || generation === undefined) {
+        return false;
+    }
+    if (generation !== node.__denoSequencerConfigureGeneration) {
+        return false;
+    }
+    if (name !== "num_images") {
+        return false;
+    }
+    const currentValue = normalizeSequencerValue(name, node.properties?.[name]);
+    const nextValue = normalizeSequencerValue(name, rawValue);
+    return currentValue !== undefined &&
+        nextValue !== undefined &&
+        !Number.isNaN(nextValue) &&
+        nextValue !== currentValue;
 }
 
 function isStrengthValueName(name) {
@@ -1967,7 +2170,7 @@ function getSequencerDefaultValue(name) {
         return 1.0;
     }
     if (name === "num_images") {
-        return 0;
+        return 1;
     }
     if (name === "bypass") {
         return false;
@@ -2149,6 +2352,18 @@ function scheduleUpstreamCountSync(node, options = {}) {
 
 function setupSequencer(node) {
     if (node.__denoSequencerReady) {
+        resetSequencerInputCatalog(node);
+        catalogSequencerDynamicSurfaces(node);
+        const count = normalizeSequencerValue(
+            "num_images",
+            node.properties?.num_images ?? getWidget(node, "num_images")?.value ?? getSequencerDefaultValue("num_images")
+        );
+        if (typeof node._applyWidgetCount === "function") {
+            node._applyWidgetCount(count);
+        } else {
+            node._denoUpdateVisibility?.();
+            node._denoReconcileInputSlots?.();
+        }
         return;
     }
     node.__denoSequencerReady = true;
@@ -2166,6 +2381,103 @@ function setupSequencer(node) {
         strengthSyncWidget.value = initialStrengthSync;
     }
     node.properties.strength_sync = initialStrengthSync;
+    catalogSequencerDynamicSurfaces(node);
+
+    const configuredLayoutState = node.__denoSequencerLayoutStateConfigured === true;
+    const savedLayoutVersion = Number(node.properties.denoSequencerLayoutVersion || 0);
+    const savedManualSizeLocked = configuredLayoutState
+        ? normalizeBooleanValue(node.__denoSequencerManualSizeLocked)
+        : normalizeBooleanValue(node.properties.denoSequencerManualSizeLocked ?? false);
+    const savedManualHeight = configuredLayoutState
+        ? Number(node.__denoSequencerManualHeight)
+        : Number(node.properties.denoSequencerManualHeight);
+    const currentHeight = Number(node.size?.[1]);
+    node.__denoSequencerManualSizeLocked = savedManualSizeLocked;
+    node.__denoSequencerManualHeight =
+        savedManualSizeLocked && Number.isFinite(savedManualHeight) && savedManualHeight > 0
+            ? savedManualHeight
+            : savedManualSizeLocked && Number.isFinite(currentHeight) && currentHeight > 0
+                ? currentHeight
+                : null;
+    if (!configuredLayoutState) {
+        node.__denoSequencerInitialAutoFitPending = !savedManualSizeLocked && savedLayoutVersion < SEQUENCER_LAYOUT_VERSION;
+    }
+    node.properties.denoSequencerLayoutVersion = SEQUENCER_LAYOUT_VERSION;
+    node.properties.denoSequencerManualSizeLocked = savedManualSizeLocked;
+    if (node.__denoSequencerManualHeight) {
+        node.properties.denoSequencerManualHeight = node.__denoSequencerManualHeight;
+    } else {
+        delete node.properties.denoSequencerManualHeight;
+    }
+
+    if (!node.__denoSequencerSetSizeWrapped) {
+        const originalSetSize = node.setSize;
+        node.setSize = function (size) {
+            const beforeWidth = this.size?.[0];
+            const beforeHeight = this.size?.[1];
+            const result = originalSetSize
+                ? originalSetSize.apply(this, arguments)
+                : (this.size = Array.isArray(size) ? [...size] : size);
+            const afterWidth = this.size?.[0];
+            const afterHeight = this.size?.[1];
+            const changed =
+                Math.abs(Number(afterWidth ?? 0) - Number(beforeWidth ?? 0)) > 1 ||
+                Math.abs(Number(afterHeight ?? 0) - Number(beforeHeight ?? 0)) > 1;
+            if (
+                changed &&
+                !this.__denoSequencerAutoSizing &&
+                !this.__denoSequencerInternalLayout &&
+                !this.__denoSequencerNativeArrangeSizing &&
+                !this.__denoSequencerInitialAutoFitPending
+            ) {
+                this.__denoSequencerManualSizeLocked = true;
+                if (Number.isFinite(Number(afterHeight)) && Number(afterHeight) > 0) {
+                    this.__denoSequencerManualHeight = Number(afterHeight);
+                }
+                this.properties = this.properties || {};
+                this.properties.denoSequencerLayoutVersion = SEQUENCER_LAYOUT_VERSION;
+                this.properties.denoSequencerManualSizeLocked = true;
+                if (this.__denoSequencerManualHeight) {
+                    this.properties.denoSequencerManualHeight = this.__denoSequencerManualHeight;
+                }
+            }
+            return result;
+        };
+        node.__denoSequencerSetSizeWrapped = true;
+    }
+
+    if (!node.__denoSequencerArrangeWrapped) {
+        const originalArrange = node.arrange;
+        node.arrange = function () {
+            const beforeWidth = Number(this.size?.[0]);
+            const beforeHeight = Number(this.size?.[1]);
+            let result;
+            try {
+                this.__denoSequencerNativeArrangeSizing = true;
+                result = originalArrange?.apply(this, arguments);
+            } finally {
+                this.__denoSequencerNativeArrangeSizing = false;
+            }
+            if (this.__denoSequencerGeometryDirty) {
+                syncSequencerInputGeometry(this);
+                this.__denoSequencerGeometryDirty = false;
+            }
+            const afterWidth = Number(this.size?.[0]);
+            const afterHeight = Number(this.size?.[1]);
+            const nativeSizeChanged =
+                Math.abs(afterWidth - beforeWidth) > 1 ||
+                Math.abs(afterHeight - beforeHeight) > 1;
+            if (
+                nativeSizeChanged &&
+                this.__denoSequencerManualSizeLocked &&
+                !this.__denoSequencerInternalLayout
+            ) {
+                runSequencerInternalLayout(this, () => fitSequencerVisibleSize(this));
+            }
+            return result;
+        };
+        node.__denoSequencerArrangeWrapped = true;
+    }
 
     const originalRemoved = node.onRemoved;
     node.onRemoved = function () {
@@ -2176,6 +2488,10 @@ function setupSequencer(node) {
         }
         delete node._syncImageCount;
         originalRemoved?.apply(this, arguments);
+    };
+
+    node._denoReconcileInputSlots = function () {
+        return reconcileSequencerInputSlots(this);
     };
 
     // Compatibility hook:
@@ -2215,9 +2531,15 @@ function setupSequencer(node) {
 
             const originalCallback = widget.callback;
             widget.callback = (value) => {
+                const configureGeneration = this.__denoSequencerConfiguring
+                    ? this.__denoSequencerConfigureGeneration
+                    : null;
                 const callbackResult = originalCallback?.apply(widget, [value]);
                 deferSequencerWidgetUpdate(() => {
                     const rawValue = value ?? widget.value;
+                    if (shouldIgnoreSequencerConfigureCallback(this, configureGeneration, widget.name, rawValue)) {
+                        return;
+                    }
                     const nextValue = widget.name === "num_images"
                         ? getSequencerNumImagesValue(this, rawValue)
                         : normalizeSequencerValue(widget.name, rawValue);
@@ -2261,13 +2583,19 @@ function setupSequencer(node) {
             widgetName.startsWith("insert_second_") ||
             isStrengthValueName(widgetName);
 
-        // Dynamic widgets are managed by addSyncedWidget callback.
+        // Dynamic widgets are managed by the canonical dynamic widget callback.
         // Handling them here can overwrite in-flight arrow increments.
         if (isDynamicWidget) {
             return result;
         }
 
+        const configureGeneration = this.__denoSequencerConfiguring
+            ? this.__denoSequencerConfigureGeneration
+            : null;
         const rawValue = value ?? widget?.value;
+        if (shouldIgnoreSequencerConfigureCallback(this, configureGeneration, widgetName, rawValue)) {
+            return result;
+        }
         const normalizedValue = widgetName === "num_images"
             ? getSequencerNumImagesValue(this, rawValue)
             : normalizeSequencerValue(widgetName, rawValue);
@@ -2297,21 +2625,34 @@ function setupSequencer(node) {
     node._denoUpdateVisibility = function () {
         const count = Number(this.properties.num_images ?? getWidget(this, "num_images")?.value ?? 0);
         const mode = this.properties.insert_mode ?? getWidget(this, "insert_mode")?.value ?? "frames";
+        catalogSequencerDynamicSurfaces(this);
+        const visibleDynamicIndexes = new Set();
 
-        for (const widget of this.widgets || []) {
-            const name = widget.name || "";
-            if (name.startsWith("insert_frame_")) {
-                const index = Number(name.split("_").pop());
-                toggleWidgetVisibility(widget, index <= count && mode === "frames");
-            } else if (name.startsWith("insert_second_")) {
-                const index = Number(name.split("_").pop());
-                toggleWidgetVisibility(widget, index <= count && mode === "seconds");
-            } else if (isStrengthValueName(name)) {
-                const index = Number(name.split("_").pop());
-                toggleWidgetVisibility(widget, index <= count);
+        for (const [name, widget] of this.__denoSequencerDynamicWidgets || []) {
+            const info = getSequencerDynamicInputInfo(name);
+            if (!info) {
+                continue;
             }
+            const visible = shouldShowSequencerDynamicWidget(this, name, count, mode);
+            if (visible) {
+                visibleDynamicIndexes.add(info.index);
+            }
+            toggleWidgetVisibility(widget, visible);
         }
 
+        for (const [index, widget] of this.__denoSequencerHeaderWidgets || []) {
+            toggleWidgetVisibility(widget, visibleDynamicIndexes.has(Number(index)));
+        }
+
+        composeSequencerWidgetList(this, visibleDynamicIndexes);
+        this._denoReconcileInputSlots?.();
+        syncSequencerInputGeometry(this);
+        runSequencerInternalLayout(this, () => {
+            this.arrange?.();
+            normalizeSequencerVisibleWidgetPositions(this);
+            syncSequencerInputGeometry(this);
+            fitSequencerVisibleSize(this);
+        });
         this.setDirtyCanvas?.(true, true);
     };
 
@@ -2319,6 +2660,7 @@ function setupSequencer(node) {
         this._hookStaticWidgets();
         const normalizedCount = Math.max(0, Math.min(Number(count) || 0, 50));
         const width = this.size?.[0] ?? 360;
+        catalogSequencerDynamicSurfaces(this);
 
         if (this.widgets) {
             for (const widget of this.widgets) {
@@ -2338,134 +2680,26 @@ function setupSequencer(node) {
             }
         }
 
-        this.widgets = (this.widgets || []).filter((widget) => {
-            const name = widget.name || "";
-            return !(
-                name.startsWith("insert_frame_") ||
-                name.startsWith("insert_second_") ||
-                isStrengthValueName(name) ||
-                name.startsWith("header_")
-            );
-        });
-
-        const addSyncedWidget = (type, name, fallbackValue, options) => {
-            const savedValue = this.properties[name];
-            const initialValue = normalizeSequencerOrDefault(name, savedValue, fallbackValue);
-            this.properties[name] = initialValue;
-            const widget = this.addWidget(type, name, initialValue, (value) => {
-                const applyValue = (rawValue) => {
-                    const prevValue = normalizeSequencerOrDefault(name, this.properties[name], fallbackValue);
-                    let nextValue = normalizeSequencerValue(name, rawValue);
-                    if (nextValue === undefined || Number.isNaN(nextValue)) {
-                        nextValue = normalizeSequencerOrDefault(name, rawValue, prevValue);
-                    }
-
-                    // Some arrow paths emit tiny deltas while displayed precision is coarser.
-                    // Promote one visible step for arrow-like deltas that would otherwise look stuck.
-                    const isInsertFrameParam = name.startsWith("insert_frame_");
-                    const isFineStepParam = name.startsWith("insert_second_") || isStrengthValueName(name);
-                    const rawNumeric = Number(rawValue);
-                    const prevNumeric = Number(prevValue);
-                    if (
-                        (isFineStepParam || isInsertFrameParam) &&
-                        Number.isFinite(rawNumeric) &&
-                        Number.isFinite(prevNumeric) &&
-                        nextValue === prevValue &&
-                        rawNumeric !== prevNumeric
-                    ) {
-                        const delta = Math.abs(rawNumeric - prevNumeric);
-                        const isLikelyArrowDelta = isInsertFrameParam ? delta <= 0.11 : true;
-                        if (isLikelyArrowDelta) {
-                            const direction = rawNumeric > prevNumeric ? 1 : -1;
-                            const step = isInsertFrameParam ? 1 : 0.01;
-                            nextValue = normalizeSequencerValue(name, prevNumeric + direction * step);
-                        }
-                    }
-
-                    // Always coerce the visible widget text/number to the normalized format
-                    // (e.g. prevent "-1.20000000000002" staying in an INT field).
-                    const normalizedWidgetValue = normalizeSequencerOrDefault(
-                        name,
-                        widget.value ?? rawValue,
-                        nextValue
-                    );
-                    if (widget.value !== normalizedWidgetValue) {
-                        widget.value = normalizedWidgetValue;
-                    }
-
-                    if (nextValue === prevValue) {
-                        this.properties[name] = prevValue;
-                        this.setDirtyCanvas?.(true, true);
-                        return;
-                    }
-
-                    widget.value = nextValue;
-                    this.properties[name] = nextValue;
-
-                    const isStrength = isStrengthValueName(name);
-                    const strengthSyncEnabled = this.properties.strength_sync ?? getWidget(this, "strength_sync")?.value ?? true;
-                    if (!isStrength || strengthSyncEnabled) {
-                        syncSequencerState(this, name, nextValue);
-                    }
-                    this.setDirtyCanvas?.(true, true);
-                };
-
-                // Arrow/button clicks can update widget.value after callback dispatch in some UI paths.
-                // Avoid forcing a stale immediate value; sync from the post-update widget state.
-                const immediateValue = value;
-                const prevValue = normalizeSequencerValue(name, this.properties[name] ?? fallbackValue);
-                const normalizedImmediate = normalizeSequencerValue(name, immediateValue);
-                if (
-                    immediateValue !== undefined &&
-                    normalizedImmediate !== undefined &&
-                    !Number.isNaN(normalizedImmediate) &&
-                    normalizedImmediate !== prevValue
-                ) {
-                    applyValue(immediateValue);
-                }
-                deferSequencerWidgetUpdate(() => applyValue(widget.value));
-                requestAnimationFrame(() => applyValue(widget.value));
-                setTimeout(() => applyValue(widget.value), 16);
-            }, options);
-            return widget;
-        };
-
-        for (let index = 1; index <= normalizedCount; index += 1) {
-            this.addCustomWidget({
-                name: `header_${index}`,
-                type: "text",
-                draw(ctx, currentNode, widgetWidth, y) {
-                    ctx.save();
-                    ctx.strokeStyle = "#333";
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    ctx.moveTo(10, y + 5);
-                    ctx.lineTo(widgetWidth - 10, y + 5);
-                    ctx.stroke();
-                    ctx.fillStyle = "#dddddd";
-                    ctx.font = "bold 12px Arial";
-                    ctx.textAlign = "left";
-                    ctx.fillText(`Image #${index}`, 10, y + 24);
-                    ctx.restore();
-                },
-                computeSize(widgetWidth) {
-                    return [widgetWidth, 35];
-                },
-            });
-
-            addSyncedWidget("number", `insert_frame_${index}`, 0, { min: -9999, max: 9999, step: 1, precision: 0 });
-            addSyncedWidget("number", `insert_second_${index}`, 0.0, { min: 0.0, max: 9999.0, step: 0.01, precision: 2 });
-            addSyncedWidget("number", `strength_${index}`, 1.0, { min: 0.0, max: 1.0, step: 0.01, precision: 2 });
+        const orderedDynamicWidgets = [];
+        for (let index = 1; index <= 50; index += 1) {
+            orderedDynamicWidgets.push(ensureSequencerHeaderWidget(this, index));
+            orderedDynamicWidgets.push(ensureSequencerDynamicWidget(this, "number", `insert_frame_${index}`, 0, { min: -9999, max: 9999, step: 1, precision: 0 }));
+            orderedDynamicWidgets.push(ensureSequencerDynamicWidget(this, "number", `insert_second_${index}`, 0.0, { min: 0.0, max: 9999.0, step: 0.01, precision: 2 }));
+            orderedDynamicWidgets.push(ensureSequencerDynamicWidget(this, "number", `strength_${index}`, 1.0, { min: 0.0, max: 1.0, step: 0.01, precision: 2 }));
         }
-
         this.properties.num_images = normalizedCount;
         this._currentImageCount = normalizedCount;
         this._denoUpdateVisibility?.();
+        this._denoReconcileInputSlots?.();
         this.setDirtyCanvas?.(true, true);
         requestAnimationFrame(() => {
-            if (this.computeSize) {
-                this.setSize([width, this.computeSize()[1]]);
-            }
+            syncSequencerInputGeometry(this);
+            runSequencerInternalLayout(this, () => {
+                this.arrange?.();
+                normalizeSequencerVisibleWidgetPositions(this);
+                syncSequencerInputGeometry(this);
+                fitSequencerVisibleSize(this, width);
+            });
         });
     };
 
@@ -2479,23 +2713,33 @@ function setupSequencer(node) {
             this.__denoHadInputLink = true;
             scheduleUpstreamCountSync(this);
         }
+        this._denoUpdateVisibility?.();
         return result;
     };
 
     const originalConnectionsChange = node.onConnectionsChange;
     node.onConnectionsChange = function (type, index, connected, linkInfo) {
         originalConnectionsChange?.apply(this, arguments);
-        if (type !== 1 || this.inputs?.[index]?.name !== "multi_input") {
+        if (type !== 1) {
             return;
         }
-        if (connected) {
-            this.__denoHadInputLink = true;
-            scheduleUpstreamCountSync(this);
+        const inputName = this.inputs?.[index]?.name;
+        if (inputName === "multi_input") {
+            if (connected) {
+                this.__denoHadInputLink = true;
+                scheduleUpstreamCountSync(this);
+                this._denoUpdateVisibility?.();
+                return;
+            }
+            if (this.__denoHadInputLink) {
+                this.__denoHadInputLink = false;
+                this._syncImageCount?.(0, { propagate: false });
+            }
+            this._denoUpdateVisibility?.();
             return;
         }
-        if (this.__denoHadInputLink) {
-            this.__denoHadInputLink = false;
-            this._syncImageCount?.(0, { propagate: false });
+        if (getSequencerDynamicInputInfo(inputName)) {
+            this._denoUpdateVisibility?.();
         }
     };
 
@@ -2596,9 +2840,11 @@ function syncSequencerState(sourceNode, changedName, value) {
 
 function cloneSequencerState(sourceNode, targetNode) {
     targetNode.__denoApplyingSync = true;
-    targetNode.properties = { ...targetNode.properties, ...sourceNode.properties };
+    const cloneProperties = collectSequencerCloneProperties(sourceNode);
+    targetNode.properties ||= {};
+    Object.assign(targetNode.properties, cloneProperties);
 
-    const count = Number(sourceNode.properties.num_images ?? getWidget(sourceNode, "num_images")?.value ?? 0);
+    const count = Number(cloneProperties.num_images ?? sourceNode.properties?.num_images ?? getWidget(sourceNode, "num_images")?.value ?? 0);
     targetNode._applyWidgetCount?.(count);
 
     for (const widget of targetNode.widgets || []) {
@@ -2615,6 +2861,26 @@ function cloneSequencerState(sourceNode, targetNode) {
     targetNode.__denoApplyingSync = false;
 }
 
+function collectSequencerCloneProperties(sourceNode) {
+    const properties = {};
+    for (const name of SEQUENCER_CLONE_PROPERTY_NAMES) {
+        const value = sourceNode.properties?.[name] ?? getWidget(sourceNode, name)?.value;
+        if (value !== undefined) {
+            properties[name] = normalizeSequencerValue(name, value);
+        }
+    }
+    for (let index = 1; index <= 50; index += 1) {
+        for (const name of [`insert_frame_${index}`, `insert_second_${index}`, `strength_${index}`]) {
+            const widget = getSequencerDynamicWidget(sourceNode, name) || getWidget(sourceNode, name);
+            const value = sourceNode.properties?.[name] ?? widget?.value;
+            if (value !== undefined) {
+                properties[name] = normalizeSequencerValue(name, value);
+            }
+        }
+    }
+    return properties;
+}
+
 function syncAllStrengthValues(sourceNode) {
     const count = Number(sourceNode.properties.num_images ?? getWidget(sourceNode, "num_images")?.value ?? 0);
     for (let index = 1; index <= count; index += 1) {
@@ -2624,6 +2890,805 @@ function syncAllStrengthValues(sourceNode) {
             syncSequencerState(sourceNode, `strength_${index}`, value);
         }
     }
+}
+
+function getSequencerDynamicInputInfo(name) {
+    const match = /^(insert_frame|insert_second|strength)_(\d+)$/.exec(String(name || ""));
+    if (!match) {
+        return null;
+    }
+    return {
+        kind: match[1],
+        index: Number(match[2]),
+    };
+}
+
+function isSequencerDynamicInput(input) {
+    return !!getSequencerDynamicInputInfo(input?.name);
+}
+
+function isSequencerHeaderName(name) {
+    return /^header_\d+$/.test(name || "");
+}
+
+function isSequencerManagedWidgetName(name) {
+    return !!getSequencerDynamicInputInfo(name) || isSequencerHeaderName(name);
+}
+
+function ensureSequencerSurfaceMaps(node) {
+    if (!node.__denoSequencerDynamicWidgets) {
+        node.__denoSequencerDynamicWidgets = new Map();
+    }
+    if (!node.__denoSequencerHeaderWidgets) {
+        node.__denoSequencerHeaderWidgets = new Map();
+    }
+    if (!node.__denoSequencerInputByName) {
+        node.__denoSequencerInputByName = new Map();
+    }
+    if (!node.__denoSequencerStaticInputs) {
+        node.__denoSequencerStaticInputs = [];
+    }
+}
+
+function resetSequencerInputCatalog(node) {
+    if (!node) {
+        return;
+    }
+    for (const input of node.__denoSequencerInputByName?.values?.() || []) {
+        clearSequencerInputRuntimeWidget(input);
+        input.pos = undefined;
+    }
+    node.__denoSequencerInputByName = new Map();
+    node.__denoSequencerStaticInputs = [];
+}
+
+function registerSequencerDynamicWidget(node, widget, name) {
+    if (!node || !widget || !getSequencerDynamicInputInfo(name)) {
+        return widget;
+    }
+    ensureSequencerSurfaceMaps(node);
+    widget.name = name;
+    widget.__denoSequencerDynamic = true;
+    node.__denoSequencerDynamicWidgets.set(name, widget);
+
+    const input = (node.inputs || []).find((slot) => slot?.name === name);
+    if (input) {
+        registerSequencerInputSlot(node, input);
+        bindSequencerInputWidget(input, widget, { runtime: false });
+    }
+    return widget;
+}
+
+function registerSequencerInputSlot(node, input) {
+    if (!node || !input?.name) {
+        return input;
+    }
+    ensureSequencerSurfaceMaps(node);
+    const name = input.name;
+    if (getSequencerDynamicInputInfo(name)) {
+        node.__denoSequencerInputByName.set(name, input);
+        const widget = getSequencerDynamicWidget(node, name);
+        if (widget) {
+            bindSequencerInputWidget(input, widget, { runtime: false });
+        }
+    }
+    return input;
+}
+
+function getSequencerDynamicInputType(name) {
+    const info = getSequencerDynamicInputInfo(name);
+    if (!info) {
+        return "FLOAT";
+    }
+    return info.kind === "insert_frame" ? "INT" : "FLOAT";
+}
+
+function ensureSequencerInputSlot(node, name) {
+    if (!node || !getSequencerDynamicInputInfo(name)) {
+        return null;
+    }
+    ensureSequencerSurfaceMaps(node);
+    let input =
+        node.__denoSequencerInputByName.get(name) ||
+        (node.inputs || []).find((slot) => slot?.name === name);
+    if (!input) {
+        input = {
+            name,
+            type: getSequencerDynamicInputType(name),
+            link: null,
+            widget: { name },
+        };
+    }
+    input.name = name;
+    input.type = input.type || getSequencerDynamicInputType(name);
+    registerSequencerInputSlot(node, input);
+    const widget = getSequencerDynamicWidget(node, name);
+    if (widget) {
+        bindSequencerInputWidget(input, widget, { runtime: false });
+    }
+    return input;
+}
+
+function markSequencerGeometryDirty(node) {
+    if (node) {
+        node.__denoSequencerGeometryDirty = true;
+    }
+}
+
+function getSequencerDynamicInputNames() {
+    const names = [];
+    for (let index = 1; index <= 50; index += 1) {
+        names.push(`insert_frame_${index}`, `insert_second_${index}`, `strength_${index}`);
+    }
+    return names;
+}
+
+function getSequencerStaticInputs(node) {
+    ensureSequencerSurfaceMaps(node);
+    const currentStaticInputs = (node.inputs || []).filter(
+        (input) => input?.name && !getSequencerDynamicInputInfo(input.name)
+    );
+    if (currentStaticInputs.length) {
+        node.__denoSequencerStaticInputs = currentStaticInputs;
+    }
+    return node.__denoSequencerStaticInputs || [];
+}
+
+function clearSequencerInactiveInput(node, input) {
+    if (!node || !input) {
+        return;
+    }
+    const widget = getSequencerDynamicWidget(node, input.name);
+    if (widget) {
+        bindSequencerInputWidget(input, widget, { runtime: false });
+    }
+    clearSequencerInputRuntimeWidget(input);
+    input.pos = undefined;
+}
+
+function reconcileSequencerLinkTargetSlots(node) {
+    if (!node?.graph) {
+        return false;
+    }
+    let changed = false;
+    for (let index = 0; index < (node.inputs || []).length; index += 1) {
+        const input = node.inputs[index];
+        for (const linkId of getInputLinkIds(input)) {
+            const link = getGraphLink(node.graph, linkId);
+            if (!link || (node.id !== undefined && link.target_id !== undefined && link.target_id !== node.id)) {
+                continue;
+            }
+            if (link.target_slot !== index) {
+                link.target_slot = index;
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
+function bindSequencerInputWidget(input, widget, options = {}) {
+    if (!input || !widget?.name) {
+        return;
+    }
+    const bindRuntime = options.runtime !== false;
+    const metadata = { name: widget.name };
+    const widgetDescriptor = Object.getOwnPropertyDescriptor(input, "widget");
+    const needsWidgetMetadata =
+        !input.widget ||
+        input.widget === widget ||
+        typeof input.widget !== "object" ||
+        input.widget.name !== widget.name ||
+        Object.keys(input.widget).some((key) => key !== "name") ||
+        widgetDescriptor?.enumerable === false;
+
+    if (needsWidgetMetadata) {
+        let assigned = false;
+        try {
+            input.widget = metadata;
+            assigned = input.widget?.name === widget.name && input.widget !== widget;
+        } catch (_) {
+            assigned = false;
+        }
+        if (!assigned || Object.prototype.propertyIsEnumerable.call(input, "widget") === false) {
+            try {
+                Object.defineProperty(input, "widget", {
+                    value: metadata,
+                    writable: true,
+                    configurable: true,
+                    enumerable: true,
+                });
+            } catch (_) {
+                // Some ComfyUI builds expose the widget metadata through a stricter slot object.
+                // Leave the native slot alone if it refuses redefinition; _widget still carries
+                // the runtime object for normal LiteGraph behavior.
+            }
+        }
+    }
+
+    if (bindRuntime) {
+        bindSequencerInputRuntimeWidget(input, widget);
+    }
+}
+
+function bindSequencerInputRuntimeWidget(input, widget) {
+    if (!input || !widget?.name) {
+        return;
+    }
+    try {
+        input._widget = widget;
+    } catch (_) {
+        // Plain-object harnesses and older ComfyUI slot shapes can still resolve by name.
+    }
+    const ownRuntimeWidget = Object.getOwnPropertyDescriptor(input, "_widget");
+    if (ownRuntimeWidget?.enumerable) {
+        try {
+            Object.defineProperty(input, "_widget", {
+                value: ownRuntimeWidget.value,
+                writable: true,
+                configurable: true,
+                enumerable: false,
+            });
+        } catch (_) {
+            // If a host slot refuses a non-enumerable runtime binding, keep the native behavior.
+        }
+    }
+}
+
+function clearSequencerInputRuntimeWidget(input) {
+    if (!input) {
+        return;
+    }
+    try {
+        input._widget = undefined;
+    } catch (_) {
+        // Older slot shapes may reject assignment; try to shadow stale runtime state below.
+    }
+    const runtimeWidget = resolveSequencerInputWidget(input);
+    const ownRuntimeWidget = Object.getOwnPropertyDescriptor(input, "_widget");
+    if (runtimeWidget || ownRuntimeWidget?.enumerable) {
+        try {
+            Object.defineProperty(input, "_widget", {
+                value: undefined,
+                writable: true,
+                configurable: true,
+                enumerable: false,
+            });
+        } catch (_) {
+            // If the host slot refuses redefinition, keep metadata-only classification as fallback.
+        }
+    }
+}
+
+function resolveSequencerInputWidget(input) {
+    if (!input) {
+        return null;
+    }
+    const runtimeWidget = input._widget;
+    if (runtimeWidget && typeof runtimeWidget.deref === "function") {
+        return runtimeWidget.deref() || null;
+    }
+    if (
+        runtimeWidget &&
+        typeof runtimeWidget === "object" &&
+        runtimeWidget !== input.widget &&
+        typeof runtimeWidget.name === "string"
+    ) {
+        return runtimeWidget;
+    }
+    return null;
+}
+
+function syncSequencerInputGeometry(node) {
+    const count = Number(node?.properties?.num_images ?? getWidget(node, "num_images")?.value ?? 0);
+    const mode = node?.properties?.insert_mode ?? getWidget(node, "insert_mode")?.value ?? "frames";
+    for (const input of node?.inputs || []) {
+        const name = input?.name;
+        if (!getSequencerDynamicInputInfo(name)) {
+            continue;
+        }
+        const widget = getSequencerDynamicWidget(node, name);
+        if (widget) {
+            bindSequencerInputWidget(input, widget, { runtime: false });
+        }
+        const visible =
+            widget &&
+            shouldShowSequencerDynamicWidget(node, name, count, mode) &&
+            !widget.hidden &&
+            widget.type !== "hidden";
+        if (!visible) {
+            clearSequencerInputRuntimeWidget(input);
+            input.pos = undefined;
+            continue;
+        }
+        bindSequencerInputRuntimeWidget(input, widget);
+        const widgetY = Number.isFinite(widget.last_y) ? widget.last_y : widget.y;
+        if (!Number.isFinite(widgetY)) {
+            continue;
+        }
+        input.pos = [10, widgetY + 10];
+    }
+}
+
+function normalizeSequencerVisibleWidgetPositions(node, width = node?.size?.[0] ?? 360) {
+    if (!node?.widgets?.length) {
+        return;
+    }
+    const visibleWidgets = node.widgets.filter((widget) => widget && !widget.hidden && widget.type !== "hidden");
+    const finiteYValues = visibleWidgets
+        .map((widget) => Number.isFinite(widget.last_y) ? widget.last_y : widget.y)
+        .filter((y) => Number.isFinite(y) && y >= 0 && y < 800);
+    let cursor = finiteYValues.length ? Math.min(...finiteYValues) : 80;
+    for (const widget of visibleWidgets) {
+        widget.y = cursor;
+        widget.last_y = cursor;
+        cursor += getSequencerVisibleWidgetHeight(widget, width) + 4;
+    }
+}
+
+function getSequencerVisibleWidgetHeight(widget, width) {
+    if (!widget || widget.hidden || widget.type === "hidden") {
+        return 0;
+    }
+    const computedSize =
+        typeof widget.computeSize === "function"
+            ? widget.computeSize(width)
+            : null;
+    const computedHeight = Array.isArray(computedSize) ? computedSize[1] : null;
+    if (Number.isFinite(computedHeight) && computedHeight > 0) {
+        return computedHeight;
+    }
+    if (Number.isFinite(widget.computedHeight) && widget.computedHeight > 0) {
+        return widget.computedHeight;
+    }
+    const liteGraphHeight =
+        typeof window !== "undefined" && window.LiteGraph?.NODE_WIDGET_HEIGHT
+            ? window.LiteGraph.NODE_WIDGET_HEIGHT
+            : 20;
+    return liteGraphHeight;
+}
+
+function isSequencerVueNodesMode() {
+    if (typeof window === "undefined") {
+        return false;
+    }
+    return !!window.LiteGraph?.vueNodesMode;
+}
+
+function runSequencerInternalLayout(node, callback) {
+    if (!node || typeof callback !== "function") {
+        return undefined;
+    }
+    const previous = node.__denoSequencerInternalLayout;
+    node.__denoSequencerInternalLayout = true;
+    try {
+        return callback();
+    } finally {
+        node.__denoSequencerInternalLayout = previous;
+    }
+}
+
+function fitSequencerVisibleSize(node, width = node?.size?.[0] ?? 360) {
+    if (!node || node.flags?.collapsed) {
+        return;
+    }
+    if (isSequencerVueNodesMode()) {
+        node.__denoSequencerInitialAutoFitPending = false;
+        return;
+    }
+    let bottom = 0;
+    for (const widget of node.widgets || []) {
+        if (!widget || widget.hidden || widget.type === "hidden") {
+            continue;
+        }
+        const y = Number.isFinite(widget.last_y) ? widget.last_y : widget.y;
+        if (!Number.isFinite(y)) {
+            continue;
+        }
+        bottom = Math.max(bottom, y + getSequencerVisibleWidgetHeight(widget, width) + 8);
+    }
+    const requiredHeight = Math.max(140, Math.ceil(bottom));
+    const manualBaseHeight =
+        node.__denoSequencerManualSizeLocked && !node.__denoSequencerInitialAutoFitPending
+            ? Number(node.__denoSequencerManualHeight || node.properties?.denoSequencerManualHeight || node.size?.[1])
+            : null;
+    const height =
+        Number.isFinite(manualBaseHeight) && manualBaseHeight > 0
+            ? Math.max(requiredHeight, Math.ceil(manualBaseHeight))
+            : requiredHeight;
+    if (!Array.isArray(node.size)) {
+        node.size = [width, height];
+        node.__denoSequencerInitialAutoFitPending = false;
+        return;
+    }
+    if (Math.abs((node.size[1] ?? 0) - height) > 1 || Math.abs((node.size[0] ?? width) - width) > 1) {
+        try {
+            node.__denoSequencerAutoSizing = true;
+            node.setSize?.([width, height]);
+        } finally {
+            node.__denoSequencerAutoSizing = false;
+            node.__denoSequencerInitialAutoFitPending = false;
+        }
+    } else {
+        node.__denoSequencerInitialAutoFitPending = false;
+    }
+}
+
+function registerSequencerHeaderWidget(node, widget, index) {
+    if (!node || !widget) {
+        return widget;
+    }
+    ensureSequencerSurfaceMaps(node);
+    const name = `header_${index}`;
+    widget.name = name;
+    widget.serialize = false;
+    widget.__denoSequencerHeader = true;
+    node.__denoSequencerHeaderWidgets.set(index, widget);
+    return widget;
+}
+
+function catalogSequencerDynamicSurfaces(node) {
+    ensureSequencerSurfaceMaps(node);
+
+    const staticInputs = [];
+    for (const input of node?.inputs || []) {
+        if (!input?.name) {
+            continue;
+        }
+        if (getSequencerDynamicInputInfo(input.name)) {
+            registerSequencerInputSlot(node, input);
+        } else {
+            staticInputs.push(input);
+        }
+    }
+    if (staticInputs.length) {
+        node.__denoSequencerStaticInputs = staticInputs;
+    }
+
+    for (const widget of node?.widgets || []) {
+        const name = widget?.name || "";
+        if (getSequencerDynamicInputInfo(name)) {
+            registerSequencerDynamicWidget(node, widget, name);
+        } else if (isSequencerHeaderName(name)) {
+            registerSequencerHeaderWidget(node, widget, Number(name.split("_").pop()));
+        }
+    }
+
+    for (const [name, input] of node.__denoSequencerInputByName || []) {
+        const existingWidget =
+            node.__denoSequencerDynamicWidgets.get(name) ||
+            resolveSequencerInputWidget(input);
+        if (existingWidget) {
+            registerSequencerDynamicWidget(node, existingWidget, name);
+        }
+    }
+}
+
+function catalogSequencerInputSlots(node) {
+    return catalogSequencerDynamicSurfaces(node);
+}
+
+function getSequencerDynamicWidget(node, name) {
+    if (!node) {
+        return null;
+    }
+    ensureSequencerSurfaceMaps(node);
+    return node.__denoSequencerDynamicWidgets?.get(name) || null;
+}
+
+function getSequencerHeaderWidget(node, index) {
+    ensureSequencerSurfaceMaps(node);
+    return node.__denoSequencerHeaderWidgets?.get(index) || getWidget(node, `header_${index}`) || null;
+}
+
+function getSequencerInputByName(node, name) {
+    if (!node || !name) {
+        return null;
+    }
+    ensureSequencerSurfaceMaps(node);
+    return node.__denoSequencerInputByName.get(name) ||
+        (node.inputs || []).find((slot) => slot?.name === name) ||
+        null;
+}
+
+function composeSequencerWidgetList(node, visibleDynamicIndexes) {
+    if (!node) {
+        return;
+    }
+    ensureSequencerSurfaceMaps(node);
+    const staticWidgets = (node.widgets || []).filter(
+        (widget) => !isSequencerManagedWidgetName(widget?.name)
+    );
+    const visibleWidgets = [];
+    for (let index = 1; index <= 50; index += 1) {
+        if (!visibleDynamicIndexes.has(index)) {
+            continue;
+        }
+        const header = getSequencerHeaderWidget(node, index);
+        if (header && !header.hidden && header.type !== "hidden") {
+            visibleWidgets.push(header);
+        }
+        for (const name of [`insert_frame_${index}`, `insert_second_${index}`, `strength_${index}`]) {
+            const widget = node.__denoSequencerDynamicWidgets.get(name);
+            if (widget && !widget.hidden && widget.type !== "hidden") {
+                visibleWidgets.push(widget);
+            }
+        }
+    }
+    node.widgets = [...staticWidgets, ...visibleWidgets];
+}
+
+function hasSequencerInputLink(node, name, input = getSequencerInputByName(node, name)) {
+    if (!input) {
+        return false;
+    }
+    const graph = node?.graph || app.graph;
+    for (const linkId of getInputLinkIds(input)) {
+        const link = getGraphLink(graph, linkId);
+        if (!link) {
+            continue;
+        }
+        if (node?.id !== undefined && link.target_id !== undefined && link.target_id !== node.id) {
+            continue;
+        }
+        const targetSlot = Number(link.target_slot);
+        if (!Number.isInteger(targetSlot)) {
+            continue;
+        }
+        if (node.inputs?.[targetSlot]?.name === name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function isSequencerInputVisibleForTopology(name, count, mode) {
+    const info = getSequencerDynamicInputInfo(name);
+    if (!info) {
+        return true;
+    }
+    if (info.index > count) {
+        return false;
+    }
+    if (info.kind === "strength") {
+        return true;
+    }
+    if (info.kind === "insert_frame") {
+        return mode === "frames";
+    }
+    if (info.kind === "insert_second") {
+        return mode === "seconds";
+    }
+    return true;
+}
+
+function hasExplicitSequencerUseEverywherePin(node, name) {
+    return node?.properties?.ue_properties?.widget_ue_connectable?.[name] === true;
+}
+
+function hasSequencerFloatingLinks(input) {
+    return Boolean(
+        input?._floatingLinks &&
+        typeof input._floatingLinks === "object" &&
+        Number(input._floatingLinks.size) > 0
+    );
+}
+
+function getSequencerInputPinReasons(node, name, input = getSequencerInputByName(node, name)) {
+    const reasons = new Set();
+    const count = Number(node?.properties?.num_images ?? getWidget(node, "num_images")?.value ?? 0);
+    const mode = node?.properties?.insert_mode ?? getWidget(node, "insert_mode")?.value ?? "frames";
+    if (isSequencerInputVisibleForTopology(name, count, mode)) {
+        reasons.add("visible_topology");
+    }
+    if (hasSequencerInputLink(node, name, input)) {
+        reasons.add("real_link");
+    }
+    if (hasExplicitSequencerUseEverywherePin(node, name)) {
+        reasons.add("use_everywhere_connectable");
+    }
+    if (hasSequencerFloatingLinks(input)) {
+        reasons.add("floating_link");
+    }
+    return reasons;
+}
+
+function shouldShowSequencerDynamicWidget(node, name, count, mode) {
+    const info = getSequencerDynamicInputInfo(name);
+    if (!info) {
+        return true;
+    }
+    return getSequencerInputPinReasons(node, name).size > 0;
+}
+
+function ensureSequencerHeaderWidget(node, index) {
+    const existing = getSequencerHeaderWidget(node, index);
+    if (existing) {
+        return registerSequencerHeaderWidget(node, existing, index);
+    }
+    return registerSequencerHeaderWidget(node, {
+        name: `header_${index}`,
+        type: "text",
+        serialize: false,
+        draw(ctx, currentNode, widgetWidth, y) {
+            ctx.save();
+            ctx.strokeStyle = "#333";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(10, y + 5);
+            ctx.lineTo(widgetWidth - 10, y + 5);
+            ctx.stroke();
+            ctx.fillStyle = "#dddddd";
+            ctx.font = "bold 12px Arial";
+            ctx.textAlign = "left";
+            ctx.fillText(`Image #${index}`, 10, y + 24);
+            ctx.restore();
+        },
+        computeSize(widgetWidth) {
+            return [widgetWidth, 35];
+        },
+    }, index);
+}
+
+function ensureSequencerDynamicWidget(node, type, name, fallbackValue, options) {
+    let widget = getSequencerDynamicWidget(node, name);
+    const savedValue = node.properties?.[name];
+    const configuredWidgetValue = node.__denoSequencerConfiguredDynamicWidgetValues?.get?.(name);
+    const initialValue = normalizeSequencerOrDefault(
+        name,
+        savedValue ?? configuredWidgetValue ?? widget?.value,
+        fallbackValue
+    );
+    node.properties[name] = initialValue;
+
+    if (!widget) {
+        widget = node.addWidget(type, name, initialValue, null, options);
+    }
+    registerSequencerDynamicWidget(node, widget, name);
+    widget.value = initialValue;
+    if (options && typeof options === "object") {
+        widget.options = { ...(widget.options || {}), ...options };
+    }
+    wireSequencerDynamicWidget(node, widget, name, fallbackValue);
+    return widget;
+}
+
+function wireSequencerDynamicWidget(node, widget, name, fallbackValue) {
+    if (widget.__denoSequencerWrapped) {
+        return;
+    }
+    const originalCallback = widget.callback;
+    widget.callback = (value) => {
+        originalCallback?.apply(widget, [value]);
+        const applyValue = (rawValue) => {
+            const prevValue = normalizeSequencerOrDefault(name, node.properties[name], fallbackValue);
+            let nextValue = normalizeSequencerValue(name, rawValue);
+            if (nextValue === undefined || Number.isNaN(nextValue)) {
+                nextValue = normalizeSequencerOrDefault(name, rawValue, prevValue);
+            }
+
+            const isInsertFrameParam = name.startsWith("insert_frame_");
+            const isFineStepParam = name.startsWith("insert_second_") || isStrengthValueName(name);
+            const rawNumeric = Number(rawValue);
+            const prevNumeric = Number(prevValue);
+            if (
+                (isFineStepParam || isInsertFrameParam) &&
+                Number.isFinite(rawNumeric) &&
+                Number.isFinite(prevNumeric) &&
+                nextValue === prevValue &&
+                rawNumeric !== prevNumeric
+            ) {
+                const delta = Math.abs(rawNumeric - prevNumeric);
+                const isLikelyArrowDelta = isInsertFrameParam ? delta <= 0.11 : true;
+                if (isLikelyArrowDelta) {
+                    const direction = rawNumeric > prevNumeric ? 1 : -1;
+                    const step = isInsertFrameParam ? 1 : 0.01;
+                    nextValue = normalizeSequencerValue(name, prevNumeric + direction * step);
+                }
+            }
+
+            const normalizedWidgetValue = normalizeSequencerOrDefault(
+                name,
+                widget.value ?? rawValue,
+                nextValue
+            );
+            if (widget.value !== normalizedWidgetValue) {
+                widget.value = normalizedWidgetValue;
+            }
+
+            if (nextValue === prevValue) {
+                node.properties[name] = prevValue;
+                node.setDirtyCanvas?.(true, true);
+                return;
+            }
+
+            widget.value = nextValue;
+            node.properties[name] = nextValue;
+
+            const isStrength = isStrengthValueName(name);
+            const strengthSyncEnabled = node.properties.strength_sync ?? getWidget(node, "strength_sync")?.value ?? true;
+            if (!isStrength || strengthSyncEnabled) {
+                syncSequencerState(node, name, nextValue);
+            }
+            node.setDirtyCanvas?.(true, true);
+        };
+
+        const immediateValue = value;
+        const prevValue = normalizeSequencerValue(name, node.properties[name] ?? fallbackValue);
+        const normalizedImmediate = normalizeSequencerValue(name, immediateValue);
+        if (
+            immediateValue !== undefined &&
+            normalizedImmediate !== undefined &&
+            !Number.isNaN(normalizedImmediate) &&
+            normalizedImmediate !== prevValue
+        ) {
+            applyValue(immediateValue);
+        }
+        deferSequencerWidgetUpdate(() => applyValue(widget.value));
+        requestAnimationFrame(() => applyValue(widget.value));
+        setTimeout(() => applyValue(widget.value), 16);
+    };
+    widget.__denoSequencerWrapped = true;
+}
+
+function reconcileSequencerInputSlots(node) {
+    if (!Array.isArray(node?.inputs)) {
+        return false;
+    }
+    catalogSequencerDynamicSurfaces(node);
+    const count = Number(node.properties?.num_images ?? getWidget(node, "num_images")?.value ?? 0);
+    const mode = node.properties?.insert_mode ?? getWidget(node, "insert_mode")?.value ?? "frames";
+    const staticInputs = getSequencerStaticInputs(node);
+    const nextInputs = [...staticInputs];
+    const activeNames = new Set();
+    let changed = false;
+
+    for (const name of getSequencerDynamicInputNames()) {
+        const widget = getSequencerDynamicWidget(node, name);
+        const pinReasons = getSequencerInputPinReasons(node, name);
+        const shouldBeActive =
+            Boolean(widget) &&
+            pinReasons.size > 0;
+        const input = shouldBeActive ? ensureSequencerInputSlot(node, name) : getSequencerInputByName(node, name);
+        if (!input) {
+            continue;
+        }
+
+        if (shouldBeActive) {
+            toggleWidgetVisibility(widget, true);
+            bindSequencerInputWidget(input, widget, { runtime: false });
+            bindSequencerInputRuntimeWidget(input, widget);
+            nextInputs.push(input);
+            activeNames.add(name);
+            continue;
+        }
+
+        clearSequencerInactiveInput(node, input);
+    }
+
+    for (const [name, input] of node.__denoSequencerInputByName || []) {
+        if (!activeNames.has(name)) {
+            clearSequencerInactiveInput(node, input);
+        }
+    }
+
+    const currentNames = (node.inputs || []).map((input) => input?.name || "");
+    const nextNames = nextInputs.map((input) => input?.name || "");
+    if (
+        currentNames.length !== nextNames.length ||
+        currentNames.some((name, index) => name !== nextNames[index])
+    ) {
+        node.inputs = nextInputs;
+        changed = true;
+    }
+    if (reconcileSequencerLinkTargetSlots(node)) {
+        changed = true;
+    }
+    if (changed) {
+        markSequencerGeometryDirty(node);
+        node.setDirtyCanvas?.(true, true);
+    }
+    return changed;
 }
 
 function notifyConnectedSequencers(loaderNode, count) {
@@ -2857,15 +3922,23 @@ function toggleWidgetVisibility(widget, visible) {
         return;
     }
     if (visible) {
+        widget.hidden = false;
         if (widget.__denoOrigType !== undefined) {
             widget.type = widget.__denoOrigType;
             widget.computeSize = widget.__denoOrigComputeSize;
             delete widget.__denoOrigType;
             delete widget.__denoOrigComputeSize;
         }
+        if (widget.element) {
+            widget.element.style.display = "";
+        }
         return;
     }
 
+    widget.hidden = true;
+    if (widget.element) {
+        widget.element.style.display = "none";
+    }
     if (widget.type !== "hidden") {
         widget.__denoOrigType = widget.type;
         widget.__denoOrigComputeSize = widget.computeSize;
@@ -2900,4 +3973,21 @@ function hideWidget(widget) {
 
 function getWidget(node, name) {
     return (node.widgets || []).find((widget) => widget.name === name);
+}
+
+if (typeof window !== "undefined" && typeof window.__DENO_EXTRA_NODES_TEST_HOOK__ === "function") {
+    window.__DENO_EXTRA_NODES_TEST_HOOK__({
+        catalogSequencerInputSlots,
+        reconcileSequencerInputSlots,
+        getSequencerDynamicInputInfo,
+        getSequencerDynamicWidget,
+        getSequencerInputByName,
+        resolveSequencerInputWidget,
+        shouldShowSequencerDynamicWidget,
+        getSequencerInputPinReasons,
+        ensureSequencerDynamicWidget,
+        isSequencerVueNodesMode,
+        getInputLinkIds,
+        setupSequencer,
+    });
 }

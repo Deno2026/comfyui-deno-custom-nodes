@@ -1296,6 +1296,36 @@ def test_multi_image_loader_errors_when_selected_images_cannot_load():
     assert "Re-add the image" in message
 
 
+def test_multi_image_loader_rejects_empty_image_selection():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
+
+    validation_result = node_cls.VALIDATE_INPUTS(
+        image_paths="",
+        mode="Manual Input",
+        ratio_preset="16:9",
+        divisible_by="32",
+        interpolation="nearest",
+        resize_method="Center Crop (Fill)",
+    )
+
+    assert "No images are selected" in validation_result
+    assert "Upload or Input Folder" in validation_result
+
+    with pytest.raises(RuntimeError, match="No images are selected"):
+        node_cls().load_images(
+            "",
+            "Manual Input",
+            "16:9",
+            1.0,
+            512,
+            512,
+            "32",
+            "nearest",
+            "Center Crop (Fill)",
+        )
+
+
 def test_multi_image_loader_validates_selected_files_before_execution():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
@@ -4692,16 +4722,35 @@ def test_resolution_related_nodes_skip_inactive_missing_ratio_combo_values():
     advanced_cls = package.NODE_CLASS_MAPPINGS["DenoAdvancedImageSourceLoader"]
     rtx_cls = package.NODE_CLASS_MAPPINGS["DenoRTXVFXEasyUpscale"]
     finisher_cls = package.NODE_CLASS_MAPPINGS["DenoRTXVFXVideoFinisher"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_input_directory = folder_paths.get_input_directory
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        Image.new("RGB", (2, 2), color=(1, 2, 3)).save(Path(temp_dir) / "sample.png")
+        folder_paths.get_input_directory = lambda: temp_dir
+        try:
+            multi_manual_result = multi_cls.VALIDATE_INPUTS(
+                image_paths="sample.png",
+                mode="Manual Input",
+                ratio_preset="1712:880",
+            )
+            multi_preset_result = multi_cls.VALIDATE_INPUTS(
+                image_paths="sample.png",
+                mode="Preset Ratio",
+                ratio_preset="1712:880",
+            )
+        finally:
+            folder_paths.get_input_directory = original_get_input_directory
 
     assert resolution_cls.VALIDATE_INPUTS(mode="Keep Input Ratio", ratio_preset="1712:880") is True
-    assert multi_cls.VALIDATE_INPUTS(image_paths="", mode="Manual Input", ratio_preset="1712:880") is True
+    assert multi_manual_result is True
     assert advanced_cls.VALIDATE_INPUTS(mode="Keep Input Ratio", ratio_preset="1712:880") is True
     assert rtx_cls.VALIDATE_INPUTS(mode="Denoise Medium", resize_type="Preset Ratio", ratio_preset="1712:880") is True
     assert finisher_cls.VALIDATE_INPUTS(upscale_pass="Off", resize_type="Preset Ratio", ratio_preset="1712:880") is True
 
     for result in (
         resolution_cls.VALIDATE_INPUTS(mode="Preset Ratio", ratio_preset="1712:880"),
-        multi_cls.VALIDATE_INPUTS(image_paths="", mode="Preset Ratio", ratio_preset="1712:880"),
+        multi_preset_result,
         advanced_cls.VALIDATE_INPUTS(mode="Preset Ratio", ratio_preset="1712:880"),
         rtx_cls.VALIDATE_INPUTS(mode="VSR Medium", resize_type="Preset Ratio", ratio_preset="1712:880"),
         finisher_cls.VALIDATE_INPUTS(upscale_pass="VSR", resize_type="Preset Ratio", ratio_preset="1712:880"),

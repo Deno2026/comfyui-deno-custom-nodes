@@ -222,6 +222,13 @@ def _selected_image_errors(image_paths: str) -> List[str]:
     ]
 
 
+def _no_selected_images_message() -> str:
+    return (
+        "[DenoMultiImageLoader] No images are selected. "
+        "Add at least one image with Upload or Input Folder, then run the workflow again."
+    )
+
+
 def _hash_file_contents(hasher, path: str) -> None:
     with open(path, "rb") as file:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
@@ -420,6 +427,8 @@ class DenoMultiImageLoader:
         ratio_result = validate_active_ratio_preset(mode, ratio_preset)
         if ratio_result is not True:
             return ratio_result
+        if not _split_paths(image_paths):
+            return _no_selected_images_message()
         failed_paths = _selected_image_errors(image_paths)
         if failed_paths:
             return (
@@ -500,6 +509,8 @@ class DenoMultiImageLoader:
         resize_method: str,
     ):
         paths = _split_paths(image_paths)
+        if not paths:
+            raise RuntimeError(_no_selected_images_message())
 
         if mode == "Preset Ratio":
             width, height = compute_aligned_ratio_dims(ratio_preset, megapixels, int(divisible_by))
@@ -536,12 +547,9 @@ class DenoMultiImageLoader:
                 "then run the workflow again."
             )
 
-        if loaded_images:
-            can_batch = all(image.shape == loaded_images[0].shape for image in loaded_images)
-            if can_batch:
-                multi_output = torch.cat(loaded_images, dim=0)
-            else:
-                multi_output = torch.zeros((1, int(height), int(width), 3), dtype=torch.float32)
+        can_batch = all(image.shape == loaded_images[0].shape for image in loaded_images)
+        if can_batch:
+            multi_output = torch.cat(loaded_images, dim=0)
         else:
             multi_output = torch.zeros((1, int(height), int(width), 3), dtype=torch.float32)
 

@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.61 - 2026-06-24
+
+- Fixed `(Deno) Multi Image Loader` so running with no selected images now stops with a clear error instead of producing a placeholder output.
+- Stabilized `(Deno) LTX Sequencer` dynamic timing rows so compact layouts, saved workflows, linked high-index rows, copy/paste, and manual node resizing restore more reliably.
+
 ## 0.7.60 - 2026-06-23
 
 - Fixed Easy Model Download Helper model-root detection for ComfyUI setups with more than one registered model folder.
