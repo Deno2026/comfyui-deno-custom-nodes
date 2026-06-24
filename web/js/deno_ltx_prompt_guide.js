@@ -1,8 +1,18 @@
 import { app } from "../../scripts/app.js";
+import {
+    applyOrderedWidgetValues,
+    canonicalOrderedSerializationValues,
+    findWidget,
+} from "./deno_frontend_core/widget_state.js";
+import {
+    createExactWidgetValueShapeMigration,
+    expandCanonicalValuesForGeneratedSlots,
+    installWorkflowWidgetMigration,
+} from "./deno_frontend_core/workflow_migration.js";
 
 const NODE_NAME = "DenoLTXPromptGuide";
 const GENERATED_PREFIX = "deno_ltx_prompt_guide_";
-const SAVE_RESTORE_REV = "ltx-prompt-guide-save-reload-v1";
+const SAVE_RESTORE_REV = "ltx-prompt-guide-save-reload-v2";
 const PROMPT_MIN_HEIGHT = 50;
 const NEGATIVE_PROMPT_DEFAULT_HEIGHT = 110;
 const NEGATIVE_PROMPT_MIN_HEIGHT = 80;
@@ -29,43 +39,26 @@ const LANGUAGE_PROFILES = {
 // The current node keeps those display widgets as serialize:false custom
 // widgets, so it only expects the 5 real widget values:
 //   [positive_prompt, language, frame_rate, show_negative_prompt, negative_prompt]
-// ComfyUI graph save filters serialize:false generated widgets and writes the
-// 5 real values, but LiteGraph configure restores by the live widget order. By
-// the time configure runs, onNodeCreated may already have inserted the two
-// generated display widgets. Keep a 5-value core shape for saved workflows, and
-// expand only for the configure pass when generated widgets are present.
-const LTX_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT = 5;
+// Queue Prompt respects widget.options.serialize, but workflow persistence uses
+// widget.serialize and writes by live widget index before onSerialize runs. Keep
+// a 5-value core shape for saved workflows, expand only for the configure pass
+// when generated widgets are present, then compact again inside onSerialize.
+const LTX_PROMPT_GUIDE_WIDGET_SPECS = [
+    { name: "positive_prompt", defaultValue: "" },
+    { name: "language", defaultValue: LANGUAGE_AUTO, normalize: (value) => normalizeLanguage(value) },
+    { name: "frame_rate", defaultValue: 25, normalize: (value) => Number(value) || 25 },
+    { name: "show_negative_prompt", defaultValue: false, normalize: (value) => Boolean(value) },
+    { name: "negative_prompt", defaultValue: "" },
+];
+const LTX_PROMPT_GUIDE_GENERATED_WIDGET_SLOTS = [0, 4];
+const normalizeLtxPromptGuideWidgetValues = createExactWidgetValueShapeMigration({
+    canonicalCount: LTX_PROMPT_GUIDE_WIDGET_SPECS.length,
+    legacyGeneratedSlots: LTX_PROMPT_GUIDE_GENERATED_WIDGET_SLOTS,
+});
+const missingCanonicalWidgetWarnings = new WeakSet();
 
 function getNormalizedLtxPromptGuideSerializedValues(values) {
-    if (!Array.isArray(values)) {
-        return null;
-    }
-
-    // Legacy v0.3.8: two empty display-widget slots at index 0 and 4. Only
-    // remap this exact shape so we never reshuffle a current-layout array.
-    if (
-        values.length >= 7 &&
-        (values[0] === "" || values[0] == null) &&
-        (values[4] === "" || values[4] == null)
-    ) {
-        return [values[1], values[2], values[3], values[5], values[6]];
-    }
-
-    // Current layout already starts with the 5 real widget values; drop any
-    // trailing non-serialized leftovers without touching known-good values.
-    if (values.length >= LTX_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT) {
-        return values.slice(0, LTX_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT);
-    }
-
-    return null;
-}
-
-function normalizeLtxPromptGuideLegacyWidgetValues(info) {
-    const normalized = getNormalizedLtxPromptGuideSerializedValues(info?.widgets_values);
-    if (normalized) {
-        info.widgets_values = normalized;
-    }
-    return normalized;
+    return normalizeLtxPromptGuideWidgetValues(values);
 }
 
 function hasGeneratedPromptGuideWidgets(node) {
@@ -78,32 +71,17 @@ function getLtxPromptGuideConfigureWidgetValues(node, normalizedValues) {
     }
 
     if (!hasGeneratedPromptGuideWidgets(node)) {
-        return normalizedValues;
+        return [...normalizedValues];
     }
 
-    return [
-        "",
-        normalizedValues[0],
-        normalizedValues[1],
-        normalizedValues[2],
-        "",
-        normalizedValues[3],
-        normalizedValues[4],
-    ];
+    return expandCanonicalValuesForGeneratedSlots(
+        normalizedValues,
+        LTX_PROMPT_GUIDE_GENERATED_WIDGET_SLOTS,
+    );
 }
 
 function applyLtxPromptGuideSerializedValuesToWidgets(node, values) {
-    if (!node || !Array.isArray(values)) {
-        return;
-    }
-
-    const names = ["positive_prompt", "language", "frame_rate", "show_negative_prompt", "negative_prompt"];
-    for (let i = 0; i < names.length; i++) {
-        const widget = getWidget(node, names[i]);
-        if (widget) {
-            widget.value = values[i];
-        }
-    }
+    applyOrderedWidgetValues(node, LTX_PROMPT_GUIDE_WIDGET_SPECS, values);
 }
 
 function getLtxPromptGuideSerializedValuesFromWidgets(node) {
@@ -111,13 +89,20 @@ function getLtxPromptGuideSerializedValuesFromWidgets(node) {
         return null;
     }
 
-    return [
-        getWidgetValue(node, "positive_prompt", ""),
-        normalizeLanguage(getWidgetValue(node, "language", LANGUAGE_AUTO)),
-        Number(getWidgetValue(node, "frame_rate", 25)) || 25,
-        Boolean(getWidgetValue(node, "show_negative_prompt", false)),
-        getWidgetValue(node, "negative_prompt", ""),
-    ];
+    const missing = LTX_PROMPT_GUIDE_WIDGET_SPECS
+        .map((spec) => spec.name)
+        .filter((name) => !findWidget(node, name));
+    if (missing.length) {
+        if (!missingCanonicalWidgetWarnings.has(node)) {
+            missingCanonicalWidgetWarnings.add(node);
+            console.warn(
+                `[DENO] ${NODE_NAME} kept host workflow serialization because required widgets are missing: ${missing.join(", ")}`,
+            );
+        }
+        return null;
+    }
+
+    return canonicalOrderedSerializationValues(node, LTX_PROMPT_GUIDE_WIDGET_SPECS);
 }
 
 function syncLtxPromptGuideSerializedValues(node) {
@@ -134,23 +119,19 @@ app.registerExtension({
             return;
         }
 
-        const configure = nodeType.prototype.configure;
-        nodeType.prototype.configure = function (info) {
-            const normalized = normalizeLtxPromptGuideLegacyWidgetValues(info);
-            if (normalized) {
-                this.__denoLtxPromptGuideConfiguredWidgetValues = [...normalized];
-                info.widgets_values = getLtxPromptGuideConfigureWidgetValues(this, normalized);
-            }
-
-            const result = configure?.apply(this, arguments);
-            if (normalized) {
-                applyLtxPromptGuideSerializedValuesToWidgets(this, normalized);
-                syncLtxPromptGuideSerializedValues(this);
-                this.properties = this.properties || {};
-                this.properties.__deno_ltx_prompt_guide_save_restore = SAVE_RESTORE_REV;
-            }
-            return result;
-        };
+        installWorkflowWidgetMigration(nodeType, nodeData, {
+            nodeName: NODE_NAME,
+            pendingValuesKey: "__denoLtxPromptGuideConfiguredWidgetValues",
+            normalizeSerializedValues: getNormalizedLtxPromptGuideSerializedValues,
+            getConfigureWidgetValues: getLtxPromptGuideConfigureWidgetValues,
+            applyCanonicalValues(node, values) {
+                applyLtxPromptGuideSerializedValuesToWidgets(node, values);
+                syncLtxPromptGuideSerializedValues(node);
+                node.properties = node.properties || {};
+                node.properties.__deno_ltx_prompt_guide_save_restore = SAVE_RESTORE_REV;
+            },
+            getCanonicalSerializationValues: getLtxPromptGuideSerializedValuesFromWidgets,
+        });
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
@@ -601,7 +582,7 @@ function isNegativeOpen(node) {
 }
 
 function getWidget(node, name) {
-    return (node.widgets || []).find((widget) => widget.name === name);
+    return findWidget(node, name);
 }
 
 function getWidgetValue(node, name, fallback) {

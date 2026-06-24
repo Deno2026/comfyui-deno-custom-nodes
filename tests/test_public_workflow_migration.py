@@ -156,19 +156,37 @@ def test_fixtures_present():
 # --------------------------------------------------------------------------
 def test_prompt_guide_js_has_legacy_configure_migration():
     src = JS_PATH.read_text(encoding="utf-8")
+    widget_state_src = (REPO_ROOT / "web" / "js" / "deno_frontend_core" / "widget_state.js").read_text(encoding="utf-8")
+    workflow_migration_src = (REPO_ROOT / "web" / "js" / "deno_frontend_core" / "workflow_migration.js").read_text(encoding="utf-8")
 
+    assert 'from "./deno_frontend_core/widget_state.js"' in src
+    assert 'from "./deno_frontend_core/workflow_migration.js"' in src
+    assert "createExactWidgetValueShapeMigration" in src
+    assert "installWorkflowWidgetMigration(nodeType, nodeData" in src
     assert "function getNormalizedLtxPromptGuideSerializedValues" in src
-    assert "function normalizeLtxPromptGuideLegacyWidgetValues" in src
     assert "function getLtxPromptGuideConfigureWidgetValues" in src
     assert "function applyLtxPromptGuideSerializedValuesToWidgets" in src
-    assert "ltx-prompt-guide-save-reload-v1" in src
+    assert "ltx-prompt-guide-save-reload-v2" in src
     # Normalization must run inside configure(), before LiteGraph restores
-    # widget values (not only in the post-restore onConfigure callback).
-    assert "nodeType.prototype.configure = function" in src
-    assert "normalizeLtxPromptGuideLegacyWidgetValues(info)" in src
-    assert "this.__denoLtxPromptGuideConfiguredWidgetValues = [...normalized]" in src
-    assert "info.widgets_values = getLtxPromptGuideConfigureWidgetValues(this, normalized)" in src
+    # widget values, and canonical compaction must run in onSerialize.
+    assert "pendingValuesKey: \"__denoLtxPromptGuideConfiguredWidgetValues\"" in src
+    assert "normalizeSerializedValues: getNormalizedLtxPromptGuideSerializedValues" in src
+    assert "getConfigureWidgetValues: getLtxPromptGuideConfigureWidgetValues" in src
+    assert "getCanonicalSerializationValues: getLtxPromptGuideSerializedValuesFromWidgets" in src
     assert "delete this.__denoLtxPromptGuideConfiguredWidgetValues" in src
+    assert "export function createExactWidgetValueShapeMigration" in workflow_migration_src
+    assert "export function installWorkflowWidgetMigration" in workflow_migration_src
+    assert 'Symbol.for("deno.frontend.workflow_widget_migration.installs")' in workflow_migration_src
+    assert "unknownConfiguredNodes = new WeakSet()" in workflow_migration_src
+    assert "hasOwnWidgetsValues" in workflow_migration_src
+    assert "originalWidgetsValues" in workflow_migration_src
+    assert "finally" in workflow_migration_src
+    assert "unknownConfiguredNodes.has(this)" in workflow_migration_src
+    assert "serialized.widgets_values = cloneValues(canonicalValues)" in workflow_migration_src
+    assert "export function findWidget" in widget_state_src
+    assert "export function canonicalOrderedSerializationValues" in widget_state_src
+    assert "missingCanonicalWidgetWarnings" in src
+    assert "required widgets are missing" in src
     # Display widgets must stay non-serializing, and the existing post-restore
     # setup path must remain intact.
     assert "serialize: false" in src
@@ -251,130 +269,20 @@ def _extract_js_declaration(src, name):
     return src[start:end + 1]
 
 
-def test_prompt_guide_normalizer_behaviour_in_node(tmp_path):
+def test_prompt_guide_frontend_foundation_host_harness_passes():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node runtime not available")
 
-    src = JS_PATH.read_text(encoding="utf-8")
-    const_line = _extract_js_const_line(src, "LTX_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT")
-    fn = _extract_js_function(src, "getNormalizedLtxPromptGuideSerializedValues")
-
-    harness = const_line + "\n" + fn + r"""
-function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
-function check(cond, msg) { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } }
-
-// legacy v0.3.8 7-value -> 5 real widget values (drop index 0 and 4)
-check(eq(
-    getNormalizedLtxPromptGuideSerializedValues(["", "POS", "Korean", 24, "", true, "NEG"]),
-    ["POS", "Korean", 24, true, "NEG"]
-), "legacy 7 -> 5");
-
-// null display slots are treated like empty
-check(eq(
-    getNormalizedLtxPromptGuideSerializedValues([null, "P", "English", 30, null, false, "N"]),
-    ["P", "English", 30, false, "N"]
-), "legacy null slots");
-
-// current 5-value layout is returned unchanged
-check(eq(
-    getNormalizedLtxPromptGuideSerializedValues(["POS", "Korean", 24, true, "NEG"]),
-    ["POS", "Korean", 24, true, "NEG"]
-), "current passthrough");
-
-// a *current* 5-value array with an empty positive prompt must NOT be reshuffled
-check(eq(
-    getNormalizedLtxPromptGuideSerializedValues(["", "Auto", 25, false, ""]),
-    ["", "Auto", 25, false, ""]
-), "empty positive prompt preserved");
-
-// non-arrays -> null (leave restore untouched)
-check(getNormalizedLtxPromptGuideSerializedValues(null) === null, "null -> null");
-check(getNormalizedLtxPromptGuideSerializedValues(undefined) === null, "undefined -> null");
-check(getNormalizedLtxPromptGuideSerializedValues("nope") === null, "string -> null");
-
-console.log("OK");
-"""
-
-    harness_path = tmp_path / "ltx_prompt_guide_migration.mjs"
-    harness_path.write_text(harness, encoding="utf-8")
-
+    harness_path = REPO_ROOT / "tests" / "js" / "ltx_prompt_guide_workflow_migration_harness.mjs"
     result = subprocess.run(
         [node_bin, str(harness_path)],
         capture_output=True,
         text=True,
+        cwd=str(REPO_ROOT),
     )
     assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
-    assert "OK" in result.stdout
-
-
-def test_prompt_guide_configure_expands_saved_values_around_generated_widgets(tmp_path):
-    node_bin = shutil.which("node")
-    if not node_bin:
-        pytest.skip("node runtime not available")
-
-    src = JS_PATH.read_text(encoding="utf-8")
-    snippets = [
-        _extract_js_const_line(src, "GENERATED_PREFIX"),
-        _extract_js_const_line(src, "LTX_PROMPT_GUIDE_SERIALIZED_WIDGET_COUNT"),
-        _extract_js_function(src, "getNormalizedLtxPromptGuideSerializedValues"),
-        _extract_js_function(src, "hasGeneratedPromptGuideWidgets"),
-        _extract_js_function(src, "getLtxPromptGuideConfigureWidgetValues"),
-        _extract_js_function(src, "getWidget"),
-        _extract_js_function(src, "applyLtxPromptGuideSerializedValuesToWidgets"),
-    ]
-
-    harness = "\n".join(snippets) + r"""
-function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
-function check(cond, msg) { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } }
-
-const core = ["POSITIVE SAVE", "Korean", 24, true, "NEGATIVE SAVE"];
-const legacy = ["", "POSITIVE SAVE", "Korean", 24, "", true, "NEGATIVE SAVE"];
-const nodeWithGenerated = {
-    widgets: [
-        { name: GENERATED_PREFIX + "dialogue_summary", value: "" },
-        { name: "positive_prompt", value: "" },
-        { name: "language", value: "Auto" },
-        { name: "frame_rate", value: 25 },
-        { name: GENERATED_PREFIX + "negative_toggle", value: "" },
-        { name: "show_negative_prompt", value: false },
-        { name: "negative_prompt", value: "" },
-    ],
-};
-const nodeWithoutGenerated = {
-    widgets: [
-        { name: "positive_prompt", value: "" },
-        { name: "language", value: "Auto" },
-        { name: "frame_rate", value: 25 },
-        { name: "show_negative_prompt", value: false },
-        { name: "negative_prompt", value: "" },
-    ],
-};
-
-check(eq(getNormalizedLtxPromptGuideSerializedValues(legacy), core), "legacy normalizes to core");
-check(eq(getLtxPromptGuideConfigureWidgetValues(nodeWithGenerated, core), legacy), "core expands around generated widgets");
-check(eq(getLtxPromptGuideConfigureWidgetValues(nodeWithoutGenerated, core), core), "core stays compact without generated widgets");
-
-applyLtxPromptGuideSerializedValuesToWidgets(nodeWithGenerated, core);
-check(nodeWithGenerated.widgets[1].value === "POSITIVE SAVE", "positive applied by name");
-check(nodeWithGenerated.widgets[2].value === "Korean", "language applied by name");
-check(nodeWithGenerated.widgets[3].value === 24, "frame rate applied by name");
-check(nodeWithGenerated.widgets[5].value === true, "show negative applied by name");
-check(nodeWithGenerated.widgets[6].value === "NEGATIVE SAVE", "negative applied by name");
-
-console.log("OK");
-"""
-
-    harness_path = tmp_path / "ltx_prompt_guide_configure_expand.mjs"
-    harness_path.write_text(harness, encoding="utf-8")
-
-    result = subprocess.run(
-        [node_bin, str(harness_path)],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
-    assert "OK" in result.stdout
+    assert "OK ltx_prompt_guide_workflow_migration_harness" in result.stdout
 
 
 def test_ltx_model_loader_normalizer_keeps_current_gguf_extra_widget_layout(tmp_path):
