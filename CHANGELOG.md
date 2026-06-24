@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.62 - 2026-06-24
+
+- Fixed `(Deno) Local LLM Loader` so the Thinking and Result preview panels stay inside the node instead of stretching across nearby nodes.
+
 ## 0.7.61 - 2026-06-24
 
 - Fixed `(Deno) Multi Image Loader` so running with no selected images now stops with a clear error instead of producing a placeholder output.

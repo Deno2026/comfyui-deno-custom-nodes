@@ -2902,6 +2902,12 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "schedulePostSetupCleanup" in script
     assert "Model list is ready. Choose from the ${provider} model row." in script
     assert "LocalLLMPreviewWidget" in script
+    assert "function loaderPreviewWidgetLayoutWidth(node, width)" in script
+    assert "function loaderPreviewWidgetDrawWidth(node, width)" in script
+    assert "return [loaderPreviewWidgetLayoutWidth(this.__node, width), PREVIEW_HEIGHT];" in script
+    assert "const drawWidth = loaderPreviewWidgetDrawWidth(node, width);" in script
+    assert "const panelW = Math.max(1, drawWidth - 30);" in script
+    assert "ctx.rect(0, y, drawWidth, actualHeight);" in script
     assert "const actualHeight = Math.max(expectedHeight, Number(height) || 0);" in script
     assert "maxPreviewLinesForHeight(resultH)" in script
     assert 'openPreviewTextDialog(node, "thinking", "Thinking", text)' in script

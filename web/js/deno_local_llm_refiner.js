@@ -2333,6 +2333,24 @@ function reviewerRefreshSize(node, computed) {
     return [width, height];
 }
 
+function loaderPreviewWidgetLayoutWidth(node, width) {
+    const nodeWidth = Number(node?.size?.[0] || 0);
+    if (nodeWidth > 0) {
+        return Math.max(nodeWidth, DEFAULT_WIDTH);
+    }
+    const rawWidth = Number(width || 0);
+    return Math.max(rawWidth || DEFAULT_WIDTH, DEFAULT_WIDTH);
+}
+
+function loaderPreviewWidgetDrawWidth(node, width) {
+    const rawWidth = Number(width || 0);
+    const nodeWidth = Number(node?.size?.[0] || 0);
+    if (nodeWidth > 0 && rawWidth > 0) {
+        return Math.max(1, Math.min(rawWidth, nodeWidth));
+    }
+    return Math.max(1, nodeWidth || rawWidth || DEFAULT_WIDTH);
+}
+
 class ReviewerControlsWidget {
     constructor(node) {
         this.name = `${GATE_GENERATED_PREFIX}controls`;
@@ -2502,7 +2520,7 @@ class LocalLLMPreviewWidget {
     }
 
     computeSize(width) {
-        return [width, PREVIEW_HEIGHT];
+        return [loaderPreviewWidgetLayoutWidth(this.__node, width), PREVIEW_HEIGHT];
     }
 
     draw(ctx, node, width, y, height) {
@@ -2510,9 +2528,10 @@ class LocalLLMPreviewWidget {
         const state = getLocalLLMNodeState(node);
         const hasError = Boolean(state.error);
         const resultText = hasError ? String(state.error || "") : String(state.answer || "");
+        const drawWidth = loaderPreviewWidgetDrawWidth(node, width);
         const x = 15;
         const panelY = y + 6;
-        const panelW = width - 30;
+        const panelW = Math.max(1, drawWidth - 30);
         this.__expanded = false;
         const expectedHeight = PREVIEW_HEIGHT;
         const actualHeight = Math.max(expectedHeight, Number(height) || 0);
@@ -2557,6 +2576,9 @@ class LocalLLMPreviewWidget {
         };
 
         ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, y, drawWidth, actualHeight);
+        ctx.clip();
         drawPreviewBlock(ctx, x, panelY, panelW, thinkingH, "Thinking", thinkingView.lines, "#91dca4", {
             buttonBounds: this.expandBounds.thinking,
             buttonLabel,
