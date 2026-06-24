@@ -1,0 +1,234 @@
+schema_version: 2
+node_id: DenoLTXPromptGuide
+display_name: "(Deno) LTX Prompt Guide"
+status: phase1_gate_a_pass_phase2a_ready
+owner: DENO
+ui_kind: native_widget
+
+verified_against:
+  frontend_package: comfyui_frontend_package 1.45.15
+  comfyui_version: "0.25.1"
+  source_contract_baseline_ref: tmp/frontend-foundation-phase1/03_UPSTREAM_RUNTIME_BASELINE.md
+  source_contract_excerpts_ref: tmp/frontend-foundation-phase1/12_SOURCE_CONTRACT.md
+  last_reviewed_date: "2026-06-24"
+  behavior_runtime: VERIFIED_KNOWN_FAILING_ACCEPTANCE_TEST
+  behavior_evidence: tmp/frontend-foundation-phase1/prompt-guide-current-fixture/ltx-prompt-guide-current-verification.json
+  reason: source-identical disposable runtime proved visible restore and Queue Prompt values, and deterministically reproduced the known canonical 5-value saved-shape failure that Phase 2A must fix
+
+product_contract:
+  purpose: Combine CLIP text encoding and LTX frame-rate conditioning, with dialogue-duration guidance.
+  user_visible_behavior:
+    - Positive prompt remains visible and editable.
+    - Negative prompt visibility is controlled by a beginner-facing toggle.
+    - Saved workflows keep the 5-value canonical shape.
+  non_goals:
+    - No dynamic sockets.
+    - No localStorage.
+    - No DOM overlay.
+
+entrypoints:
+  frontend:
+    - web/js/deno_ltx_prompt_guide.js
+  backend:
+    - deno_ltx_prompt_guide.py
+  tests:
+    - tests/test_public_workflow_migration.py
+    - tests/test_image_resize_node.py
+
+state_authority:
+  workflow:
+    - positive_prompt
+    - language
+    - frame_rate
+    - show_negative_prompt
+    - negative_prompt
+  official_geometry:
+    - pos
+    - size
+    - flags
+  node_properties:
+    - key: __deno_ltx_prompt_guide_save_restore
+      classification: migration_runtime_marker
+      evidence: web/js/deno_ltx_prompt_guide.js sets it after shape-based normalization returns values; that can be known legacy 7-slot input or current 5-plus input
+      not_authority_for:
+        - prompt text
+        - negative prompt toggle
+        - node width
+        - node height
+  runtime_only:
+    - __denoLtxPromptGuideConfiguredWidgetValues
+
+precedence:
+  - saved widgets_values are normalized before LiteGraph restore
+  - generated serialize_false widgets are never canonical prompt text
+  - widget names reapply the 5 canonical values after configure/setup
+  - official node size comes from ComfyUI serialization, with any DENO sizing helper limited to content fit
+
+lifecycle_matrix:
+  fresh_create:
+    expected: setupNode inserts generated summary/toggle widgets with serialize false and syncs 5 real widget values.
+    status: VERIFIED partial in disposable runtime; visible values and Queue Prompt matched, saved widgets_values did not become canonical 5
+  workflow_load_graph_add_then_configure:
+    path_name: "workflow load: graph.add -> configure"
+    expected: configure wrapper normalizes legacy/current values before LiteGraph row restore, then onConfigure reapplies by name.
+    status: VERIFIED by source, existing tests, and disposable reload visible proof; saved output still failed canonical 5 shape
+  current_clipboard_graph_add_then_configure:
+    path_name: "current clipboard: graph.add -> configure"
+    expected: current clipboard must preserve visible values, Queue Prompt inputs, and canonical 5-value saved shape.
+    status: REQUIRED in Phase 2A
+  vintage_template_clipboard_configure_then_graph_add:
+    path_name: "vintage/template clipboard: configure -> graph.add"
+    expected: configure must tolerate generated widgets being present or absent and still reapply 5 canonical values.
+    status: VERIFIED for ordering and visible/prompt values; canonical 5-value saved shape remains a Phase 2A acceptance criterion
+  legacy_migration:
+    expected: legacy 7-value shape maps to 5 real values only for exact empty-display-slot shape.
+    status: VERIFIED by tests/test_public_workflow_migration.py legacy checks
+  clone_duplicate:
+    expected: clone copies executable widget values only; generated widgets are rebuilt.
+    status: UNVERIFIED
+  connection_widget_change:
+    expected: prompt/language/frame_rate/toggle/negative changes sync node.widgets_values to the compact shape.
+    status: INFERRED from source callback wrappers
+  save_reload_resave:
+    expected: first save and second save remain 5 canonical values with visible rows matching raw values.
+    status: FAILED in source-identical disposable runtime; visible rows matched but first/second save wrote 7 widget slots
+  queue_prompt:
+    expected: backend receives positive_prompt, language, frame_rate, show_negative_prompt, negative_prompt.
+    status: VERIFIED in source-identical disposable runtime for first save, second save, and vintage copied node
+  remove_recreate:
+    expected: generated widgets are removed/rebuilt idempotently; no external listeners require teardown.
+    status: INFERRED
+
+schema_and_migrations:
+  contract_revision: 1
+  persisted_version_field: none
+  migration_dispatch: shape_based
+  canonical_widget_count: 5
+  exact_current_shape:
+    - positive_prompt
+    - language
+    - frame_rate
+    - show_negative_prompt
+    - negative_prompt
+  legacy_shapes:
+    - name: v0_3_8_7_values
+      shape: ["display_slot", "positive_prompt", "language", "frame_rate", "display_slot", "show_negative_prompt", "negative_prompt"]
+      status: VERIFIED by existing fixture coverage
+  current_source_behavior:
+    - getNormalizedLtxPromptGuideSerializedValues accepts the exact legacy 7-slot empty-display shape
+    - getNormalizedLtxPromptGuideSerializedValues also accepts 5-or-more values by slicing to 5
+    - the disposable runtime proved current saves still write the 7-slot generated-widget shape, so current source behavior is not enough for the Phase 2A foundation fixture gate
+  gate_a_root_cause:
+    - installed and official LGraphNode workflow serialization checks widget.serialize, not widget.options.serialize
+    - graph.serialize writes widgets_values by live node.widgets array index
+    - Prompt Guide inserts generated widgets at live indices 0 and 4, so current saves write a 7-slot shape
+    - node.widgets_values mirror does not control graph.serialize
+  unknown_future_shape_policy: UNVERIFIED/open decision; do not make silent truncate of unknown arrays a foundation default without a reviewed compatibility rule
+  phase2a_entry_condition:
+    - current saved workflow fixture exists
+    - current fixture is source-identical
+    - current fixture reproduces the known canonical 5-value saved-shape failure deterministically
+
+official_hooks:
+  - app.registerExtension
+  - beforeRegisterNodeDef
+
+extension_api_usage: []
+
+host_interceptions:
+  - api: nodeType.prototype.configure wrapper
+    classification: deprecated_fragile_host_interception
+    phase2_usable_contract: isolate in workflow_migration helper only after current fixture passes
+    compat_adapter_needed: yes
+  - api: nodeType.prototype.onNodeCreated wrapper
+    classification: deprecated_fragile_host_interception
+    phase2_usable_contract: isolate in lifecycle helper only if needed
+    compat_adapter_needed: yes
+  - api: nodeType.prototype.onConfigure wrapper
+    classification: deprecated_fragile_host_interception
+    phase2_usable_contract: isolate in lifecycle/workflow_migration helper only if needed
+    compat_adapter_needed: yes
+
+private_internal_apis:
+  - api: node.widgets_values direct assignment
+    classification: internal
+    phase2_usable_contract: only through widget_state/workflow_migration helper after fixture proof
+    compat_adapter_needed: yes
+  - api: widget.computeSize and custom widget draw
+    classification: internal_litegraph_widget_contract
+    phase2_usable_contract: use only for native-widget pilot with canvas proof
+    compat_adapter_needed: maybe
+
+fixtures:
+  legacy:
+    - tests/fixtures/public_workflows/ltx23_8gb_vram.json
+  current_saved:
+    status: KNOWN_FAILING_ACCEPTANCE_TEST
+    fixture_dir: tmp/frontend-foundation-phase1/prompt-guide-current-fixture
+    verification: tmp/frontend-foundation-phase1/prompt-guide-current-fixture/ltx-prompt-guide-current-verification.json
+    known_failure: saved workflow JSON remains 7-slot generated-widget shape instead of canonical 5 values
+    already_passed:
+      - visible restore
+      - Queue Prompt exact inputs
+      - vintage/template clipboard ordering and visible/prompt values
+    still_required_in_phase2a:
+      - current clipboard path
+      - canonical 5-value first save
+      - canonical 5-value second save
+      - no new pilot-attributable actionPhaseErrors
+    console_evidence_policy:
+      startupBaselineErrors: preserve startup/userdata 404s and pre-initialization warnings
+      actionPhaseErrors: must contain no new Prompt Guide create/save/reload/copy/paste/queue errors
+
+hard_gates:
+  - legacy 7-value fixture visible restore
+  - fresh node row mapping
+  - first save canonical 5-value shape
+  - reload exact visible values
+  - second save canonical 5-value shape
+  - current clipboard path passes graph.add -> configure
+  - vintage/template clipboard path passes configure -> graph.add
+  - Queue Prompt exact inputs
+  - no new actionPhaseErrors attributable to Prompt Guide actions
+  - grow and shrink around prompt and negative prompt widgets if node_size is included
+
+soft_gates:
+  - current clipboard real-canvas proof
+  - vintage/template clipboard real-canvas proof
+  - Desktop and EZi surfaces for public behavior claims
+
+rollback:
+  strategy: remove foundation helper import and keep existing local configure wrapper
+  files:
+    - web/js/deno_ltx_prompt_guide.js
+    - deno_ltx_prompt_guide.py
+    - tests/test_public_workflow_migration.py
+
+third_party_policy:
+  dependencies: ComfyUI/LiteGraph only
+  use_everywhere: out_of_scope
+  external_services: none
+
+phase2a_recommendation:
+  recommended: true
+  readiness: READY
+  known_failing_acceptance_test:
+    - canonical saved 5-value shape
+  already_passed:
+    - visible restore
+    - Queue Prompt exact inputs
+    - vintage/template clipboard ordering and visible/prompt values
+  still_required:
+    - current clipboard path
+    - first save canonical 5 values
+    - second save canonical 5 values
+    - no new pilot-attributable actionPhaseErrors
+  minimum_modules:
+    - workflow_migration
+    - widget_state
+    - lifecycle_if_needed
+    - node_size_if_needed
+
+open_questions:
+  - How should Prompt Guide produce canonical 5 saved widgets_values when LiteGraph serialize indexes non-generated widgets by their full widget array position?
+  - Should current 5-plus truncation stay as compatibility behavior, or be narrowed before foundation reuse?

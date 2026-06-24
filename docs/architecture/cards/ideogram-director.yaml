@@ -1,0 +1,187 @@
+schema_version: 2
+node_id: DenoIdeogramDirector
+display_name: "(Deno) Ideogram Director"
+status: phase1_r2_later_candidate
+owner: DENO
+ui_kind: companion_workspace
+
+verified_against:
+  frontend_package: comfyui_frontend_package 1.45.15
+  comfyui_version: "0.25.1"
+  source_contract_baseline_ref: tmp/frontend-foundation-phase1/03_UPSTREAM_RUNTIME_BASELINE.md
+  source_contract_excerpts_ref: tmp/frontend-foundation-phase1/12_SOURCE_CONTRACT.md
+  last_reviewed_date: "2026-06-24"
+  behavior_runtime: UNVERIFIED
+  reason: this card is a later candidate; current Phase 1 fixture work only exercised Prompt Guide
+
+product_contract:
+  purpose: Visual Ideogram 4 caption studio for structured JSON prompt, dimensions, seed, and BBOX layout.
+  user_visible_behavior:
+    - Board state is visible, editable, and serialized through workflow widgets.
+    - Backdrop and import_json are the only intended wired inputs.
+    - Language view can translate editable board text while final output remains model-ready.
+  non_goals:
+    - Backdrop does not enter generation prompt.
+    - localStorage presets must not override current board values.
+
+entrypoints:
+  frontend:
+    - web/js/deno_ideogram_director.js
+  backend:
+    - deno_ideogram_director.py
+  tests:
+    - tests/test_translate_engine.py
+    - tests/test_ideogram_director_canvas_hotfix.py
+
+state_authority:
+  workflow:
+    - width
+    - height
+    - seed
+    - high_level_description
+    - background
+    - style fields
+    - import_mode
+    - caption_data
+    - seed_lock
+    - auto_save
+    - save_prefix
+    - aspect_ratio
+    - include_aspect_ratio
+    - translate_output
+    - view_language
+    - translation_engine
+    - libretranslate_url
+  local_storage:
+    - denoIdd.stylePresets
+    - denoIdd.layoutPresets
+  backend_derived:
+    - translation output
+    - validation/status messages
+  runtime_only:
+    - fullscreen body-mounted DOM
+    - gallery modal
+    - drag and bbox edit state
+  official_geometry:
+    - pos
+    - size
+    - flags
+
+precedence:
+  - workflow caption_data and widgets own active board state
+  - localStorage presets are libraries only and cannot overwrite the active board
+  - import_json is a workflow/import path, not a hidden source of live board truth after normalization
+  - fullscreen/gallery DOM state is runtime-only and must teardown
+  - translation results must be explicit output/preview, not silent replacement of source text unless user accepts
+
+lifecycle_matrix:
+  fresh_create:
+    expected: board initializes from workflow defaults with only intended sockets.
+    status: UNVERIFIED in Phase 1
+  workflow_load_graph_add_then_configure:
+    path_name: "workflow load: graph.add -> configure"
+    expected: caption_data raw JSON and visible board restore match before any localStorage merge.
+    status: UNVERIFIED for current worktree
+  current_clipboard_graph_add_then_configure:
+    path_name: "current clipboard: graph.add -> configure"
+    expected: copied board document and dimensions survive without fullscreen/gallery runtime state.
+    status: UNVERIFIED
+  vintage_template_clipboard_configure_then_graph_add:
+    path_name: "vintage/template clipboard: configure -> graph.add"
+    expected: copied board document and dimensions survive without fullscreen/gallery runtime state.
+    status: UNVERIFIED
+  legacy_migration:
+    expected: old import_json hidden-widget slot migrates without creating extra active sockets.
+    status: INFERRED from existing tests
+  clone_duplicate:
+    expected: clone copies workflow board document but not modal/drag/runtime handles.
+    status: UNVERIFIED
+  connection_widget_change:
+    expected: backdrop/import_json socket behavior stays explicit and board state remains workflow-owned.
+    status: UNVERIFIED
+  save_reload_resave:
+    expected: raw caption_data and visible board match after hard reload and second save.
+    status: UNVERIFIED
+  queue_prompt:
+    expected: prompt payload is generated from visible board/workflow values, excluding backdrop from text prompt.
+    status: INFERRED from product contract/source
+  remove_recreate:
+    expected: fullscreen, gallery, observers, and event listeners clean up.
+    status: UNVERIFIED
+
+schema_and_migrations:
+  workflow_schema_version: ideogram_director_caption_data_current
+  complex_document_widget: caption_data
+  known_legacy_shapes:
+    - import_json as hidden widget/input compatibility path
+  required_before_migration:
+    - current saved board fixture
+    - old import_json fixture
+    - localStorage preset conflict fixture
+    - translated view fixture
+
+official_hooks:
+  - app.registerExtension
+  - beforeRegisterNodeDef
+
+extension_api_usage:
+  - api.fetchApi for translation/helper routes
+
+host_interceptions:
+  - api: nodeType.prototype.onNodeCreated/setup
+    classification: deprecated_fragile_host_interception
+    phase2_usable_contract: later lifecycle adapter only
+    compat_adapter_needed: yes
+  - api: body-mounted DOM overlay lifecycle
+    classification: host_sensitive_dom_interception
+    phase2_usable_contract: later overlay_manager pilot only
+    compat_adapter_needed: yes
+
+private_internal_apis:
+  - api: socket hiding/fallback for import_json/backdrop
+    classification: internal LiteGraph socket behavior
+    phase2_usable_contract: wait for dynamic/geometry adapter
+    compat_adapter_needed: yes
+
+fixtures:
+  current_saved:
+    status: UNVERIFIED
+  required:
+    - current caption_data board fixture
+    - legacy import_json fixture
+    - localStorage style/layout library conflict
+    - translation mode fixture
+
+hard_gates:
+  - old import_json hidden-widget slot migration
+  - socketless fallback leaves only intended sockets
+  - fullscreen and gallery overlays clean up on close and node removal
+  - localStorage preset deletion has guardrails and does not alter current board
+  - saved caption_data raw JSON and visible board restore match
+
+soft_gates:
+  - Desktop and EZi surfaces for public behavior claims
+  - small viewport/fullscreen layout
+  - translation route network failures
+
+rollback:
+  strategy: defer foundation migration; keep current companion workspace code until overlay/storage/lifecycle helpers mature
+  files:
+    - web/js/deno_ideogram_director.js
+    - deno_ideogram_director.py
+    - tests/test_translate_engine.py
+
+third_party_policy:
+  ideogram: prompt text only; no external account action by node
+  translation:
+    - local/explicit LibreTranslate URL only when configured
+  storage: presets library only, not active board authority
+
+phase2a_recommendation:
+  recommended: false
+  reason: complex DOM workspace should validate later helpers, not be the first helper author
+
+open_questions:
+  - Which board fixture is the canonical current saved workflow?
+  - Which legacy import_json shapes are still public compatibility commitments?
+  - Should translation acceptance become an explicit workflow field in a future schema?

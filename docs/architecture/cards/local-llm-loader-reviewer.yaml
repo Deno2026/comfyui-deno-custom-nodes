@@ -1,0 +1,193 @@
+schema_version: 2
+node_id: DenoLocalLLMRefiner
+display_name: "(Deno) Local LLM Loader"
+status: phase1_r2_later_candidate
+owner: DENO
+ui_kind: bounded_panel
+
+verified_against:
+  frontend_package: comfyui_frontend_package 1.45.15
+  comfyui_version: "0.25.1"
+  source_contract_baseline_ref: tmp/frontend-foundation-phase1/03_UPSTREAM_RUNTIME_BASELINE.md
+  source_contract_excerpts_ref: tmp/frontend-foundation-phase1/12_SOURCE_CONTRACT.md
+  last_reviewed_date: "2026-06-24"
+  behavior_runtime: UNVERIFIED
+  reason: this card is a later candidate; current Phase 1 fixture work only exercised Prompt Guide
+
+product_contract:
+  purpose: Call local Ollama or LM Studio models from ComfyUI for prompt rewriting/review, with optional IMAGE input and reviewer gate behavior.
+  user_visible_behavior:
+    - Provider-specific model rows remain visible only for the active provider.
+    - Missing saved models are preserved and labeled as missing.
+    - Stop, unload, refresh, seed mode, and preview controls do not shift saved widget values.
+  non_goals:
+    - No non-localhost server calls.
+    - No hidden removed provider path becoming active execution.
+
+entrypoints:
+  frontend:
+    - web/js/deno_local_llm_refiner.js
+  backend:
+    - deno_local_llm_refiner.py
+  tests:
+    - tests/test_local_llm_reviewer_graph_transform.py
+    - tests/test_image_resize_node.py
+
+state_authority:
+  workflow:
+    - provider
+    - ollama_model
+    - lm_studio_model
+    - custom_server_url
+    - custom_model
+    - system_prompt
+    - thinking
+    - seed
+    - seed_mode
+    - model_memory
+    - keep_minutes
+    - comfy_vram_policy
+    - prompt
+  node_properties:
+    - denoLocalLLMPreviewScroll
+    - denoLocalLLMModelChoicesByProvider
+  local_storage:
+    - system prompt preset library
+  backend_derived:
+    - detected provider model list
+    - provider loaded/unloaded state
+    - route progress/status
+  runtime_only:
+    - __denoLocalLLMState
+    - preview dialogs
+    - progress listeners
+  official_geometry:
+    - pos
+    - size
+    - flags
+
+precedence:
+  - saved provider/model rows win over provider refresh defaults
+  - absent saved provider model must display as missing, not installed
+  - localStorage prompt library cannot replace workflow prompt/system_prompt
+  - backend provider status cannot rewrite workflow intent
+  - state-changing Stop/Unload verification must restore or prove the next normal run path
+
+lifecycle_matrix:
+  fresh_create:
+    expected: provider default rows map to backend input order; generated controls do not serialize.
+    status: UNVERIFIED in Phase 1
+  workflow_load_graph_add_then_configure:
+    path_name: "workflow load: graph.add -> configure"
+    expected: old/current widgets_values normalize before visible provider rows are hidden or shown.
+    status: VERIFIED by focused tests, real canvas pending
+  current_clipboard_graph_add_then_configure:
+    path_name: "current clipboard: graph.add -> configure"
+    expected: copied provider/model/prompt values survive generated controls and route refresh.
+    status: UNVERIFIED
+  vintage_template_clipboard_configure_then_graph_add:
+    path_name: "vintage/template clipboard: configure -> graph.add"
+    expected: copied provider/model/prompt values survive generated controls and route refresh.
+    status: UNVERIFIED
+  legacy_migration:
+    expected: old 18-slot saved layout restores Thinking and provider rows visibly.
+    status: VERIFIED by tests/test_local_llm_reviewer_graph_transform.py
+  clone_duplicate:
+    expected: clone copies executable widget values, not progress listeners/dialog/runtime route state.
+    status: UNVERIFIED
+  connection_widget_change:
+    expected: provider switch hides inactive rows without losing saved model ids; IMAGE input does not shift widgets.
+    status: UNVERIFIED
+  save_reload_resave:
+    expected: visible provider rows match raw saved values and second save does not rewrite missing models to defaults.
+    status: UNVERIFIED for real canvas
+  queue_prompt:
+    expected: output[nodeId].inputs contains provider-specific fields and no shifted UI labels as model names.
+    status: INFERRED from tests/source
+  remove_recreate:
+    expected: dialogs, timers, event listeners, and progress subscriptions tear down.
+    status: UNVERIFIED
+
+schema_and_migrations:
+  workflow_schema_version: local_llm_current_widget_order
+  known_legacy_shapes:
+    - old generated button/value layout around provider rows
+    - missing saved Ollama model
+    - missing saved LM Studio model
+  required_before_migration:
+    - current saved fixture per provider
+    - state-changing route recovery fixture
+    - provider switch keep-loaded fixture
+
+official_hooks:
+  - app.registerExtension
+  - beforeRegisterNodeDef
+
+extension_api_usage:
+  - api.fetchApi
+
+host_interceptions:
+  - api: nodeType.prototype.configure wrapper
+    classification: deprecated_fragile_host_interception
+    phase2_usable_contract: use through workflow_migration only after smaller pilot proves helper
+    compat_adapter_needed: yes
+  - api: nodeType.prototype.onNodeCreated/setup
+    classification: deprecated_fragile_host_interception
+    phase2_usable_contract: later lifecycle adapter only
+    compat_adapter_needed: yes
+
+private_internal_apis:
+  - api: direct widget order normalization before LiteGraph restore
+    classification: internal
+    phase2_usable_contract: use through workflow_migration only after smaller pilot proves helper
+    compat_adapter_needed: yes
+  - api: custom canvas preview draw and scroll handlers
+    classification: internal interaction surface
+    phase2_usable_contract: not in Phase 2A
+    compat_adapter_needed: yes
+
+fixtures:
+  legacy:
+    - tests/test_local_llm_reviewer_graph_transform.py inline fixtures
+  current_saved:
+    status: UNVERIFIED
+  required:
+    - Ollama missing saved model
+    - LM Studio missing saved model
+    - Custom Local Server shifted model rejection
+    - Stop/Unload next-run recovery
+
+hard_gates:
+  - old saved layout restores Thinking and provider rows visibly
+  - missing saved Ollama and LM Studio models are preserved and blocked clearly
+  - Stop and Unload are checked for both providers or marked UNVERIFIED
+  - state-changing verification restores next normal run path
+  - wheel and custom scrollbar behavior in preview and More dialogs
+
+soft_gates:
+  - Desktop and EZi surfaces for public behavior claims
+  - model refresh race matrix
+
+rollback:
+  strategy: do not migrate until Prompt Guide and storage/async helpers are proven; keep current node-local guards
+  files:
+    - web/js/deno_local_llm_refiner.js
+    - deno_local_llm_refiner.py
+    - tests/test_local_llm_reviewer_graph_transform.py
+
+third_party_policy:
+  allowed_providers:
+    - Ollama on local host
+    - LM Studio on local host
+    - explicit Custom Local Server local endpoint
+  external_account_actions: none
+  non_localhost: blocked unless user explicitly changes product policy
+
+phase2a_recommendation:
+  recommended: false
+  reason: high value but too many provider, async, storage, and state-changing cells for first foundation proof
+
+open_questions:
+  - Which current saved provider fixtures should be canonical for release gates?
+  - Should missing saved model display copy be standardized across Loader and Reviewer variants?
+  - What is the exact state restoration rule after Stop/Unload verification?

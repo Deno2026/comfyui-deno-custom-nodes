@@ -1,0 +1,209 @@
+schema_version: 2
+node_id: DenoLTXModelDownloader
+display_name: "(Deno) Easy Model Download Helper"
+status: phase1_r2_later_candidate
+owner: DENO
+ui_kind: dom_panel
+
+verified_against:
+  frontend_package: comfyui_frontend_package 1.45.15
+  comfyui_version: "0.25.1"
+  source_contract_baseline_ref: tmp/frontend-foundation-phase1/03_UPSTREAM_RUNTIME_BASELINE.md
+  source_contract_excerpts_ref: tmp/frontend-foundation-phase1/12_SOURCE_CONTRACT.md
+  last_reviewed_date: "2026-06-24"
+  behavior_runtime: UNVERIFIED
+  reason: this card is a later candidate; current Phase 1 fixture work only exercised Prompt Guide
+
+product_contract:
+  purpose: Help users open official model links and place files into ComfyUI-recognized model folders.
+  user_visible_behavior:
+    - Shows target roots and readiness without automatic downloads.
+    - Root button is explicit copy-target intent.
+    - Readiness checks all registered model roots for matching model types.
+  non_goals:
+    - No downloader exposure without release approval.
+    - No arbitrary filesystem probing outside ComfyUI model roots.
+
+entrypoints:
+  frontend:
+    - web/js/deno_ltx_model_downloader.js
+  backend:
+    - deno_ltx_model_downloader.py
+  tests:
+    - tests/test_image_resize_node.py
+
+state_authority:
+  workflow:
+    - model_root
+    - presets_json
+  workflow_intent_notes:
+    model_root:
+      classification: mixed_legacy_workflow_field_effective_path_mirror_future_migration_source
+      evidence:
+        - frontend writes selected root path to model_root widget when user selects a root
+        - renderRoots writes backend effective models_root into the hidden model_root widget
+        - frontend sends model_root to backend as legacy_model_root evidence
+      not_canonical_for:
+        - current explicit root id
+        - current root mode
+        - backend effective root result
+      caveat: runtime explicit intent is rootMode + explicitRootId, backend effective result is effectiveRootId + models_root, and no explicit root id/mode is currently persisted
+    presets_json:
+      classification: explicit workflow preset document
+  runtime_explicit_intent:
+    - rootMode
+    - explicitRootId
+  backend_derived:
+    - effectiveRootId
+    - selected_root_id
+    - models_root
+    - readiness
+    - detected model roots
+    - selection_reason
+  local_storage:
+    - key: deno_ltx_model_downloader_presets_v3
+      classification: reusable preset library only
+      not_authority_for:
+        - active preset
+        - active root
+  runtime_only:
+    - refreshSequence
+    - DOM editing state
+  official_geometry:
+    - pos
+    - size
+    - flags
+
+precedence:
+  - workflow presets_json active_preset_id wins over localStorage
+  - localStorage may merge preset libraries but resets stored active_preset_id to default on read/write
+  - runtime explicit root intent is rootMode plus explicitRootId
+  - model_root is a legacy workflow field/effective path mirror/future migration source, not canonical explicit root intent
+  - backend selected_root_id/models_root is an effective result and must be displayed separately from explicit intent
+  - stale async responses are ignored by refreshSequence
+
+lifecycle_matrix:
+  fresh_create:
+    expected: hidden workflow widgets are created, DOM panel mounts once, default presets_json and default root are shown.
+    status: INFERRED from source
+  workflow_load_graph_add_then_configure:
+    path_name: "workflow load: graph.add -> configure"
+    expected: presets_json is read before localStorage merge; model_root is treated as legacy/mirror evidence until a future explicit root id/mode schema exists.
+    status: UNVERIFIED for visible restore
+  current_clipboard_graph_add_then_configure:
+    path_name: "current clipboard: graph.add -> configure"
+    expected: copied presets_json remains workflow-owned; copied model_root must not be promoted to canonical explicit intent without rootMode/explicitRootId schema.
+    status: UNVERIFIED
+  vintage_template_clipboard_configure_then_graph_add:
+    path_name: "vintage/template clipboard: configure -> graph.add"
+    expected: copied presets_json remains workflow-owned; copied model_root must not be promoted to canonical explicit intent without rootMode/explicitRootId schema.
+    status: UNVERIFIED
+  legacy_migration:
+    expected: old node ID/widget IDs map to current model_root and presets_json.
+    status: INFERRED from tests for replacement metadata
+  clone_duplicate:
+    expected: clone copies workflow widgets but not DOM edit state or refreshSequence.
+    status: UNVERIFIED
+  connection_widget_change:
+    expected: presets editor writes presets_json and storage library; root chip click writes model_root and triggers route check.
+    status: INFERRED from source
+  save_reload_resave:
+    expected: workflow re-saves model_root and presets_json; localStorage cannot choose active preset/root.
+    status: UNVERIFIED
+  queue_prompt:
+    expected: node has no execution output side effect; helper is output-node UI only and run returns empty tuple.
+    status: VERIFIED from backend source
+  remove_recreate:
+    expected: DOM panel listeners are removed with node/widget cleanup.
+    status: UNVERIFIED
+
+schema_and_migrations:
+  workflow_schema_version: 1
+  fields:
+    - model_root
+    - presets_json
+  root_schema_decision:
+    status: OPEN
+    current_persisted_explicit_root_id: none
+    current_persisted_root_mode: none
+    future_candidate: path-stable explicit root id or explicit mode field
+    model_root_future_role: legacy workflow field / effective path mirror / migration source
+  local_storage_schema:
+    current: deno_ltx_model_downloader_presets_v3
+    legacy:
+      - deno_ltx_model_downloader_presets_v1
+      - deno_ltx_model_downloader_presets_v2
+  required_before_pilot:
+    - saved workflow fixture with explicit root selection
+    - corrupt localStorage fixture
+    - backend route fixture where explicit root is invalid and effective root falls back
+
+official_hooks:
+  - app.registerExtension
+  - beforeRegisterNodeDef
+
+extension_api_usage:
+  - addDOMWidget
+  - api.fetchApi
+
+host_interceptions:
+  - api: nodeType.prototype.onNodeCreated/setup DOM widget
+    classification: deprecated_fragile_host_interception
+    phase2_usable_contract: later DOM-panel lifecycle adapter only
+    compat_adapter_needed: yes
+
+private_internal_apis:
+  - api: node.size direct assignment for panel fit
+    classification: internal geometry mutation
+    phase2_usable_contract: not in Phase 2A unless node_size pilot chooses this node
+    compat_adapter_needed: yes
+
+fixtures:
+  current_saved:
+    status: UNVERIFIED
+  required:
+    - workflow active preset differs from localStorage active preset
+    - selected model_root missing from current roots
+    - corrupt localStorage
+    - stale async response after root/preset switch
+
+hard_gates:
+  - workflow active preset beats localStorage
+  - localStorage cannot select active preset or active root
+  - backend-derived effectiveRootId/models_root is separate from runtime explicit rootMode/explicitRootId
+  - model_root is not treated as canonical explicit root intent until a persisted schema exists
+  - stale async response cannot overwrite current root intent
+  - selected root remains destination while readiness checks all registered roots
+
+soft_gates:
+  - DOM panel grow/shrink
+  - wheel and middle-click over blank panel regions
+  - Desktop and EZi surfaces for public behavior claims
+
+rollback:
+  strategy: keep current DOM panel implementation; do not migrate to foundation until storage and async fixtures pass
+  files:
+    - web/js/deno_ltx_model_downloader.js
+    - deno_ltx_model_downloader.py
+    - tests/test_image_resize_node.py
+
+third_party_policy:
+  external_sites:
+    - Hugging Face links are user-opened manually
+    - Civitai links are user-opened manually
+  downloads: no automatic downloader exposure without explicit release approval
+  filesystem: only ComfyUI-recognized model roots
+
+phase2a_recommendation:
+  recommended: false
+  earliest_phase: after_prompt_guide
+  needed_modules:
+    - storage
+    - async_latest
+    - overlay_manager
+    - node_size
+
+open_questions:
+  - Should a path-stable explicit root id or explicit root mode be added as a workflow field in a future breaking-safe schema?
+  - How should model_root migrate once explicit root id/mode exists: legacy evidence, display mirror, or compatibility-only backend input?
+  - What is the visible UI copy when explicit root intent is invalid but backend effective root falls back?

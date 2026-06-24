@@ -1,0 +1,177 @@
+schema_version: 2
+node_id: DenoLTXAIStudio
+aliases:
+  - Deno LTX Director
+  - Deno LTX AI Studio
+display_name: "(Deno) LTX AI Studio"
+status: read_only_inventory_phase1_r2
+owner: DENO
+ui_kind: read_only_inventory
+
+verified_against:
+  frontend_package: comfyui_frontend_package 1.45.15
+  comfyui_version: "0.25.1"
+  source_contract_baseline_ref: tmp/frontend-foundation-phase1/03_UPSTREAM_RUNTIME_BASELINE.md
+  source_contract_excerpts_ref: tmp/frontend-foundation-phase1/12_SOURCE_CONTRACT.md
+  last_reviewed_date: "2026-06-24"
+  behavior_runtime: UNVERIFIED
+  reason: Director/AI Studio WIP is intentionally outside this Phase 1 worktree scope
+
+product_contract:
+  purpose: DENO-owned LTX director/studio product inspired by WDC LTX Director ideas, not backed by WDC at runtime.
+  user_visible_behavior:
+    - DENO-owned node, routes, frontend, and studio_data remain the product authority.
+    - Human authority, review gates, timeline planning, transition intelligence, cleanup/NAG UX, and result review remain product goals.
+  non_goals:
+    - No WDC source import in this phase.
+    - No WDC LTXDirector hidden backend.
+    - No Director WIP source modification from this frontend foundation pass.
+
+entrypoints:
+  current_public_worktree:
+    source_inventory: absent
+    evidence:
+      - tests/test_ltx_tiled_nodes_static.py asserts DenoLTXAIStudio and LTXDirector are absent from tiled beta source
+  read_only_wip_inventory:
+    observed_repo_relative_files:
+      - deno_ltx_ai_studio.py
+      - web/js/deno_ltx_ai_studio.js
+      - tests/test_ltx_ai_studio_node.py
+      - tests/test_ltx_ai_studio_overlay.py
+      - tests/js/ltx_ai_studio_overlay_harness.mjs
+    modification_status: not_modified_by_phase1_r2
+
+state_authority:
+  expected_workflow:
+    - studio_data
+    - timeline/project document fields after product schema is approved
+  expected_backend_derived:
+    - readiness/status
+    - generated draft/review suggestions
+  expected_runtime_only:
+    - editor selection
+    - scrubber drag state
+    - preview playback state
+    - route request state
+  official_geometry:
+    - pos
+    - size
+    - flags
+  prohibited_authorities:
+    - WDC LTXDirector widgets
+    - WDC frontend state
+    - localStorage as active project authority
+
+precedence:
+  - DENO workflow studio_data must own project state after schema approval
+  - Local LLM drafts and review results are proposals until accepted by user action
+  - WDC timeline data may be a migration/reference input only, not runtime authority
+  - localStorage may cache preferences, not active project/timeline state
+
+lifecycle_matrix:
+  fresh_create:
+    expected: out_of_scope
+    status: UNVERIFIED
+  workflow_load_graph_add_then_configure:
+    path_name: "workflow load: graph.add -> configure"
+    expected: out_of_scope until product schema exists
+    status: UNVERIFIED
+  current_clipboard_graph_add_then_configure:
+    path_name: "current clipboard: graph.add -> configure"
+    expected: out_of_scope
+    status: UNVERIFIED
+  vintage_template_clipboard_configure_then_graph_add:
+    path_name: "vintage/template clipboard: configure -> graph.add"
+    expected: out_of_scope
+    status: UNVERIFIED
+  legacy_migration:
+    expected: WDC workflow migration may be planned only after provenance and schema gates
+    status: UNVERIFIED
+  clone_duplicate:
+    expected: out_of_scope
+    status: UNVERIFIED
+  connection_widget_change:
+    expected: out_of_scope
+    status: UNVERIFIED
+  save_reload_resave:
+    expected: out_of_scope until studio_data schema exists
+    status: UNVERIFIED
+  queue_prompt:
+    expected: out_of_scope
+    status: UNVERIFIED
+  remove_recreate:
+    expected: out_of_scope
+    status: UNVERIFIED
+
+schema_and_migrations:
+  workflow_schema_version: not_started_in_this_phase
+  planned_document_widget: studio_data
+  migration_sources:
+    - WDC timeline_data reference only after provenance review
+    - Temporal Director AI assets only after explicit migration map
+  required_before_pilot:
+    - product schema
+    - provenance gate
+    - WDC boundary review
+    - DENO-owned fixture
+
+official_hooks: []
+
+extension_api_usage: []
+
+host_interceptions: []
+
+private_internal_apis:
+  - api: timeline editor DOM/overlay behavior
+    classification: future_companion_workspace_internal
+    phase2_usable_contract: excluded from Phase 2A
+    compat_adapter_needed: yes_later
+  - api: WDC PromptRelay/Kijai provenance
+    classification: provenance_gate
+    phase2_usable_contract: no import without approval
+    compat_adapter_needed: external_dependency_or_clean_room_plan
+
+fixtures:
+  current_saved:
+    status: UNVERIFIED
+  legacy:
+    status: UNVERIFIED
+  required:
+    - DENO-owned studio_data fixture
+    - WDC reference fixture only if provenance gate permits analysis
+    - Local LLM draft/review acceptance fixture
+
+hard_gates:
+  - do not modify Director WIP in Frontend Foundation Phase 1/R2
+  - do not start Phase 2A with Director/AI Studio
+  - do not import GPL/WDC source or PromptRelay code without provenance approval
+  - do not use WDC as runtime backend
+  - do not publish, version bump, or public README rewrite as incidental foundation work
+
+soft_gates:
+  - future timeline editor layout audit
+  - future studio_data save/reload/re-save audit
+  - future review-gate transaction audit
+
+rollback:
+  strategy: no migration in this phase; leave WIP untouched and use this card only as inventory
+  files:
+    - none_in_current_worktree
+
+third_party_policy:
+  WDC:
+    allowed: reference_benchmark_migration_source_after_gate
+    prohibited: runtime_backend_hidden_control_plane_source_import_without_approval
+  KJNodes_LTXVideo_VHS:
+    allowed: normal ecosystem dependencies when the DENO-owned workflow needs them
+  Local_LLM:
+    allowed: DENO-owned local routes and review/draft proposals
+
+phase2a_recommendation:
+  recommended: false
+  reason: product/provenance/schema gates are larger than frontend foundation vertical slice
+
+open_questions:
+  - What exact DENO studio_data schema becomes canonical?
+  - Which WDC concepts are clean-room reimplemented versus treated only as comparison fixtures?
+  - Which timeline/review/result loop fixtures are required before any public workflow migration?
