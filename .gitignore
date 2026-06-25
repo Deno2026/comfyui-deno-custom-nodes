@@ -211,8 +211,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# DENO local-only agent/operations docs.
-# Public GitHub should stay product/user-facing; keep these files local.
+# DENO local-only generated state and historical operations docs.
+# Public GitHub should stay product/user-facing; keep root AGENTS local.
+.codex/state/
 AGENTS.md
 SESSION_HANDOFF.md
 docs/CLAUDE_NODE_FRONTEND_GUIDE.md

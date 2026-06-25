@@ -1,0 +1,47 @@
+name: codex harness gate
+
+on:
+  pull_request:
+    paths:
+      - .agents/**
+      - .codex/**
+      - tools/codex_*.py
+      - docs/codex/**
+      - tests/codex_harness/**
+      - .github/pull_request_template.md
+      - .github/workflows/*codex*gate*.yml
+      - .gitignore
+
+jobs:
+  codex-harness:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Compile harness
+        run: python -m py_compile tools/codex_task.py tools/codex_gate.py .codex/hooks/*.py
+
+      - name: Run harness tests
+        run: python -m pytest tests/codex_harness -q
+
+      - name: Run deterministic harness gate
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git diff --name-only "$BASE_SHA"...HEAD > /tmp/codex_changed_files.txt
+          CODEX_HARNESS_CHANGED_FILES="$(cat /tmp/codex_changed_files.txt)" python tools/codex_gate.py --mode ci
