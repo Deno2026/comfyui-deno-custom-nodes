@@ -1,17 +1,29 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { createLatestRequest } from "./deno_frontend_core/async_latest.js";
+import { getNodeLifecycleScope } from "./deno_frontend_core/lifecycle.js";
+import {
+    cloneSerializableValue,
+    mergeLibraryByStableId,
+    promoteLibraryItem,
+    readVersionedJsonStorage,
+    upsertLibraryItem,
+    writeJsonStorage,
+} from "./deno_frontend_core/storage.js";
 
 const NODE_NAME = "DenoLTXModelDownloader";
 const ROUTE = "/deno/ltx_model_downloader";
 const MIN_SIZE = [560, 430];
 const PANEL_MIN_HEIGHT = 352;
 const NODE_CHROME_HEIGHT = 62;
-const PRESET_STORAGE_KEY = "deno_ltx_model_downloader_presets_v3";
+const PRESET_LIBRARY_SCHEMA_VERSION = 4;
+const PRESET_LIBRARY_STORAGE_KEY = "deno_ltx_model_downloader_preset_library_v4";
 const LEGACY_PRESET_STORAGE_KEYS = [
+    "deno_ltx_model_downloader_presets_v3",
     "deno_ltx_model_downloader_presets_v1",
     "deno_ltx_model_downloader_presets_v2",
 ];
-const LTX_MODEL_DOWNLOADER_REV = "r2026.06.23-root-intent-c";
+const LTX_MODEL_DOWNLOADER_REV = "r2026.06.25-phase2b-foundation-a";
 
 const DEFAULT_PACKAGE = {
     id: "ltx_23_8gb_vram",
@@ -91,7 +103,10 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             const result = onConfigure?.apply(this, arguments);
-            queueMicrotask(() => setupNode(this));
+            const scope = getNodeLifecycleScope(this, "ltx-model-downloader");
+            if (!scope.disposed) {
+                queueMicrotask(() => setupNode(this));
+            }
             return result;
         };
     },
@@ -99,6 +114,10 @@ app.registerExtension({
 
 function setupNode(node) {
     if (!node || node.type !== NODE_NAME) {
+        return;
+    }
+    const scope = getNodeLifecycleScope(node, "ltx-model-downloader");
+    if (scope.disposed) {
         return;
     }
     if (node.__denoLtxSetupReady) {
@@ -121,12 +140,17 @@ function setupNode(node) {
         }
     }
 
-    const ui = buildUi(node, rootWidget, presetsWidget);
+    const ui = buildUi(node, rootWidget, presetsWidget, scope);
     const domWidget = node.addDOMWidget("deno_ltx_setup_panel", "deno_ltx_setup_panel", ui.root, {
         serialize: false,
     });
     node.__denoLtxSetupUi = ui;
     domWidget.computeSize = () => ui.computeSize();
+    scope.onDispose(() => {
+        ui.root.remove();
+        delete node.__denoLtxSetupReady;
+        delete node.__denoLtxSetupUi;
+    });
     ui.applyNodeSize();
     ui.refreshInfo();
 }
@@ -141,8 +165,9 @@ function hideWidget(widget) {
     widget.computeSize = () => [0, -4];
 }
 
-function buildUi(node, rootWidget, presetsWidget) {
+function buildUi(node, rootWidget, presetsWidget, scope) {
     const root = document.createElement("div");
+    root.dataset.denoLtxDownloaderPanel = "true";
     root.style.cssText = `
         width:100%;
         box-sizing:border-box;
@@ -315,15 +340,18 @@ function buildUi(node, rootWidget, presetsWidget) {
         rootMode: "auto",
         explicitRootId: "",
         effectiveRootId: "",
-        refreshSequence: 0,
         roots: [],
         files: [],
         modelsRoot: "",
         modelSubdirs: [],
         editing: false,
-        presetsState: readPresetsState(presetsWidget),
+        workflowPresetsState: readWorkflowPresetsState(presetsWidget),
+        libraryPresetsState: readPresetLibraryState(),
+        viewPresetsState: normalizePresetsState(DEFAULT_STATE),
         editorPresetId: "",
     };
+    const refreshRequest = createLatestRequest(scope);
+    syncPresetView();
 
     function resetRootToAuto() {
         state.rootMode = "auto";
@@ -332,6 +360,32 @@ function buildUi(node, rootWidget, presetsWidget) {
 
     function requestedRootId() {
         return state.rootMode === "explicit" ? state.explicitRootId : "";
+    }
+
+    function syncPresetView() {
+        state.workflowPresetsState = normalizePresetsState(state.workflowPresetsState);
+        state.libraryPresetsState = normalizePresetLibraryState(state.libraryPresetsState);
+        state.viewPresetsState = mergePresetLibraryState(state.workflowPresetsState, state.libraryPresetsState);
+        return state.viewPresetsState;
+    }
+
+    function workflowOwnsPreset(presetId) {
+        return normalizePresetsState(state.workflowPresetsState).presets.some((item) => item.id === presetId);
+    }
+
+    function promotePresetToWorkflow(preset) {
+        const workflow = normalizePresetsState(state.workflowPresetsState);
+        const promotedPresets = promoteLibraryItem(workflow.presets, preset, {
+            clone: cloneSerializableValue,
+        });
+        state.workflowPresetsState = normalizePresetsState({
+            active_preset_id: preset.id,
+            presets: promotedPresets,
+        });
+        writeWorkflowPresetsState(presetsWidget, state.workflowPresetsState);
+        markWorkflowDirty();
+        syncPresetView();
+        return state.workflowPresetsState;
     }
 
     function selectRootByUser(rootId) {
@@ -352,11 +406,12 @@ function buildUi(node, rootWidget, presetsWidget) {
     }
 
     const editor = buildEditor(
-        () => currentPackage(state.presetsState),
+        () => currentPackage(state.workflowPresetsState),
         () => state.modelSubdirs,
         resolveCivitaiUrl,
         (nextPackage) => saveEditorPreset(nextPackage),
-        () => applyNodeSize()
+        () => applyNodeSize(),
+        scope
     );
     editor.root.style.display = "none";
 
@@ -414,15 +469,16 @@ function buildUi(node, rootWidget, presetsWidget) {
         return payload;
     }
 
-    async function postJson(path, body) {
+    async function postJson(path, body, signal = undefined) {
         return apiJson(path, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
+            signal,
         });
     }
 
-    function setEditingMode(nextEditing, packageValue = currentPackage(state.presetsState)) {
+    function setEditingMode(nextEditing, packageValue = currentPackage(state.workflowPresetsState)) {
         state.editing = Boolean(nextEditing);
         for (const [section, displayValue] of viewSections) {
             section.style.display = state.editing ? "none" : displayValue;
@@ -443,21 +499,31 @@ function buildUi(node, rootWidget, presetsWidget) {
     }
 
     function renderPresetButton() {
-        const active = currentPackage(state.presetsState);
+        syncPresetView();
+        const active = currentPackage(state.workflowPresetsState);
         presetButton.textContent = `${active.title || "Custom Preset"} ▾`;
         presetMenu.replaceChildren();
 
-        for (const item of state.presetsState.presets) {
+        for (const item of state.viewPresetsState.presets) {
             const option = createMenuButton(item.title || "Custom Preset", () => {
-                state.presetsState.active_preset_id = item.id;
-                writePresetsState(presetsWidget, state.presetsState);
+                if (workflowOwnsPreset(item.id)) {
+                    state.workflowPresetsState = normalizePresetsState({
+                        ...state.workflowPresetsState,
+                        active_preset_id: item.id,
+                    });
+                    writeWorkflowPresetsState(presetsWidget, state.workflowPresetsState);
+                    markWorkflowDirty();
+                    syncPresetView();
+                } else {
+                    promotePresetToWorkflow(item);
+                }
                 markWorkflowDirty();
                 presetMenu.style.display = "none";
                 setEditingMode(false);
-                editor.load(currentPackage(state.presetsState));
+                editor.load(currentPackage(state.workflowPresetsState));
                 resetRootToAuto();
                 refreshInfo();
-            }, item.id === state.presetsState.active_preset_id);
+            }, item.id === state.workflowPresetsState.active_preset_id);
             presetMenu.append(option);
         }
     }
@@ -468,7 +534,7 @@ function buildUi(node, rootWidget, presetsWidget) {
         state.effectiveRootId = payload.selected_root_id || roots[0]?.id || "";
         state.modelsRoot = payload.models_root || "";
         state.modelSubdirs = payload.model_subdirs || state.modelSubdirs || [];
-        hint.textContent = payload.instructions || currentPackage(state.presetsState).description || "Open links, download with your browser, then move files into the shown target paths.";
+        hint.textContent = payload.instructions || currentPackage(state.workflowPresetsState).description || "Open links, download with your browser, then move files into the shown target paths.";
 
         rootSelect.replaceChildren();
         for (const rootInfo of roots) {
@@ -568,13 +634,15 @@ function buildUi(node, rootWidget, presetsWidget) {
 
             const target = document.createElement("div");
             target.style.cssText = "min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#96caa6; font-size:10px;";
+            const localStatus = file.local_status || file.status;
             const foundSuffix = file.found_by === "subfolder" ? "found in subfolder" : "";
-            target.textContent = file.error || [file.filename || filenameFromRelative(file.relative_path) || "(set filename)", prettyBytes(file.size), foundSuffix].filter(Boolean).join(" - ");
+            const elsewhereSuffix = file.status === "exists" && localStatus !== "exists" ? "available in another root" : "";
+            target.textContent = file.error || [file.filename || filenameFromRelative(file.relative_path) || "(set filename)", prettyBytes(file.size), foundSuffix, elsewhereSuffix].filter(Boolean).join(" - ");
             nameWrap.append(label, target);
 
             const badge = document.createElement("div");
-            badge.style.cssText = `font-weight:800; color:${statusColor(file.status)}; min-width:48px; text-align:right;`;
-            badge.textContent = statusLabel(file.status);
+            badge.style.cssText = `font-weight:800; color:${statusColor(localStatus)}; min-width:48px; text-align:right;`;
+            badge.textContent = statusLabel(localStatus);
 
             const downButton = createMiniButton("Down");
             downButton.disabled = !file.url;
@@ -595,42 +663,53 @@ function buildUi(node, rootWidget, presetsWidget) {
     }
 
     function reloadFromWidgets() {
-        state.presetsState = readPresetsState(presetsWidget);
-        state.editorPresetId = currentPackage(state.presetsState).id;
+        state.workflowPresetsState = readWorkflowPresetsState(presetsWidget);
+        state.libraryPresetsState = readPresetLibraryState();
+        syncPresetView();
+        state.editorPresetId = currentPackage(state.workflowPresetsState).id;
         resetRootToAuto();
         renderPresetButton();
-        editor.load(currentPackage(state.presetsState));
+        editor.load(currentPackage(state.workflowPresetsState));
         setEditingMode(false);
         refreshInfo();
     }
 
     async function refreshInfo() {
-        const sequence = ++state.refreshSequence;
-        try {
+        return refreshRequest.run(async (signal) => {
             renderPresetButton();
             setStatus("Checking local model files...");
-            const active = currentPackage(state.presetsState);
+            const active = currentPackage(state.workflowPresetsState);
             const payload = await postJson(`${ROUTE}/check`, {
                 root_id: requestedRootId(),
                 model_root: rootWidget?.value || "",
-                presets_state: state.presetsState,
+                presets_state: state.workflowPresetsState,
                 package: active,
-            });
-            if (sequence !== state.refreshSequence) {
-                return;
-            }
-            renderRoots(payload);
-            renderFiles(payload.files || []);
-            const total = (payload.files || []).length;
-            const existing = (payload.files || []).filter((file) => file.status === "exists").length;
-            setProgress(existing, total);
-            setStatus(existing === total ? "All files found. Press R if model lists need refresh." : "Open missing links, then move files to the shown paths.");
-        } catch (error) {
-            if (sequence !== state.refreshSequence) {
-                return;
-            }
-            setStatus(error.message || String(error), true);
-        }
+            }, signal);
+            return payload;
+        }, {
+            apply(payload) {
+                const invalidExplicitFallback = payload.selection_mode === "auto"
+                    && payload.selection_reason === "invalid_explicit_root_fallback";
+                if (invalidExplicitFallback) {
+                    resetRootToAuto();
+                }
+                renderRoots(payload);
+                renderFiles(payload.files || []);
+                const total = (payload.files || []).length;
+                const existing = Number.isFinite(payload.selected_root_existing_count)
+                    ? payload.selected_root_existing_count
+                    : (payload.files || []).filter((file) => (file.local_status || file.status) === "exists").length;
+                setProgress(existing, total);
+                if (invalidExplicitFallback) {
+                    setStatus("Selected root is unavailable. Using the best detected root.");
+                } else {
+                    setStatus(existing === total ? "All files found. Press R if model lists need refresh." : "Open missing links, then move files to the shown paths.");
+                }
+            },
+            onError(error) {
+                setStatus(error.message || String(error), true);
+            },
+        });
     }
 
     async function resolveCivitaiUrl(url) {
@@ -648,23 +727,28 @@ function buildUi(node, rootWidget, presetsWidget) {
         const editingDefaultPreset = state.editorPresetId === DEFAULT_PACKAGE.id;
         const requestedId = normalized.id || slugify(normalized.title);
         const addingPreset = !state.editorPresetId;
+        const latestLibrary = readPresetLibraryState();
+        const latestView = mergePresetLibraryState(state.workflowPresetsState, latestLibrary);
+        state.libraryPresetsState = latestLibrary;
         const packageId = editingDefaultPreset || addingPreset
-            ? uniquePresetId(requestedId === DEFAULT_PACKAGE.id ? `${DEFAULT_PACKAGE.id}_custom` : requestedId, state.presetsState.presets)
+            ? uniquePresetId(requestedId === DEFAULT_PACKAGE.id ? `${DEFAULT_PACKAGE.id}_custom` : requestedId, latestView.presets)
             : state.editorPresetId;
         normalized.id = packageId;
 
-        const presets = ensureDefaultPreset(state.presetsState.presets);
+        const presets = ensureDefaultPreset(state.workflowPresetsState.presets);
         const existingIndex = presets.findIndex((item) => item.id === packageId);
         if (existingIndex >= 0) {
             presets[existingIndex] = normalized;
         } else {
             presets.push(normalized);
         }
-        state.presetsState = {
+        state.workflowPresetsState = {
             active_preset_id: packageId,
             presets,
         };
-        writePresetsState(presetsWidget, state.presetsState);
+        writeWorkflowPresetsState(presetsWidget, state.workflowPresetsState);
+        state.libraryPresetsState = writePresetLibraryItem(normalized);
+        syncPresetView();
         markWorkflowDirty();
         state.editorPresetId = packageId;
         setEditingMode(false);
@@ -692,21 +776,22 @@ function buildUi(node, rootWidget, presetsWidget) {
         presetMenu.style.display = presetMenu.style.display === "none" ? "block" : "none";
     });
     addPresetButton.addEventListener("click", openNewPresetEditor);
-    document.addEventListener("click", () => {
+    scope.addEventListener(document, "click", () => {
         presetMenu.style.display = "none";
+        closeModelPathMenus(root);
     });
     editButton.addEventListener("click", () => {
-        state.editorPresetId = currentPackage(state.presetsState).id;
+        state.editorPresetId = currentPackage(state.workflowPresetsState).id;
         setEditingMode(!state.editing);
     });
 
     renderPresetButton();
-    editor.load(currentPackage(state.presetsState));
+    editor.load(currentPackage(state.workflowPresetsState));
     setEditingMode(false);
     return { root, refreshInfo, computeSize, applyNodeSize, reloadFromWidgets };
 }
 
-function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, onLayoutChange) {
+function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, onLayoutChange, scope) {
     const root = document.createElement("div");
     root.style.cssText = `
         display:flex;
@@ -732,10 +817,18 @@ function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, on
 
     const rows = document.createElement("div");
     rows.style.cssText = "display:flex; flex-direction:column; gap:9px;";
-    const scheduleLayout = () => requestAnimationFrame(() => onLayoutChange?.(rows.children.length));
+    const scheduleLayout = () => {
+        if (scope?.disposed) {
+            return;
+        }
+        if (scope?.requestAnimationFrame) {
+            scope.requestAnimationFrame(() => onLayoutChange?.(rows.children.length));
+        } else {
+            requestAnimationFrame(() => onLayoutChange?.(rows.children.length));
+        }
+    };
     root.addEventListener("deno-layout-change", scheduleLayout);
-    const observer = new MutationObserver(scheduleLayout);
-    observer.observe(rows, { childList: true });
+    scope?.observeMutation?.(rows, scheduleLayout, { childList: true });
 
     const actions = document.createElement("div");
     actions.style.cssText = "display:flex; gap:8px; align-items:center;";
@@ -753,7 +846,7 @@ function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, on
         rows.replaceChildren();
         const files = packageData.files.length ? packageData.files : [{ url: "", target_subdir: "checkpoints", filename: "", size: 0 }];
         for (const file of files) {
-            rows.append(createFileEditorRow(file, rows.children.length + 1, getModelSubdirs(), resolveCivitaiUrl));
+            rows.append(createFileEditorRow(file, rows.children.length + 1, getModelSubdirs(), resolveCivitaiUrl, scope));
         }
         renumberRows(rows);
         scheduleLayout();
@@ -774,7 +867,7 @@ function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, on
     }
 
     addButton.addEventListener("click", () => {
-        rows.append(createFileEditorRow({ url: "", target_subdir: "checkpoints", filename: "", size: 0 }, rows.children.length + 1, getModelSubdirs(), resolveCivitaiUrl));
+        rows.append(createFileEditorRow({ url: "", target_subdir: "checkpoints", filename: "", size: 0 }, rows.children.length + 1, getModelSubdirs(), resolveCivitaiUrl, scope));
         renumberRows(rows);
         scheduleLayout();
     });
@@ -834,7 +927,7 @@ function buildExampleGuide(onUseExample) {
     return guide;
 }
 
-function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl = null) {
+function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl = null, scope = null) {
     const row = document.createElement("div");
     row.style.cssText = `
         display:flex;
@@ -870,7 +963,7 @@ function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl =
     const pathGrid = document.createElement("div");
     pathGrid.style.cssText = "display:grid; grid-template-columns:0.9fr 1fr; gap:6px;";
 
-    const targetSubdir = createModelPathField(file.target_subdir || "checkpoints", modelSubdirs);
+    const targetSubdir = createModelPathField(file.target_subdir || "checkpoints", modelSubdirs, scope);
 
     const filename = createLabeledField("File name", "for target path only; exact match not required");
     filename.input.dataset.field = "filename";
@@ -913,7 +1006,12 @@ function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl =
         const rawUrl = url.input.value.trim();
         if (!rawUrl) {
             civitaiButton.textContent = "No URL";
-            setTimeout(() => { civitaiButton.textContent = "Civitai"; }, 900);
+            const resetText = () => { civitaiButton.textContent = "Civitai"; };
+            if (scope?.setTimeout) {
+                scope.setTimeout(resetText, 900);
+            } else {
+                setTimeout(resetText, 900);
+            }
             return;
         }
         civitaiButton.disabled = true;
@@ -938,10 +1036,15 @@ function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl =
             console.warn("[DENO] Civitai link conversion failed:", error);
             civitaiButton.textContent = "Fail";
         } finally {
-            setTimeout(() => {
+            const resetButton = () => {
                 civitaiButton.disabled = false;
                 civitaiButton.textContent = "Civitai";
-            }, 900);
+            };
+            if (scope?.setTimeout) {
+                scope.setTimeout(resetButton, 900);
+            } else {
+                setTimeout(resetButton, 900);
+            }
         }
     };
     urlRow.append(url.root, civitaiButton);
@@ -981,7 +1084,7 @@ function resolveCivitaiLocally(rawUrl) {
     };
 }
 
-function createModelPathField(value, modelSubdirs = []) {
+function createModelPathField(value, modelSubdirs = [], scope = null) {
     const root = document.createElement("div");
     root.style.cssText = "display:flex; flex-direction:column; gap:4px; min-width:0; position:relative;";
     const label = document.createElement("div");
@@ -1053,14 +1156,11 @@ function createModelPathField(value, modelSubdirs = []) {
     button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        closeModelPathMenus(menu);
+        closeModelPathMenus(root.closest("[data-deno-ltx-downloader-panel]") || root, menu);
         menu.style.display = menu.style.display === "none" ? "block" : "none";
     });
     customInput.addEventListener("input", () => {
         valueInput.value = "";
-    });
-    document.addEventListener("click", () => {
-        menu.style.display = "none";
     });
 
     root.append(label, button, menu, valueInput, customInput);
@@ -1115,9 +1215,9 @@ function createMenuButton(label, onClick, active = false) {
     return button;
 }
 
-function closeModelPathMenus(exceptMenu = null) {
-    const owner = exceptMenu?.ownerDocument || document;
-    owner.querySelectorAll("[data-field='target_subdir_menu']").forEach((menu) => {
+function closeModelPathMenus(ownerRoot, exceptMenu = null) {
+    const owner = ownerRoot?.querySelectorAll ? ownerRoot : null;
+    owner?.querySelectorAll("[data-field='target_subdir_menu']").forEach((menu) => {
         if (menu !== exceptMenu) {
             menu.style.display = "none";
         }
@@ -1278,75 +1378,58 @@ function prettyBytes(value) {
     return "";
 }
 
-function readPresetsState(widget) {
+function readWorkflowPresetsState(widget) {
     let widgetState = null;
     try {
         widgetState = normalizePresetsState(JSON.parse(widget?.value || ""));
     } catch (_error) {
         widgetState = normalizePresetsState(DEFAULT_STATE);
     }
-    const storedState = readStoredPresetsState();
-    if (storedState && hasCustomPresets(storedState)) {
-        const mergedState = mergePresetLibrary(widgetState, storedState);
-        if (widget && JSON.stringify(normalizePresetsState(widgetState)) !== JSON.stringify(mergedState)) {
-            widget.value = JSON.stringify(mergedState, null, 2);
-        }
-        return mergedState;
-    }
     return widgetState;
 }
 
-function writePresetsState(widget, value) {
+function writeWorkflowPresetsState(widget, value) {
     const normalized = normalizePresetsState(value);
     if (widget) {
         widget.value = JSON.stringify(normalized, null, 2);
         widget.callback?.(widget.value);
     }
-    writeStoredPresetsState(normalized);
     return normalized;
 }
 
-function readStoredPresetsState() {
-    for (const key of [PRESET_STORAGE_KEY, ...LEGACY_PRESET_STORAGE_KEYS]) {
-        try {
-            const raw = localStorage.getItem(key);
-            if (!raw) {
-                continue;
-            }
-            const stored = normalizePresetsState(JSON.parse(raw));
-            return {
-                active_preset_id: DEFAULT_PACKAGE.id,
-                presets: stored.presets,
-            };
-        } catch (_error) {
-            // Ignore stale browser storage and keep the workflow as authority.
-        }
-    }
-    return null;
+function readPresetLibraryState() {
+    return readVersionedJsonStorage({
+        storage: window.localStorage,
+        currentKey: PRESET_LIBRARY_STORAGE_KEY,
+        legacyKeys: LEGACY_PRESET_STORAGE_KEYS,
+        normalize: normalizePresetLibraryState,
+        fallback: normalizePresetLibraryState(),
+    });
 }
 
-function writeStoredPresetsState(value) {
-    try {
-        const normalized = normalizePresetsState(value);
-        localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify({
-            active_preset_id: DEFAULT_PACKAGE.id,
-            presets: normalized.presets,
-        }));
-    } catch (_error) {
-        // Browser storage may be unavailable in hardened profiles; the workflow widget still saves.
-    }
+function writePresetLibraryState(value) {
+    const normalized = normalizePresetLibraryState(value);
+    writeJsonStorage(window.localStorage, PRESET_LIBRARY_STORAGE_KEY, normalized);
+    return normalized;
 }
 
-function mergePresetLibrary(workflowState, storedState) {
+function writePresetLibraryItem(packageValue) {
+    const latestLibrary = readPresetLibraryState();
+    const presets = upsertLibraryItem(latestLibrary.presets, normalizePackage(packageValue), {
+        clone: cloneSerializableValue,
+    });
+    return writePresetLibraryState({
+        schema_version: PRESET_LIBRARY_SCHEMA_VERSION,
+        presets,
+    });
+}
+
+function mergePresetLibraryState(workflowState, libraryState) {
     const workflow = normalizePresetsState(workflowState);
-    const stored = normalizePresetsState(storedState);
-    const byId = new Map(workflow.presets.map((item) => [item.id, item]));
-    for (const item of stored.presets) {
-        if (item.id !== DEFAULT_PACKAGE.id && !byId.has(item.id)) {
-            byId.set(item.id, item);
-        }
-    }
-    const presets = Array.from(byId.values());
+    const library = normalizePresetLibraryState(libraryState);
+    const presets = mergeLibraryByStableId(workflow.presets, library.presets, {
+        clone: cloneSerializableValue,
+    });
     const activeId = presets.some((item) => item.id === workflow.active_preset_id)
         ? workflow.active_preset_id
         : DEFAULT_PACKAGE.id;
@@ -1356,8 +1439,12 @@ function mergePresetLibrary(workflowState, storedState) {
     });
 }
 
-function hasCustomPresets(state) {
-    return normalizePresetsState(state).presets.some((item) => item.id !== DEFAULT_PACKAGE.id);
+function normalizePresetLibraryState(value = {}) {
+    const presets = Array.isArray(value.presets) ? value.presets.map(normalizePackage) : [];
+    return {
+        schema_version: PRESET_LIBRARY_SCHEMA_VERSION,
+        presets: presets.filter((item) => item.id !== DEFAULT_PACKAGE.id),
+    };
 }
 
 function normalizePresetsState(value = {}) {

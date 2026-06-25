@@ -89,6 +89,13 @@ MODEL_ROOT_SUBDIRS = {
     "audio_encoders",
 }
 
+FOLDER_TYPE_ALIASES = {
+    "unet": ("unet", "diffusion_models"),
+    "diffusion_models": ("diffusion_models", "unet"),
+    "text_encoders": ("text_encoders", "clip"),
+    "clip": ("clip", "text_encoders"),
+}
+
 
 def _norm(path: Path | str) -> str:
     return str(Path(path).expanduser().resolve())
@@ -291,7 +298,27 @@ def _registered_model_dirs(folder_name: str) -> List[Path]:
     return candidates
 
 
-def _target_path_candidates(models_root: str, target_subdir: str, filename: str) -> List[Path]:
+def _folder_type_candidates(folder_name: str) -> Tuple[str, ...]:
+    normalized = str(folder_name or "").strip().replace("\\", "/").split("/", 1)[0]
+    if not normalized:
+        return ()
+    return FOLDER_TYPE_ALIASES.get(normalized, (normalized,))
+
+
+def _root_for_path(path: Path, roots: List[Dict] | None) -> Optional[Dict]:
+    for root in roots or []:
+        if _is_relative_to_or_same(path, Path(root["path"])):
+            return root
+    return None
+
+
+def _target_path_candidates(
+    models_root: str,
+    target_subdir: str,
+    filename: str,
+    *,
+    local_only: bool = False,
+) -> List[Path]:
     relative_path, _relative_label = _safe_relative_path(target_subdir, filename)
     root = Path(models_root)
     candidates: List[Path] = []
@@ -311,8 +338,11 @@ def _target_path_candidates(models_root: str, target_subdir: str, filename: str)
 
     folder_type = relative_parts[0]
     nested_parts = relative_parts[1:-1]
-    for model_dir in _registered_model_dirs(folder_type):
-        add(model_dir.joinpath(*nested_parts, filename))
+    for folder_name in _folder_type_candidates(folder_type):
+        for model_dir in _registered_model_dirs(folder_name):
+            if local_only and not _is_relative_to_or_same(model_dir, root):
+                continue
+            add(model_dir.joinpath(*nested_parts, filename))
 
     return candidates
 
@@ -348,43 +378,72 @@ def _resolve_target_file(
     filename: str,
     expected_size: int,
     *,
+    roots: List[Dict] | None = None,
     allow_deep_scan: bool = False,
 ) -> Dict:
     relative_path, configured_label = _safe_relative_path(target_subdir, filename)
     root = Path(models_root)
-    candidates = _target_path_candidates(models_root, target_subdir, filename)
-    target = candidates[0] if candidates else root / relative_path
+    local_candidates = _target_path_candidates(models_root, target_subdir, filename, local_only=True)
+    global_candidates = _target_path_candidates(models_root, target_subdir, filename, local_only=False)
+    target = local_candidates[0] if local_candidates else root / relative_path
     downloaded = 0
     status = "missing"
+    local_downloaded = 0
+    local_status = "missing"
     found_by = "configured"
+    found_path: Optional[Path] = None
+    local_found_path: Optional[Path] = None
 
-    for candidate in candidates:
+    for candidate in local_candidates:
         if _is_complete(candidate, expected_size):
-            target = candidate
+            local_downloaded = candidate.stat().st_size
+            local_status = "exists"
+            local_found_path = candidate
+            break
+
+    for candidate in global_candidates:
+        if _is_complete(candidate, expected_size):
             downloaded = candidate.stat().st_size
             status = "exists"
-            found_by = "registered" if candidate != candidates[0] else "configured"
+            found_path = candidate
+            found_by = "registered" if candidate != target else "configured"
             break
 
     if status == "missing" and allow_deep_scan:
-        scanned = _scan_for_filename((candidate.parent for candidate in candidates), filename, expected_size)
+        scanned = _scan_for_filename((candidate.parent for candidate in global_candidates), filename, expected_size)
         if scanned is not None:
-            target = scanned
             downloaded = scanned.stat().st_size
             status = "exists"
+            found_path = scanned
             found_by = "subfolder"
 
     if status == "missing":
-        for candidate in candidates:
+        for candidate in global_candidates:
             part = candidate.with_suffix(candidate.suffix + ".part")
             try:
                 if part.exists():
-                    target = candidate
                     downloaded = part.stat().st_size
                     status = "partial"
+                    found_path = part
+                    found_by = "partial"
                     break
             except OSError:
                 continue
+
+    if local_status == "missing":
+        for candidate in local_candidates:
+            part = candidate.with_suffix(candidate.suffix + ".part")
+            try:
+                if part.exists():
+                    local_downloaded = part.stat().st_size
+                    local_status = "partial"
+                    local_found_path = part
+                    break
+            except OSError:
+                continue
+
+    found_root = _root_for_path(found_path, roots) if found_path is not None else None
+    local_found_root = _root_for_path(local_found_path, roots) if local_found_path is not None else None
 
     return {
         "target": target,
@@ -393,7 +452,15 @@ def _resolve_target_file(
         "relative_path": _relative_to_root_label(target, root, configured_label),
         "configured_relative_path": configured_label,
         "downloaded": downloaded,
+        "local_downloaded": local_downloaded,
         "status": status,
+        "local_status": local_status,
+        "exists_in_selected_root": local_status == "exists",
+        "found_path": str(found_path) if found_path is not None and status in {"exists", "partial"} else "",
+        "found_root_id": found_root["id"] if found_root else "",
+        "found_root_path": found_root["path"] if found_root else "",
+        "local_found_path": str(local_found_path) if local_found_path is not None else "",
+        "local_found_root_id": local_found_root["id"] if local_found_root else "",
         "found_by": found_by,
     }
 
@@ -408,9 +475,15 @@ def _is_complete(path: Path, expected_size: int) -> bool:
     return size >= int(expected_size * 0.98)
 
 
-def _public_file(models_root: str, item: Dict) -> Dict:
+def _public_file(models_root: str, item: Dict, roots: List[Dict] | None = None) -> Dict:
     expected_size = int(item["size"])
-    resolved = _resolve_target_file(models_root, str(item["target_subdir"]), str(item["filename"]), expected_size)
+    resolved = _resolve_target_file(
+        models_root,
+        str(item["target_subdir"]),
+        str(item["filename"]),
+        expected_size,
+        roots=roots,
+    )
 
     return {
         "id": item["id"],
@@ -425,13 +498,21 @@ def _public_file(models_root: str, item: Dict) -> Dict:
         "target_dir": resolved["target_dir"],
         "size": expected_size,
         "downloaded": resolved["downloaded"],
+        "local_downloaded": resolved["local_downloaded"],
         "status": resolved["status"],
+        "local_status": resolved["local_status"],
+        "exists_in_selected_root": resolved["exists_in_selected_root"],
+        "found_path": resolved["found_path"],
+        "found_root_id": resolved["found_root_id"],
+        "found_root_path": resolved["found_root_path"],
+        "local_found_path": resolved["local_found_path"],
+        "local_found_root_id": resolved["local_found_root_id"],
         "found_by": resolved["found_by"],
     }
 
 
-def _public_files(models_root: str) -> List[Dict]:
-    return [_public_file(models_root, item) for item in MODEL_FILES]
+def _public_files(models_root: str, roots: List[Dict] | None = None) -> List[Dict]:
+    return [_public_file(models_root, item, roots) for item in MODEL_FILES]
 
 
 def _guess_filename(url: str) -> str:
@@ -573,7 +654,7 @@ def _model_subdirs(models_root: str) -> List[str]:
     return sorted(set(common + found), key=lambda item: (item.lower() not in common, item.casefold()))
 
 
-def _public_custom_file(models_root: str, row: Dict, index: int) -> Dict:
+def _public_custom_file(models_root: str, row: Dict, index: int, roots: List[Dict] | None = None) -> Dict:
     row = _normalize_package({"files": [row]})["files"][0]
     url = str(row.get("url") or "").strip()
     filename = str(row.get("filename") or "").strip() or _guess_filename(url)
@@ -582,21 +663,37 @@ def _public_custom_file(models_root: str, row: Dict, index: int) -> Dict:
     size = _expected_size(row)
 
     try:
-        resolved = _resolve_target_file(models_root, target_subdir, filename, size)
+        resolved = _resolve_target_file(models_root, target_subdir, filename, size, roots=roots)
         relative_label = resolved["relative_path"]
         error = ""
         target_path = resolved["target_path"]
         target_dir = resolved["target_dir"]
         status = resolved["status"]
+        local_status = resolved["local_status"]
         downloaded = resolved["downloaded"]
+        local_downloaded = resolved["local_downloaded"]
         found_by = resolved["found_by"]
+        exists_in_selected_root = resolved["exists_in_selected_root"]
+        found_path = resolved["found_path"]
+        found_root_id = resolved["found_root_id"]
+        found_root_path = resolved["found_root_path"]
+        local_found_path = resolved["local_found_path"]
+        local_found_root_id = resolved["local_found_root_id"]
     except ValueError as exc:
         relative_label = ""
         target_path = ""
         target_dir = ""
         status = "invalid"
+        local_status = "invalid"
         downloaded = 0
+        local_downloaded = 0
         found_by = ""
+        exists_in_selected_root = False
+        found_path = ""
+        found_root_id = ""
+        found_root_path = ""
+        local_found_path = ""
+        local_found_root_id = ""
         error = str(exc)
 
     return {
@@ -610,43 +707,78 @@ def _public_custom_file(models_root: str, row: Dict, index: int) -> Dict:
         "target_dir": target_dir,
         "size": size,
         "downloaded": downloaded,
+        "local_downloaded": local_downloaded,
         "status": status,
+        "local_status": local_status,
+        "exists_in_selected_root": exists_in_selected_root,
+        "found_path": found_path,
+        "found_root_id": found_root_id,
+        "found_root_path": found_root_path,
+        "local_found_path": local_found_path,
+        "local_found_root_id": local_found_root_id,
         "found_by": found_by,
         "error": error,
     }
 
 
-def _public_package_files(models_root: str, package: Dict) -> List[Dict]:
+def _public_package_files(models_root: str, package: Dict, roots: List[Dict] | None = None) -> List[Dict]:
     normalized = _normalize_package(package)
-    return [_public_custom_file(models_root, row, index) for index, row in enumerate(normalized.get("files", []))]
+    return [
+        _public_custom_file(models_root, row, index, roots)
+        for index, row in enumerate(normalized.get("files", []))
+    ]
+
+
+def _is_default_root(root: Dict) -> bool:
+    return "default" in set(root.get("sources") or [root.get("source")])
+
+
+def _auto_selected_root(roots: List[Dict]) -> Dict:
+    if not roots:
+        raise RuntimeError("No ComfyUI model roots were found.")
+    return sorted(
+        roots,
+        key=lambda root: (
+            -int(root.get("existing_count") or 0),
+            0 if _is_default_root(root) else 1,
+            str(root.get("canonical_path") or root.get("path") or "").casefold(),
+        ),
+    )[0]
 
 
 def _build_payload(root_id: str | None, state_value=None, package_value=None, model_root: str | None = None) -> Dict:
-    selected, roots, selection_mode, selection_reason = _select_root(root_id)
+    roots = _collect_model_roots()
+    if not roots:
+        raise RuntimeError("No ComfyUI model roots were found.")
     state = _parse_presets_state(state_value)
     package = _normalize_package(package_value) if package_value is not None else _active_package_from_state(state)
-    roots = [
-        {
-            **root,
-            "existing_count": sum(
-                1
-                for file in _public_package_files(root["path"], package)
-                if file["status"] == "exists"
-            ),
-        }
-        for root in roots
-    ]
-    if selection_mode == "auto" and roots:
-        selected_count = next(
-            (root["existing_count"] for root in roots if root["id"] == selected["id"]),
-            0,
+    files_by_root_id = {}
+    roots_with_counts = []
+    for root in roots:
+        root_files = _public_package_files(root["path"], package, roots)
+        files_by_root_id[root["id"]] = root_files
+        local_existing_count = sum(1 for file in root_files if file["local_status"] == "exists")
+        roots_with_counts.append(
+            {
+                **root,
+                "local_existing_count": local_existing_count,
+                "existing_count": local_existing_count,
+            }
         )
-        best = max(roots, key=lambda root: root["existing_count"])
-        if best["existing_count"] > selected_count:
-            selected = best
-            selection_reason = "auto_highest_ready_count"
+    roots = roots_with_counts
+    explicit_selected = next((root for root in roots if root["id"] == root_id), None) if root_id else None
+    if explicit_selected:
+        selected = explicit_selected
+        selection_mode = "explicit"
+        selection_reason = "valid_explicit_root"
+    else:
+        selected = _auto_selected_root(roots)
+        selection_mode = "auto"
+        selection_reason = "invalid_explicit_root_fallback" if root_id else "auto_best_ready_files"
 
-    files = _public_package_files(selected["path"], package)
+    files = files_by_root_id[selected["id"]]
+    available_anywhere_count = sum(1 for file in files if file["status"] == "exists")
+    selected_root_existing_count = sum(1 for file in files if file["local_status"] == "exists")
     return {
         "mode": "manual_setup_helper",
         "frontend_protocol": 3,
@@ -664,7 +796,9 @@ def _build_payload(root_id: str | None, state_value=None, package_value=None, mo
         "model_subdirs": _model_subdirs(selected["path"]),
         "files": files,
         "total_size": sum(int(item["size"]) for item in files),
-        "existing_count": sum(1 for file in files if file["status"] == "exists"),
+        "existing_count": available_anywhere_count,
+        "selected_root_existing_count": selected_root_existing_count,
+        "available_anywhere_count": available_anywhere_count,
     }
 
 

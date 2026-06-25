@@ -1998,7 +1998,10 @@ def test_ltx_model_setup_helper_checks_registered_model_folder_names():
 
     assert result["status"] == "exists"
     assert result["found_by"] == "registered"
-    assert result["relative_path"].replace("\\", "/") == "TextEncoders/flux2-klein-9b-uncensored-q6_k.gguf"
+    assert result["relative_path"].replace("\\", "/") == "text_encoders/flux2-klein-9b-uncensored-q6_k.gguf"
+    assert result["found_path"].endswith("TextEncoders\\flux2-klein-9b-uncensored-q6_k.gguf") or result[
+        "found_path"
+    ].endswith("TextEncoders/flux2-klein-9b-uncensored-q6_k.gguf")
 
 
 def test_ltx_model_setup_helper_does_not_probe_unregistered_nearby_roots():
@@ -2064,7 +2067,7 @@ def test_ltx_model_setup_helper_includes_registered_yaml_model_root():
     assert payload["selection_mode"] == "auto"
 
 
-def test_ltx_model_setup_helper_autoselects_registered_root_with_ready_files():
+def test_ltx_model_setup_helper_separates_root_local_counts_from_global_availability():
     load_package()
     module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
     folder_paths = sys.modules["folder_paths"]
@@ -2075,15 +2078,24 @@ def test_ltx_model_setup_helper_autoselects_registered_root_with_ready_files():
         "title": "Tiny Pack",
         "files": [
             {
+                "id": "alpha",
                 "url": "https://example.com/model-a.safetensors",
                 "target_subdir": "diffusion_models",
                 "filename": "model-a.safetensors",
                 "size": 1,
             },
             {
+                "id": "text",
                 "url": "https://example.com/model-b.safetensors",
                 "target_subdir": "text_encoders",
                 "filename": "model-b.safetensors",
+                "size": 1,
+            },
+            {
+                "id": "vae",
+                "url": "https://example.com/model-c.safetensors",
+                "target_subdir": "vae",
+                "filename": "model-c.safetensors",
                 "size": 1,
             },
         ],
@@ -2091,34 +2103,186 @@ def test_ltx_model_setup_helper_autoselects_registered_root_with_ready_files():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         default_root = Path(temp_dir) / "ComfyUI" / "models"
-        registered_root = Path(temp_dir) / "ComfyUI Model" / "models"
+        root_a = Path(temp_dir) / "ComfyUI Model A" / "models"
+        root_b = Path(temp_dir) / "ComfyUI Model B" / "models"
         default_root.mkdir(parents=True)
-        diffusion_dir = registered_root / "diffusion_models"
-        text_dir = registered_root / "text_encoders"
-        diffusion_dir.mkdir(parents=True)
-        text_dir.mkdir()
-        (diffusion_dir / "model-a.safetensors").write_bytes(b"a")
-        (text_dir / "model-b.safetensors").write_bytes(b"b")
+        root_a_diffusion_dir = root_a / "diffusion_models"
+        root_a_text_dir = root_a / "text_encoders"
+        root_a_vae_dir = root_a / "vae"
+        root_b_diffusion_dir = root_b / "diffusion_models"
+        root_b_text_dir = root_b / "text_encoders"
+        root_b_vae_dir = root_b / "vae"
+        for directory in (
+            root_a_diffusion_dir,
+            root_a_text_dir,
+            root_a_vae_dir,
+            root_b_diffusion_dir,
+            root_b_text_dir,
+            root_b_vae_dir,
+        ):
+            directory.mkdir(parents=True)
+        (root_a_diffusion_dir / "model-a.safetensors").write_bytes(b"a")
+        (root_b_diffusion_dir / "model-a.safetensors").write_bytes(b"a")
+        (root_b_text_dir / "model-b.safetensors").write_bytes(b"b")
+        (root_b_vae_dir / "model-c.safetensors").write_bytes(b"c")
 
         folder_paths.models_dir = str(default_root)
         folder_paths.folder_names_and_paths = {
-            "diffusion_models": ([str(diffusion_dir)], set()),
-            "text_encoders": ([str(text_dir)], set()),
+            "diffusion_models": ([str(root_a_diffusion_dir), str(root_b_diffusion_dir)], set()),
+            "text_encoders": ([str(root_a_text_dir), str(root_b_text_dir)], set()),
+            "vae": ([str(root_a_vae_dir), str(root_b_vae_dir)], set()),
         }
         try:
             payload = module._build_payload(None, module._default_presets_state(), package, str(default_root))
-            explicit = module._build_payload(payload["roots"][0]["id"], module._default_presets_state(), package)
+            roots_by_path = {Path(root["path"]): root for root in payload["roots"]}
+            explicit_root_a = module._build_payload(
+                roots_by_path[root_a.resolve()]["id"],
+                module._default_presets_state(),
+                package,
+            )
+            invalid_root = module._build_payload(
+                "root_missing_legacy_id",
+                module._default_presets_state(),
+                package,
+            )
+            reversed_ids = {Path(root["path"]): root["id"] for root in module._collect_model_roots()}
+            folder_paths.folder_names_and_paths = {
+                "vae": ([str(root_b_vae_dir), str(root_a_vae_dir)], set()),
+                "text_encoders": ([str(root_b_text_dir), str(root_a_text_dir)], set()),
+                "diffusion_models": ([str(root_b_diffusion_dir), str(root_a_diffusion_dir)], set()),
+            }
+            reversed_payload = module._build_payload(None, module._default_presets_state(), package, str(default_root))
+            reversed_roots = module._collect_model_roots()
         finally:
             folder_paths.models_dir = original_models_dir
             folder_paths.folder_names_and_paths = original_folder_map
 
-    assert Path(payload["models_root"]) == default_root.resolve()
-    assert payload["existing_count"] == 2
+    roots_by_path = {Path(root["path"]): root for root in payload["roots"]}
+    assert roots_by_path[default_root.resolve()]["existing_count"] == 0
+    assert roots_by_path[root_a.resolve()]["existing_count"] == 1
+    assert roots_by_path[root_b.resolve()]["existing_count"] == 3
+    assert roots_by_path[default_root.resolve()]["local_existing_count"] == 0
+    assert roots_by_path[root_a.resolve()]["local_existing_count"] == 1
+    assert roots_by_path[root_b.resolve()]["local_existing_count"] == 3
+    assert Path(payload["models_root"]) == root_b.resolve()
+    assert payload["selected_root_existing_count"] == 3
+    assert payload["available_anywhere_count"] == 3
+    assert payload["existing_count"] == 3
     assert all(file["status"] == "exists" for file in payload["files"])
-    assert Path(explicit["models_root"]) == default_root.resolve()
-    assert explicit["existing_count"] == 2
-    assert all(file["status"] == "exists" for file in explicit["files"])
-    assert explicit["selection_mode"] == "explicit"
+    assert all(file["local_status"] == "exists" for file in payload["files"])
+
+    assert Path(explicit_root_a["models_root"]) == root_a.resolve()
+    assert explicit_root_a["selection_mode"] == "explicit"
+    assert explicit_root_a["selected_root_existing_count"] == 1
+    assert explicit_root_a["available_anywhere_count"] == 3
+    assert explicit_root_a["existing_count"] == 3
+    alpha = next(file for file in explicit_root_a["files"] if file["id"] == "alpha")
+    text = next(file for file in explicit_root_a["files"] if file["id"] == "text")
+    assert alpha["target_path"].startswith(str(root_a.resolve()))
+    assert text["target_path"].startswith(str(root_a.resolve()))
+    assert alpha["exists_in_selected_root"] is True
+    assert text["exists_in_selected_root"] is False
+    assert text["local_status"] == "missing"
+    assert text["status"] == "exists"
+    assert text["found_root_id"] == roots_by_path[root_b.resolve()]["id"]
+    assert text["found_path"].startswith(str(root_b.resolve()))
+
+    assert Path(invalid_root["models_root"]) == root_b.resolve()
+    assert invalid_root["selection_mode"] == "auto"
+    assert invalid_root["selection_reason"] == "invalid_explicit_root_fallback"
+    assert invalid_root["selected_root_existing_count"] == 3
+
+    reversed_roots_by_path = {Path(root["path"]): root for root in reversed_payload["roots"]}
+    assert Path(reversed_payload["models_root"]) == root_b.resolve()
+    assert reversed_roots_by_path[root_b.resolve()]["id"] == roots_by_path[root_b.resolve()]["id"]
+    assert reversed_ids[root_b.resolve()] == {Path(root["path"]): root["id"] for root in reversed_roots}[
+        root_b.resolve()
+    ]
+
+
+def test_ltx_model_setup_helper_counts_roots_in_single_pass(monkeypatch):
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+    folder_paths = sys.modules["folder_paths"]
+    original_models_dir = folder_paths.models_dir
+    original_folder_map = folder_paths.folder_names_and_paths
+    original_public_package_files = module._public_package_files
+    calls = []
+    package = {
+        "id": "tiny_pack",
+        "title": "Tiny Pack",
+        "files": [
+            {
+                "id": "alpha",
+                "url": "https://example.com/model-a.safetensors",
+                "target_subdir": "diffusion_models",
+                "filename": "model-a.safetensors",
+                "size": 1,
+            }
+        ],
+    }
+
+    def wrapped_public_package_files(models_root, package_value, roots=None):
+        calls.append(str(Path(models_root).resolve()))
+        return original_public_package_files(models_root, package_value, roots)
+
+    monkeypatch.setattr(module, "_public_package_files", wrapped_public_package_files)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        default_root = Path(temp_dir) / "ComfyUI" / "models"
+        root_a = Path(temp_dir) / "ComfyUI Model A" / "models"
+        root_b = Path(temp_dir) / "ComfyUI Model B" / "models"
+        for root in (default_root, root_a, root_b):
+            (root / "diffusion_models").mkdir(parents=True)
+
+        folder_paths.models_dir = str(default_root)
+        folder_paths.folder_names_and_paths = {
+            "diffusion_models": ([str(root_a / "diffusion_models"), str(root_b / "diffusion_models")], set()),
+        }
+        try:
+            payload = module._build_payload(None, module._default_presets_state(), package, str(default_root))
+        finally:
+            folder_paths.models_dir = original_models_dir
+            folder_paths.folder_names_and_paths = original_folder_map
+
+    call_counts = {path: calls.count(path) for path in set(calls)}
+    selected_path = str(Path(payload["models_root"]).resolve())
+    selected_root = next(root for root in payload["roots"] if Path(root["path"]).resolve() == Path(payload["models_root"]).resolve())
+    assert call_counts[selected_path] == 1
+    assert sorted(call_counts.values()) == [1, 1, 1]
+    assert payload["selected_root_existing_count"] == selected_root["existing_count"]
+    assert payload["available_anywhere_count"] == sum(1 for file in payload["files"] if file["status"] == "exists")
+
+
+def test_ltx_model_setup_helper_reports_partial_file_path():
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        models_root = Path(temp_dir) / "models"
+        target_dir = models_root / "diffusion_models"
+        target_dir.mkdir(parents=True)
+        part = target_dir / "tiny-model.safetensors.part"
+        part.write_bytes(b"half")
+        result = module._resolve_target_file(
+            str(models_root),
+            "diffusion_models",
+            "tiny-model.safetensors",
+            8,
+            roots=[{
+                "id": "root_local",
+                "path": str(models_root.resolve()),
+                "canonical_path": str(models_root.resolve()),
+            }],
+        )
+
+    assert result["status"] == "partial"
+    assert result["local_status"] == "partial"
+    assert result["found_by"] == "partial"
+    assert result["found_path"].replace("\\", "/").endswith("diffusion_models/tiny-model.safetensors.part")
+    assert result["local_found_path"].replace("\\", "/").endswith("diffusion_models/tiny-model.safetensors.part")
+    assert result["found_root_id"] == "root_local"
+    assert result["local_found_root_id"] == "root_local"
 
 
 def test_ltx_model_setup_helper_uses_path_stable_root_ids_and_invalid_fallback():
@@ -2194,7 +2358,10 @@ def test_ltx_model_setup_helper_deep_scan_is_explicit_opt_in():
     assert default_result["status"] == "missing"
     assert scanned["status"] == "exists"
     assert scanned["found_by"] == "subfolder"
-    assert scanned["relative_path"].replace("\\", "/") == "diffusion_models/Flux/flux2-klein-9b-kv-fp8.safetensors"
+    assert scanned["relative_path"].replace("\\", "/") == "diffusion_models/flux2-klein-9b-kv-fp8.safetensors"
+    assert scanned["found_path"].replace("\\", "/").endswith(
+        "diffusion_models/Flux/flux2-klein-9b-kv-fp8.safetensors"
+    )
 
 
 def test_ltx_model_setup_helper_has_no_backend_download_code():
@@ -2211,21 +2378,45 @@ def test_ltx_model_setup_helper_has_no_backend_download_code():
 
 def test_ltx_model_setup_helper_frontend_keeps_auto_root_selection_available():
     script = (REPO_ROOT / "web" / "js" / "deno_ltx_model_downloader.js").read_text(encoding="utf-8")
+    save_editor_preset = script.split("function saveEditorPreset", 1)[1].split("function markWorkflowDirty", 1)[0]
 
-    assert "r2026.06.23-root-intent-c" in script
+    assert "r2026.06.25-phase2b-foundation-a" in script
     assert "rootMode" in script
     assert "explicitRootId" in script
     assert "effectiveRootId" in script
-    assert "refreshSequence" in script
+    assert "createLatestRequest" in script
+    assert "deno_frontend_core/storage.js" in script
+    assert "deno_frontend_core/lifecycle.js" in script
+    assert "deno_frontend_core/async_latest.js" in script
+    assert "upsertLibraryItem" in script
+    assert "writePresetLibraryItem" in script
+    assert "state.libraryPresetsState = writePresetLibraryItem(normalized);" in script
+    assert "function writePresetLibraryItem(packageValue)" in script
+    assert "const latestLibrary = readPresetLibraryState();" in script
+    assert "const latestView = mergePresetLibraryState(state.workflowPresetsState, latestLibrary);" in script
+    assert "state.libraryPresetsState = latestLibrary;" in script
+    assert "latestView.presets" in script
     assert 'return state.rootMode === "explicit" ? state.explicitRootId : "";' in script
+    assert "const localStatus = file.local_status || file.status;" in script
+    assert "payload.selected_root_existing_count" in script
     assert 'refreshButton.addEventListener("click", () => refreshInfo())' in script
     assert "selectRootByUser(rootInfo.id)" in script
     assert "resetRootToAuto();" in script
+    assert 'root.dataset.denoLtxDownloaderPanel = "true";' in script
+    assert 'getNodeLifecycleScope(this, "ltx-model-downloader")' in script
+    assert 'scope.addEventListener(document, "click", () =>' in script
+    assert script.count('scope.addEventListener(document, "click"') == 1
+    assert "closeModelPathMenus(root);" in script
     assert 'refreshButton.addEventListener("click", () => refreshInfo(state.selectedRootId))' not in script
+    assert "writePresetLibraryState(state.workflowPresetsState" not in script
+    assert "writePresetLibraryItem(state.libraryPresetsState" not in script
+    assert "state.viewPresetsState.presets" not in save_editor_preset
+    assert "scope?.addEventListener?.(document" not in script
     assert "userSelectedRootId" not in script
     assert "selectedRootId" not in script
-    assert "const sequence = ++state.refreshSequence;" in script
-    assert "sequence !== state.refreshSequence" in script
+    assert "refreshSequence" not in script
+    assert "signal," in script
+    assert 'payload.selection_reason === "invalid_explicit_root_fallback"' in script
 
 
 def test_ltx_multi_lora_loader_declares_compact_av_controls():
