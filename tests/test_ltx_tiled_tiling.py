@@ -1,7 +1,13 @@
 from pathlib import Path
 import sys
 
+import pytest
 import torch
+
+pytestmark = pytest.mark.skipif(
+    not hasattr(torch, "zeros"),
+    reason="LTX tiled tensor tests require real torch tensor ops.",
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:

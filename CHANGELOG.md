@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.64 - 2026-06-27
+
+- Restored release CI compatibility for environments that expose a lightweight torch stub without tensor operations, keeping the 0.7.63 Floating Tools and final LTX AV tiled node changes intact.
+
 ## 0.7.63 - 2026-06-27
 
 - Improved DENO Floating Tools update checks so the panel refreshes live installed versions from the running ComfyUI instead of showing stale cached values after external updates.
