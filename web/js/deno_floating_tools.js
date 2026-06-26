@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const DENO_FLOATING_TOOLS_MARKER = "r2026.06.20-floating-tools-english-update-a";
+const DENO_FLOATING_TOOLS_MARKER = "r2026.06.27-floating-tools-live-version-sync-a";
 const EXTENSION_NAME = "Deno.FloatingTools";
 const SETTING_ENABLED = "DENO.FloatingTools.Enabled";
 const POSITION_KEY = "denoFloatingTools.position.v1";
@@ -647,67 +647,131 @@ function renderUpdateState(state) {
 function readCachedUpdateState() {
     const cached = readStoredJson(UPDATE_CACHE_KEY, null);
     if (!cached || typeof cached !== "object") return null;
-    if (!Number.isFinite(Number(cached.checkedAt))) return null;
+    if (!Number.isFinite(Number(cached.checkedAt)) && getLatestMetadataTime(cached) === null) return null;
     return cached;
 }
 
-function isUpdateCacheFresh(state) {
-    return Boolean(state && Date.now() - Number(state.checkedAt) < UPDATE_CACHE_TTL_MS);
+function getLatestMetadataTime(state) {
+    const value = Number(state?.latestCheckedAt ?? state?.checkedAt);
+    return Number.isFinite(value) ? value : null;
+}
+
+function isLatestMetadataFresh(state) {
+    const latestCheckedAt = getLatestMetadataTime(state);
+    return Boolean(latestCheckedAt !== null && Date.now() - latestCheckedAt < UPDATE_CACHE_TTL_MS);
+}
+
+function latestVersionsFromState(state) {
+    const items = Array.isArray(state?.items) ? state.items : [];
+    const latest = {};
+    for (const item of items) {
+        if (item?.id) latest[item.id] = compactVersion(item.latest);
+    }
+    return latest;
+}
+
+function hasCompleteLatestVersions(latest) {
+    return Boolean(
+        compactVersion(latest?.comfyui)
+        && compactVersion(latest?.templates)
+        && compactVersion(latest?.frontend),
+    );
+}
+
+function installedVersionsFromSystem(system) {
+    return {
+        comfyui: compactVersion(system.comfyui_version),
+        templates: compactVersion(system.installed_templates_version || packageVersion(system, "comfyui-workflow-templates")),
+        frontend: compactVersion(packageVersion(system, "comfyui-frontend-package") || system.required_frontend_version),
+    };
+}
+
+function latestVersionsCoverInstalled(latest, installed) {
+    return ["comfyui", "templates", "frontend"].every((id) => !isNewerVersion(installed?.[id], latest?.[id]));
+}
+
+async function fetchLocalUpdateSystem() {
+    const localResponse = await api.fetchApi("/system_stats", { cache: "no-store" });
+    if (!localResponse.ok) throw new Error(`Local HTTP ${localResponse.status}`);
+    const localData = await localResponse.json();
+    return localData?.system || {};
+}
+
+async function fetchLatestUpdateVersions() {
+    const [comfyLatest, templatesLatest, frontendLatest] = await Promise.all([
+        fetchComfyUiLatest(),
+        fetchPypiLatest("comfyui-workflow-templates"),
+        fetchPypiLatest("comfyui-frontend-package"),
+    ]);
+    return {
+        comfyui: comfyLatest,
+        templates: templatesLatest,
+        frontend: frontendLatest,
+    };
+}
+
+function buildUpdateState(system, latestVersions, latestCheckedAt) {
+    const installedVersions = installedVersionsFromSystem(system);
+    const items = [
+        {
+            id: "comfyui",
+            label: "ComfyUI",
+            installed: installedVersions.comfyui,
+            latest: compactVersion(latestVersions.comfyui),
+        },
+        {
+            id: "templates",
+            label: "Templates",
+            installed: installedVersions.templates,
+            latest: compactVersion(latestVersions.templates),
+        },
+        {
+            id: "frontend",
+            label: "Frontend",
+            installed: installedVersions.frontend,
+            latest: compactVersion(latestVersions.frontend),
+        },
+    ].map((item) => ({
+        ...item,
+        updateAvailable: isNewerVersion(item.latest, item.installed),
+    }));
+
+    const hasUpdates = items.some((item) => item.updateAvailable);
+    return {
+        status: hasUpdates ? "updates" : "latest",
+        checkedAt: Date.now(),
+        latestCheckedAt,
+        system,
+        items,
+    };
 }
 
 async function checkUpdates(force = false) {
     if (updateBusy) return lastUpdateState;
     const cached = readCachedUpdateState();
-    if (!force && isUpdateCacheFresh(cached)) {
-        renderUpdateState(cached);
-        return cached;
-    }
-
     updateBusy = true;
     renderUpdateState({ status: "checking", items: lastUpdateState?.items || [] });
     try {
-        const localResponse = await api.fetchApi("/system_stats", { cache: "no-store" });
-        if (!localResponse.ok) throw new Error(`Local HTTP ${localResponse.status}`);
-        const localData = await localResponse.json();
-        const system = localData?.system || {};
+        const system = await fetchLocalUpdateSystem();
+        const installedVersions = installedVersionsFromSystem(system);
+        let latestVersions = null;
+        let latestCheckedAt = null;
+        if (!force && isLatestMetadataFresh(cached)) {
+            const cachedLatestVersions = latestVersionsFromState(cached);
+            if (
+                hasCompleteLatestVersions(cachedLatestVersions)
+                && latestVersionsCoverInstalled(cachedLatestVersions, installedVersions)
+            ) {
+                latestVersions = cachedLatestVersions;
+                latestCheckedAt = getLatestMetadataTime(cached);
+            }
+        }
+        if (!latestVersions) {
+            latestVersions = await fetchLatestUpdateVersions();
+            latestCheckedAt = Date.now();
+        }
 
-        const [comfyLatest, templatesLatest, frontendLatest] = await Promise.all([
-            fetchComfyUiLatest(),
-            fetchPypiLatest("comfyui-workflow-templates"),
-            fetchPypiLatest("comfyui-frontend-package"),
-        ]);
-
-        const items = [
-            {
-                id: "comfyui",
-                label: "ComfyUI",
-                installed: compactVersion(system.comfyui_version),
-                latest: compactVersion(comfyLatest),
-            },
-            {
-                id: "templates",
-                label: "Templates",
-                installed: compactVersion(system.installed_templates_version || packageVersion(system, "comfyui-workflow-templates")),
-                latest: compactVersion(templatesLatest),
-            },
-            {
-                id: "frontend",
-                label: "Frontend",
-                installed: compactVersion(packageVersion(system, "comfyui-frontend-package") || system.required_frontend_version),
-                latest: compactVersion(frontendLatest),
-            },
-        ].map((item) => ({
-            ...item,
-            updateAvailable: isNewerVersion(item.latest, item.installed),
-        }));
-
-        const hasUpdates = items.some((item) => item.updateAvailable);
-        const state = {
-            status: hasUpdates ? "updates" : "latest",
-            checkedAt: Date.now(),
-            system,
-            items,
-        };
+        const state = buildUpdateState(system, latestVersions, latestCheckedAt);
         writeStoredJson(UPDATE_CACHE_KEY, state);
         renderUpdateState(state);
         return state;
@@ -728,11 +792,9 @@ async function checkUpdates(force = false) {
 
 function initializeUpdateWatch() {
     const cached = readCachedUpdateState();
-    if (cached) renderUpdateState(cached);
+    if (cached) renderUpdateState({ ...cached, status: "checking" });
     else renderUpdateState({ status: "idle", items: [] });
-    if (!isUpdateCacheFresh(cached)) {
-        window.setTimeout(() => checkUpdates(false), 1200);
-    }
+    window.setTimeout(() => checkUpdates(false), 1200);
 }
 
 function makeButton(label, className) {

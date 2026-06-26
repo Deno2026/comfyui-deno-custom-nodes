@@ -1,4 +1,6 @@
 from pathlib import Path
+import shutil
+import subprocess
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -7,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_floating_tools_frontend_free_vram_contract():
     script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
 
-    assert 'const DENO_FLOATING_TOOLS_MARKER = "r2026.06.20-floating-tools-english-update-a"' in script
+    assert 'const DENO_FLOATING_TOOLS_MARKER = "r2026.06.27-floating-tools-live-version-sync-a"' in script
     assert 'name: "Show DENO floating tools"' in script
     assert 'category: ["DENO", "Tools", "Floating Tools"]' in script
     assert "Free VRAM" in script
@@ -60,6 +62,48 @@ def test_floating_tools_update_watch_is_read_only():
     ]
     for token in forbidden:
         assert token not in script
+
+
+def test_floating_tools_update_watch_resyncs_local_versions_before_using_cache():
+    script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
+
+    assert "function getLatestMetadataTime(state)" in script
+    assert "function isLatestMetadataFresh(state)" in script
+    assert "function latestVersionsFromState(state)" in script
+    assert "function installedVersionsFromSystem(system)" in script
+    assert "function latestVersionsCoverInstalled(latest, installed)" in script
+    assert "function fetchLocalUpdateSystem()" in script
+    assert "function fetchLatestUpdateVersions()" in script
+    assert "function buildUpdateState(system, latestVersions, latestCheckedAt)" in script
+    assert "const system = await fetchLocalUpdateSystem();" in script
+    assert "const installedVersions = installedVersionsFromSystem(system);" in script
+    assert "let latestCheckedAt = null;" in script
+    assert "const cachedLatestVersions = latestVersionsFromState(cached);" in script
+    assert "&& latestVersionsCoverInstalled(cachedLatestVersions, installedVersions)" in script
+    assert "latestVersions = cachedLatestVersions;" in script
+    assert "latestCheckedAt = getLatestMetadataTime(cached);" in script
+    assert "latestVersions = await fetchLatestUpdateVersions();" in script
+    assert "latestCheckedAt = Date.now();" in script
+    assert "const state = buildUpdateState(system, latestVersions, latestCheckedAt);" in script
+    assert "latestCheckedAt," in script
+    assert 'if (cached) renderUpdateState({ ...cached, status: "checking" });' in script
+    assert "window.setTimeout(() => checkUpdates(false), 1200);" in script
+    assert "if (!force && isUpdateCacheFresh(cached)) {\n        renderUpdateState(cached);" not in script
+    assert "if (!isUpdateCacheFresh(cached)) {\n        window.setTimeout(() => checkUpdates(false), 1200);" not in script
+    assert "function isUpdateCacheFresh(state)" not in script
+
+
+def test_floating_tools_update_watch_cache_harness():
+    node = shutil.which("node")
+    assert node, "node executable is required for the Floating Tools cache harness"
+
+    subprocess.run(
+        [node, str(REPO_ROOT / "tests" / "js" / "floating_tools_update_cache_harness.mjs")],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_floating_tools_translation_surface_is_removed():
