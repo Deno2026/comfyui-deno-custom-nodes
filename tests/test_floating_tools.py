@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_floating_tools_frontend_free_vram_contract():
     script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
 
-    assert 'const DENO_FLOATING_TOOLS_MARKER = "r2026.06.27-floating-tools-live-version-sync-a"' in script
+    assert 'const DENO_FLOATING_TOOLS_MARKER = "r2026.06.27-floating-tools-hardening-b"' in script
     assert 'name: "Show DENO floating tools"' in script
     assert 'category: ["DENO", "Tools", "Floating Tools"]' in script
     assert "Free VRAM" in script
@@ -75,7 +75,10 @@ def test_floating_tools_update_watch_resyncs_local_versions_before_using_cache()
     assert "function fetchLocalUpdateSystem()" in script
     assert "function fetchLatestUpdateVersions()" in script
     assert "function buildUpdateState(system, latestVersions, latestCheckedAt)" in script
-    assert "const system = await fetchLocalUpdateSystem();" in script
+    assert "function buildOfflineUpdateState(system, error)" in script
+    assert "let updateStartupTimer = null;" in script
+    assert "let queuedUpdateForce = false;" in script
+    assert "system = await fetchLocalUpdateSystem();" in script
     assert "const installedVersions = installedVersionsFromSystem(system);" in script
     assert "let latestCheckedAt = null;" in script
     assert "const cachedLatestVersions = latestVersionsFromState(cached);" in script
@@ -87,7 +90,13 @@ def test_floating_tools_update_watch_resyncs_local_versions_before_using_cache()
     assert "const state = buildUpdateState(system, latestVersions, latestCheckedAt);" in script
     assert "latestCheckedAt," in script
     assert 'if (cached) renderUpdateState({ ...cached, status: "checking" });' in script
-    assert "window.setTimeout(() => checkUpdates(false), 1200);" in script
+    assert "function clearUpdateStartupTimer()" in script
+    assert "window.clearTimeout(updateStartupTimer);" in script
+    assert "updateStartupTimer = window.setTimeout(() => {" in script
+    assert "requestUpdateCheck(false);" in script
+    assert "requestUpdateCheck(true);" in script
+    assert "if (force) queuedUpdateForce = true;" in script
+    assert "void checkUpdates(true);" in script
     assert "if (!force && isUpdateCacheFresh(cached)) {\n        renderUpdateState(cached);" not in script
     assert "if (!isUpdateCacheFresh(cached)) {\n        window.setTimeout(() => checkUpdates(false), 1200);" not in script
     assert "function isUpdateCacheFresh(state)" not in script

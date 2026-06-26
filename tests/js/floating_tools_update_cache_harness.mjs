@@ -19,12 +19,13 @@ function makeResponse(payload) {
   };
 }
 
-function makeHarness({ system, latestVersions }) {
+function makeHarness({ system, latestVersions, failLatestMetadata = false, systemResponses = null }) {
   let now = 0;
   const storage = new Map();
   const fetchCalls = [];
   const apiCalls = [];
   let registeredExtension = null;
+  let systemResponseIndex = 0;
 
   class FakeDate extends Date {
     constructor(...args) {
@@ -92,12 +93,19 @@ function makeHarness({ system, latestVersions }) {
       async fetchApi(url) {
         apiCalls.push(url);
         assert.equal(url, "/system_stats");
-        return makeResponse({ system });
+        const responseSource = Array.isArray(systemResponses)
+          ? systemResponses[Math.min(systemResponseIndex, systemResponses.length - 1)]
+          : system;
+        systemResponseIndex += 1;
+        return makeResponse({ system: await responseSource });
       },
     },
     async fetch(url) {
       const textUrl = String(url);
       fetchCalls.push(textUrl);
+      if (failLatestMetadata) {
+        throw new Error("remote latest metadata offline");
+      }
       if (textUrl.includes("/ComfyUI/releases/latest")) {
         return makeResponse({ tag_name: latestVersions.comfyui });
       }
@@ -119,6 +127,7 @@ function makeHarness({ system, latestVersions }) {
   source += `
 globalThis.__hooks = {
   checkUpdates,
+  requestUpdateCheck,
   getLatestMetadataTime,
   isLatestMetadataFresh,
   latestVersionsFromState,
@@ -141,6 +150,18 @@ globalThis.__hooks = {
       return JSON.parse(storage.get(UPDATE_CACHE_KEY));
     },
   };
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function nextTick() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 const latestFetchedAt = 1_000_000;
@@ -224,6 +245,64 @@ const expiredTime = latestFetchedAt + UPDATE_CACHE_TTL_MS + 1;
       ["frontend", "1.45.19", "1.45.19", false],
     ],
   );
+}
+
+{
+  const harness = makeHarness({
+    system: {
+      comfyui_version: "0.26.2",
+      installed_templates_version: "0.10.7",
+      comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.19" }],
+    },
+    latestVersions: {},
+    failLatestMetadata: true,
+  });
+
+  harness.setNow(oneHourLater);
+  await harness.hooks.checkUpdates(true);
+  const state = harness.getCachedState();
+  assert.equal(state.status, "error");
+  assert.equal(state.items.length, 3);
+  assert.deepEqual(
+    state.items.map((item) => [item.id, item.installed, item.latest, item.updateAvailable]),
+    [
+      ["comfyui", "0.26.2", "", false],
+      ["templates", "0.10.7", "", false],
+      ["frontend", "1.45.19", "", false],
+    ],
+    "remote latest failure should keep live installed versions and mark latest values unknown",
+  );
+}
+
+{
+  const firstSystem = deferred();
+  const liveSystem = {
+    comfyui_version: "0.26.2",
+    installed_templates_version: "0.10.7",
+    comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.19" }],
+  };
+  const harness = makeHarness({
+    system: liveSystem,
+    systemResponses: [firstSystem.promise, liveSystem],
+    latestVersions: {
+      comfyui: "v0.26.2",
+      templates: "0.10.7",
+      frontend: "1.45.19",
+    },
+  });
+
+  harness.setNow(oneHourLater);
+  const automaticCheck = harness.hooks.checkUpdates(false);
+  await nextTick();
+  assert.equal(harness.apiCalls.length, 1, "automatic check should be in flight");
+  await harness.hooks.requestUpdateCheck(true);
+  firstSystem.resolve(liveSystem);
+  await automaticCheck;
+  for (let attempt = 0; attempt < 10 && (harness.apiCalls.length < 2 || harness.fetchCalls.length < 6); attempt += 1) {
+    await nextTick();
+  }
+  assert.equal(harness.apiCalls.length, 2, "manual force click should queue one extra check");
+  assert.equal(harness.fetchCalls.length, 6, "queued force check should refetch public latest metadata");
 }
 
 console.log("floating-tools update cache harness passed");
