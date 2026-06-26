@@ -136,17 +136,17 @@ Cargador compacto para patrones comunes de carga de modelos LTX 2.3.
 
 Funciones principales: Checkpoint Style, KJ Style y GGUF Style, salidas `model`, `clip`, `video_vae`, `audio_vae`, compatibilidad con loaders de ComfyUI, KJNodes y ComfyUI-GGUF.
 
-### `[BETA] (Deno) LTX Tiled Spatial Upscaler`
+### `(Deno) LTX Tiled Spatial Upscaler`
 
-Ayudante beta para segundas pasadas de video latent LTX en alta resolución. Divide el video latent en spatial tiles superpuestos, ejecuta el upscaler por tile y vuelve a mezclar el resultado en un solo latent.
+Ayudante para segundas pasadas de video latent LTX en alta resolución. Divide el video latent en spatial tiles superpuestos, ejecuta el upscaler por tile y vuelve a mezclar el resultado en un solo latent.
 
 Úsalo con latents LTX solo de video. Si el workflow lleva video/audio combinados, separa primero el audio y vuelve a unirlo después del pase de video tiled.
 
-### `[BETA] (Deno) LTX Step-Fused Tiled Sampler`
+### `(Deno) LTX AV Step-Fused Tiled Sampler`
 
-Sampler beta para pases de refinement LTX solo de video. Mantiene una trayectoria global de sampler mientras calcula y fusiona las predicciones del modelo por spatial tiles superpuestos.
+Sampler para pases de refinement LTX AV. Mantiene una trayectoria global de sampler mientras calcula y fusiona las predicciones de video por spatial tiles superpuestos.
 
-Esta primera beta es para experimentos de tiled video refinement, no para reemplazar por completo un sampler final AV.
+Pasa el audio completo a cada tile de video como contexto, pero mantiene el latent de audio sin cambios en modo `freeze`.
 
 ### `(Deno) Easy Model Download Helper`
 

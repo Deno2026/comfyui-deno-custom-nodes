@@ -136,17 +136,17 @@ Loader ringkas untuk pola loading model LTX 2.3 yang umum.
 
 Fitur utama: Checkpoint Style, KJ Style, GGUF Style, output `model`, `clip`, `video_vae`, `audio_vae`, kompatibel dengan loader ComfyUI, KJNodes, dan ComfyUI-GGUF.
 
-### `[BETA] (Deno) LTX Tiled Spatial Upscaler`
+### `(Deno) LTX Tiled Spatial Upscaler`
 
-Helper beta untuk second pass video latent LTX resolusi tinggi. Node ini membagi video latent menjadi spatial tile yang saling overlap, menjalankan upscaler per tile, lalu menggabungkannya kembali menjadi satu latent.
+Helper untuk second pass video latent LTX resolusi tinggi. Node ini membagi video latent menjadi spatial tile yang saling overlap, menjalankan upscaler per tile, lalu menggabungkannya kembali menjadi satu latent.
 
 Gunakan untuk latent LTX khusus video. Jika workflow membawa latent video/audio gabungan, pisahkan jalur audio lebih dulu dan gabungkan lagi setelah tiled video pass.
 
-### `[BETA] (Deno) LTX Step-Fused Tiled Sampler`
+### `(Deno) LTX AV Step-Fused Tiled Sampler`
 
-Sampler beta untuk refinement LTX khusus video. Sampler mempertahankan satu global sampler trajectory, sementara prediksi model dihitung lewat spatial tile yang overlap dan digabungkan sebelum update sampler.
+Sampler untuk refinement LTX AV. Sampler mempertahankan satu global sampler trajectory, sementara prediksi video dihitung lewat spatial tile yang overlap dan digabungkan sebelum update sampler.
 
-Beta pertama ini untuk eksperimen tiled video refinement, bukan pengganti penuh AV final sampler.
+Audio lengkap diberikan ke setiap video tile sebagai konteks, sementara latent audio yang dikembalikan tetap tidak berubah dalam mode `freeze`.
 
 ### `(Deno) Easy Model Download Helper`
 

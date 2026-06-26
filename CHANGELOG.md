@@ -6,6 +6,12 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.63 - 2026-06-27
+
+- Improved DENO Floating Tools update checks so the panel refreshes live installed versions from the running ComfyUI instead of showing stale cached values after external updates.
+- Replaced the old video-only LTX tiled sampler registration with `(Deno) LTX AV Step-Fused Tiled Sampler`, which uses the full audio latent as video context while keeping audio frozen.
+- Kept `(Deno) LTX Tiled Spatial Upscaler` as the tiled high-resolution upscaler and changed the final LTX tiled nodes to `2 x 2` fresh defaults with extra memory cleanup enabled.
+
 ## 0.7.62 - 2026-06-24
 
 - Fixed `(Deno) Local LLM Loader` so the Thinking and Result preview panels stay inside the node instead of stretching across nearby nodes.

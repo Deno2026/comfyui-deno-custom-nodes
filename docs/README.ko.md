@@ -144,17 +144,17 @@ LTX 2.3 모델 로딩 패턴을 한 노드로 정리한 로더입니다.
 
 주요 기능: Checkpoint Style, KJ Style, GGUF Style, `model`, `clip`, `video_vae`, `audio_vae` 출력, ComfyUI 기본 로더와 KJNodes/ComfyUI-GGUF 흐름을 함께 지원.
 
-### `[BETA] (Deno) LTX Tiled Spatial Upscaler`
+### `(Deno) LTX Tiled Spatial Upscaler`
 
-고해상도 LTX 비디오 latent 2차 패스를 위한 베타 타일 업스케일러입니다. 비디오 latent를 겹치는 spatial tile로 나눠 처리한 뒤 다시 하나의 latent로 섞습니다.
+고해상도 LTX 비디오 latent 2차 패스를 위한 타일 업스케일러입니다. 비디오 latent를 겹치는 spatial tile로 나눠 처리한 뒤 다시 하나의 latent로 섞습니다.
 
 비디오 전용 LTX latent에 사용하세요. 비디오/오디오가 결합된 latent는 먼저 오디오 경로를 분리하고, 타일 비디오 패스 뒤에 다시 합치는 흐름을 권장합니다.
 
-### `[BETA] (Deno) LTX Step-Fused Tiled Sampler`
+### `(Deno) LTX AV Step-Fused Tiled Sampler`
 
-비디오 전용 LTX refinement 패스를 위한 베타 샘플러입니다. 하나의 global sampler trajectory를 유지하면서 model prediction만 겹치는 spatial tile로 계산하고 합칩니다.
+LTX AV refinement 패스를 위한 샘플러입니다. 하나의 global sampler trajectory를 유지하면서 video prediction을 겹치는 spatial tile로 계산하고 합칩니다.
 
-첫 베타는 tiled video refinement 실험용이며, 전체 AV final sampler 대체용은 아닙니다.
+전체 audio latent를 모든 video tile에 문맥으로 전달하고, `freeze` mode에서는 반환되는 audio latent를 입력 상태 그대로 유지합니다.
 
 ### `(Deno) Easy Model Download Helper`
 

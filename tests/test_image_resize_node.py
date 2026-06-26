@@ -198,7 +198,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoLTXMultiLoraLoader",
         "DenoLTXPromptGuide",
         "DenoLTXTiledSpatialUpscaler",
-        "DenoLTXStepFusedTiledSampler",
+        "DenoLTXAVStepFusedTiledSampler",
         "DenoBerniniPromptGuide",
         "DenoIdeogramDirector",
         "DenoLocalLLMRefiner",
@@ -232,8 +232,10 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiLoraLoader"] == "(Deno) Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXMultiLoraLoader"] == "(Deno) LTX Multi LoRA Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXPromptGuide"] == "(Deno) LTX Prompt Guide"
-    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXTiledSpatialUpscaler"] == "[BETA] (Deno) LTX Tiled Spatial Upscaler"
-    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXStepFusedTiledSampler"] == "[BETA] (Deno) LTX Step-Fused Tiled Sampler"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXTiledSpatialUpscaler"] == "(Deno) LTX Tiled Spatial Upscaler"
+    assert "DenoLTXStepFusedTiledSampler" not in package.NODE_CLASS_MAPPINGS
+    assert "DenoLTXStepFusedTiledSampler" not in package.NODE_DISPLAY_NAME_MAPPINGS
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXAVStepFusedTiledSampler"] == "(Deno) LTX AV Step-Fused Tiled Sampler"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoBerniniPromptGuide"] == "(Deno) Bernini Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoIdeogramDirector"] == "(Deno) Ideogram Director"
     assert "DenoTranslate" not in package.NODE_CLASS_MAPPINGS
@@ -289,6 +291,36 @@ def test_public_nodes_expose_complete_object_info_metadata():
             failures.append(f"{node_id}: zero-output node has OUTPUT_TOOLTIPS")
 
     assert not failures, "\n".join(failures)
+
+
+def test_ltx_tiled_tile_controls_use_readable_frame_labels():
+    package = load_package()
+
+    for node_id in ("DenoLTXTiledSpatialUpscaler", "DenoLTXAVStepFusedTiledSampler"):
+        input_types = package.NODE_CLASS_MAPPINGS[node_id].INPUT_TYPES()
+        required = input_types["required"]
+        optional = input_types["optional"]
+        assert required["horizontal_tiles"][1]["display_name"] == "Frame width split count"
+        assert required["horizontal_tiles"][1]["default"] == 2
+        assert required["vertical_tiles"][1]["display_name"] == "Frame height split count"
+        assert required["vertical_tiles"][1]["default"] == 2
+        assert optional["aggressive_memory_cleanup"][1]["default"] is True
+
+
+def test_ltx_tiled_node_help_markdown_uses_readable_frame_labels():
+    help_paths = [
+        REPO_ROOT / "web/js/docs/DenoLTXTiledSpatialUpscaler.md",
+        REPO_ROOT / "web/js/docs/DenoLTXTiledSpatialUpscaler/ko.md",
+        REPO_ROOT / "web/js/docs/DenoLTXAVStepFusedTiledSampler.md",
+        REPO_ROOT / "web/js/docs/DenoLTXAVStepFusedTiledSampler/ko.md",
+    ]
+
+    for help_path in help_paths:
+        text = help_path.read_text(encoding="utf-8")
+        assert "Frame width split count" in text
+        assert "Frame height split count" in text
+        assert "horizontal_tiles" not in text
+        assert "vertical_tiles" not in text
 
 
 def test_deno_version_metadata_stays_scanner_safe():

@@ -311,17 +311,17 @@ Main features:
 - uses ComfyUI-GGUF UNet loading for GGUF workflows
 - includes clearer dependency errors and an audio VAE compatibility fallback for mixed ComfyUI/KJNodes environments
 
-### `[BETA] (Deno) LTX Tiled Spatial Upscaler`
+### `(Deno) LTX Tiled Spatial Upscaler`
 
-Beta helper for high-resolution LTX video-latent second passes. It splits a video latent into overlapping spatial tiles, runs the LTX latent spatial upscaler per tile, and blends the result back into one latent.
+Helper for high-resolution LTX video-latent second passes. It splits each frame into overlapping spatial tiles, runs the LTX latent spatial upscaler per tile, and blends the result back into one latent.
 
 Use it on video-only LTX latents. If your workflow carries combined video/audio latents, separate the audio path first and rejoin it after the tiled video pass.
 
-### `[BETA] (Deno) LTX Step-Fused Tiled Sampler`
+### `(Deno) LTX AV Step-Fused Tiled Sampler`
 
-Beta sampler for video-only LTX refinement passes. It keeps one global sampler trajectory while model predictions are evaluated through overlapping spatial tiles and fused before the sampler update.
+Sampler for high-resolution LTX AV refinement passes. It keeps one global sampler trajectory while video predictions are evaluated through overlapping spatial tiles and fused before the sampler update.
 
-This first beta is for tiled video refinement experiments, not a full AV final-sampler replacement.
+The full audio latent is passed to every video tile as context, while the returned audio latent is kept unchanged in `freeze` mode.
 
 ### `(Deno) Easy Model Download Helper`
 
