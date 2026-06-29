@@ -138,13 +138,13 @@ NODE_INPUT_TOOLTIPS = {
     },
     "DenoLTXAVStepFusedTiledSampler": {
         "noise": "Noise source used once for the global AV sampler trajectory.",
-        "guider": "BasicGuider or CFGGuider for the LTX AV second pass.",
+        "guider": "BasicGuider or CFGGuider for the LTX AV second pass, including LTX guide metadata from upstream Sequencer/Add Guide nodes.",
         "sampler": "ComfyUI sampler object. The node keeps the sampler update global.",
         "sigmas": "Sigma schedule for the low-denoise AV second-pass refinement.",
-        "latent_image": "LTX AV nested latent containing video and audio. Video is tiled; audio is kept unchanged.",
+        "latent_image": "LTX AV nested latent containing video and audio. If guides are present, run LTXVSeparateAVLatent after this sampler, then apply LTXVCropGuides to the video latent before decode.",
         "horizontal_tiles": "Frame width split count. 2 means left and right tiles.",
         "vertical_tiles": "Frame height split count. 3 means top, middle, and bottom tiles.",
-        "overlap": "Overlap in latent video tokens for each model-prediction tile.",
+        "overlap": "Overlap in latent video tokens for each model-prediction tile, including guide-bearing video frames.",
         "audio_mode": "Freeze keeps audio unchanged while still using it as context for video denoising.",
         "blend_mode": "Overlap weighting curve. Hann is the recommended starting point.",
         "aggressive_memory_cleanup": "Run extra cleanup between AV tile predictions. This can be much slower, but may help fragmented VRAM or OOM cases.",
@@ -314,8 +314,8 @@ NODE_OUTPUT_TOOLTIPS = {
         "Upscaled video latent reconstructed from overlapping spatial tiles.",
     ),
     "DenoLTXAVStepFusedTiledSampler": (
-        "Refined AV latent. Video is tiled and audio is preserved from the input.",
-        "Denoised AV latent from the callback x0. Video is x0 and audio is preserved from the input.",
+        "Refined AV latent. Video is tiled with guide metadata preserved and audio is preserved from the input.",
+        "Denoised AV latent from the callback x0. Video is x0 with guide metadata preserved and audio is preserved from the input.",
     ),
     "DenoBerniniPromptGuide": (
         "Encoded positive conditioning for the Bernini/KJ workflow.",

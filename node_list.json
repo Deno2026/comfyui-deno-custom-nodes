@@ -9,7 +9,7 @@
   "DenoLTXMultiLoraLoader": "(Deno) LTX Multi LoRA Loader",
   "DenoLTXPromptGuide": "(Deno) LTX Prompt Guide",
   "DenoLTXTiledSpatialUpscaler": "(Deno) LTX Tiled Spatial Upscaler",
-  "DenoLTXAVStepFusedTiledSampler": "(Deno) LTX AV Step-Fused Tiled Sampler",
+  "DenoLTXAVStepFusedTiledSampler": "(Deno) LTX High resolution Tiled Sampler",
   "DenoBerniniPromptGuide": "(Deno) Bernini Prompt Guide",
   "DenoIdeogramDirector": "(Deno) Ideogram Director",
   "DenoLocalLLMRefiner": "(Deno) Local LLM Loader",

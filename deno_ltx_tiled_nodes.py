@@ -83,6 +83,16 @@ def _copy_cond_value(value: Any, replacement: Any) -> Any:
     )
 
 
+def _cond_payload(value: Any) -> Any:
+    return getattr(value, "cond", value)
+
+
+def _copy_conditioning_value(value: Any, replacement: Any) -> Any:
+    if hasattr(value, "cond") or hasattr(value, "_copy_with"):
+        return _copy_cond_value(value, replacement)
+    return replacement
+
+
 def _model_spatial_scales(model: Any) -> tuple[float, float]:
     diffusion_model = getattr(model, "diffusion_model", None)
     factors = getattr(diffusion_model, "vae_scale_factors", (8, 32, 32))
@@ -104,7 +114,7 @@ def _crop_spatial_tensor(
 
 def _guide_entries_from_model_conds(model_conds: dict[str, Any]) -> list[dict] | None:
     wrapped = model_conds.get("guide_attention_entries")
-    entries = getattr(wrapped, "cond", None)
+    entries = _cond_payload(wrapped)
     return entries if isinstance(entries, list) else None
 
 
@@ -126,6 +136,20 @@ def _guide_token_counts(
             f"area: tokens={total_tokens}, HxW={full_height}x{full_width}."
         )
     return [total_tokens]
+
+
+def _guide_entry_is_downscaled(entry: dict[str, Any]) -> bool:
+    latent_shape = entry.get("latent_shape")
+    if latent_shape is None:
+        return False
+
+    try:
+        latent_tokens = int(math.prod(int(item) for item in latent_shape))
+        pre_filter_count = int(entry.get("pre_filter_count", 0))
+    except Exception:
+        return False
+
+    return pre_filter_count > 0 and latent_tokens != pre_filter_count
 
 
 def _crop_keyframe_indices(
@@ -150,6 +174,11 @@ def _crop_keyframe_indices(
     )
     full_area = full_height * full_width
     scale_h, scale_w = _model_spatial_scales(model)
+    shift_y: float | int = spec.y0 * scale_h
+    shift_x: float | int = spec.x0 * scale_w
+    if not tensor.is_floating_point():
+        shift_y = int(round(shift_y))
+        shift_x = int(round(shift_x))
 
     chunks: list[torch.Tensor] = []
     offset = 0
@@ -163,8 +192,8 @@ def _crop_keyframe_indices(
         chunk = chunk.reshape(tensor.shape[0], 3, guide_frames, full_height, full_width, 2)
         chunk = chunk[:, :, :, spec.y0:spec.y1, spec.x0:spec.x1, :].contiguous()
 
-        chunk[:, 1, ...] -= spec.y0 * scale_h
-        chunk[:, 2, ...] -= spec.x0 * scale_w
+        chunk[:, 1, ...] = chunk[:, 1, ...] - shift_y
+        chunk[:, 2, ...] = chunk[:, 2, ...] - shift_x
         chunk = chunk.reshape(tensor.shape[0], 3, guide_frames * spec.height * spec.width, 2)
         chunks.append(chunk)
         offset += token_count
@@ -181,10 +210,9 @@ def _crop_guide_entries(
     spec: TileSpec,
     full_height: int,
     full_width: int,
-    model: Any,
+    _model: Any,
 ) -> list[dict]:
     full_area = full_height * full_width
-    scale_h, scale_w = _model_spatial_scales(model)
     result: list[dict] = []
 
     for entry in entries:
@@ -195,18 +223,41 @@ def _crop_guide_entries(
                 "A guide_attention_entries item has an unsupported token count: "
                 f"{count} for full area {full_area}."
             )
+        if _guide_entry_is_downscaled(original):
+            raise UnsupportedTiledConditioning(
+                "Downscaled or dilated IC-LoRA guide entries are not supported by "
+                "DENO LTX High resolution Tiled Sampler yet. Use full-resolution "
+                "Sequencer/AddGuide references, or run LTXVCropGuides before DENO."
+            )
         guide_frames = count // full_area
         original["pre_filter_count"] = guide_frames * spec.height * spec.width
         original["latent_shape"] = [guide_frames, spec.height, spec.width]
 
         pixel_mask = original.get("pixel_mask")
-        if isinstance(pixel_mask, torch.Tensor) and pixel_mask.ndim >= 5:
-            py0 = int(round(spec.y0 * scale_h))
-            py1 = int(round(spec.y1 * scale_h))
-            px0 = int(round(spec.x0 * scale_w))
-            px1 = int(round(spec.x1 * scale_w))
-            if pixel_mask.shape[-2] >= py1 and pixel_mask.shape[-1] >= px1:
-                original["pixel_mask"] = pixel_mask[..., py0:py1, px0:px1].contiguous()
+        if pixel_mask is not None:
+            if not isinstance(pixel_mask, torch.Tensor) or pixel_mask.ndim < 5:
+                raise UnsupportedTiledConditioning(
+                    "guide_attention_entries pixel_mask must be a tensor with at "
+                    "least 5 dimensions when present."
+                )
+            mask_h = int(pixel_mask.shape[-2])
+            mask_w = int(pixel_mask.shape[-1])
+            if mask_h <= 0 or mask_w <= 0:
+                raise UnsupportedTiledConditioning(
+                    f"guide_attention_entries pixel_mask has invalid spatial shape: "
+                    f"{tuple(pixel_mask.shape)}."
+                )
+            py0 = int(math.floor(spec.y0 * mask_h / full_height))
+            py1 = int(math.ceil(spec.y1 * mask_h / full_height))
+            px0 = int(math.floor(spec.x0 * mask_w / full_width))
+            px1 = int(math.ceil(spec.x1 * mask_w / full_width))
+            if py1 <= py0 or px1 <= px0:
+                raise UnsupportedTiledConditioning(
+                    "guide_attention_entries pixel_mask is too small to crop for "
+                    f"tile {spec.index}: mask={mask_h}x{mask_w}, "
+                    f"latent={full_height}x{full_width}."
+                )
+            original["pixel_mask"] = pixel_mask[..., py0:py1, px0:px1].contiguous()
 
         result.append(original)
     return result
@@ -226,15 +277,15 @@ def _crop_condition_list_for_tile(
     for entry in cond_list:
         if entry.get("control") is not None:
             raise UnsupportedTiledConditioning(
-                "ControlNet-style conditioning is not supported by the v1 "
+                "ControlNet-style conditioning is not supported by the current "
                 "step-fused tiled sampler. Test plain LTX text/image guide "
                 "conditioning first."
             )
         if entry.get("gligen") is not None:
-            raise UnsupportedTiledConditioning("GLIGEN conditioning is unsupported in v1.")
+            raise UnsupportedTiledConditioning("GLIGEN conditioning is unsupported.")
         if entry.get("area") is not None:
             raise UnsupportedTiledConditioning(
-                "Regional conditioning areas are unsupported in v1 because "
+                "Regional conditioning areas are unsupported because "
                 "their global-to-local intersection must be defined explicitly."
             )
 
@@ -249,6 +300,39 @@ def _crop_condition_list_for_tile(
                     f"mask={tuple(mask.shape)}, full={full_height}x{full_width}."
                 )
             cloned["mask"] = cropped_mask
+
+        top_level_entries_value = _cond_payload(cloned.get("guide_attention_entries"))
+        top_level_entries = (
+            top_level_entries_value
+            if isinstance(top_level_entries_value, list)
+            else None
+        )
+        top_level_keyframe_value = _cond_payload(cloned.get("keyframe_idxs"))
+        if isinstance(top_level_keyframe_value, torch.Tensor):
+            cropped_keyframes = _crop_keyframe_indices(
+                top_level_keyframe_value,
+                spec,
+                full_height,
+                full_width,
+                top_level_entries,
+                model,
+            )
+            cloned["keyframe_idxs"] = _copy_conditioning_value(
+                cloned.get("keyframe_idxs"),
+                cropped_keyframes,
+            )
+        if isinstance(top_level_entries_value, list):
+            cropped_entries = _crop_guide_entries(
+                top_level_entries_value,
+                spec,
+                full_height,
+                full_width,
+                model,
+            )
+            cloned["guide_attention_entries"] = _copy_conditioning_value(
+                cloned.get("guide_attention_entries"),
+                cropped_entries,
+            )
 
         model_conds = dict(cloned.get("model_conds", {}))
         guide_entries = _guide_entries_from_model_conds(model_conds)
@@ -459,52 +543,6 @@ def _assert_same_tensor(
         )
 
 
-def _active_cond_value(value: Any) -> bool:
-    if value is None:
-        return False
-    if hasattr(value, "cond"):
-        return value.cond is not None
-    return True
-
-
-def _raise_av_guide_metadata_error() -> None:
-    raise UnsupportedTiledConditioning(
-        "DENO LTX AV tiled sampler v1 requires guides to be cropped "
-        "before AV sampling. Use LTXVCropGuides before AV concat."
-    )
-
-
-def _reject_av_guide_metadata_in_condition_list(cond_list: list[dict] | None) -> None:
-    if cond_list is None:
-        return
-    for raw_entry in cond_list:
-        entry = raw_entry
-        if (
-            isinstance(raw_entry, (list, tuple))
-            and len(raw_entry) >= 2
-            and isinstance(raw_entry[1], dict)
-        ):
-            entry = raw_entry[1]
-        if not isinstance(entry, dict):
-            continue
-
-        model_conds = entry.get("model_conds", {}) or {}
-        for key in ("keyframe_idxs", "guide_attention_entries"):
-            if _active_cond_value(entry.get(key)):
-                _raise_av_guide_metadata_error()
-            if _active_cond_value(model_conds.get(key)):
-                _raise_av_guide_metadata_error()
-
-
-def _reject_av_guide_metadata(conds: Any) -> None:
-    if isinstance(conds, dict):
-        iterable = conds.values()
-    else:
-        iterable = conds or []
-    for cond_list in iterable:
-        _reject_av_guide_metadata_in_condition_list(cond_list)
-
-
 def _wrapper_key_name(key: Any) -> str:
     value = getattr(key, "value", None)
     if isinstance(value, str):
@@ -564,7 +602,7 @@ def _reject_unsupported_guider(guider: Any) -> None:
     predict_noise = getattr(type(guider), "predict_noise", None)
     if predict_noise is not cfg_cls.predict_noise:
         raise TypeError(
-            "DENO LTX tiled sampler v1 supports BasicGuider and CFGGuider "
+            "DENO LTX tiled sampler supports BasicGuider and CFGGuider "
             "paths that use the standard predict_noise. Custom guider paths "
             "must be verified separately."
         )
@@ -854,7 +892,6 @@ class StepFusedAVTilePredictor:
         model = args["model"]
         conds = args["conds"]
         model_options = args["model_options"]
-        _reject_av_guide_metadata(conds)
 
         if not isinstance(x, torch.Tensor) or x.ndim != 3:
             raise RuntimeError(
@@ -948,7 +985,9 @@ class StepFusedAVTilePredictor:
                 )
 
             window = self._window(spec, video_x)
-            for accumulator, packed_prediction in zip(accumulators, tile_predictions):
+            for prediction_index, (accumulator, packed_prediction) in enumerate(
+                zip(accumulators, tile_predictions)
+            ):
                 _validate_packed_latent_shape(
                     packed_prediction,
                     tile_shapes,
@@ -992,8 +1031,10 @@ class StepFusedAVTilePredictor:
             )
 
         packed_results: list[torch.Tensor] = []
+        weight_denominator = weights.clamp_min(1e-8)
         for accumulator in accumulators:
-            fused_video = (accumulator / weights.clamp_min(1e-8)).to(dtype=video_x.dtype)
+            fused_video = accumulator / weight_denominator
+            fused_video = fused_video.to(dtype=video_x.dtype)
             packed, _ = _pack_latents([fused_video, audio_x])
             packed_results.append(packed.to(dtype=x.dtype))
 
@@ -1004,8 +1045,11 @@ class DenoLTXAVStepFusedTiledSampler:
     DESCRIPTION = (
         "Refines the video half of an LTX AV latent with step-fused spatial tiles "
         "while passing the full audio latent to every tile as context. Audio is "
-        "kept unchanged in v1 so the second pass can use audio sync without "
-        "re-denoising the sound."
+        "kept unchanged so the second pass can use audio sync without "
+        "re-denoising the sound. Guide-bearing LTX latents are tiled with their "
+        "guide metadata preserved; for guide-bearing output, run "
+        "LTXVSeparateAVLatent first, then apply LTXVCropGuides to the video "
+        "latent before decode."
     )
 
     @classmethod
@@ -1063,7 +1107,7 @@ class DenoLTXAVStepFusedTiledSampler:
         parts = samples.unbind()
         if len(parts) != 2:
             raise ValueError(
-                "Deno LTX AV Step-Fused Tiled Sampler v1 expects exactly two "
+                "Deno LTX AV Step-Fused Tiled Sampler expects exactly two "
                 f"latent parts: video and audio. Got {len(parts)} parts."
             )
 
@@ -1143,12 +1187,11 @@ class DenoLTXAVStepFusedTiledSampler:
     ):
         if audio_mode != "freeze":
             raise ValueError(
-                "Deno LTX AV Step-Fused Tiled Sampler v1 only supports "
+                "Deno LTX AV Step-Fused Tiled Sampler currently only supports "
                 "audio_mode='freeze'."
             )
         _reject_unsupported_guider(guider)
         _reject_incompatible_outer_wrappers(guider)
-        _reject_av_guide_metadata(getattr(guider, "original_conds", {}))
 
         latent = latent_image.copy()
         video, audio = self._validate_av_samples(latent["samples"])
@@ -1220,7 +1263,7 @@ class DenoLTXAVStepFusedTiledSampler:
             raise RuntimeError(
                 "The supplied guider did not invoke ComfyUI's conditional-batch "
                 "calculation hook, so AV tiled prediction was not active. Use the "
-                "built-in BasicGuider/CFGGuider for v1 and verify custom guiders separately."
+                "built-in BasicGuider/CFGGuider path and verify custom guiders separately."
             )
 
         intermediate_device = _comfy_model_management().intermediate_device()
@@ -1238,6 +1281,7 @@ class DenoLTXAVStepFusedTiledSampler:
             "blend_mode": str(blend_mode),
             "audio_mode": "freeze",
             "prediction_calls": int(predictor.call_count),
+            "resolved_tile_count": int(len(plan)),
         }
 
         callback_x0 = _require_callback_x0(
@@ -1272,5 +1316,5 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DenoLTXTiledSpatialUpscaler": "(Deno) LTX Tiled Spatial Upscaler",
-    "DenoLTXAVStepFusedTiledSampler": "(Deno) LTX AV Step-Fused Tiled Sampler",
+    "DenoLTXAVStepFusedTiledSampler": "(Deno) LTX High resolution Tiled Sampler",
 }

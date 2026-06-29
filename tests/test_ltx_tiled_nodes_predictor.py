@@ -71,6 +71,33 @@ def _fake_unpack_latents(combined_latent, latent_shapes):
     return output_tensors
 
 
+def _make_guide_keyframes(guide_frames, height, width, *, scale=32):
+    coords = torch.zeros((1, 3, guide_frames, height, width, 2), dtype=torch.long)
+    for frame in range(guide_frames):
+        coords[:, 0, frame, :, :, 0] = frame
+        coords[:, 0, frame, :, :, 1] = frame + 1
+    for y in range(height):
+        coords[:, 1, :, y, :, 0] = y * scale
+        coords[:, 1, :, y, :, 1] = (y + 1) * scale
+    for x in range(width):
+        coords[:, 2, :, :, x, 0] = x * scale
+        coords[:, 2, :, :, x, 1] = (x + 1) * scale
+    return coords.reshape(1, 3, guide_frames * height * width, 2)
+
+
+def _make_guide_entries(guide_frames, height, width, *, scale=32):
+    entries = []
+    for index in range(guide_frames):
+        pixel_mask = torch.ones((1, 1, 1, height * scale, width * scale)) * (index + 1)
+        entries.append({
+            "pre_filter_count": height * width,
+            "latent_shape": [1, height, width],
+            "strength": 0.9 + index * 0.05,
+            "pixel_mask": pixel_mask,
+        })
+    return entries
+
+
 @pytest.fixture
 def fake_comfy_latent_utils(monkeypatch):
     def fake_calc_cond_batch(_model, _conds, x_in, _sigma, _model_options):
@@ -144,6 +171,7 @@ class _FakeSamplerGuider(_FakeCFGGuider):
         original_conds=None,
         patcher_wrappers=None,
         hook_input_extra=False,
+        hook_conds=None,
     ):
         self.model_options = model_options or {}
         self.original_conds = original_conds or {}
@@ -154,6 +182,7 @@ class _FakeSamplerGuider(_FakeCFGGuider):
         self.output_video = output_video
         self.output_audio = output_audio
         self.hook_input_extra = hook_input_extra
+        self.hook_conds = hook_conds
         self.model_patcher = types.SimpleNamespace(
             model=types.SimpleNamespace(process_latent_out=lambda value: value),
             wrappers=patcher_wrappers or {},
@@ -175,12 +204,18 @@ class _FakeSamplerGuider(_FakeCFGGuider):
         hook_input = packed
         if self.hook_input_extra:
             hook_input = torch.cat([packed, torch.zeros((packed.shape[0], packed.shape[1], 1))], dim=-1)
+        if callable(self.hook_conds):
+            hook_conds = self.hook_conds(shapes)
+        elif self.hook_conds is not None:
+            hook_conds = self.hook_conds
+        else:
+            hook_conds = [[{"model_conds": {"latent_shapes": _FakeCond(shapes)}}], []]
         hook(
             {
                 "input": hook_input,
                 "sigma": sigmas[:1],
                 "model": _FakeModel(),
-                "conds": [[{"model_conds": {"latent_shapes": _FakeCond(shapes)}}], []],
+                "conds": hook_conds,
                 "model_options": self.model_options,
             }
         )
@@ -895,7 +930,7 @@ def test_av_sampler_rejects_5d_audio_latent():
         )
 
 
-def test_av_sampler_rejects_guides_before_sampling(monkeypatch, fake_comfy_latent_utils):
+def test_av_sampler_accepts_guide_metadata_before_sampling(monkeypatch, fake_comfy_latent_utils):
     _patch_av_sampler_runtime(monkeypatch)
     video = torch.zeros((1, 2, 3, 6, 4))
     audio = torch.ones((1, 1, 4, 4))
@@ -909,15 +944,238 @@ def test_av_sampler_rejects_guides_before_sampling(monkeypatch, fake_comfy_laten
     ]
 
     for entry in active_entries:
-        with pytest.raises(UnsupportedTiledConditioning, match="LTXVCropGuides"):
+        if True:
             DenoLTXAVStepFusedTiledSampler().sample(
                 _FakeNoise(),
-                _FakeSamplerGuider(original_conds={"positive": [entry]}),
+                _FakeSamplerGuider(
+                    x0_video=torch.ones_like(video),
+                    x0_audio=audio.clone(),
+                    original_conds={"positive": [entry]},
+                ),
                 object(),
                 torch.tensor([1.0, 0.0]),
                 {"samples": _FakeNestedTensor([video, audio])},
                 overlap=2,
             )
+
+
+@pytest.mark.parametrize("guide_frames", [1, 2])
+def test_av_predictor_crops_guide_metadata_per_tile(
+    monkeypatch,
+    fake_comfy_latent_utils,
+    guide_frames,
+):
+    height, width = 4, 6
+    video = torch.zeros((1, 2, 3 + guide_frames, height, width))
+    audio = torch.ones((1, 1, 4, 4))
+    packed, global_shapes = _fake_pack_latents([video, audio])
+    plan = build_tile_plan(height=height, width=width, vertical_tiles=1, horizontal_tiles=2, overlap=2)
+    keyframes = _make_guide_keyframes(guide_frames, height, width)
+    guide_entries = _make_guide_entries(guide_frames, height, width)
+    seen = []
+
+    def make_cond_list():
+        return [{
+            "keyframe_idxs": _FakeCond(keyframes.clone()),
+            "guide_attention_entries": _FakeCond(copy.deepcopy(guide_entries)),
+            "model_conds": {
+                "latent_shapes": _FakeCond(global_shapes),
+                "keyframe_idxs": _FakeCond(keyframes.clone()),
+                "guide_attention_entries": _FakeCond(copy.deepcopy(guide_entries)),
+            },
+        }]
+
+    def fake_calc_cond_batch(_model, conds, x_in, _sigma, _model_options):
+        tile_shapes = conds[0][0]["model_conds"]["latent_shapes"].cond
+        tile_video, full_audio = _fake_unpack_latents(x_in, tile_shapes)
+        assert tile_video.shape[2] == video.shape[2]
+        assert tuple(full_audio.shape) == tuple(audio.shape)
+
+        entry = conds[0][0]
+        model_conds = entry["model_conds"]
+        seen.append({
+            "tile_video_shape": tuple(tile_video.shape),
+            "top_keyframes": entry["keyframe_idxs"].cond.clone(),
+            "model_keyframes": model_conds["keyframe_idxs"].cond.clone(),
+            "top_entries": copy.deepcopy(entry["guide_attention_entries"].cond),
+            "model_entries": copy.deepcopy(model_conds["guide_attention_entries"].cond),
+        })
+        packed_prediction, _ = _fake_pack_latents([tile_video + 1.0, full_audio])
+        return [packed_prediction]
+
+    monkeypatch.setattr(
+        "deno_ltx_tiled_nodes._comfy_samplers",
+        lambda: types.SimpleNamespace(calc_cond_batch=fake_calc_cond_batch),
+    )
+
+    predictor = StepFusedAVTilePredictor(
+        plan=plan,
+        full_height=height,
+        full_width=width,
+        global_video_shape=global_shapes[0],
+        global_audio_shape=global_shapes[1],
+        blend_mode="hann",
+    )
+    result = predictor({
+        "input": packed,
+        "sigma": torch.tensor([0.5]),
+        "model": _FakeModel(),
+        "conds": [make_cond_list(), make_cond_list()],
+        "model_options": {},
+    })
+
+    output_video, output_audio = _fake_unpack_latents(result[0], global_shapes)
+    assert tuple(output_video.shape) == tuple(video.shape)
+    assert torch.equal(output_audio, audio)
+    assert len(seen) == len(plan)
+    for spec, record in zip(plan, seen):
+        assert record["tile_video_shape"] == (1, 2, 3 + guide_frames, spec.height, spec.width)
+        expected_tokens = guide_frames * spec.height * spec.width
+        for keyframe_tensor in (record["top_keyframes"], record["model_keyframes"]):
+            assert tuple(keyframe_tensor.shape) == (1, 3, expected_tokens, 2)
+            reshaped = keyframe_tensor.reshape(1, 3, guide_frames, spec.height, spec.width, 2)
+            assert float(reshaped[:, 1, ..., 0].min()) >= 0.0
+            assert float(reshaped[:, 2, ..., 0].min()) >= 0.0
+            assert float(reshaped[:, 1, ..., 1].max()) <= spec.height * 32.0
+            assert float(reshaped[:, 2, ..., 1].max()) <= spec.width * 32.0
+        for entries in (record["top_entries"], record["model_entries"]):
+            assert len(entries) == guide_frames
+            for item in entries:
+                assert item["pre_filter_count"] == spec.height * spec.width
+                assert item["latent_shape"] == [1, spec.height, spec.width]
+                assert tuple(item["pixel_mask"].shape[-2:]) == (
+                    spec.height * 32,
+                    spec.width * 32,
+                )
+
+
+def test_av_predictor_ratio_crops_nonstandard_pixel_mask_resolution(
+    monkeypatch,
+    fake_comfy_latent_utils,
+):
+    height, width = 4, 6
+    mask_height, mask_width = 10, 14
+    video = torch.zeros((1, 2, 4, height, width))
+    audio = torch.ones((1, 1, 4, 4))
+    packed, global_shapes = _fake_pack_latents([video, audio])
+    plan = build_tile_plan(height=height, width=width, vertical_tiles=1, horizontal_tiles=2, overlap=2)
+    guide_entries = [{
+        "pre_filter_count": height * width,
+        "latent_shape": [1, height, width],
+        "pixel_mask": torch.ones((1, 1, 1, mask_height, mask_width)),
+    }]
+    seen_masks = []
+
+    def fake_calc_cond_batch(_model, conds, x_in, _sigma, _model_options):
+        tile_shapes = conds[0][0]["model_conds"]["latent_shapes"].cond
+        tile_video, full_audio = _fake_unpack_latents(x_in, tile_shapes)
+        seen_masks.append(conds[0][0]["guide_attention_entries"].cond[0]["pixel_mask"].clone())
+        packed_prediction, _ = _fake_pack_latents([tile_video + 1.0, full_audio])
+        return [packed_prediction]
+
+    monkeypatch.setattr(
+        "deno_ltx_tiled_nodes._comfy_samplers",
+        lambda: types.SimpleNamespace(calc_cond_batch=fake_calc_cond_batch),
+    )
+
+    predictor = StepFusedAVTilePredictor(
+        plan=plan,
+        full_height=height,
+        full_width=width,
+        global_video_shape=global_shapes[0],
+        global_audio_shape=global_shapes[1],
+        blend_mode="hann",
+    )
+    predictor({
+        "input": packed,
+        "sigma": torch.tensor([0.5]),
+        "model": _FakeModel(),
+        "conds": [[{
+            "guide_attention_entries": _FakeCond(copy.deepcopy(guide_entries)),
+            "model_conds": {"latent_shapes": _FakeCond(global_shapes)},
+        }]],
+        "model_options": {},
+    })
+
+    assert len(seen_masks) == len(plan)
+    for spec, mask in zip(plan, seen_masks):
+        expected_h = math.ceil(spec.y1 * mask_height / height) - math.floor(spec.y0 * mask_height / height)
+        expected_w = math.ceil(spec.x1 * mask_width / width) - math.floor(spec.x0 * mask_width / width)
+        assert tuple(mask.shape[-2:]) == (expected_h, expected_w)
+        assert tuple(mask.shape[-2:]) != (mask_height, mask_width)
+
+
+def test_av_predictor_rejects_downscaled_guide_entries(
+    monkeypatch,
+    fake_comfy_latent_utils,
+):
+    height, width = 4, 6
+    video = torch.zeros((1, 2, 4, height, width))
+    audio = torch.ones((1, 1, 4, 4))
+    packed, global_shapes = _fake_pack_latents([video, audio])
+    plan = build_tile_plan(height=height, width=width, vertical_tiles=1, horizontal_tiles=2, overlap=2)
+    guide_entries = [{
+        "pre_filter_count": height * width,
+        "latent_shape": [1, height // 2, width // 2],
+        "pixel_mask": torch.ones((1, 1, 1, height * 32, width * 32)),
+    }]
+
+    predictor = StepFusedAVTilePredictor(
+        plan=plan,
+        full_height=height,
+        full_width=width,
+        global_video_shape=global_shapes[0],
+        global_audio_shape=global_shapes[1],
+        blend_mode="hann",
+    )
+
+    with pytest.raises(UnsupportedTiledConditioning, match="Downscaled or dilated IC-LoRA"):
+        predictor({
+            "input": packed,
+            "sigma": torch.tensor([0.5]),
+            "model": _FakeModel(),
+            "conds": [[{
+                "guide_attention_entries": _FakeCond(copy.deepcopy(guide_entries)),
+                "model_conds": {"latent_shapes": _FakeCond(global_shapes)},
+            }]],
+            "model_options": {},
+        })
+
+
+def test_av_predictor_rejects_unusable_pixel_mask_shape(
+    fake_comfy_latent_utils,
+):
+    height, width = 4, 6
+    video = torch.zeros((1, 2, 4, height, width))
+    audio = torch.ones((1, 1, 4, 4))
+    packed, global_shapes = _fake_pack_latents([video, audio])
+    plan = build_tile_plan(height=height, width=width, vertical_tiles=1, horizontal_tiles=2, overlap=2)
+    guide_entries = [{
+        "pre_filter_count": height * width,
+        "latent_shape": [1, height, width],
+        "pixel_mask": torch.ones((height * 32, width * 32)),
+    }]
+
+    predictor = StepFusedAVTilePredictor(
+        plan=plan,
+        full_height=height,
+        full_width=width,
+        global_video_shape=global_shapes[0],
+        global_audio_shape=global_shapes[1],
+        blend_mode="hann",
+    )
+
+    with pytest.raises(UnsupportedTiledConditioning, match="pixel_mask must be a tensor"):
+        predictor({
+            "input": packed,
+            "sigma": torch.tensor([0.5]),
+            "model": _FakeModel(),
+            "conds": [[{
+                "guide_attention_entries": _FakeCond(copy.deepcopy(guide_entries)),
+                "model_conds": {"latent_shapes": _FakeCond(global_shapes)},
+            }]],
+            "model_options": {},
+        })
 
 
 def test_av_sampler_allows_cropped_none_guides(monkeypatch, fake_comfy_latent_utils):

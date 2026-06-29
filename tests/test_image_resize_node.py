@@ -235,7 +235,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXTiledSpatialUpscaler"] == "(Deno) LTX Tiled Spatial Upscaler"
     assert "DenoLTXStepFusedTiledSampler" not in package.NODE_CLASS_MAPPINGS
     assert "DenoLTXStepFusedTiledSampler" not in package.NODE_DISPLAY_NAME_MAPPINGS
-    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXAVStepFusedTiledSampler"] == "(Deno) LTX AV Step-Fused Tiled Sampler"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXAVStepFusedTiledSampler"] == "(Deno) LTX High resolution Tiled Sampler"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoBerniniPromptGuide"] == "(Deno) Bernini Prompt Guide"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoIdeogramDirector"] == "(Deno) Ideogram Director"
     assert "DenoTranslate" not in package.NODE_CLASS_MAPPINGS
@@ -306,6 +306,11 @@ def test_ltx_tiled_tile_controls_use_readable_frame_labels():
         assert required["vertical_tiles"][1]["default"] == 2
         assert optional["aggressive_memory_cleanup"][1]["default"] is True
 
+    av_optional = package.NODE_CLASS_MAPPINGS["DenoLTXAVStepFusedTiledSampler"].INPUT_TYPES()["optional"]
+    assert "fusion_safety_mode" not in av_optional
+    assert "fusion_safety_strength" not in av_optional
+    assert "debug_fusion_stats" not in av_optional
+
 
 def test_ltx_tiled_node_help_markdown_uses_readable_frame_labels():
     help_paths = [
@@ -321,6 +326,14 @@ def test_ltx_tiled_node_help_markdown_uses_readable_frame_labels():
         assert "Frame height split count" in text
         assert "horizontal_tiles" not in text
         assert "vertical_tiles" not in text
+        assert "fusion_safety" not in text
+
+    en_av_help = (REPO_ROOT / "web/js/docs/DenoLTXAVStepFusedTiledSampler.md").read_text(encoding="utf-8")
+    ko_av_help = (REPO_ROOT / "web/js/docs/DenoLTXAVStepFusedTiledSampler/ko.md").read_text(encoding="utf-8")
+    assert "-> LTXVSeparateAVLatent\n-> LTXVCropGuides on the video latent" in en_av_help
+    assert "-> LTXVSeparateAVLatent\n-> video latent" in ko_av_help
+    assert "-> (Deno) LTX High resolution Tiled Sampler\n-> LTXVCropGuides" not in en_av_help
+    assert "-> (Deno) LTX High resolution Tiled Sampler\n-> LTXVCropGuides" not in ko_av_help
 
 
 def test_deno_version_metadata_stays_scanner_safe():
