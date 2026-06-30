@@ -415,6 +415,51 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(normalizedVllmButtonsAfterCustomModel[6] === true, "Loader vLLM button-after-custom-model values must preserve Thinking");
             assert(normalizedVllmButtonsAfterCustomModel[7] === 42, "Loader vLLM button-after-custom-model values must preserve seed");
             assert(normalizedVllmButtonsAfterCustomModel[12] === "Prompt text", "Loader vLLM button-after-custom-model values must preserve prompt");
+            const clonedClipboardShiftNode = {{
+                widgets: [
+                    {{ name: "provider", value: "vLLM" }},
+                    {{ name: "ollama_model", value: "gemma4:31b-it-qat" }},
+                    {{ name: "deno_local_llm_refresh_models", value: "google/gemma-4-12b-qat" }},
+                    {{ name: "deno_local_llm_stop_llm", value: "http://127.0.0.1:8000/v1" }},
+                    {{ name: "deno_local_llm_unload_llm", value: "Qwen3-VL-2B-Thinking-FP8" }},
+                    {{ name: "lm_studio_model", value: "google/gemma-4-12b-qat" }},
+                    {{ name: "custom_server_url", value: "http://127.0.0.1:8000/v1" }},
+                    {{ name: "custom_model", value: "Qwen3-VL-2B-Thinking-FP8" }},
+                    {{ name: "system_prompt", value: "SYSTEM PROMPT SHOULD SURVIVE COPY" }},
+                    {{ name: "thinking", value: true }},
+                    {{ name: "seed", value: 9876 }},
+                    {{ name: "seed_mode", value: "fixed" }},
+                    {{ name: "model_memory", value: "Unload after run" }},
+                    {{ name: "keep_minutes", value: 5 }},
+                    {{ name: "comfy_vram_policy", value: "Auto: unload only before first LLM call" }},
+                    {{ name: "deno_local_llm_preview", value: "" }},
+                    {{ name: "deno_local_llm_system_prompt_button", value: "System Prompt" }},
+                    {{ name: "prompt", value: "Prompt should survive copy" }},
+                ],
+            }};
+            const cloneShiftedValues = [
+                "vLLM",
+                "gemma4:31b-it-qat",
+                "google/gemma-4-12b-qat",
+                "http://127.0.0.1:8000/v1",
+                "Qwen3-VL-2B-Thinking-FP8",
+                "google/gemma-4-12b-qat",
+                "http://127.0.0.1:8000/v1",
+                "Qwen3-VL-2B-Thinking-FP8",
+                "SYSTEM PROMPT SHOULD SURVIVE COPY",
+                true,
+                9876,
+                "fixed",
+                "Unload after run",
+            ];
+            const normalizedCloneClipboard = api.localLLMLoaderSerializedValuesFromWidgets(clonedClipboardShiftNode, cloneShiftedValues);
+            assert(normalizedCloneClipboard.length === 13, "Loader clone clipboard serialization must stay at 13 canonical widgets");
+            assert(normalizedCloneClipboard[4] === "Qwen3-VL-2B-Thinking-FP8", "Loader clone clipboard serialization must keep custom model in the model slot");
+            assert(normalizedCloneClipboard[5] === "SYSTEM PROMPT SHOULD SURVIVE COPY", "Loader clone clipboard serialization must not shift LM Studio model into system prompt");
+            assert(normalizedCloneClipboard[6] === true, "Loader clone clipboard serialization must keep Thinking in the Thinking slot");
+            assert(normalizedCloneClipboard[7] === 9876, "Loader clone clipboard serialization must keep seed in the seed slot");
+            assert(normalizedCloneClipboard[10] === 5, "Loader clone clipboard serialization must recover keep minutes after clone shifting");
+            assert(normalizedCloneClipboard[12] === "Prompt should survive copy", "Loader clone clipboard serialization must recover prompt after clone shifting");
             function makeCopiedLoaderNode(id) {{
                 const node = {{
                     id,

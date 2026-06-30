@@ -717,7 +717,10 @@ app.registerExtension({
         nodeType.prototype.onSerialize = function (info) {
             const result = onSerialize?.apply(this, arguments);
             if (info && Array.isArray(info.widgets_values)) {
-                info.widgets_values = normalizeLocalLLMLoaderSerializedValues(info.widgets_values) || info.widgets_values.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
+                info.widgets_values =
+                    localLLMLoaderSerializedValuesFromWidgets(this, info.widgets_values)
+                    || normalizeLocalLLMLoaderSerializedValues(info.widgets_values)
+                    || info.widgets_values.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
             }
             const state = sanitizeLocalLLMState(this.__denoLocalLLMState || restoreLocalLLMStateFromProperties(this));
             if (state && info) {
@@ -762,6 +765,23 @@ function normalizeLocalLLMLoaderSerializedValues(values) {
         generatedButtonStart = findLocalLLMGeneratedButtonRunStart(normalized);
     }
     return normalized.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
+}
+
+function localLLMLoaderSerializedValuesFromWidgets(node, fallbackValues) {
+    const fallback = normalizeLocalLLMLoaderSerializedValues(fallbackValues) || [];
+    if (!node || !Array.isArray(node.widgets)) {
+        return fallback.length ? fallback.slice(0, LOADER_SERIALIZED_WIDGET_COUNT) : null;
+    }
+    let foundNamedWidget = false;
+    const values = LOADER_SERIALIZED_WIDGET_NAMES.map((name, index) => {
+        const widget = getWidget(node, name);
+        if (widget) {
+            foundNamedWidget = true;
+            return widget.value;
+        }
+        return index < fallback.length ? fallback[index] : "";
+    });
+    return foundNamedWidget ? values : (fallback.length ? fallback.slice(0, LOADER_SERIALIZED_WIDGET_COUNT) : null);
 }
 
 function findLocalLLMGeneratedButtonRunStart(values) {
@@ -1531,6 +1551,7 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         nextLocalLLMSeedValue,
         normalizeLocalLLMLoaderSerializedValues,
         normalizeLocalLLMLoaderWidgetValues,
+        localLLMLoaderSerializedValuesFromWidgets,
         persistLocalLLMStateToProperties,
         restoreLocalLLMStateFromProperties,
         sanitizeLocalLLMState,
