@@ -32,17 +32,19 @@ def test_ltx_tiled_nodes_reject_unsupported_boundary_paths():
     assert "Deno LTX AV Step-Fused Tiled Sampler expects an LTX AV nested" in source
     assert "DenoLTXAVStepFusedTiledSampler" in source
     assert "audio_mode='freeze'" in source
-    assert "LTXVCropGuides before AV concat" in source
+    assert "LTXVSeparateAVLatent first" in source
+    assert "LTXVCropGuides to the video" in source
     assert "ltx2_audio_normalization" in source
-    assert "_active_cond_value" in source
+    assert "_cond_payload" in source
+    assert "_copy_cond_value" in source
     assert "_collect_outer_wrapper_maps" in source
     assert "model_patcher" in source
     assert "AV sampler state" in source
     assert "AV tile prediction" in source
     assert "standard predict_noise" in source
     assert "ControlNet-style conditioning is not supported" in source
-    assert "GLIGEN conditioning is unsupported in v1" in source
-    assert "Regional conditioning areas are unsupported in v1" in source
+    assert "GLIGEN conditioning is unsupported." in source
+    assert "Regional conditioning areas are unsupported because" in source
 
 
 def test_ltx_tiled_nodes_do_not_touch_ai_studio_or_wdc_namespaces():

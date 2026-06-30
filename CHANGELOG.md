@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.65 - 2026-06-30
+
+- Added `Error Help` to DENO Floating Tools. When a ComfyUI run fails, the helper highlights the DENO icon and opens a GPT/Gemini-ready report window with workflow, Python environment, package, GPU, custom-node, log, and traceback details. Sensitive tokens, cookies, passwords, private keys, and URL credentials are redacted before copy.
+- Improved `(Deno) Ideogram Director` with optional width, height, and megapixel inputs, plus a Generate target selector for running one intended output branch while keeping the default all-output behavior.
+- Improved `(Deno) Local LLM Loader` state handling for copy/paste and saved workflows, and raised image attachment detail for local vision models while keeping uploads bounded.
+- Improved `(Deno) LTX High resolution Tiled Sampler` guide-aware handling and in-app docs for LTX AV guide workflows.
+
 ## 0.7.64 - 2026-06-27
 
 - Restored release CI compatibility for environments that expose a lightweight torch stub without tensor operations, keeping the 0.7.63 Floating Tools and final LTX AV tiled node changes intact.

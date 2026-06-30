@@ -498,4 +498,13 @@ class _DenoNodeReplacement:
 
 _register_node_replacements()
 
+try:
+    try:
+        from .deno_sos_report import register_deno_sos_routes
+    except ImportError:
+        from deno_sos_report import register_deno_sos_routes
+    register_deno_sos_routes()
+except Exception as exc:
+    logging.warning("[DENO] SOS report route unavailable: %s: %s", type(exc).__name__, exc)
+
 WEB_DIRECTORY = "./web/js"

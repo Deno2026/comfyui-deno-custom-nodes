@@ -1,12 +1,13 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const DENO_FLOATING_TOOLS_MARKER = "r2026.06.27-floating-tools-hardening-b";
+const DENO_FLOATING_TOOLS_MARKER = "r2026.06.30-sos-report-p";
 const EXTENSION_NAME = "Deno.FloatingTools";
 const SETTING_ENABLED = "DENO.FloatingTools.Enabled";
 const POSITION_KEY = "denoFloatingTools.position.v1";
 const UPDATE_CACHE_KEY = "denoFloatingTools.updateStatus.v1";
 const ICON_URL = new URL("./assets/deno_floating_tools_icon.png", import.meta.url).toString();
+const ERROR_ICON_URL = new URL("./assets/deno_floating_tools_error_icon.png", import.meta.url).toString();
 const ROOT_ID = "deno-floating-tools-root";
 const ICON_SIZE = 48;
 const BADGE_TOP_PAD = 8;
@@ -17,6 +18,7 @@ const PANEL_WIDTH = 268;
 const VIEWPORT_MARGIN = 12;
 const DEFAULT_POSITION = { x: 24, y: 140 };
 const FLOATING_TOOLS_Z_INDEX = 999;
+const SOS_ERROR_AUTO_CLEAR_GRACE_MS = 8000;
 const UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const UPDATE_FETCH_TIMEOUT_MS = 10000;
 const COMFYUI_RELEASE_URL = "https://api.github.com/repos/comfyanonymous/ComfyUI/releases/latest";
@@ -32,6 +34,9 @@ let updateButtonEl = null;
 let updateStatusEl = null;
 let updateDetailsEl = null;
 let updateHintEl = null;
+let iconImgEl = null;
+let sosButtonEl = null;
+let sosStatusEl = null;
 let dragState = null;
 let queueBusy = false;
 let queueTimer = null;
@@ -39,6 +44,17 @@ let updateBusy = false;
 let updateStartupTimer = null;
 let queuedUpdateForce = false;
 let lastUpdateState = null;
+let lastExecutionError = null;
+let sosBusy = false;
+let sosEventListenersInstalled = false;
+let sosPromptApiWrapped = false;
+let sosQueuePromptWrapped = false;
+let sosValidationObserver = null;
+let lastPromptFailureSignature = "";
+let lastPromptFailureAt = 0;
+let sosErrorStickyUntil = 0;
+let sosToastHooksInstalled = false;
+let sosToastHookTimer = null;
 
 function getSettings() {
     return app?.ui?.settings || null;
@@ -179,6 +195,13 @@ function ensureStyles() {
     box-shadow: 0 0 0 1px rgba(245, 200, 75, 0.5), 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 24px rgba(245, 200, 75, 0.32);
 }
 
+#${ROOT_ID}.deno-floating-tools-sos-error .deno-floating-tools-orb,
+#${ROOT_ID}.deno-floating-tools-sos-error .deno-floating-tools-orb:hover,
+#${ROOT_ID}.deno-floating-tools-sos-error.deno-floating-tools-open .deno-floating-tools-orb {
+    border-color: rgba(255, 132, 91, 0.98);
+    box-shadow: 0 0 0 1px rgba(255, 110, 72, 0.5), 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 24px rgba(255, 90, 56, 0.34);
+}
+
 .deno-floating-tools-orb img {
     width: 100%;
     height: 100%;
@@ -306,8 +329,31 @@ function ensureStyles() {
     border-color: rgba(126, 255, 166, 0.34);
 }
 
+.deno-floating-tools-action.deno-floating-tools-sos-action {
+    width: auto;
+    min-width: 0;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
+    border-radius: 7px;
+    background: rgba(220, 231, 224, 0.13);
+    color: #ecf7f0;
+    border-color: rgba(220, 231, 224, 0.34);
+    box-shadow: none;
+    font-size: 12px;
+    font-weight: 750;
+}
+
 .deno-floating-tools-action:hover:not(:disabled) {
     filter: brightness(1.08);
+}
+
+.deno-floating-tools-action.deno-floating-tools-sos-action:hover:not(:disabled) {
+    background: rgba(220, 231, 224, 0.19);
+    border-color: rgba(158, 220, 174, 0.54);
+    filter: none;
 }
 
 .deno-floating-tools-action:active:not(:disabled) {
@@ -333,6 +379,29 @@ function ensureStyles() {
     margin-top: 11px;
     padding-top: 10px;
     border-top: 1px solid rgba(126, 255, 166, 0.18);
+}
+
+#${ROOT_ID}.deno-floating-tools-sos-error .deno-floating-tools-sos-section {
+    margin-top: 10px;
+    padding: 9px 10px 10px;
+    border: 1px solid rgba(255, 105, 78, 0.92);
+    border-radius: 9px;
+    background: rgba(83, 18, 12, 0.36);
+    box-shadow: 0 0 0 1px rgba(255, 105, 78, 0.2), 0 0 18px rgba(255, 92, 60, 0.24);
+}
+
+#${ROOT_ID}.deno-floating-tools-sos-error .deno-floating-tools-sos-section .deno-floating-tools-section-title {
+    color: #ffe1d9;
+}
+
+#${ROOT_ID}.deno-floating-tools-sos-error .deno-floating-tools-sos-section .deno-floating-tools-update-status {
+    color: #ffad98;
+}
+
+#${ROOT_ID}.deno-floating-tools-sos-error .deno-floating-tools-sos-section .deno-floating-tools-sos-action {
+    border-color: rgba(255, 150, 126, 0.72);
+    background: rgba(255, 113, 82, 0.16);
+    color: #fff1ec;
 }
 
 .deno-floating-tools-section-title {
@@ -396,6 +465,85 @@ function ensureStyles() {
     color: #91dca4;
     font-size: 10.5px;
     line-height: 1.35;
+}
+
+.deno-floating-tools-manual-copy {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(760px, calc(100vw - 48px));
+    max-height: min(74vh, 680px);
+    z-index: ${FLOATING_TOOLS_Z_INDEX + 20};
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    border-radius: 8px;
+    background: rgba(8, 13, 11, 0.98);
+    border: 1px solid rgba(255, 126, 92, 0.72);
+    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+    box-sizing: border-box;
+}
+
+.deno-floating-tools-report-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.deno-floating-tools-report-title {
+    color: #fff1ec;
+    font-size: 13px;
+    font-weight: 850;
+    line-height: 1.2;
+}
+
+.deno-floating-tools-report-close {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 153, 126, 0.34);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff1ec;
+    font-size: 13px;
+    font-weight: 850;
+    cursor: pointer;
+}
+
+.deno-floating-tools-report-close:hover {
+    background: rgba(255, 126, 92, 0.16);
+    border-color: rgba(255, 153, 126, 0.62);
+}
+
+.deno-floating-tools-manual-copy textarea {
+    width: 100%;
+    height: min(48vh, 420px);
+    min-height: 240px;
+    max-height: calc(100vh - 176px);
+    resize: vertical;
+    box-sizing: border-box;
+    border-radius: 8px;
+    border: 1px solid rgba(126, 255, 166, 0.24);
+    background: #030806;
+    color: #e2ebe5;
+    padding: 10px;
+    font: 11px/1.45 Consolas, "Courier New", monospace;
+}
+
+.deno-floating-tools-manual-copy button {
+    margin-top: 0;
+}
+
+.deno-floating-tools-manual-copy-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.deno-floating-tools-manual-copy-actions button {
+    flex: 1 1 0;
 }
 
 `;
@@ -482,6 +630,525 @@ async function freeComfyVram() {
         freeButtonEl.title = String(error?.message || error || "Free VRAM failed.");
     } finally {
         updateFreeButton();
+    }
+}
+
+function safeJsonClone(value, fallback = null) {
+    try {
+        if (value === undefined) return fallback;
+        return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+        return { error: String(error?.message || error || "JSON clone failed.") };
+    }
+}
+
+const ERROR_EVENT_TEXT_KEYS = [
+    "received_at",
+    "prompt_id",
+    "node_id",
+    "node_type",
+    "exception_type",
+    "exception_message",
+];
+
+function safeEventScalar(value) {
+    return ["string", "number", "boolean"].includes(typeof value) ? String(value) : "";
+}
+
+function safeEventScalarList(value, maxItems = 80) {
+    if (!Array.isArray(value)) {
+        const scalar = safeEventScalar(value);
+        return scalar ? [scalar] : [];
+    }
+    return value.slice(-maxItems).map(safeEventScalar).filter(Boolean);
+}
+
+function safeFrontendOrigin(value) {
+    try {
+        const parsed = new URL(String(value || ""));
+        if (!["http:", "https:"].includes(parsed.protocol)) return "";
+        return parsed.origin;
+    } catch (error) {
+        return "";
+    }
+}
+
+function compactExecutionError(detail, promptId = null) {
+    const data = safeJsonClone(detail, {});
+    const result = {};
+    const explicitPromptId = safeEventScalar(promptId);
+    if (explicitPromptId) result.prompt_id = explicitPromptId;
+    for (const key of ERROR_EVENT_TEXT_KEYS) {
+        if (key === "prompt_id" && result.prompt_id) continue;
+        const scalar = safeEventScalar(data?.[key]);
+        if (scalar) result[key] = scalar;
+    }
+    const frontendOrigin = safeFrontendOrigin(data?.frontend_origin || data?.frontend_url || "");
+    if (frontendOrigin) result.frontend_origin = frontendOrigin;
+    const traceback = safeEventScalarList(data?.traceback);
+    if (traceback.length) result.traceback = traceback;
+    const executed = safeEventScalarList(data?.executed);
+    if (executed.length) result.executed = executed;
+    return result;
+}
+
+function getFirstNodeError(nodeErrors) {
+    if (!nodeErrors || typeof nodeErrors !== "object" || Array.isArray(nodeErrors)) return {};
+    for (const [nodeId, nodeInfo] of Object.entries(nodeErrors)) {
+        if (!nodeInfo || typeof nodeInfo !== "object") continue;
+        const firstError = Array.isArray(nodeInfo.errors) ? nodeInfo.errors[0] : null;
+        if (!firstError || typeof firstError !== "object") continue;
+        return {
+            node_id: safeEventScalar(nodeId),
+            node_type: safeEventScalar(nodeInfo.class_type),
+            exception_type: safeEventScalar(firstError.type),
+            exception_message: safeEventScalar(firstError.message),
+            input_name: safeEventScalar(firstError?.extra_info?.input_name),
+        };
+    }
+    return {};
+}
+
+function compactPromptFailure(error) {
+    const data = safeJsonClone(error, {});
+    const topError = data?.error && typeof data.error === "object" ? data.error : {};
+    const nodeErrors = data?.node_errors || topError?.node_errors || {};
+    const firstNodeError = getFirstNodeError(nodeErrors);
+    const messageParts = [
+        firstNodeError.exception_message,
+        firstNodeError.input_name ? `input: ${firstNodeError.input_name}` : "",
+    ].filter(Boolean);
+    const result = compactExecutionError({
+        prompt_id: data?.prompt_id,
+        node_id: firstNodeError.node_id,
+        node_type: firstNodeError.node_type,
+        exception_type:
+            firstNodeError.exception_type ||
+            safeEventScalar(topError?.type) ||
+            safeEventScalar(data?.type) ||
+            safeEventScalar(error?.name) ||
+            "PromptError",
+        exception_message:
+            messageParts.join(" / ") ||
+            safeEventScalar(topError?.message) ||
+            safeEventScalar(data?.message) ||
+            safeEventScalar(error?.message) ||
+            "Prompt failed before execution.",
+        received_at: new Date().toISOString(),
+        frontend_origin: String(window.location?.origin || ""),
+    });
+    return result;
+}
+
+function setSosStatus(text) {
+    if (sosStatusEl) sosStatusEl.textContent = text;
+}
+
+function applySosIconState() {
+    const hasError = Boolean(lastExecutionError);
+    if (iconImgEl) iconImgEl.src = hasError ? ERROR_ICON_URL : ICON_URL;
+    rootEl?.classList.toggle("deno-floating-tools-sos-error", hasError);
+    setSosStatus(hasError ? "Error detected" : "Ready");
+    if (sosButtonEl) {
+        sosButtonEl.title = hasError
+            ? "Copy the latest error and this ComfyUI environment for GPT/Gemini."
+            : "Copy this ComfyUI environment for GPT/Gemini.";
+    }
+}
+
+function markSosErrorSticky() {
+    sosErrorStickyUntil = Date.now() + SOS_ERROR_AUTO_CLEAR_GRACE_MS;
+}
+
+function rememberExecutionError(detail) {
+    lastExecutionError = compactExecutionError({
+        ...safeJsonClone(detail, {}),
+        received_at: new Date().toISOString(),
+        frontend_origin: String(window.location?.origin || ""),
+    });
+    markSosErrorSticky();
+    applySosIconState();
+}
+
+function rememberPromptFailure(error) {
+    lastExecutionError = compactPromptFailure(error);
+    markSosErrorSticky();
+    applySosIconState();
+}
+
+function summarizePromptValidationText(text) {
+    const compact = String(text || "").replace(/\s+/g, " ").trim();
+    if (!compact) return "";
+    const hasErrorHeader = /\b\d+\s+ERRORS?\b|\bERRORS?\b/i.test(compact);
+    const hasPromptFailure = /Required input is missing|See Errors|Prompt outputs failed validation|Failed to validate prompt|invalid input|missing input/i.test(compact);
+    if (!hasErrorHeader || !hasPromptFailure) return "";
+    return compact.slice(0, 260);
+}
+
+function rememberFrontendPromptFailure(text) {
+    const summary = summarizePromptValidationText(text);
+    if (!summary) return false;
+    const now = Date.now();
+    const signature = summary.slice(0, 160);
+    if (signature === lastPromptFailureSignature && now - lastPromptFailureAt < 3000) {
+        if (!lastExecutionError) {
+            rememberPromptFailure({
+                type: "frontend_validation_error",
+                message: summary,
+                error: {
+                    type: "frontend_validation_error",
+                    message: summary,
+                },
+            });
+        } else {
+            applySosIconState();
+        }
+        return true;
+    }
+    lastPromptFailureSignature = signature;
+    lastPromptFailureAt = now;
+    rememberPromptFailure({
+        type: "frontend_validation_error",
+        message: summary,
+        error: {
+            type: "frontend_validation_error",
+            message: summary,
+        },
+    });
+    return true;
+}
+
+function promptFailureTextFromValue(value, depth = 0) {
+    if (depth > 2 || value === null || value === undefined) return "";
+    if (["string", "number", "boolean"].includes(typeof value)) return String(value);
+    if (Array.isArray(value)) {
+        return value.slice(0, 8).map((item) => promptFailureTextFromValue(item, depth + 1)).filter(Boolean).join(" ");
+    }
+    if (typeof value !== "object") return "";
+    return [
+        value.summary,
+        value.detail,
+        value.message,
+        value.title,
+        value.description,
+        value.content,
+        value.error,
+        value.errors,
+    ].map((item) => promptFailureTextFromValue(item, depth + 1)).filter(Boolean).join(" ");
+}
+
+function rememberPromptFailureFromArgs(args) {
+    return rememberFrontendPromptFailure(Array.from(args || []).map((item) => promptFailureTextFromValue(item)).filter(Boolean).join(" "));
+}
+
+function installSosToastHooks() {
+    if (sosToastHooksInstalled) return true;
+    const toast = app?.extensionManager?.toast;
+    if (!toast || typeof toast !== "object") return false;
+    let installed = false;
+    for (const methodName of ["add", "addAlert"]) {
+        if (typeof toast[methodName] !== "function" || toast[methodName].__denoSosWrapped) continue;
+        const original = toast[methodName];
+        const wrapped = function denoFloatingToolsToastHook() {
+            rememberPromptFailureFromArgs(arguments);
+            return original.apply(this, arguments);
+        };
+        wrapped.__denoSosWrapped = true;
+        toast[methodName] = wrapped;
+        installed = true;
+    }
+    sosToastHooksInstalled = installed;
+    return installed;
+}
+
+function scheduleSosToastHooks() {
+    if (installSosToastHooks() || sosToastHookTimer) return;
+    let attempts = 0;
+    sosToastHookTimer = window.setInterval(() => {
+        attempts += 1;
+        if (installSosToastHooks() || attempts >= 80) {
+            window.clearInterval(sosToastHookTimer);
+            sosToastHookTimer = null;
+        }
+    }, 125);
+}
+
+function clearExecutionErrorState(options = {}) {
+    const force = options === true || options?.force === true;
+    if (!force && lastExecutionError && Date.now() < sosErrorStickyUntil) {
+        applySosIconState();
+        return false;
+    }
+    lastExecutionError = null;
+    sosErrorStickyUntil = 0;
+    applySosIconState();
+    return true;
+}
+
+function isPromptApiPath(path) {
+    const raw = String(path || "");
+    if (!raw) return false;
+    try {
+        return new URL(raw, window.location?.origin || "http://127.0.0.1").pathname.endsWith("/prompt");
+    } catch (_error) {
+        return raw.endsWith("/prompt");
+    }
+}
+
+function installSosPromptFailureHooks() {
+    if (!sosPromptApiWrapped && typeof api?.fetchApi === "function") {
+        const originalFetchApi = api.fetchApi;
+        api.fetchApi = async function denoFloatingToolsFetchApi(path, options) {
+            const response = await originalFetchApi.apply(this, arguments);
+            if (isPromptApiPath(path) && response && response.ok === false) {
+                response.clone?.().json?.()
+                    .then((data) => rememberPromptFailure(data))
+                    .catch(() => rememberPromptFailure({ message: `Prompt request failed: HTTP ${response.status}` }));
+            }
+            return response;
+        };
+        sosPromptApiWrapped = true;
+    }
+
+    if (!sosQueuePromptWrapped && typeof app?.queuePrompt === "function") {
+        const originalQueuePrompt = app.queuePrompt;
+        app.queuePrompt = async function denoFloatingToolsQueuePrompt() {
+            try {
+                return await originalQueuePrompt.apply(this, arguments);
+            } catch (error) {
+                rememberPromptFailure(error);
+                throw error;
+            }
+        };
+        sosQueuePromptWrapped = true;
+    }
+}
+
+function promptFailureTextFromNode(node) {
+    if (!node) return "";
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    return node.innerText || node.textContent || "";
+}
+
+function inspectPromptFailureAlerts() {
+    const selectors = [
+        "[role='alert']",
+        "[class*='toast']",
+        "[class*='Toast']",
+        "[class*='error']",
+        "[class*='Error']",
+        ".p-toast",
+        ".p-dialog",
+    ];
+    const elements = Array.from(document.querySelectorAll(selectors.join(","))).slice(-40);
+    for (const element of elements) {
+        if (rememberFrontendPromptFailure(promptFailureTextFromNode(element))) return true;
+    }
+    return false;
+}
+
+function installSosValidationObserver() {
+    if (sosValidationObserver || typeof MutationObserver !== "function" || !document?.body) return;
+    sosValidationObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes || []) {
+                if (rememberFrontendPromptFailure(promptFailureTextFromNode(node))) return;
+            }
+            if (rememberFrontendPromptFailure(promptFailureTextFromNode(mutation.target))) return;
+            if (rememberFrontendPromptFailure(promptFailureTextFromNode(mutation.target?.parentElement))) return;
+        }
+        window.requestAnimationFrame?.(inspectPromptFailureAlerts);
+    });
+    sosValidationObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+    });
+}
+
+async function fetchOptionalJson(path) {
+    try {
+        const response = await api.fetchApi(path, { cache: "no-store" });
+        if (!response.ok) return { error: `HTTP ${response.status}` };
+        return await response.json();
+    } catch (error) {
+        return { error: String(error?.message || error || "request failed") };
+    }
+}
+
+function currentWorkflowSnapshot() {
+    const serialized = app?.graph?.serialize?.();
+    return safeJsonClone(serialized, null);
+}
+
+function compactHistoryErrors(history) {
+    if (!history || typeof history !== "object") return [];
+    const errors = [];
+    const entries = Object.entries(history).slice(-8);
+    for (const [promptId, item] of entries) {
+        const messages = Array.isArray(item?.status?.messages) ? item.status.messages : [];
+        for (const message of messages) {
+            if (!Array.isArray(message) || message.length < 2) continue;
+            const [eventName, eventData] = message;
+            if (eventName !== "execution_error") continue;
+            errors.push(compactExecutionError(eventData, promptId));
+        }
+    }
+    return errors.slice(-5);
+}
+
+function compactQueue(queue) {
+    const running = Array.isArray(queue?.queue_running) ? queue.queue_running : [];
+    const pending = Array.isArray(queue?.queue_pending) ? queue.queue_pending : [];
+    const compactItem = (item) => {
+        if (Array.isArray(item)) {
+            return {
+                number: item.length > 0 && ["string", "number", "boolean"].includes(typeof item[0]) ? item[0] : null,
+                prompt_id: item.length > 1 && item[1] != null ? String(item[1]) : "",
+            };
+        }
+        if (item && typeof item === "object") {
+            return {
+                number: ["string", "number", "boolean"].includes(typeof item.number) ? item.number : null,
+                prompt_id: item.prompt_id != null ? String(item.prompt_id) : (item.id != null ? String(item.id) : ""),
+            };
+        }
+        return {};
+    };
+    return {
+        running_count: running.length,
+        pending_count: pending.length,
+        running: running.slice(0, 3).map(compactItem),
+        pending: pending.slice(0, 5).map(compactItem),
+    };
+}
+
+async function buildSosPayload() {
+    const [systemStats, queue, history] = await Promise.all([
+        fetchOptionalJson("/system_stats"),
+        fetchOptionalJson("/queue"),
+        fetchOptionalJson("/history?max_items=10"),
+    ]);
+    return {
+        include_workflow: true,
+        workflow: currentWorkflowSnapshot(),
+        last_error: lastExecutionError ? compactExecutionError(lastExecutionError) : null,
+        system_stats: systemStats,
+        queue: compactQueue(queue),
+        history_errors: compactHistoryErrors(history),
+        frontend: {
+            origin: String(window.location?.origin || ""),
+            language: String(window.navigator?.language || ""),
+            languages: Array.isArray(window.navigator?.languages) ? Array.from(window.navigator.languages).map(String) : [],
+        },
+    };
+}
+
+function selectTextareaForCopy(textarea) {
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    textarea.setSelectionRange?.(0, textarea.value.length);
+}
+
+function copyTextFromTextarea(textarea) {
+    try {
+        selectTextareaForCopy(textarea);
+        return document.execCommand?.("copy") === true;
+    } catch (_error) {
+        return false;
+    }
+}
+
+async function copyTextFromManualButton(textarea) {
+    if (copyTextFromTextarea(textarea)) return true;
+    try {
+        if (window.navigator?.clipboard?.writeText) {
+            await window.navigator.clipboard.writeText(String(textarea.value || ""));
+            return true;
+        }
+    } catch (_error) {
+        // Keep the report selected so Ctrl+C still works if the browser blocks clipboard access.
+    }
+    try {
+        selectTextareaForCopy(textarea);
+    } catch (_error) {
+        // Ignore selection failures; the visible report remains available.
+    }
+    return false;
+}
+
+function showManualCopy(text) {
+    document.querySelector(".deno-floating-tools-manual-copy")?.remove();
+    const box = document.createElement("div");
+    box.className = "deno-floating-tools-manual-copy";
+    box.addEventListener("pointerdown", (event) => event.stopPropagation());
+    box.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+
+    const header = document.createElement("div");
+    header.className = "deno-floating-tools-report-header";
+    const title = document.createElement("div");
+    title.className = "deno-floating-tools-report-title";
+    title.textContent = "Error Report";
+    const headerCloseButton = makeButton("X", "deno-floating-tools-report-close");
+    headerCloseButton.title = "Close";
+    headerCloseButton.addEventListener("click", () => box.remove());
+    header.append(title, headerCloseButton);
+
+    const textarea = document.createElement("textarea");
+    textarea.value = String(text || "");
+    textarea.setAttribute("readonly", "readonly");
+
+    const actionRow = document.createElement("div");
+    actionRow.className = "deno-floating-tools-manual-copy-actions";
+    const copyButton = makeButton("Copy Report", "deno-floating-tools-action");
+    copyButton.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (await copyTextFromManualButton(textarea)) {
+            clearExecutionErrorState({ force: true });
+            setSosStatus("Copied");
+            box.remove();
+            return;
+        }
+        setSosStatus("Select text and copy");
+    });
+
+    const closeButton = makeButton("Close", "deno-floating-tools-action secondary");
+    closeButton.addEventListener("click", () => box.remove());
+    actionRow.append(copyButton, closeButton);
+
+    box.append(header, textarea, actionRow);
+    document.body.appendChild(box);
+    selectTextareaForCopy(textarea);
+}
+
+async function copySosReport() {
+    if (sosBusy) return;
+    sosBusy = true;
+    if (sosButtonEl) sosButtonEl.disabled = true;
+    setSosStatus("Collecting");
+    try {
+        const payload = await buildSosPayload();
+        const response = await api.fetchApi("/deno/sos/report", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const report = String(data?.report || "");
+        if (!report.trim()) throw new Error("empty report");
+        setSosStatus("Ready to copy");
+        showManualCopy(report);
+    } catch (error) {
+        setSosStatus("Failed");
+        if (sosButtonEl) {
+            sosButtonEl.title = String(error?.message || error || "Error help copy failed.");
+        }
+    } finally {
+        sosBusy = false;
+        if (sosButtonEl) sosButtonEl.disabled = false;
     }
 }
 
@@ -857,12 +1524,12 @@ function createToolsRoot() {
     const orb = makeButton("", "deno-floating-tools-orb");
     orb.title = "DENO Tools";
     orb.setAttribute("aria-label", "DENO Tools");
-    const img = document.createElement("img");
-    img.src = ICON_URL;
-    img.alt = "";
+    iconImgEl = document.createElement("img");
+    iconImgEl.src = lastExecutionError ? ERROR_ICON_URL : ICON_URL;
+    iconImgEl.alt = "";
     updateBadgeEl = document.createElement("span");
     updateBadgeEl.className = "deno-floating-tools-update-badge";
-    orb.append(img);
+    orb.append(iconImgEl);
 
     panelEl = document.createElement("div");
     panelEl.className = "deno-floating-tools-panel";
@@ -887,6 +1554,26 @@ function createToolsRoot() {
     const note = document.createElement("div");
     note.className = "deno-floating-tools-note";
     note.textContent = "Unloads ComfyUI models and clears memory cache.";
+
+    const sosSection = document.createElement("div");
+    sosSection.className = "deno-floating-tools-section deno-floating-tools-sos-section";
+
+    const sosTitle = document.createElement("div");
+    sosTitle.className = "deno-floating-tools-section-title";
+    sosTitle.textContent = "Error Help";
+    sosStatusEl = document.createElement("span");
+    sosStatusEl.className = "deno-floating-tools-update-status";
+    sosStatusEl.textContent = lastExecutionError ? "Error detected" : "Ready";
+    sosTitle.appendChild(sosStatusEl);
+
+    sosButtonEl = makeButton("Copy Error Report", "deno-floating-tools-action deno-floating-tools-sos-action");
+    sosButtonEl.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        copySosReport();
+    });
+
+    sosSection.append(sosTitle, sosButtonEl);
 
     const updateSection = document.createElement("div");
     updateSection.className = "deno-floating-tools-section";
@@ -915,10 +1602,11 @@ function createToolsRoot() {
 
     updateSection.append(updateTitle, updateButtonEl, updateDetailsEl, updateHintEl);
 
-    panelEl.append(title, freeButtonEl, note, updateSection);
+    panelEl.append(title, freeButtonEl, note, sosSection, updateSection);
     rootEl.append(orb, updateBadgeEl, panelEl);
     document.body.appendChild(rootEl);
     applyPosition(readSavedPosition(), false);
+    applySosIconState();
     initializeUpdateWatch();
 
     orb.addEventListener("pointerdown", beginDrag);
@@ -945,12 +1633,16 @@ function destroyToolsRoot() {
     panelEl = null;
     statusEl = null;
     freeButtonEl = null;
+    iconImgEl = null;
+    sosButtonEl = null;
+    sosStatusEl = null;
     updateBadgeEl = null;
     updateButtonEl = null;
     updateStatusEl = null;
     updateDetailsEl = null;
     updateHintEl = null;
     dragState = null;
+    document.querySelector(".deno-floating-tools-manual-copy")?.remove();
 }
 
 function beginDrag(event) {
@@ -1020,6 +1712,20 @@ function updateToolsVisibility(value) {
     }
 }
 
+function installSosEventListeners() {
+    if (sosEventListenersInstalled) return;
+    sosEventListenersInstalled = true;
+    api?.addEventListener?.("execution_error", (event) => {
+        rememberExecutionError(event?.detail || {});
+    });
+    api?.addEventListener?.("execution_start", () => {
+        clearExecutionErrorState();
+    });
+    api?.addEventListener?.("execution_success", () => {
+        clearExecutionErrorState({ force: true });
+    });
+}
+
 app.registerExtension({
     name: EXTENSION_NAME,
     settings: [
@@ -1034,6 +1740,10 @@ app.registerExtension({
         },
     ],
     setup() {
+        installSosEventListeners();
+        installSosPromptFailureHooks();
+        scheduleSosToastHooks();
+        installSosValidationObserver();
         queueMicrotask(updateToolsVisibility);
     },
 });

@@ -142,7 +142,7 @@ Helper para segundas passagens de video latent LTX em alta resolução. Ele divi
 
 Use em latents LTX somente de vídeo. Se o workflow carregar video/audio combinados, separe o caminho de áudio primeiro e junte novamente depois do passe tiled de vídeo.
 
-### `(Deno) LTX AV Step-Fused Tiled Sampler`
+### `(Deno) LTX High resolution Tiled Sampler`
 
 Sampler para passes de refinement LTX AV. Ele mantém uma trajetória global do sampler enquanto as predições de vídeo são avaliadas por spatial tiles sobrepostos e fundidas antes do update.
 
@@ -199,7 +199,7 @@ Esses nós reduzem atritos repetidos no trabalho real com ComfyUI. O objetivo n�
 
 ## Search Tips
 
-Você pode pesquisar por `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `update watch`, `portable update check`.
+Você pode pesquisar por `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `update watch`, `portable update check`, `error help`, `comfyui error help`, `sos report`, `gpt gemini report`, `workflow diagnostics`.
 
 ## Install
 

@@ -142,7 +142,7 @@ Ayudante para segundas pasadas de video latent LTX en alta resolución. Divide e
 
 Úsalo con latents LTX solo de video. Si el workflow lleva video/audio combinados, separa primero el audio y vuelve a unirlo después del pase de video tiled.
 
-### `(Deno) LTX AV Step-Fused Tiled Sampler`
+### `(Deno) LTX High resolution Tiled Sampler`
 
 Sampler para pases de refinement LTX AV. Mantiene una trayectoria global de sampler mientras calcula y fusiona las predicciones de video por spatial tiles superpuestos.
 
@@ -199,7 +199,7 @@ Estos nodos reducen la fricción repetida en trabajos reales con ComfyUI. El obj
 
 ## Search Tips
 
-Puedes buscar `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `update watch`, `portable update check`.
+Puedes buscar `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `update watch`, `portable update check`, `error help`, `comfyui error help`, `sos report`, `gpt gemini report`, `workflow diagnostics`.
 
 ## Install
 

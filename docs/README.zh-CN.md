@@ -142,7 +142,7 @@ NVIDIA 官方链接：[NVIDIA Maxine Windows Getting Started](https://docs.nvidi
 
 请用于 video-only LTX latent。如果 workflow 中使用的是 video/audio 合并 latent，建议先分离音频路径，再在 tiled video pass 后重新合并。
 
-### `(Deno) LTX AV Step-Fused Tiled Sampler`
+### `(Deno) LTX High resolution Tiled Sampler`
 
 用于 LTX AV refinement pass 的 sampler。它保持一条全局 sampler trajectory，同时通过重叠 spatial tile 计算并融合 video prediction。
 
@@ -199,7 +199,7 @@ Negative preset 不是输出模式，而是自动填充下方 negative prompt �
 
 ## Search Tips
 
-可在 GitHub、ComfyUI Manager 和 Registry 中搜索：`deno custom nodes`、`ideogram`、`ideogram 4`、`ideogram director`、`json prompt`、`bbox`、`bounding boxes`、`layout prompt`、`rtx video super resolution`、`nvidia vfx`、`image compare`、`video compare`、`video preview`、`video to gif`、`gif webp`、`ltx 2.3`、`ltx model loader`、`ltx tiled`、`ltx tiled sampler`、`ltx spatial upscaler`、`ltx multi lora`、`prompt guide`、`system prompt`、`local llm loader`、`local llm prompt`、`local llm reviewer`、`prompt only`、`final prompt`、`bernini`、`bernini prompt guide`、`reference video edit`、`wan2.2`、`visual fold`、`floating tools`、`free vram`、`update watch`、`portable update check`。
+可在 GitHub、ComfyUI Manager 和 Registry 中搜索：`deno custom nodes`、`ideogram`、`ideogram 4`、`ideogram director`、`json prompt`、`bbox`、`bounding boxes`、`layout prompt`、`rtx video super resolution`、`nvidia vfx`、`image compare`、`video compare`、`video preview`、`video to gif`、`gif webp`、`ltx 2.3`、`ltx model loader`、`ltx tiled`、`ltx tiled sampler`、`ltx spatial upscaler`、`ltx multi lora`、`prompt guide`、`system prompt`、`local llm loader`、`local llm prompt`、`local llm reviewer`、`prompt only`、`final prompt`、`bernini`、`bernini prompt guide`、`reference video edit`、`wan2.2`、`visual fold`、`floating tools`、`free vram`、`update watch`、`portable update check`、`error help`、`comfyui error help`、`sos report`、`gpt gemini report`、`workflow diagnostics`。
 
 ## Install
 

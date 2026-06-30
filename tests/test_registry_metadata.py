@@ -88,6 +88,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "LTX 2.3" in description
     assert "Bernini Prompt Guide" in description
     assert "Local LLM Loader and Reviewer" in description
+    assert "GPT/Gemini-ready Error Help reports" in description
     assert "audio/image review gates" in description
     assert "Bernini conditioning" in description
     assert "Wan 2.2" in description
@@ -127,6 +128,11 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "multi-image-loader",
         "visual-fold",
         "floating-tools",
+        "error-help",
+        "comfyui-error-help",
+        "sos-report",
+        "workflow-diagnostics",
+        "gpt-gemini-report",
         "free-vram",
         "update-watch",
         "portable-comfyui",
@@ -162,6 +168,20 @@ def test_manager_node_list_matches_public_node_registration():
     assert "node_list.json" not in comfyignore
     assert "DenoLTX8GBModelDownloader" not in node_list
     assert "DenoRandomPromptBox" not in node_list
+
+
+def test_public_readmes_use_current_ltx_tiled_display_name():
+    current_name = "(Deno) LTX High resolution Tiled Sampler"
+    old_name = "(Deno) LTX AV Step-Fused Tiled Sampler"
+    public_readmes = [README_PATH, *sorted((REPO_ROOT / "docs").glob("README.*.md"))]
+
+    node_list = json.loads(NODE_LIST_PATH.read_text(encoding="utf-8"))
+    assert node_list["DenoLTXAVStepFusedTiledSampler"] == current_name
+
+    for path in public_readmes:
+        text = path.read_text(encoding="utf-8")
+        assert current_name in text
+        assert old_name not in text
 
 
 def test_publish_workflow_exists_and_fails_without_registry_secret():

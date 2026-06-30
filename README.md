@@ -16,7 +16,7 @@ Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
-The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, optional **DENO Floating Tools** for Free VRAM and Portable update checks, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the 한국어 전용 **디스코드용 영상 / 이미지 압축** page.
+The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, optional **DENO Floating Tools** for Free VRAM, Portable update checks, and GPT/Gemini-ready Error Help reports, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the 한국어 전용 **디스코드용 영상 / 이미지 압축** page.
 
 ## Release Notes
 
@@ -46,7 +46,11 @@ This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph
 
 DENO Floating Tools is an optional helper under `Settings > DENO > Tools`. It is off by default.
 
-When enabled, it adds a small draggable DENO icon to the ComfyUI screen. The panel can free ComfyUI VRAM through ComfyUI's built-in memory cleanup endpoint and can show read-only update status for Portable installs. It does not install, update, restart, or change workflows.
+When enabled, it adds a small draggable DENO icon to the ComfyUI screen. The panel can free ComfyUI VRAM through ComfyUI's built-in memory cleanup endpoint, show read-only update status for Portable installs, and open an Error Help report when a run fails.
+
+Error Help creates a GPT/Gemini-ready report with the current workflow, Python executable and environment type, package versions, GPU details, recent traceback/log context, and custom node summary. It is read-only, opens a report window first, and copies only when you click `Copy Report`. Common secrets such as tokens, cookies, passwords, private keys, and URL credentials are masked before copy.
+
+Floating Tools does not install, update, restart, repair, or modify workflows.
 
 ## Included Nodes
 
@@ -317,7 +321,7 @@ Helper for high-resolution LTX video-latent second passes. It splits each frame 
 
 Use it on video-only LTX latents. If your workflow carries combined video/audio latents, separate the audio path first and rejoin it after the tiled video pass.
 
-### `(Deno) LTX AV Step-Fused Tiled Sampler`
+### `(Deno) LTX High resolution Tiled Sampler`
 
 Sampler for high-resolution LTX AV refinement passes. It keeps one global sampler trajectory while video predictions are evaluated through overlapping spatial tiles and fused before the sampler update.
 
