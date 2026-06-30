@@ -385,7 +385,44 @@ function setLocalLLMNodeState(node, patch) {
 }
 
 function getLocalLLMNodeState(node) {
-    return node?.__denoLocalLLMState || localLLMCachedStateForNode(node) || {};
+    return node?.__denoLocalLLMState || restoreLocalLLMStateFromProperties(node) || localLLMCachedStateForNode(node) || {};
+}
+
+function localLLMProgressStatePatch(node, detail) {
+    const payload = detail || {};
+    const previous = getLocalLLMNodeState(node);
+    const owns = (key) => Object.prototype.hasOwnProperty.call(payload, key);
+    const progressError = String(payload.error || "");
+    const status = String(payload.status || "ready");
+    const rawIndex = Number(payload.index || 0);
+    const rawTotal = Number(payload.total || 0);
+    const hasAnswer = owns("answer");
+    const hasThinking = owns("thinking");
+    const answer = hasAnswer ? String(payload.answer || "") : String(previous?.answer || "");
+    const thinking = hasThinking ? String(payload.thinking || "") : String(previous?.thinking || "");
+    const startsNewRun =
+        !progressError &&
+        status === "running" &&
+        hasAnswer &&
+        hasThinking &&
+        !answer &&
+        !thinking &&
+        (!Number.isFinite(rawIndex) || rawIndex <= 0);
+
+    return {
+        status,
+        provider: owns("provider") ? String(payload.provider || "") : String(previous?.provider || ""),
+        model: owns("model") ? String(payload.model || "") : String(previous?.model || ""),
+        index: Number.isFinite(rawIndex) ? Math.max(0, rawIndex) : 0,
+        total: Number.isFinite(rawTotal) ? Math.max(0, rawTotal) : Number(previous?.total || 0),
+        answer: progressError ? "" : answer,
+        thinking: progressError || startsNewRun
+            ? ""
+            : hasThinking && thinking
+              ? thinking
+              : String(previous?.thinking || ""),
+        error: progressError ? localLLMExecutionErrorMessage({ ...payload, exception_message: progressError }) : "",
+    };
 }
 
 function previewTextDialogKey(node, kind) {
@@ -1497,8 +1534,12 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         persistLocalLLMStateToProperties,
         restoreLocalLLMStateFromProperties,
         sanitizeLocalLLMState,
+        getLocalLLMNodeState,
+        localLLMProgressStatePatch,
         setLocalLLMNodeState,
+        setupNode,
         applyLocalLLMLoaderSavedWidgetValues,
+        getWidget,
         preserveLocalLLMLoaderSavedComboOptions,
         preserveWidgetOption,
         migrateLocalLLMPromptInputNames,
@@ -1550,17 +1591,7 @@ function installProgressListener() {
                 if (!node) {
                     return;
                 }
-                const progressError = String(detail.error || "");
-                setLocalLLMNodeState(node, {
-                    status: String(detail.status || "ready"),
-                    provider: String(detail.provider || ""),
-                    model: String(detail.model || ""),
-                    index: Number(detail.index || 0),
-                    total: Number(detail.total || 0),
-                    answer: progressError ? "" : String(detail.answer || ""),
-                    thinking: String(detail.thinking || ""),
-                    error: progressError ? localLLMExecutionErrorMessage({ ...detail, exception_message: progressError }) : "",
-                });
+                setLocalLLMNodeState(node, localLLMProgressStatePatch(node, detail));
                 markGraphDirty(node);
             });
             eventApi.addEventListener("execution_error", ({ detail }) => {
@@ -2091,6 +2122,8 @@ function setupNode(node) {
         removeLegacyWidgets(node);
         dedupeKnownWidgets(node);
         repairLegacyProviderValues(node);
+        repairSavedWidgetValues(node);
+        applyLocalLLMLoaderSavedWidgetValues(node, node.__denoLocalLLMSavedWidgetValues);
         repairSavedWidgetValues(node);
         restoreLocalLLMStateFromProperties(node);
         const provider = currentProvider(node);
@@ -4104,6 +4137,7 @@ function dedupeKnownWidgets(node) {
         "prompt",
         "thinking",
         "seed",
+        "seed_mode",
         "model_memory",
         "keep_minutes",
         "comfy_vram_policy",

@@ -3059,7 +3059,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "saved model not found" in script
     assert "!currentStillExists" not in script
     assert "installProgressListener" in script
-    assert "progressError = String(detail.error || \"\")" in script
+    assert "function localLLMProgressStatePatch(node, detail)" in script
+    assert "progressError = String(payload.error || \"\")" in script
     assert "exception_message: progressError" in script
     assert 'eventApi.addEventListener("execution_error"' in script
     assert "isLocalLLMOwnExecutionError" in script

@@ -61,10 +61,18 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                     addEventListener() {{}},
                     setTimeout() {{ return 0; }},
                 }},
+                queueMicrotask(callback) {{
+                    callback();
+                }},
                 document: {{
                     addEventListener() {{}},
                     querySelectorAll() {{ return []; }},
                     querySelector() {{ return null; }},
+                }},
+                LiteGraph: {{
+                    NODE_WIDGET_HEIGHT: 24,
+                    WIDGET_BGCOLOR: "#222",
+                    WIDGET_OUTLINE_COLOR: "#555",
                 }},
                 Image: class {{
                     constructor() {{
@@ -119,6 +127,33 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const restoredState = api.restoreLocalLLMStateFromProperties(restoredStateNode);
             assert(restoredState.answer === "saved answer", "Loader state must restore from workflow properties");
             assert(restoredStateNode.__denoLocalLLMState.thinking === "saved thinking", "Restored Loader state must hydrate the visible node state");
+            const lazyRestoredStateNode = {{ id: 145, properties: {{ deno_local_llm_state: stateNode.properties.deno_local_llm_state }} }};
+            assert(api.getLocalLLMNodeState(lazyRestoredStateNode).thinking === "saved thinking", "Loader preview state must lazily restore Thinking from workflow properties");
+            const progressStateNode = {{ id: 146, properties: {{}}, setDirtyCanvas() {{}} }};
+            api.setLocalLLMNodeState(progressStateNode, {{
+                status: "done",
+                provider: "vLLM",
+                model: "Qwen3-VL-2B-Thinking-FP8",
+                answer: "kept answer",
+                thinking: "kept thinking",
+            }});
+            api.setLocalLLMNodeState(progressStateNode, api.localLLMProgressStatePatch(progressStateNode, {{
+                status: "done",
+                provider: "vLLM",
+                model: "Qwen3-VL-2B-Thinking-FP8",
+                answer: "kept answer",
+            }}));
+            assert(api.getLocalLLMNodeState(progressStateNode).thinking === "kept thinking", "Progress updates without Thinking must not wipe the saved Thinking preview");
+            api.setLocalLLMNodeState(progressStateNode, api.localLLMProgressStatePatch(progressStateNode, {{
+                status: "running",
+                provider: "vLLM",
+                model: "Qwen3-VL-2B-Thinking-FP8",
+                index: 0,
+                total: 1,
+                answer: "",
+                thinking: "",
+            }}));
+            assert(api.getLocalLLMNodeState(progressStateNode).thinking === "", "A real new run start must clear old Thinking text");
             const liveDialog = {{
                 overlay: {{ isConnected: true }},
                 kind: "result",
@@ -180,7 +215,31 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 ];
                 return "serialized";
             }};
-            context.capturedExtension.beforeRegisterNodeDef(loaderNodeType, {{ name: "DenoLocalLLMRefiner" }});
+            const loaderNodeData = {{
+                name: "DenoLocalLLMRefiner",
+                input: {{
+                    required: {{
+                        provider: [["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom"], {{ default: "Ollama" }}],
+                        ollama_model: [["gemma3:1b"], {{ default: "gemma3:1b" }}],
+                        lm_studio_model: [["google/gemma-4-e4b"], {{ default: "google/gemma-4-e4b" }}],
+                        custom_server_url: ["STRING", {{ default: "http://127.0.0.1:8000/v1" }}],
+                        custom_model: ["STRING", {{ default: "" }}],
+                        system_prompt: ["STRING", {{ default: "" }}],
+                        thinking: ["BOOLEAN", {{ default: false }}],
+                        seed: ["INT", {{ default: 1 }}],
+                        seed_mode: [["fixed", "randomize", "increment", "decrement"], {{ default: "fixed" }}],
+                        model_memory: [["Unload after run", "Keep loaded"], {{ default: "Unload after run" }}],
+                        keep_minutes: ["INT", {{ default: 5 }}],
+                        comfy_vram_policy: [[
+                            "Auto: unload only before first LLM call",
+                            "Always unload before each LLM call",
+                            "Never unload before LLM call",
+                        ], {{ default: "Auto: unload only before first LLM call" }}],
+                        prompt: ["STRING", {{ default: "" }}],
+                    }},
+                }},
+            }};
+            context.capturedExtension.beforeRegisterNodeDef(loaderNodeType, loaderNodeData);
             const configuredLoader = new loaderNodeType();
             configuredLoader.id = 46;
             configuredLoader.type = "DenoLocalLLMRefiner";
@@ -356,6 +415,66 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(normalizedVllmButtonsAfterCustomModel[6] === true, "Loader vLLM button-after-custom-model values must preserve Thinking");
             assert(normalizedVllmButtonsAfterCustomModel[7] === 42, "Loader vLLM button-after-custom-model values must preserve seed");
             assert(normalizedVllmButtonsAfterCustomModel[12] === "Prompt text", "Loader vLLM button-after-custom-model values must preserve prompt");
+            function makeCopiedLoaderNode(id) {{
+                const node = {{
+                    id,
+                    type: "DenoLocalLLMRefiner",
+                    title: "DenoLocalLLMRefiner",
+                    graph,
+                    widgets: [
+                        {{ name: "provider", label: "Provider", type: "combo", value: "Ollama", options: {{ values: ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom"] }} }},
+                        {{ name: "ollama_model", label: "Ollama Model", type: "combo", value: "gemma3:1b", options: {{ values: ["gemma3:1b"] }} }},
+                        {{ name: "lm_studio_model", label: "LM Studio Model", type: "combo", value: "google/gemma-4-e4b", options: {{ values: ["google/gemma-4-e4b"] }} }},
+                        {{ name: "custom_server_url", label: "Server URL", type: "text", value: "http://127.0.0.1:8000/v1" }},
+                        {{ name: "thinking", label: "Thinking", type: "toggle", value: false }},
+                        {{ name: "seed", label: "Seed", type: "number", value: 1 }},
+                        {{ name: "seed_mode", label: "Seed Mode", type: "combo", value: "fixed", options: {{ values: ["fixed", "randomize", "increment", "decrement"] }} }},
+                        {{ name: "model_memory", label: "Model After Run", type: "combo", value: "Unload after run", options: {{ values: ["Unload after run", "Keep loaded"] }} }},
+                        {{ name: "keep_minutes", label: "Keep Minutes", type: "number", value: 5 }},
+                        {{ name: "comfy_vram_policy", label: "Unload ComfyUI Models Setting", type: "combo", value: "Auto: unload only before first LLM call", options: {{ values: ["Auto: unload only before first LLM call", "Always unload before each LLM call", "Never unload before LLM call"] }} }},
+                        {{ name: "prompt", label: "Prompt", type: "text", value: "" }},
+                    ],
+                    inputs: [],
+                    outputs: [{{ name: "result", type: "STRING", links: [] }}],
+                    properties: {{
+                        deno_local_llm_state: {{
+                            status: "done",
+                            provider: "vLLM",
+                            model: "Qwen3-VL-2B-Thinking-FP8",
+                            answer: "copied answer",
+                            thinking: "copied thinking",
+                        }},
+                    }},
+                    size: [560, 320],
+                    addWidget(type, label, value, callback, options = {{}}) {{
+                        const widget = {{ type, label, name: label, value, callback, options: {{ ...options }} }};
+                        this.widgets.push(widget);
+                        return widget;
+                    }},
+                    addCustomWidget(widget) {{
+                        this.widgets.push(widget);
+                        return widget;
+                    }},
+                    setSize(size) {{
+                        this.size = size;
+                    }},
+                    computeSize() {{
+                        return [560, 340];
+                    }},
+                    setDirtyCanvas() {{}},
+                }};
+                return node;
+            }}
+            const copiedLoaderNode = makeCopiedLoaderNode(148);
+            copiedLoaderNode.__denoLocalLLMSavedWidgetValues = [...normalizedVllmButtonsAfterCustomModel];
+            api.setupNode(copiedLoaderNode);
+            assert(api.getWidget(copiedLoaderNode, "provider").value === "vLLM", "Loader copy/paste setup must restore the saved provider");
+            assert(api.getWidget(copiedLoaderNode, "custom_model").value === "Qwen3-VL-2B-Thinking-FP8", "Loader copy/paste setup must restore a late-created custom model widget");
+            assert(api.getWidget(copiedLoaderNode, "system_prompt").value === "Return only the final prompt.", "Loader copy/paste setup must restore a late-created system prompt widget");
+            assert(api.getWidget(copiedLoaderNode, "thinking").value === true, "Loader copy/paste setup must restore Thinking On");
+            assert(api.getWidget(copiedLoaderNode, "seed").value === 42, "Loader copy/paste setup must restore the saved seed");
+            assert(api.getWidget(copiedLoaderNode, "prompt").value === "Prompt text", "Loader copy/paste setup must restore the saved prompt text");
+            assert(api.getLocalLLMNodeState(copiedLoaderNode).thinking === "copied thinking", "Loader copy/paste setup must restore saved Thinking preview state");
             const staleFirstRunNode = {{
                 widgets: [
                     {{ name: "provider", value: "Ollama", options: {{ values: ["Ollama", "LM Studio"] }} }},
