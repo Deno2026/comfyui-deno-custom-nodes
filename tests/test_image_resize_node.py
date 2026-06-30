@@ -3,6 +3,8 @@ import hashlib
 import inspect
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -305,11 +307,10 @@ def test_ltx_tiled_tile_controls_use_readable_frame_labels():
         assert required["vertical_tiles"][1]["display_name"] == "Frame height split count"
         assert required["vertical_tiles"][1]["default"] == 2
         assert optional["aggressive_memory_cleanup"][1]["default"] is True
-
-    av_optional = package.NODE_CLASS_MAPPINGS["DenoLTXAVStepFusedTiledSampler"].INPUT_TYPES()["optional"]
-    assert "fusion_safety_mode" not in av_optional
-    assert "fusion_safety_strength" not in av_optional
-    assert "debug_fusion_stats" not in av_optional
+        if node_id == "DenoLTXAVStepFusedTiledSampler":
+            assert "fusion_safety_mode" not in optional
+            assert "fusion_safety_strength" not in optional
+            assert "debug_fusion_stats" not in optional
 
 
 def test_ltx_tiled_node_help_markdown_uses_readable_frame_labels():
@@ -327,9 +328,12 @@ def test_ltx_tiled_node_help_markdown_uses_readable_frame_labels():
         assert "horizontal_tiles" not in text
         assert "vertical_tiles" not in text
         assert "fusion_safety" not in text
-
-    en_av_help = (REPO_ROOT / "web/js/docs/DenoLTXAVStepFusedTiledSampler.md").read_text(encoding="utf-8")
-    ko_av_help = (REPO_ROOT / "web/js/docs/DenoLTXAVStepFusedTiledSampler/ko.md").read_text(encoding="utf-8")
+    en_av_help = (
+        REPO_ROOT / "web/js/docs/DenoLTXAVStepFusedTiledSampler.md"
+    ).read_text(encoding="utf-8")
+    ko_av_help = (
+        REPO_ROOT / "web/js/docs/DenoLTXAVStepFusedTiledSampler/ko.md"
+    ).read_text(encoding="utf-8")
     assert "-> LTXVSeparateAVLatent\n-> LTXVCropGuides on the video latent" in en_av_help
     assert "-> LTXVSeparateAVLatent\n-> video latent" in ko_av_help
     assert "-> (Deno) LTX High resolution Tiled Sampler\n-> LTXVCropGuides" not in en_av_help
@@ -488,7 +492,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.22-import-same-sig-guard-a"' in script
+    assert 'IDD_REV = "r2026.06.30-generate-target-a"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
@@ -523,6 +527,20 @@ def test_ideogram_director_recreate_node_restores_default_size_when_small():
     assert "marked && !recreatedTooSmall" in script
     assert ": [IDD_DEFAULT_W, IDD_DEFAULT_H];" in script
     assert "layoutStage(); fitTopBarAfterRestore();" in script
+
+
+def test_ideogram_director_backdrop_fit_ref_keeps_output_stage_as_authority():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert 'const bdFitRefBtn = el("button", "idd-bdfit")' in script
+    assert 'bdFitRefBtn.textContent = "Fit Ref"' in script
+    assert "function fitOutputToReferenceRatio()" in script
+    assert "dimsFor(bdrop.naturalWidth, bdrop.naturalHeight, currentMp)" in script
+    assert "function hasLoadedBackdrop()" in script
+    assert "placeRect(ov, srect);   // boxes always follow the committed output canvas unless Fit Ref changes that canvas" in script
+    assert "const overlayRect = hasVisibleResult() ? srect : (hasLoadedBackdrop() && brect ? brect : srect);" not in script
+    assert "userSet: hadUserSet ? !!raw.userSet : !!raw.set" in script
+    assert "bdT.userSet = true;" in script
 
 
 def test_ideogram_director_bbox_number_badge_is_primary_drag_handle():
@@ -584,6 +602,17 @@ def test_ideogram_director_elements_list_is_front_to_back_without_reversing_outp
     assert "row.title = elementListTitle(b, i)" in script
     assert "t.title = row.title" in script
     assert "Click to select. Double-click to edit this element." not in script
+    assert 'const elemHead = el("div", "idd-sechead");' in script
+    assert 'const addBboxBtn = mkBtn("+BBOX")' in script
+    assert 'addBboxBtn.title = "Add a new BBOX at the center of the board";' in script
+    assert ".idd-sechead{display:flex;align-items:center;justify-content:space-between;gap:8px;" in script
+    assert ".idd-addbbox{padding:3px 8px !important;" in script
+    assert "function paintBoardEmptyHint()" in script
+    assert 'board.classList.toggle("empty", !boxes.length && !hasBackdrop && !hasResult);' in script
+    assert "function addCenteredBox()" in script
+    assert 'addBboxBtn.onclick = (e) => { e.stopPropagation(); addCenteredBox(); };' in script
+    assert "paintBoardEmptyHint();" in script
+    assert 'e0.textContent = "Drag on the board or use +BBOX";' in script
     assert "const frontFirst = boxes.slice().reverse().filter((x) => x.id !== movingId);" in script
     assert "frontFirst.splice(target + (elementDropAfter(e, row) ? 1 : 0), 0, moving);" in script
     assert "boxes = frontFirst.reverse();" in script
@@ -641,8 +670,193 @@ def test_ideogram_director_history_and_translate_refresh_buttons_are_wired():
     assert 'translateBoardToViewLanguage("auto")' in script
     assert "function translateCaptionViaRoute" in script
     assert "function openTranslationFallbackDialog" in script
-    assert 'top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, regen);' in script
+    assert 'top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, targetBtn, regen);' in script
     assert 'api.fetchApi("/deno/ideogram_director/translate_board"' not in script
+
+
+def test_ideogram_director_generate_target_uses_native_partial_execution_without_widget_shift():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert 'const targetBtn = mkBtn("All")' in script
+    assert 'targetBtn.classList.add("idd-targetbtn")' in script
+    assert 'const TARGET_PROP = "idd_regen_target";' in script
+    assert 'props[TARGET_PROP] = { mode: "node", nodeId: String(state.nodeId), title: state.title || "" };' in script
+    assert 'top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, targetBtn, regen);' in script
+
+    assert "async function queueDirectorPrompt()" in script
+    assert "await app.queuePrompt(0, 1, targetIds);" in script
+    assert "else await app.queuePrompt(0);" in script
+    assert "await queueDirectorPrompt();" in script
+
+    assert "function shouldAcceptResultForTarget(detail)" in script
+    assert "eventNodeIds(detail).has(String(selected.id))" in script
+    assert "shouldAcceptResult: (detail) => shouldAcceptResultForTarget(detail)," in script
+
+    assert "Target output is missing." in script
+    assert "Choose All outputs or select a current Preview/Save output before generating." in script
+
+
+def test_ideogram_director_generate_target_filters_fake_graph_outputs():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node runtime not available")
+
+    harness = r"""
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
+
+const repo = process.argv[1];
+const source = fs
+  .readFileSync(path.join(repo, "web/js/deno_ideogram_director.js"), "utf8")
+  .replaceAll("import.meta.url", "\"file:///deno_ideogram_director.js\"");
+let helpers = null;
+const app = {
+  api: { addEventListener() {} },
+  registerExtension() {},
+  graph: null,
+  rootGraph: null,
+};
+const classList = { add() {}, remove() {}, toggle() {} };
+const document = {
+  createElement() {
+    return {
+      classList,
+      style: {},
+      dataset: {},
+      children: [],
+      append(...children) { this.children.push(...children); },
+      appendChild(child) { this.children.push(child); return child; },
+      addEventListener() {},
+      removeEventListener() {},
+      setAttribute() {},
+      remove() {},
+    };
+  },
+  getElementById() { return null; },
+  head: { appendChild() {} },
+  body: { appendChild() {}, removeChild() {} },
+  addEventListener() {},
+  removeEventListener() {},
+};
+const windowObj = {
+  comfyAPI: { app: { app } },
+  __DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__(api) { helpers = api; },
+  addEventListener() {},
+  removeEventListener() {},
+  setTimeout() {},
+  clearTimeout() {},
+  LiteGraph: { NEVER: 4 },
+};
+const context = {
+  console,
+  document,
+  URL,
+  window: windowObj,
+  setTimeout() {},
+  clearTimeout() {},
+  ResizeObserver: class { observe() {} disconnect() {} },
+  MutationObserver: class { observe() {} disconnect() {} },
+};
+context.globalThis = context;
+vm.createContext(context);
+vm.runInContext(source, context, { filename: "deno_ideogram_director.js" });
+if (!helpers) throw new Error("Ideogram Director test hook was not installed");
+
+function outputNode(id, title = "Preview Image") {
+  return {
+    id,
+    title,
+    outputs: [],
+    properties: {},
+    constructor: { nodeData: { output_node: true }, title },
+  };
+}
+function normalNode(id) {
+  return {
+    id,
+    title: "Middle",
+    outputs: [{ links: [102] }],
+    properties: {},
+    constructor: { nodeData: { output_node: false } },
+  };
+}
+function makeGraph({ connectDirector = true, connectMiddle = true } = {}) {
+  const director = {
+    id: 1,
+    title: "Director",
+    outputs: [{ links: connectDirector ? [101] : [] }],
+    properties: {},
+    constructor: { nodeData: { output_node: false } },
+  };
+  const mid = normalNode(2);
+  const downstream = outputNode(3);
+  const unrelated = outputNode(9, "Unrelated Save");
+  const links = {};
+  if (connectDirector) links[101] = { id: 101, origin_id: 1, target_id: 2 };
+  if (connectMiddle) links[102] = { id: 102, origin_id: 2, target_id: 3 };
+  const nodes = [director, mid, downstream, unrelated];
+  const graph = {
+    _nodes: nodes,
+    links,
+    getNodeById(id) { return nodes.find((node) => String(node.id) === String(id)) || null; },
+  };
+  for (const node of nodes) node.graph = graph;
+  return { graph, director, mid, downstream, unrelated };
+}
+function ids(nodes) {
+  return nodes.map((node) => String(node.id)).sort();
+}
+function check(condition, label) {
+  if (!condition) throw new Error(label);
+}
+function same(actual, expected, label) {
+  const a = JSON.stringify(actual);
+  const e = JSON.stringify(expected);
+  if (a !== e) throw new Error(`${label}: expected ${e}, got ${a}`);
+}
+
+{
+  const { director } = makeGraph();
+  same(ids(helpers.outputTargetNodesForDirector(director)), ["3"], "only downstream output is a target candidate");
+  director.properties.idd_regen_target = { mode: "node", nodeId: "3" };
+  check(helpers.selectedTargetNodeForDirector(director).id === 3, "selected downstream target resolves");
+  check(helpers.shouldAcceptResultForDirectorTarget(director, { node: 3 }), "selected target event is accepted");
+  check(!helpers.shouldAcceptResultForDirectorTarget(director, { node: 9 }), "unrelated output event is rejected");
+}
+{
+  const { director } = makeGraph({ connectDirector: false });
+  same(ids(helpers.outputTargetNodesForDirector(director)), [], "unrelated outputs are not fallback candidates");
+  director.properties.idd_regen_target = { mode: "node", nodeId: "9" };
+  check(helpers.selectedTargetNodeForDirector(director) === null, "saved unrelated target is missing");
+  check(!helpers.shouldAcceptResultForDirectorTarget(director, { node: 9 }), "missing selected target rejects result events");
+}
+{
+  const { director } = makeGraph({ connectMiddle: false });
+  director.properties.idd_regen_target = { mode: "node", nodeId: "3" };
+  same(ids(helpers.outputTargetNodesForDirector(director)), [], "disconnected saved target is not a candidate");
+  check(!helpers.shouldAcceptResultForDirectorTarget(director, { node: 3 }), "disconnected saved target rejects stale events");
+}
+{
+  const { director } = makeGraph({ connectDirector: false });
+  director.properties.idd_regen_target = { mode: "all" };
+  check(helpers.shouldAcceptResultForDirectorTarget(director, { node: 9 }), "all mode keeps legacy result acceptance");
+}
+"""
+    result = subprocess.run([node_bin, "-e", harness, str(REPO_ROOT)], text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_ideogram_director_external_size_inputs_sync_frontend_without_pruning_sockets():
+    script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
+
+    assert "const sz = d.output && d.output.idd_size;" in script
+    assert "n._idd.onSize(sz[sz.length - 1]);" in script
+    assert "function applyExternalSizePayload(payload)" in script
+    assert 'onSize: (p) => { applyExternalSizePayload(p); },' in script
+    assert "const keep = { backdrop: 1, import_json: 1, input_width: 1, input_height: 1, input_megapixels: 1 };" in script
+    assert "setRes(w, h, label, machine);" in script
+    assert "serialize();" in script
 
 
 def test_rtx_vfx_preflight_node_is_not_registered():
@@ -2731,6 +2945,12 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     def fake_list_models(provider, server_url):
         if provider == "LM Studio":
             return [{"id": "lm-studio-model-b", "label": "LM Studio Model B", "loaded": False}]
+        if provider == "llama.cpp":
+            return [{"id": "llama-cpp-model-c", "label": "llama.cpp Model C", "loaded": False}]
+        if provider == "vLLM":
+            return [{"id": "vllm-model-d", "label": "vLLM Model D", "loaded": False}]
+        if provider == "Custom":
+            return [{"id": "custom-model-e", "label": "Custom Model E", "loaded": False}]
         return [{"id": "ollama-model-a", "label": "Ollama Model A", "loaded": False}]
 
     module.list_local_llm_models = fake_list_models
@@ -2749,18 +2969,18 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert node_cls.CATEGORY == "Deno/LLM"
     assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"]) == node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"])
     assert "help rewrite or review prompt text" in node_cls.DESCRIPTION
-    assert "Ollama or LM Studio" in node_cls.DESCRIPTION
+    assert "Ollama, LM Studio, llama.cpp, vLLM, or Custom" in node_cls.DESCRIPTION
     assert "An optional IMAGE input" in node_cls.DESCRIPTION
     assert "connect STRING into Prompt" in node_cls.DESCRIPTION
     assert "AUDIO" not in node_cls.DESCRIPTION
-    assert required["provider"][0] == ["Ollama", "LM Studio"]
+    assert required["provider"][0] == ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom"]
     assert "server_url" not in required
     assert "model" not in required
     assert required["ollama_model"][0] == ["ollama-model-a"]
     assert required["lm_studio_model"][0] == ["lm-studio-model-b"]
     assert required["custom_server_url"][0] == "STRING"
     assert required["custom_server_url"][1]["default"] == "http://127.0.0.1:8000/v1"
-    assert required["custom_model"][0] == [""]
+    assert required["custom_model"][0] == "STRING"
     assert required["system_prompt"][1]["default"] == ""
     assert required["system_prompt"][1]["multiline"] is True
     assert "forceInput" not in required["system_prompt"][1]
@@ -2814,6 +3034,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "isLocalLLMBusyState" in script
     assert "unload blocked" in script
     assert "payload.busy" in script
+    assert "payload?.manual_unavailable" in script
     assert "/deno/local_llm/stop" in script
     assert "/deno/local_llm/unload" in script
     assert "COMFY_VRAM_VALUES" in script
@@ -2870,8 +3091,11 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "denoLocalLLMModelChoicesByProvider" in script
     assert "Ollama Model" in script
     assert "LM Studio Model" in script
+    assert "llama.cpp" in script
+    assert "vLLM" in script
+    assert "Custom" in script
     assert "LEGACY_PROVIDER_CUSTOM" in script
-    assert "Legacy Model" in script
+    assert "Server URL" in script
     assert "custom_server_url" in script
     assert "LEGACY_CUSTOM_DEFAULT_URL" in script
     assert "wrapCustomServerCallback" not in script
@@ -3172,14 +3396,17 @@ def test_local_llm_refiner_processes_prompt_batch_in_one_node_call():
     assert all(call["model"] == "qwen3" for call in calls)
 
 
-def test_local_llm_refiner_passes_image_attachment_to_reviewer_call():
+def test_local_llm_refiner_passes_image_attachments_to_reviewer_call():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
     calls = []
 
-    original_prepare_image = module._prepare_image_attachment
-    module._prepare_image_attachment = lambda image: {"base64": "img64", "data_url": "data:image/jpeg;base64,img64", "width": 10, "height": 20, "sent_width": 10, "sent_height": 20}
+    original_prepare_image = module._prepare_image_attachments
+    module._prepare_image_attachments = lambda image: [
+        {"base64": "img64a", "data_url": "data:image/jpeg;base64,img64a", "width": 10, "height": 20, "sent_width": 10, "sent_height": 20},
+        {"base64": "img64b", "data_url": "data:image/jpeg;base64,img64b", "width": 30, "height": 40, "sent_width": 30, "sent_height": 40},
+    ]
 
     def fake_run_single(**kwargs):
         calls.append(kwargs)
@@ -3204,11 +3431,84 @@ def test_local_llm_refiner_passes_image_attachment_to_reviewer_call():
             unique_id=[123],
         )
     finally:
-        module._prepare_image_attachment = original_prepare_image
+        module._prepare_image_attachments = original_prepare_image
 
     assert output["result"][0] == ["OK"]
-    assert calls[0]["image_attachment"]["base64"] == "img64"
+    assert [item["base64"] for item in calls[0]["image_attachments"]] == ["img64a", "img64b"]
     assert "audio_attachment" not in calls[0]
+
+
+def test_local_llm_refiner_prepares_every_image_batch_item():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    batch = np.zeros((2, 4, 5, 3), dtype=np.float32)
+    batch[1, :, :, :] = 1.0
+
+    attachments = module._prepare_image_attachments(batch, max_side=16)
+    listed_attachments = module._prepare_image_attachments([batch[0], batch[1]], max_side=16)
+
+    assert len(attachments) == 2
+    assert len(listed_attachments) == 2
+    assert [item["width"] for item in attachments] == [5, 5]
+    assert [item["height"] for item in attachments] == [4, 4]
+    assert all(item["data_url"].startswith("data:image/jpeg;base64,") for item in attachments)
+
+
+def test_local_llm_refiner_image_resize_uses_two_megapixel_budget():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    assert module.LOCAL_LLM_IMAGE_MAX_SIDE == 2048
+    assert module.LOCAL_LLM_IMAGE_MAX_PIXELS == 2 * 1024 * 1024
+    assert module._local_llm_image_resize_size(1920, 1080) == (1920, 1080)
+
+    wide_width, wide_height = module._local_llm_image_resize_size(3840, 2160)
+    assert wide_width > 1900
+    assert wide_height > 1080
+    assert max(wide_width, wide_height) <= module.LOCAL_LLM_IMAGE_MAX_SIDE
+    assert wide_width * wide_height <= module.LOCAL_LLM_IMAGE_MAX_PIXELS
+
+    square_width, square_height = module._local_llm_image_resize_size(2048, 2048)
+    assert square_width == square_height
+    assert square_width < 2048
+    assert square_width * square_height <= module.LOCAL_LLM_IMAGE_MAX_PIXELS
+
+
+def test_local_llm_refiner_image_attachment_resizes_by_pixel_budget():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    image = np.zeros((216, 384, 3), dtype=np.uint8)
+
+    attachment = module._image_attachment_from_array(image, max_side=204, max_pixels=192 * 108)
+
+    assert attachment["width"] == 384
+    assert attachment["height"] == 216
+    assert attachment["sent_width"] == 192
+    assert attachment["sent_height"] == 108
+    assert attachment["data_url"].startswith("data:image/jpeg;base64,")
+
+
+def test_local_llm_refiner_multi_image_content_parts_are_provider_specific():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    images = [
+        {"data_url": "data:image/jpeg;base64,img-a"},
+        {"data_url": "data:image/jpeg;base64,img-b"},
+    ]
+
+    openai_content = module._openai_user_content("describe these", images)
+    lm_native_input = module._lm_native_input("describe these", images)
+
+    assert openai_content == [
+        {"type": "text", "text": "describe these"},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,img-a"}},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,img-b"}},
+    ]
+    assert lm_native_input == [
+        {"type": "text", "content": "describe these"},
+        {"type": "image", "data_url": "data:image/jpeg;base64,img-a"},
+        {"type": "image", "data_url": "data:image/jpeg;base64,img-b"},
+    ]
 
 
 def test_local_llm_refiner_uses_provider_specific_model_field():
@@ -3281,7 +3581,7 @@ def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
             seed=7,
             model_memory="Keep for minutes",
             keep_minutes=3,
-            image_attachment=None,
+            image_attachments=[],
             is_last=True,
             node_id="99",
             index=1,
@@ -3335,7 +3635,7 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
             seed=7,
             model_memory="Keep for minutes",
             keep_minutes=3,
-            image_attachment=None,
+            image_attachments=[],
             is_last=True,
             node_id="99",
             index=1,
@@ -3376,7 +3676,7 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_only_when_thinking_enabled(
             seed=7,
             model_memory="Unload after run",
             keep_minutes=3,
-            image_attachment=None,
+            image_attachments=[],
             is_last=False,
             node_id="99",
             index=1,
@@ -3448,7 +3748,7 @@ def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
                 seed=7,
                 model_memory="Unload after run",
                 keep_minutes=3,
-                image_attachment=None,
+                image_attachments=[],
                 is_last=True,
                 node_id="99",
                 index=1,
@@ -3532,13 +3832,22 @@ def test_local_llm_refiner_lm_studio_native_image_input_uses_text_and_image_part
             seed=7,
             model_memory="Keep for minutes",
             keep_minutes=3,
-            image_attachment={
-                "data_url": "data:image/jpeg;base64,abc",
-                "width": 16,
-                "height": 8,
-                "sent_width": 16,
-                "sent_height": 8,
-            },
+            image_attachments=[
+                {
+                    "data_url": "data:image/jpeg;base64,abc",
+                    "width": 16,
+                    "height": 8,
+                    "sent_width": 16,
+                    "sent_height": 8,
+                },
+                {
+                    "data_url": "data:image/jpeg;base64,def",
+                    "width": 24,
+                    "height": 12,
+                    "sent_width": 24,
+                    "sent_height": 12,
+                },
+            ],
             is_last=True,
             node_id="99",
             index=1,
@@ -3553,9 +3862,54 @@ def test_local_llm_refiner_lm_studio_native_image_input_uses_text_and_image_part
     assert input_parts == [
         {"type": "text", "content": "what is this image?"},
         {"type": "image", "data_url": "data:image/jpeg;base64,abc"},
+        {"type": "image", "data_url": "data:image/jpeg;base64,def"},
     ]
+    assert len(raw["images"]) == 2
     assert raw["image"]["width"] == 16
     assert raw["image"]["sent_height"] == 8
+
+
+def test_local_llm_refiner_ollama_sends_every_image_as_images_array():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+
+    original_stream = module._http_stream_json_lines
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        stream_payloads.append({"url": url, "payload": dict(payload)})
+        yield {"message": {"content": "image answer"}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    module._http_stream_json_lines = fake_stream
+    try:
+        answer, thought, raw = node._run_ollama(
+            server_url="http://127.0.0.1:11434",
+            model="qwen3-vl",
+            system_prompt="",
+            prompt="describe both images",
+            thinking=False,
+            seed=1,
+            model_memory="Unload after run",
+            keep_minutes=5,
+            image_attachments=[
+                {"base64": "img-a", "data_url": "data:image/jpeg;base64,img-a", "width": 8, "height": 8, "sent_width": 8, "sent_height": 8},
+                {"base64": "img-b", "data_url": "data:image/jpeg;base64,img-b", "width": 16, "height": 16, "sent_width": 16, "sent_height": 16},
+            ],
+            is_last=True,
+            node_id="node",
+            index=1,
+            total=1,
+        )
+    finally:
+        module._http_stream_json_lines = original_stream
+
+    assert answer == "image answer"
+    assert thought == ""
+    assert stream_payloads[0]["payload"]["messages"][-1]["images"] == ["img-a", "img-b"]
+    assert len(raw["images"]) == 2
+    assert raw["image"]["width"] == 8
 
 
 def test_local_llm_refiner_ollama_keep_alive_matches_ollama_node_duration_style():
@@ -3604,7 +3958,7 @@ def test_local_llm_refiner_ollama_keep_loaded_reloads_after_provider_eviction():
             seed=1,
             model_memory="Keep loaded",
             keep_minutes=5,
-            image_attachment=None,
+            image_attachments=[],
             is_last=True,
             node_id="node",
             index=1,
@@ -3659,7 +4013,7 @@ def test_local_llm_refiner_ollama_keep_loaded_refreshes_even_when_provider_repor
             seed=1,
             model_memory="Keep loaded",
             keep_minutes=5,
-            image_attachment=None,
+            image_attachments=[],
             is_last=True,
             node_id="node",
             index=1,
@@ -4234,7 +4588,7 @@ def test_local_llm_refiner_stop_reports_no_active_request_without_unloading():
     assert module._CANCEL_LOCAL_LLM_KEYS == set()
 
 
-def test_local_llm_refiner_legacy_custom_provider_falls_back_to_ollama():
+def test_local_llm_refiner_legacy_custom_provider_restores_custom_openai_path():
     package = load_package()
     node = package.DenoLocalLLMRefiner()
     calls = []
@@ -4262,13 +4616,13 @@ def test_local_llm_refiner_legacy_custom_provider_falls_back_to_ollama():
     )
 
     assert output["result"][0] == ["answer"]
-    assert calls[0]["provider"] == "Ollama"
-    assert calls[0]["server_url"] == "http://127.0.0.1:11434"
-    assert calls[0]["model"] == "qwen3.6:35b-a3b"
+    assert calls[0]["provider"] == "Custom"
+    assert calls[0]["server_url"] == "http://127.0.0.1:8000/v1"
+    assert calls[0]["model"] == "legacy-qwen"
     assert calls[0]["seed"] == 8
 
 
-def test_local_llm_refiner_validation_accepts_only_ollama_and_lm_studio_models():
+def test_local_llm_refiner_validation_accepts_local_provider_models():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoLocalLLMRefiner"]
 
@@ -4290,16 +4644,34 @@ def test_local_llm_refiner_validation_accepts_only_ollama_and_lm_studio_models()
         provider="Custom Local Server",
         ollama_model="qwen3.6:35b-a3b",
         lm_studio_model="",
+        custom_server_url="http://127.0.0.1:8000/v1",
         custom_model="legacy-qwen",
+    ) is True
+
+    assert node_cls.VALIDATE_INPUTS(
+        provider="llama.cpp",
+        ollama_model="",
+        lm_studio_model="",
+        custom_server_url="http://127.0.0.1:8080/v1",
+        custom_model="local-vision-model",
+    ) is True
+
+    assert node_cls.VALIDATE_INPUTS(
+        provider="vLLM",
+        ollama_model="",
+        lm_studio_model="",
+        custom_server_url="http://127.0.0.1:8000/v1",
+        custom_model="Qwen/Qwen2.5-VL",
     ) is True
 
     shifted_result = node_cls.VALIDATE_INPUTS(
         provider="Custom Local Server",
         ollama_model="",
         lm_studio_model="",
+        custom_server_url="http://127.0.0.1:8000/v1",
         custom_model=5,
     )
-    assert "Ollama Model" in shifted_result
+    assert "Custom Model" in shifted_result
 
     provider_result = node_cls.VALIDATE_INPUTS(
         provider="Remote API",
@@ -4308,6 +4680,15 @@ def test_local_llm_refiner_validation_accepts_only_ollama_and_lm_studio_models()
         custom_model="qwen3.6-35b-a3b-nvfp4",
     )
     assert "Provider" in provider_result
+
+    remote_result = node_cls.VALIDATE_INPUTS(
+        provider="vLLM",
+        ollama_model="",
+        lm_studio_model="",
+        custom_server_url="http://192.168.0.5:8000/v1",
+        custom_model="Qwen/Qwen2.5-VL",
+    )
+    assert "Only local LLM servers are allowed" in remote_result
 
     url_result = node_cls.VALIDATE_INPUTS(
         provider="Ollama",
@@ -4334,6 +4715,214 @@ def test_local_llm_refiner_validation_accepts_only_ollama_and_lm_studio_models()
     )
     assert "Saved Ollama model is not available on this PC" in missing_saved_result
     assert "qwen3.6:35b-a3b" in missing_saved_result
+
+
+def test_local_llm_refiner_openai_compatible_sends_image_and_reasoning(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    calls = []
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        calls.append({"url": url, "payload": payload, "cancel_key": cancel_key})
+        yield "message", {"choices": [{"delta": {"reasoning_content": "checking image"}}]}
+        yield "message", {"choices": [{"delta": {"content": "DENO_FINAL_PROMPT: a clean product photo"}}]}
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    image = np.zeros((2, 8, 8, 3), dtype=np.float32)
+    image[1, :, :, :] = 1.0
+    output = node.refine(
+        provider=["llama.cpp"],
+        ollama_model=["qwen3"],
+        lm_studio_model=["google/gemma-4-12b"],
+        custom_server_url=["http://127.0.0.1:8080/v1"],
+        custom_model=["local-vision-model"],
+        system_prompt=["Return DENO_FINAL_PROMPT."],
+        prompt=["describe the image"],
+        thinking=[True],
+        seed=[123],
+        seed_mode=["fixed"],
+        model_memory=["Keep loaded"],
+        keep_minutes=[5],
+        unique_id=[123],
+        image=[image],
+    )
+
+    assert output["result"][0] == ["a clean product photo"]
+    payload = calls[0]["payload"]
+    assert calls[0]["url"] == "http://127.0.0.1:8080/v1/chat/completions"
+    assert payload["model"] == "local-vision-model"
+    assert payload["messages"][-1]["content"][0] == {"type": "text", "text": "describe the image"}
+    assert payload["messages"][-1]["content"][1]["type"] == "image_url"
+    assert payload["messages"][-1]["content"][1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert payload["messages"][-1]["content"][2]["type"] == "image_url"
+    assert payload["messages"][-1]["content"][2]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+
+def test_local_llm_refiner_splits_vllm_orphan_closing_think_tag(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        yield "message", {
+            "choices": [
+                {
+                    "delta": {
+                        "content": (
+                            "I inspected the image and found a red rectangle.\n"
+                            "</think>\n\n"
+                            "DENO_FINAL_PROMPT: red rectangle"
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    output = node.refine(
+        provider=["vLLM"],
+        ollama_model=["qwen3"],
+        lm_studio_model=["google/gemma-4-12b"],
+        custom_server_url=["http://127.0.0.1:8000/v1"],
+        custom_model=["Qwen3-VL-2B-Thinking-FP8"],
+        system_prompt=["Return DENO_FINAL_PROMPT."],
+        prompt=["describe the image"],
+        thinking=[True],
+        seed=[123],
+        seed_mode=["fixed"],
+        model_memory=["Keep loaded"],
+        keep_minutes=[5],
+        unique_id=[123],
+    )
+
+    assert output["result"][0] == ["red rectangle"]
+    assert output["ui"]["thinking"] == ["I inspected the image and found a red rectangle."]
+
+
+def test_local_llm_refiner_thinking_on_requires_real_reasoning(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        yield "message", {"choices": [{"delta": {"content": "DENO_FINAL_PROMPT: plain answer"}}]}
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    with pytest.raises(RuntimeError) as exc:
+        node.refine(
+            provider=["vLLM"],
+            ollama_model=["qwen3"],
+            lm_studio_model=["google/gemma-4-12b"],
+            custom_server_url=["http://127.0.0.1:8000/v1"],
+            custom_model=["local-text-model"],
+            system_prompt=["Return DENO_FINAL_PROMPT."],
+            prompt=["make a prompt"],
+            thinking=[True],
+            seed=[123],
+            seed_mode=["fixed"],
+            model_memory=["Keep loaded"],
+            keep_minutes=[5],
+            unique_id=[123],
+        )
+
+    assert "no Thinking/reasoning content" in str(exc.value)
+
+
+def test_local_llm_refiner_custom_unload_is_not_fake_success():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    result = module.unload_local_llm_model("Custom", "http://127.0.0.1:8000/v1", "local-model")
+
+    assert result["ok"] is False
+    assert result["manual_unavailable"] is True
+    assert "do not share a standard unload API" in result["message"]
+
+    with pytest.raises(RuntimeError) as exc:
+        module.unload_local_llm_model("Custom", "http://192.168.0.5:8000/v1", "local-model")
+    assert "Only local LLM servers are allowed" in str(exc.value)
+
+
+def test_local_llm_refiner_openai_compatible_post_run_unload_failure_is_visible(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    events = []
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        yield "message", {"choices": [{"delta": {"content": "DENO_FINAL_PROMPT: final answer"}}]}
+
+    def fail_unload(server_root, model):
+        raise RuntimeError("llama.cpp does not support POST /models/unload in this build")
+
+    monkeypatch.setattr(module, "_send_progress", lambda payload: events.append(dict(payload)))
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+    monkeypatch.setattr(module, "_llama_cpp_unload", fail_unload)
+    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
+
+    output = node.refine(
+        provider=["llama.cpp"],
+        ollama_model=[""],
+        lm_studio_model=[""],
+        custom_server_url=["http://127.0.0.1:8080/v1"],
+        custom_model=["local-vision-model"],
+        system_prompt=["Return DENO_FINAL_PROMPT."],
+        prompt=["make a prompt"],
+        thinking=[False],
+        seed=[123],
+        seed_mode=["fixed"],
+        model_memory=["Unload after run"],
+        keep_minutes=[5],
+        unique_id=[123],
+    )
+
+    assert output["result"][0] == ["final answer"]
+    assert "unload after run failed" in output["ui"]["thinking"][0]
+    assert events[-1]["status"] == "done, unload warning"
+    assert "unload after run failed" in events[-1]["thinking"]
+    assert "POST /models/unload" in events[-1]["unload_warning"]
+
+
+def test_local_llm_refiner_custom_post_run_unload_unavailable_is_visible(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    events = []
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        yield "message", {"choices": [{"delta": {"content": "DENO_FINAL_PROMPT: custom answer"}}]}
+
+    monkeypatch.setattr(module, "_send_progress", lambda payload: events.append(dict(payload)))
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
+
+    output = node.refine(
+        provider=["Custom"],
+        ollama_model=[""],
+        lm_studio_model=[""],
+        custom_server_url=["http://127.0.0.1:8000/v1"],
+        custom_model=["local-custom-model"],
+        system_prompt=["Return DENO_FINAL_PROMPT."],
+        prompt=["make a prompt"],
+        thinking=[False],
+        seed=[123],
+        seed_mode=["fixed"],
+        model_memory=["Unload after run"],
+        keep_minutes=[5],
+        unique_id=[123],
+    )
+
+    assert output["result"][0] == ["custom answer"]
+    assert "unload after run is unavailable for Custom" in output["ui"]["thinking"][0]
+    assert events[-1]["status"] == "done, unload warning"
+    assert "unload after run is unavailable for Custom" in events[-1]["thinking"]
+    assert "standard unload API" in events[-1]["unload_warning"]
 
 
 def test_local_llm_and_review_gate_validation_accepts_legacy_saved_combo_labels():
@@ -4469,25 +5058,25 @@ def test_local_llm_refiner_legacy_custom_saved_values_do_not_execute_custom_serv
 
     node._run_single = fake_run_single
 
-    node.refine(
-        provider=["Custom Local Server"],
-        ollama_model=["qwen3.6:35b-a3b"],
-        lm_studio_model=["google/gemma-4-12b"],
-        custom_server_url=[False],
-        custom_model=[5],
-        system_prompt=["make a prompt"],
-        prompt=["one prompt"],
-        thinking=["Unload after run"],
-        seed=["bad"],
-        seed_mode=["fixed"],
-        model_memory=[None],
-        keep_minutes=[None],
-        unique_id=[123],
-    )
+    with pytest.raises(RuntimeError) as exc:
+        node.refine(
+            provider=["Custom Local Server"],
+            ollama_model=["qwen3.6:35b-a3b"],
+            lm_studio_model=["google/gemma-4-12b"],
+            custom_server_url=[False],
+            custom_model=[5],
+            system_prompt=["make a prompt"],
+            prompt=["one prompt"],
+            thinking=["Unload after run"],
+            seed=["bad"],
+            seed_mode=["fixed"],
+            model_memory=[None],
+            keep_minutes=[None],
+            unique_id=[123],
+        )
 
-    assert calls[0]["provider"] == "Ollama"
-    assert calls[0]["server_url"] == "http://127.0.0.1:11434"
-    assert calls[0]["model"] == "qwen3.6:35b-a3b"
+    assert "Custom Model" in str(exc.value)
+    assert calls == []
 
 
 def test_local_llm_refiner_repairs_shifted_saved_widget_values():

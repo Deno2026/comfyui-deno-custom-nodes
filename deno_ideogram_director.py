@@ -14,6 +14,7 @@ checks and unit tests outside a running ComfyUI.
 
 import json
 import hashlib
+import math
 import re
 
 try:
@@ -232,6 +233,89 @@ def _ratio_from_dims(width, height):
     return "%d:%d" % (w // g, h // g)
 
 
+def _snap_size_dim(value, default=1024, min_value=256, max_value=4096):
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        v = default
+    if not math.isfinite(v):
+        v = default
+    snapped = int(round(v / 16.0) * 16)
+    return max(min_value, min(max_value, snapped))
+
+
+def _positive_number(value):
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v) or v <= 0:
+        return None
+    return v
+
+
+def _ratio_pair(aspect_ratio, width, height):
+    if isinstance(aspect_ratio, str) and re.match(r"^\s*\d+\s*:\s*\d+\s*$", aspect_ratio):
+        left, right = aspect_ratio.split(":", 1)
+        rw, rh = int(left), int(right)
+        if rw > 0 and rh > 0:
+            return rw, rh
+    return max(1, int(width or 1)), max(1, int(height or 1))
+
+
+def _dims_for_megapixels(rw, rh, megapixels):
+    total = max(0.05, min(10.0, float(megapixels or 1.0))) * 1_000_000
+    bw = math.sqrt(total * rw / rh)
+    bh = math.sqrt(total * rh / rw)
+    candidates = set()
+    for w in (_snap_size_dim(math.ceil(bw / 16) * 16), _snap_size_dim(math.floor(bw / 16) * 16)):
+        eh = w * rh / rw
+        candidates.add((_snap_size_dim(w), _snap_size_dim(math.ceil(eh / 16) * 16)))
+        candidates.add((_snap_size_dim(w), _snap_size_dim(math.floor(eh / 16) * 16)))
+    for h in (_snap_size_dim(math.ceil(bh / 16) * 16), _snap_size_dim(math.floor(bh / 16) * 16)):
+        ew = h * rw / rh
+        candidates.add((_snap_size_dim(math.ceil(ew / 16) * 16), _snap_size_dim(h)))
+        candidates.add((_snap_size_dim(math.floor(ew / 16) * 16), _snap_size_dim(h)))
+    best = None
+    best_score = None
+    for w, h in candidates:
+        score = (
+            abs((w * h) - total) / total
+            + 2 * abs((w / h) - (rw / rh)) / (rw / rh)
+        )
+        if best_score is None or score < best_score:
+            best = (w, h)
+            best_score = score
+    return best or (1024, 1024)
+
+
+def _effective_size_inputs(width, height, aspect_ratio, input_width=None, input_height=None, input_megapixels=None):
+    base_w = _snap_size_dim(width, min_value=64, max_value=16384)
+    base_h = _snap_size_dim(height, min_value=64, max_value=16384)
+    wired_w = _positive_number(input_width)
+    wired_h = _positive_number(input_height)
+    wired_mp = _positive_number(input_megapixels)
+    rw, rh = _ratio_pair(aspect_ratio, base_w, base_h)
+
+    if wired_w is not None and wired_h is not None:
+        out_w = _snap_size_dim(wired_w)
+        out_h = _snap_size_dim(wired_h)
+        return out_w, out_h, _ratio_from_dims(out_w, out_h), "input_width_height"
+    if wired_mp is not None:
+        out_w, out_h = _dims_for_megapixels(rw, rh, wired_mp)
+        machine = aspect_ratio.strip() if isinstance(aspect_ratio, str) and re.match(r"^\s*\d+\s*:\s*\d+\s*$", aspect_ratio) else _ratio_from_dims(out_w, out_h)
+        return out_w, out_h, machine, "input_megapixels"
+    if wired_w is not None:
+        out_w = _snap_size_dim(wired_w)
+        out_h = _snap_size_dim(out_w * rh / rw)
+        return out_w, out_h, _ratio_from_dims(out_w, out_h), "input_width"
+    if wired_h is not None:
+        out_h = _snap_size_dim(wired_h)
+        out_w = _snap_size_dim(out_h * rw / rh)
+        return out_w, out_h, _ratio_from_dims(out_w, out_h), "input_height"
+    return base_w, base_h, aspect_ratio, "widget"
+
+
 def _assemble_caption(aspect_ratio, include_aspect_ratio, background, high_level_description,
                       style_mode, aesthetics, lighting, medium, photo, art_style,
                       boxes, style_palette):
@@ -386,9 +470,12 @@ def _translate_caption_for_view(
     """
     view_language = _normalize_view_language(view_language)
     target_code = translate_engine.code_for_display(view_language) or "en"
+    source_code = translate_engine.code_for_display(source_language) or "auto"
+    if source_code != "auto" and source_code == target_code:
+        return caption, 0, 0, translate_engine.display_for_code(target_code)
     translated, changed, sent = _translate_caption_text_safe(
         caption,
-        source_language,
+        source_code,
         target_code,
         _translation_opts(translation_engine, libretranslate_url),
     )
@@ -663,6 +750,8 @@ class DenoIdeogramDirector:
         # inputs meant to be WIRED get sockets, and they sit at the top:
         #   • backdrop   — optional reference IMAGE shown under the boxes (never enters the prompt)
         #   • import_json — forceInput STRING: an upstream LLM / Prompt-Text caption JSON
+        #   • input_width / input_height / input_megapixels — optional upstream size control,
+        #     appended after the existing sockets so older backdrop/import_json links keep their slots
         # This mirrors the proven KJ Ideogram-builder contract (forceInput for the wired JSON, socketless
         # for editor state). With no widget-sockets present, forceInput round-trips cleanly — the earlier
         # shift came from pruning widget-sockets at runtime, not from forceInput itself.
@@ -725,11 +814,31 @@ class DenoIdeogramDirector:
                 }),
                 "libretranslate_url": ("STRING", {"default": "", **SL}),
                 # forceInput: import_json is meant to be WIRED (upstream LLM / Prompt-Text caption JSON),
-                # so it is a real top input socket rather than a hidden widget. Declared LAST so NO widget
-                # is serialized after it — a forceInput interleaved before widgets shifts their widgets_values
-                # slots by one on reload (frontend 1.44). The frontend reads the wire (getImportJson) to seed
-                # the board; the backend receives the value in build().
+                # so it is a real top input socket rather than a hidden widget. Declared after all serialized
+                # widgets so it does not shift their widgets_values slots on reload. The frontend reads the
+                # wire (getImportJson) to seed the board; the backend receives the value in build().
                 "import_json": ("STRING", {"forceInput": True}),
+                "input_width": ("INT", {
+                    "forceInput": True,
+                    "min": 256,
+                    "max": 4096,
+                    "step": 16,
+                    "tooltip": "Optional connected output width. Snaps to a multiple of 16 and overrides the Director size when width and height are both connected.",
+                }),
+                "input_height": ("INT", {
+                    "forceInput": True,
+                    "min": 256,
+                    "max": 4096,
+                    "step": 16,
+                    "tooltip": "Optional connected output height. Snaps to a multiple of 16 and overrides the Director size when width and height are both connected.",
+                }),
+                "input_megapixels": ("FLOAT", {
+                    "forceInput": True,
+                    "min": 0.05,
+                    "max": 10.0,
+                    "step": 0.01,
+                    "tooltip": "Optional connected megapixel budget. Used with the current aspect ratio when width and height are not both connected.",
+                }),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -769,6 +878,7 @@ class DenoIdeogramDirector:
               view_language=VIEW_LANGUAGE_DEFAULT,
               translation_engine=translate_engine.TRANSLATION_ENGINE_DEFAULT,
               libretranslate_url="",
+              input_width=None, input_height=None, input_megapixels=None,
               unique_id=None):
         # `backdrop` (optional IMAGE) is shown on the board only; it never enters the caption JSON.
         import_mode = _normalize_import_mode(import_mode)
@@ -801,8 +911,11 @@ class DenoIdeogramDirector:
         if should_block:
             _send_pending_import(unique_id, pending_sig, pending_imported)
             raise RuntimeError(PENDING_MESSAGE)
+        effective_width, effective_height, effective_aspect_ratio, size_source = _effective_size_inputs(
+            width, height, aspect_ratio, input_width, input_height, input_megapixels
+        )
         result = build_outputs(
-            width, height, seed, aspect_ratio, include_aspect_ratio, background, high_level_description,
+            effective_width, effective_height, seed, effective_aspect_ratio, include_aspect_ratio, background, high_level_description,
             style_mode, aesthetics, lighting, medium, photo, art_style,
             caption_data, import_json, import_mode,
         )
@@ -811,57 +924,65 @@ class DenoIdeogramDirector:
         if target_code:
             prompt, out_width, out_height, out_seed, out_bboxes = result
             target_display = translate_engine.display_for_code(target_code)
-            source_code = view_language_code if view_language_code and view_language_code != target_code else "auto"
+            source_code = view_language_code or "auto"
             translate_opts = _translation_opts(translation_engine, libretranslate_url)
-            try:
-                caption = translate_engine.loads_caption(prompt)
-                if caption is not None:
-                    translated, changed, sent = _translate_caption_text_safe(
-                        caption,
-                        source_code,
-                        target_code,
-                        translate_opts,
-                    )
-                    prompt = json.dumps(translated, ensure_ascii=False, separators=(",", ":"))
-                    result = (prompt, out_width, out_height, out_seed, out_bboxes)
-                    translation_payload = {
-                        "ok": True,
-                        "language": target_display,
-                        "engine": translation_engine,
-                        "status": (
-                            "English prompt ready (%d field(s) sent). Box TEXT stayed exactly as typed."
-                            % sent
-                        ),
-                    }
-                else:
-                    prompt = translate_engine.translate_text(
-                        prompt,
-                        source_code,
-                        target_code,
-                        engine=translation_engine,
-                        libretranslate_url=libretranslate_url,
-                    )
-                    result = (prompt, out_width, out_height, out_seed, out_bboxes)
-                    translation_payload = {
-                        "ok": True,
-                        "language": target_display,
-                        "engine": translation_engine,
-                        "status": "English prompt ready. Box TEXT stayed exactly as typed.",
-                    }
-            except Exception as exc:
-                reason = translate_engine.translation_failure_reason(translation_engine, exc)
+            if source_code != "auto" and source_code == target_code:
                 translation_payload = {
-                    "ok": False,
+                    "ok": True,
                     "language": target_display,
                     "engine": translation_engine,
-                    "reason": reason,
-                    "error_type": type(exc).__name__,
-                    "status": (
-                        "English prompt conversion unavailable (%s). %s Generation was stopped before using a non-English prompt."
-                        % (type(exc).__name__, reason)
-                    ),
+                    "status": "English prompt ready. No online translation needed.",
                 }
-                raise RuntimeError(translation_payload["status"]) from exc
+            else:
+                try:
+                    caption = translate_engine.loads_caption(prompt)
+                    if caption is not None:
+                        translated, changed, sent = _translate_caption_text_safe(
+                            caption,
+                            source_code,
+                            target_code,
+                            translate_opts,
+                        )
+                        prompt = json.dumps(translated, ensure_ascii=False, separators=(",", ":"))
+                        result = (prompt, out_width, out_height, out_seed, out_bboxes)
+                        translation_payload = {
+                            "ok": True,
+                            "language": target_display,
+                            "engine": translation_engine,
+                            "status": (
+                                "English prompt ready (%d field(s) sent). Box TEXT stayed exactly as typed."
+                                % sent
+                            ),
+                        }
+                    else:
+                        prompt = translate_engine.translate_text(
+                            prompt,
+                            source_code,
+                            target_code,
+                            engine=translation_engine,
+                            libretranslate_url=libretranslate_url,
+                        )
+                        result = (prompt, out_width, out_height, out_seed, out_bboxes)
+                        translation_payload = {
+                            "ok": True,
+                            "language": target_display,
+                            "engine": translation_engine,
+                            "status": "English prompt ready. Box TEXT stayed exactly as typed.",
+                        }
+                except Exception as exc:
+                    reason = translate_engine.translation_failure_reason(translation_engine, exc)
+                    translation_payload = {
+                        "ok": False,
+                        "language": target_display,
+                        "engine": translation_engine,
+                        "reason": reason,
+                        "error_type": type(exc).__name__,
+                        "status": (
+                            "English prompt conversion unavailable (%s). %s Generation was stopped before using a non-English prompt."
+                            % (type(exc).__name__, reason)
+                        ),
+                    }
+                    raise RuntimeError(translation_payload["status"]) from exc
         # Live sync to the board: when a caption arrived on the import_json wire (e.g. a fresh LLM
         # result, which the frontend can never read off the wire by itself), echo it back through the
         # "executed" ui event. `used` describes this backend run's output path; the frontend still
@@ -874,6 +995,14 @@ class DenoIdeogramDirector:
             ui["idd_import"] = [payload]
         if translation_payload is not None:
             ui["idd_translate"] = [translation_payload]
+        if size_source != "widget" or effective_width != int(width) or effective_height != int(height) or effective_aspect_ratio != aspect_ratio:
+            ui["idd_size"] = [{
+                "width": int(effective_width),
+                "height": int(effective_height),
+                "megapixels": round((effective_width * effective_height) / 1_000_000, 4),
+                "aspect_ratio": effective_aspect_ratio,
+                "source": size_source,
+            }]
         if ui:
             return {"ui": ui, "result": result}
         return result

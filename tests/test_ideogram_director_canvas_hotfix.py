@@ -6,11 +6,14 @@ SCRIPT = (ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding=
 
 
 def test_ideogram_director_stage_aspect_follows_current_resolution():
-    assert 'const IDD_REV = "r2026.06.22-import-same-sig-guard-a"' in SCRIPT
+    assert 'const IDD_REV = "r2026.06.30-generate-target-a"' in SCRIPT
     assert "function targetAspect()" in SCRIPT
     assert 'const W2 = +getW("width", 1024), H2 = +getW("height", 1024);' in SCRIPT
     assert "return targetAspect() || imageAspect() || 1;" in SCRIPT
     assert "bimg.naturalWidth > 0 && bimg.naturalHeight > 0" in SCRIPT
+    assert "function stageRect()" in SCRIPT
+    assert "placeRect(ov, srect);   // boxes always follow the committed output canvas unless Fit Ref changes that canvas" in SCRIPT
+    assert 'bdFitRefBtn.textContent = "Fit Ref"' in SCRIPT
 
 
 def test_ideogram_director_box_drag_captures_pointer_until_release_or_cancel():

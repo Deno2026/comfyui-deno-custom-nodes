@@ -54,11 +54,18 @@ const LOADER_WIDGET_SOCKET_NAMES = new Set([
 ]);
 const PROVIDER_OLLAMA = "Ollama";
 const PROVIDER_LM_STUDIO = "LM Studio";
+const PROVIDER_LLAMA_CPP = "llama.cpp";
+const PROVIDER_VLLM = "vLLM";
+const PROVIDER_CUSTOM = "Custom";
 const LEGACY_PROVIDER_CUSTOM = "Custom Local Server";
-const PROVIDER_VALUES = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO];
+const PROVIDER_VALUES = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO, PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM];
+const OPENAI_COMPATIBLE_PROVIDERS = new Set([PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM]);
 const OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434";
 const LM_STUDIO_DEFAULT_URL = "http://127.0.0.1:1234/v1";
-const LEGACY_CUSTOM_DEFAULT_URL = "http://127.0.0.1:8000/v1";
+const LLAMA_CPP_DEFAULT_URL = "http://127.0.0.1:8080/v1";
+const VLLM_DEFAULT_URL = "http://127.0.0.1:8000/v1";
+const CUSTOM_DEFAULT_URL = "http://127.0.0.1:8000/v1";
+const LEGACY_CUSTOM_DEFAULT_URL = CUSTOM_DEFAULT_URL;
 const MODEL_MEMORY_VALUES = ["Unload after run", "Keep for minutes", "Keep loaded"];
 const MODEL_MEMORY_ALIASES = {
     "Free VRAM after batch": "Unload after run",
@@ -75,6 +82,9 @@ const COMFY_VRAM_ALIASES = {
 };
 const SEED_MODE_VALUES = ["fixed", "increment", "decrement", "randomize"];
 const LOADER_SERIALIZED_WIDGET_COUNT = 13;
+const LOADER_STATE_PROPERTY = "deno_local_llm_state";
+const LOADER_STATE_SCHEMA = 1;
+const LOADER_STATE_TEXT_LIMIT = 120000;
 const LOADER_SERIALIZED_WIDGET_NAMES = [
     "provider",
     "ollama_model",
@@ -299,21 +309,77 @@ function localLLMCachedStateForNode(node) {
     return key ? localLLMStateByNodeId.get(key) || null : null;
 }
 
+function localLLMStateText(value) {
+    return String(value ?? "").slice(0, LOADER_STATE_TEXT_LIMIT);
+}
+
+function sanitizeLocalLLMState(raw) {
+    if (!raw || typeof raw !== "object") {
+        return null;
+    }
+    const index = Number(raw.index || 0);
+    const total = Number(raw.total || 0);
+    const updatedAt = Number(raw.updatedAt || Date.now());
+    return {
+        schema: LOADER_STATE_SCHEMA,
+        status: localLLMStateText(raw.status || "ready").slice(0, 200),
+        provider: localLLMStateText(raw.provider || "").slice(0, 80),
+        model: localLLMStateText(raw.model || "").slice(0, 500),
+        answer: localLLMStateText(raw.answer || ""),
+        thinking: localLLMStateText(raw.thinking || ""),
+        error: localLLMStateText(raw.error || ""),
+        index: Number.isFinite(index) ? Math.max(0, index) : 0,
+        total: Number.isFinite(total) ? Math.max(0, total) : 0,
+        updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+    };
+}
+
+function persistLocalLLMStateToProperties(node, state) {
+    if (!node) {
+        return null;
+    }
+    const clean = sanitizeLocalLLMState(state);
+    if (!clean) {
+        return null;
+    }
+    node.properties = node.properties || {};
+    node.properties[LOADER_STATE_PROPERTY] = clean;
+    return clean;
+}
+
+function restoreLocalLLMStateFromProperties(node) {
+    const restored = sanitizeLocalLLMState(node?.properties?.[LOADER_STATE_PROPERTY]);
+    if (!node || !restored) {
+        return null;
+    }
+    node.__denoLocalLLMState = restored;
+    const key = localLLMNodeStateKey(node);
+    if (key) {
+        localLLMStateByNodeId.set(key, restored);
+    }
+    return restored;
+}
+
 function setLocalLLMNodeState(node, patch) {
     if (!node) {
         return {};
     }
     const key = localLLMNodeStateKey(node);
-    const previous = node.__denoLocalLLMState || (key ? localLLMStateByNodeId.get(key) : null) || {};
-    const next = {
+    const previous =
+        node.__denoLocalLLMState ||
+        restoreLocalLLMStateFromProperties(node) ||
+        (key ? localLLMStateByNodeId.get(key) : null) ||
+        {};
+    const next = sanitizeLocalLLMState({
         ...previous,
         ...patch,
         updatedAt: patch?.updatedAt || Date.now(),
-    };
+    }) || {};
     node.__denoLocalLLMState = next;
     if (key) {
         localLLMStateByNodeId.set(key, next);
     }
+    persistLocalLLMStateToProperties(node, next);
     updateOpenPreviewTextDialogs(node, next);
     return next;
 }
@@ -579,9 +645,18 @@ app.registerExtension({
         const configure = nodeType.prototype.configure;
         nodeType.prototype.configure = function (info) {
             const normalizedValues = normalizeLocalLLMLoaderWidgetValues(info);
+            const restoredState = sanitizeLocalLLMState(info?.properties?.[LOADER_STATE_PROPERTY]);
+            if (restoredState) {
+                info.properties = info.properties || {};
+                info.properties[LOADER_STATE_PROPERTY] = restoredState;
+            }
             this.__denoLocalLLMSavedWidgetValues = Array.isArray(normalizedValues) ? [...normalizedValues] : null;
             preserveLocalLLMLoaderSavedComboOptions(this, normalizedValues);
             const result = configure?.apply(this, arguments);
+            if (restoredState) {
+                persistLocalLLMStateToProperties(this, restoredState);
+            }
+            restoreLocalLLMStateFromProperties(this);
             applyLocalLLMLoaderSavedWidgetValues(this, this.__denoLocalLLMSavedWidgetValues);
             return result;
         };
@@ -596,7 +671,24 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             const result = onConfigure?.apply(this, arguments);
+            restoreLocalLLMStateFromProperties(this);
             queueMicrotask(() => setupNode(this));
+            return result;
+        };
+
+        const onSerialize = nodeType.prototype.onSerialize;
+        nodeType.prototype.onSerialize = function (info) {
+            const result = onSerialize?.apply(this, arguments);
+            if (info && Array.isArray(info.widgets_values)) {
+                info.widgets_values = normalizeLocalLLMLoaderSerializedValues(info.widgets_values) || info.widgets_values.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
+            }
+            const state = sanitizeLocalLLMState(this.__denoLocalLLMState || restoreLocalLLMStateFromProperties(this));
+            if (state && info) {
+                info.properties = info.properties || {};
+                info.properties[LOADER_STATE_PROPERTY] = state;
+                this.properties = this.properties || {};
+                this.properties[LOADER_STATE_PROPERTY] = state;
+            }
             return result;
         };
     },
@@ -626,16 +718,18 @@ function normalizeLocalLLMLoaderSerializedValues(values) {
         return null;
     }
     let normalized = [...values];
-    const generatedButtonStart = findLocalLLMGeneratedButtonRunStart(normalized);
-    if (generatedButtonStart >= 0) {
+    let generatedButtonStart = findLocalLLMGeneratedButtonRunStart(normalized);
+    while (generatedButtonStart >= 0) {
         normalized.splice(generatedButtonStart, LOADER_GENERATED_BUTTON_VALUES.length);
         normalized = normalizeLocalLLMLoaderLegacyButtonValues(normalized);
+        generatedButtonStart = findLocalLLMGeneratedButtonRunStart(normalized);
     }
     return normalized.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
 }
 
 function findLocalLLMGeneratedButtonRunStart(values) {
-    for (const start of [3, 2]) {
+    const count = LOADER_GENERATED_BUTTON_VALUES.length;
+    for (let start = 0; start <= values.length - count; start += 1) {
         const matches = LOADER_GENERATED_BUTTON_VALUES.every((button, index) => String(values[start + index] ?? "") === button);
         if (matches) {
             return start;
@@ -1400,6 +1494,10 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         nextLocalLLMSeedValue,
         normalizeLocalLLMLoaderSerializedValues,
         normalizeLocalLLMLoaderWidgetValues,
+        persistLocalLLMStateToProperties,
+        restoreLocalLLMStateFromProperties,
+        sanitizeLocalLLMState,
+        setLocalLLMNodeState,
         applyLocalLLMLoaderSavedWidgetValues,
         preserveLocalLLMLoaderSavedComboOptions,
         preserveWidgetOption,
@@ -1994,6 +2092,7 @@ function setupNode(node) {
         dedupeKnownWidgets(node);
         repairLegacyProviderValues(node);
         repairSavedWidgetValues(node);
+        restoreLocalLLMStateFromProperties(node);
         const provider = currentProvider(node);
         if (!node.__denoLocalLLMState) {
             const cachedState = localLLMCachedStateForNode(node);
@@ -3274,14 +3373,13 @@ function inferWidgetType(widget) {
     if (
         name === "ollama_model" ||
         name === "lm_studio_model" ||
-        name === "custom_model" ||
         name === "provider" ||
         name === "model_memory" ||
         name === "comfy_vram_policy"
     ) {
         return "combo";
     }
-    if (name === "custom_server_url" || name === "prompt") {
+    if (name === "custom_server_url" || name === "custom_model" || name === "prompt") {
         return "text";
     }
     if (name === "thinking") {
@@ -3296,6 +3394,14 @@ function inferWidgetType(widget) {
 function normalizeModelMemoryValue(value) {
     const text = String(value ?? "").trim();
     return MODEL_MEMORY_ALIASES[text] || text;
+}
+
+function normalizeProviderValue(value) {
+    const text = String(value ?? "").trim();
+    if (text === LEGACY_PROVIDER_CUSTOM) {
+        return PROVIDER_CUSTOM;
+    }
+    return PROVIDER_VALUES.includes(text) ? text : PROVIDER_OLLAMA;
 }
 
 function normalizeComfyVramValue(value) {
@@ -3678,8 +3784,8 @@ function ensureProviderWidgets(node) {
     const definitions = [
         ["ollama_model", "Ollama Model"],
         ["lm_studio_model", "LM Studio Model"],
-        ["custom_server_url", "Legacy Server"],
-        ["custom_model", "Legacy Model"],
+        ["custom_server_url", "Server URL"],
+        ["custom_model", "Model"],
     ];
     let anchor = getWidget(node, "provider");
     for (const [name, label] of definitions) {
@@ -3771,9 +3877,7 @@ function repairSavedWidgetValues(node) {
         providerWidget.options = providerWidget.options || {};
         providerWidget.options.values = PROVIDER_VALUES;
         providerWidget.options.list = PROVIDER_VALUES;
-        if (!PROVIDER_VALUES.includes(String(providerWidget.value || ""))) {
-            providerWidget.value = PROVIDER_OLLAMA;
-        }
+        providerWidget.value = normalizeProviderValue(providerWidget.value);
     }
 
     for (const name of ["ollama_model", "lm_studio_model"]) {
@@ -3842,8 +3946,8 @@ function repairSavedWidgetValues(node) {
 
 function repairLegacyProviderValues(node) {
     const providerWidget = getWidget(node, "provider");
-    if (providerWidget && String(providerWidget.value || "") === LEGACY_PROVIDER_CUSTOM) {
-        providerWidget.value = PROVIDER_OLLAMA;
+    if (providerWidget) {
+        providerWidget.value = normalizeProviderValue(providerWidget.value);
     }
 
     const customServerWidget = getWidget(node, "custom_server_url");
@@ -3862,8 +3966,6 @@ function repairLegacyProviderValues(node) {
         (!isLikelyUrl(customServerValue) || isShiftedCustomModelValue(customModelValue));
 
     if (!shiftedFromOldTwoProviderNode) {
-        setWidgetHidden(customServerWidget, true);
-        setWidgetHidden(customModelWidget, true);
         return;
     }
 
@@ -3894,8 +3996,6 @@ function repairLegacyProviderValues(node) {
         syncComfyVramWidgetOptions(comfyVramWidget);
         comfyVramWidget.value = normalizeComfyVramValue(comfyVramWidget.value);
     }
-    setWidgetHidden(customServerWidget, true);
-    setWidgetHidden(customModelWidget, true);
 }
 
 function isShiftedCustomModelValue(value) {
@@ -4046,8 +4146,8 @@ function polishWidgetLabels(node) {
         provider: "Provider",
         ollama_model: "Ollama Model",
         lm_studio_model: "LM Studio Model",
-        custom_server_url: "Legacy Server",
-        custom_model: "Legacy Model",
+        custom_server_url: "Server URL",
+        custom_model: "Model",
         system_prompt: "System Prompt",
         prompt: "Prompt",
         thinking: "Thinking",
@@ -4078,12 +4178,15 @@ function polishInputLabels(node) {
 
 function currentProvider(node) {
     const value = String(getWidgetValue(node, "provider", PROVIDER_OLLAMA) || PROVIDER_OLLAMA);
-    return PROVIDER_VALUES.includes(value) ? value : PROVIDER_OLLAMA;
+    return normalizeProviderValue(value);
 }
 
 function activeModelNameForProvider(provider) {
     if (provider === PROVIDER_LM_STUDIO) {
         return "lm_studio_model";
+    }
+    if (OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
+        return "custom_model";
     }
     return "ollama_model";
 }
@@ -4096,16 +4199,57 @@ function defaultServerForProvider(provider, node) {
     if (provider === PROVIDER_LM_STUDIO) {
         return LM_STUDIO_DEFAULT_URL;
     }
+    if (provider === PROVIDER_LLAMA_CPP) {
+        return serverUrlForOpenAIProvider(node, LLAMA_CPP_DEFAULT_URL);
+    }
+    if (provider === PROVIDER_VLLM) {
+        return serverUrlForOpenAIProvider(node, VLLM_DEFAULT_URL);
+    }
+    if (provider === PROVIDER_CUSTOM) {
+        return serverUrlForOpenAIProvider(node, CUSTOM_DEFAULT_URL);
+    }
     return OLLAMA_DEFAULT_URL;
+}
+
+function serverUrlForOpenAIProvider(node, fallback) {
+    const value = String(getWidget(node, "custom_server_url")?.value || "").trim();
+    return value || fallback;
+}
+
+function defaultOpenAIProviderUrl(provider) {
+    if (provider === PROVIDER_LLAMA_CPP) {
+        return LLAMA_CPP_DEFAULT_URL;
+    }
+    if (provider === PROVIDER_VLLM) {
+        return VLLM_DEFAULT_URL;
+    }
+    return CUSTOM_DEFAULT_URL;
+}
+
+function applyOpenAIProviderServerDefault(node, provider) {
+    if (!OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
+        return;
+    }
+    const widget = getWidget(node, "custom_server_url");
+    if (!widget) {
+        return;
+    }
+    const current = String(widget.value || "").trim();
+    const defaultUrls = new Set([LEGACY_CUSTOM_DEFAULT_URL, CUSTOM_DEFAULT_URL, VLLM_DEFAULT_URL, LLAMA_CPP_DEFAULT_URL]);
+    if (!current || defaultUrls.has(current)) {
+        widget.value = defaultOpenAIProviderUrl(provider);
+    }
 }
 
 function setActiveProviderModelVisibility(node) {
     const provider = currentProvider(node);
     const modelMemory = normalizeModelMemoryValue(getWidget(node, "model_memory")?.value);
+    const usesOpenAICompatible = OPENAI_COMPATIBLE_PROVIDERS.has(provider);
+    applyOpenAIProviderServerDefault(node, provider);
     setWidgetHidden(getWidget(node, "ollama_model"), provider !== PROVIDER_OLLAMA);
     setWidgetHidden(getWidget(node, "lm_studio_model"), provider !== PROVIDER_LM_STUDIO);
-    setWidgetHidden(getWidget(node, "custom_server_url"), true);
-    setWidgetHidden(getWidget(node, "custom_model"), true);
+    setWidgetHidden(getWidget(node, "custom_server_url"), !usesOpenAICompatible);
+    setWidgetHidden(getWidget(node, "custom_model"), !usesOpenAICompatible);
     setWidgetHidden(getWidget(node, "system_prompt"), true);
     setWidgetHidden(getWidget(node, "prompt"), true);
     setWidgetHidden(getWidget(node, "model_memory"), false);
@@ -4116,6 +4260,15 @@ function setActiveProviderModelVisibility(node) {
         if (widget) {
             widget.value = displayModelValueForCurrentChoices(widget, widget.value);
         }
+    }
+    const customModelWidget = getWidget(node, "custom_model");
+    if (customModelWidget) {
+        customModelWidget.type = usesOpenAICompatible ? "text" : customModelWidget.type;
+        customModelWidget.label = "Model";
+    }
+    const customServerWidget = getWidget(node, "custom_server_url");
+    if (customServerWidget) {
+        customServerWidget.label = "Server URL";
     }
     const activeValue = String(activeModelWidget(node)?.value || "").trim();
     setLocalLLMNodeState(node, {
@@ -4150,7 +4303,7 @@ function wrapModelMemoryCallback(node) {
 }
 
 function wrapModelCallback(node) {
-    for (const name of ["ollama_model", "lm_studio_model"]) {
+    for (const name of ["ollama_model", "lm_studio_model", "custom_model"]) {
         const modelWidget = getWidget(node, name);
         if (!modelWidget || modelWidget.__denoLocalLLMWrapped) {
             continue;
@@ -4159,7 +4312,9 @@ function wrapModelCallback(node) {
         modelWidget.callback = function () {
             const result = original?.apply(this, arguments);
             repairModelWidgetValue(modelWidget);
-            modelWidget.value = displayModelValueForCurrentChoices(modelWidget, modelWidget.value);
+            if (name !== "custom_model") {
+                modelWidget.value = displayModelValueForCurrentChoices(modelWidget, modelWidget.value);
+            }
             if (name === activeModelNameForProvider(currentProvider(node))) {
                 const value = String(modelWidget.value || "");
                 setLocalLLMNodeState(node, {
@@ -4454,6 +4609,11 @@ async function stopLocalModel(node) {
     refreshNode(node);
 }
 
+function isManualUnloadUnavailableMessage(message) {
+    const lowered = String(message || "").toLowerCase();
+    return lowered.includes("no standard unload api") || lowered.includes("do not share a standard unload api");
+}
+
 async function unloadLocalModel(node) {
     const provider = currentProvider(node);
     const serverUrl = defaultServerForProvider(provider, node);
@@ -4495,15 +4655,17 @@ async function unloadLocalModel(node) {
             body: JSON.stringify({ provider, server_url: serverUrl, model }),
         });
         const payload = await response.json();
-        if (!response.ok && !payload?.message) {
+        const payloadMessage = String(payload?.message || payload?.error || "");
+        if (!response.ok && !payloadMessage) {
             throw new Error(payload?.error || `HTTP ${response.status}`);
         }
+        const manualUnavailable = !payload.ok && !payload.busy && (payload?.manual_unavailable || isManualUnloadUnavailableMessage(payloadMessage));
         setLocalLLMNodeState(node, {
-            status: payload.ok ? "LLM unloaded" : (payload.busy ? "unload blocked" : "manual unload unavailable"),
+            status: payload.ok ? "LLM unloaded" : (payload.busy ? "unload blocked" : (manualUnavailable ? "manual unload unavailable" : "LLM unload failed")),
             provider,
             model,
             answer: "",
-            thinking: String(payload.message || payload.error || "Unload request finished."),
+            thinking: payloadMessage || "Unload request finished.",
         });
     } catch (error) {
         setLocalLLMNodeState(node, {
@@ -4565,15 +4727,15 @@ async function refreshModels(node) {
         });
     } catch (error) {
         updateModelChoices(node, provider, []);
-        if (modelWidget && hasUsableSavedModelValue(savedModel)) {
+        if (!OPENAI_COMPATIBLE_PROVIDERS.has(provider) && modelWidget && hasUsableSavedModelValue(savedModel)) {
             modelWidget.value = missingSavedModelDisplayValue(savedModel);
         }
         setLocalLLMNodeState(node, {
-            status: hasUsableSavedModelValue(savedModel) ? "saved model not found" : "model refresh failed",
+            status: !OPENAI_COMPATIBLE_PROVIDERS.has(provider) && hasUsableSavedModelValue(savedModel) ? "saved model not found" : "model refresh failed",
             provider,
             model: String(modelWidget?.value || ""),
             answer: "",
-            thinking: hasUsableSavedModelValue(savedModel)
+            thinking: !OPENAI_COMPATIBLE_PROVIDERS.has(provider) && hasUsableSavedModelValue(savedModel)
                 ? `Saved ${provider} model "${savedModel}" could not be verified on this PC. ${String(error?.message || error)}`
                 : String(error?.message || error),
         });
@@ -4600,7 +4762,7 @@ function normalizeModelChoices(models) {
 }
 
 function updateModelChoices(node, provider, choices) {
-    const providerKey = PROVIDER_VALUES.includes(provider) ? provider : PROVIDER_OLLAMA;
+    const providerKey = normalizeProviderValue(provider);
     node.properties = node.properties || {};
     node.properties.denoLocalLLMModelChoicesByProvider = {
         ...(node.properties.denoLocalLLMModelChoicesByProvider || {}),
@@ -4609,6 +4771,12 @@ function updateModelChoices(node, provider, choices) {
     const widget = getWidget(node, activeModelNameForProvider(providerKey));
     if (widget) {
         widget.__denoLocalLLMPreservedSavedModels = new Set();
+    }
+    if (OPENAI_COMPATIBLE_PROVIDERS.has(providerKey)) {
+        if (widget && Array.isArray(choices) && choices.length && !hasUsableSavedModelValue(widget.value)) {
+            widget.value = String(choices[0]?.id || "");
+        }
+        return;
     }
     if (widget && Array.isArray(choices) && choices.length) {
         const savedValue = String(widget.value || "").trim();

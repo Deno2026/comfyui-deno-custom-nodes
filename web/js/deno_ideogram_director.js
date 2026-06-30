@@ -35,6 +35,98 @@
     const ids = eventNodeIds(detail);
     return ids.has(String(node.id)) || ids.has(String(node.id).split(":").pop());
   }
+  const TARGET_PROP = "idd_regen_target";
+  function targetGraphForNode(node, appRef = app) {
+    return node?.graph || appRef?.graph || appRef?.rootGraph || null;
+  }
+  function graphNodesForTarget(node, appRef = app) {
+    const g = targetGraphForNode(node, appRef);
+    return Array.isArray(g?._nodes) ? g._nodes : [];
+  }
+  function graphLinkByIdForTarget(node, linkId, appRef = app) {
+    const g = targetGraphForNode(node, appRef);
+    const links = g?.links || {};
+    if (links && links[linkId]) return links[linkId];
+    if (Array.isArray(links)) return links.find((link) => String(link?.id ?? link?.[0]) === String(linkId));
+    return null;
+  }
+  function graphNodeByIdForTarget(node, id, appRef = app) {
+    const g = targetGraphForNode(node, appRef);
+    const found = g?.getNodeById?.(id) || g?.getNodeById?.(+id);
+    if (found) return found;
+    return graphNodesForTarget(node, appRef).find((n) => String(n?.id) === String(id)) || null;
+  }
+  function linkTargetIdForTarget(link) {
+    if (!link) return null;
+    return link.target_id ?? link.targetId ?? link.target ?? link[3] ?? null;
+  }
+  function outputLinksForTargetNode(ownerNode, graphNode, appRef = app) {
+    const out = [];
+    for (const output of (graphNode?.outputs || [])) {
+      for (const linkId of (output?.links || [])) {
+        const link = graphLinkByIdForTarget(ownerNode, linkId, appRef);
+        const targetId = linkTargetIdForTarget(link);
+        if (targetId != null) out.push(String(targetId));
+      }
+    }
+    return out;
+  }
+  function isOutputTargetNodeForDirector(node, candidate) {
+    if (!candidate || candidate === node) return false;
+    if (window.LiteGraph && candidate.mode === window.LiteGraph.NEVER) return false;
+    return !!candidate.constructor?.nodeData?.output_node;
+  }
+  function downstreamNodeIdsForTarget(node, appRef = app) {
+    const seen = new Set();
+    const queue = outputLinksForTargetNode(node, node, appRef);
+    while (queue.length) {
+      const id = queue.shift();
+      if (id == null || seen.has(String(id))) continue;
+      seen.add(String(id));
+      const n = graphNodeByIdForTarget(node, id, appRef);
+      for (const nextId of outputLinksForTargetNode(node, n, appRef)) {
+        if (!seen.has(String(nextId))) queue.push(String(nextId));
+      }
+    }
+    return seen;
+  }
+  function outputTargetNodesForDirector(node, appRef = app) {
+    const all = graphNodesForTarget(node, appRef).filter((n) => isOutputTargetNodeForDirector(node, n));
+    const downstream = downstreamNodeIdsForTarget(node, appRef);
+    return all.filter((n) => downstream.has(String(n.id)));
+  }
+  function targetStateForDirector(node) {
+    const props = node ? (node.properties || (node.properties = {})) : {};
+    const raw = props[TARGET_PROP];
+    if (raw && typeof raw === "object" && raw.mode === "node" && raw.nodeId != null) {
+      return { mode: "node", nodeId: String(raw.nodeId), title: String(raw.title || "") };
+    }
+    if (typeof raw === "string" && raw && raw !== "all") return { mode: "node", nodeId: String(raw), title: "" };
+    return { mode: "all" };
+  }
+  function selectedTargetNodeForDirector(node, appRef = app) {
+    const state = targetStateForDirector(node);
+    if (state.mode !== "node") return null;
+    const candidates = outputTargetNodesForDirector(node, appRef);
+    return candidates.find((n) => String(n.id) === String(state.nodeId)) || null;
+  }
+  function shouldAcceptResultForDirectorTarget(node, detail, appRef = app) {
+    const state = targetStateForDirector(node);
+    if (state.mode !== "node") return true;
+    const selected = selectedTargetNodeForDirector(node, appRef);
+    if (!selected) return false;
+    return eventNodeIds(detail).has(String(selected.id));
+  }
+  if (typeof window !== "undefined" && typeof window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__ === "function") {
+    window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__({
+      eventNodeIds,
+      downstreamNodeIdsForTarget,
+      outputTargetNodesForDirector,
+      selectedTargetNodeForDirector,
+      shouldAcceptResultForDirectorTarget,
+      targetStateForDirector,
+    });
+  }
   api?.addEventListener?.(PENDING_EVENT, (e) => {
     const d = e && e.detail; if (!d) return;
     for (const n of directorNodes) {
@@ -72,10 +164,22 @@
         }
       }
     }
+    const sz = d.output && d.output.idd_size;
+    if (Array.isArray(sz) && sz.length) {
+      for (const n of directorNodes) {
+        if (matchesEventNode(n, d) && n._idd && n._idd.onSize) {
+          n._idd.onSize(sz[sz.length - 1]);
+        }
+      }
+    }
     const imgs = d.output && d.output.images;
     if (!Array.isArray(imgs) || !imgs.length) return;
     const im = imgs[imgs.length - 1];
-    for (const n of directorNodes) { if (n._idd) n._idd.onResult(im); }
+    for (const n of directorNodes) {
+      if (!n._idd) continue;
+      if (typeof n._idd.shouldAcceptResult === "function" && !n._idd.shouldAcceptResult(d)) continue;
+      n._idd.onResult(im);
+    }
   });
 
   function installDirectorQueuePromptHook() {
@@ -667,6 +771,10 @@
 .idd-importbtn.on{background:rgba(66,189,127,.10) !important;color:var(--g) !important;border-color:var(--gdim) !important;}
 .idd-importbtn.pending{background:rgba(232,180,90,.16) !important;color:#ffd48a !important;border-color:rgba(232,180,90,.45) !important;}
 .idd-importbtn.error{background:rgba(135,25,25,.48) !important;color:#ffd1c7 !important;border-color:rgba(255,120,90,.70) !important;}
+.idd-targetbtn{min-width:64px;max-width:104px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:"Segoe UI Variable Text","Segoe UI",sans-serif !important;}
+.idd-targetbtn.on{background:rgba(66,189,127,.12) !important;color:var(--g) !important;border-color:var(--gdim) !important;}
+.idd-targetbtn.error{background:rgba(135,25,25,.48) !important;color:#ffd1c7 !important;border-color:rgba(255,120,90,.70) !important;}
 .idd-lang-full .idd-modal-panel.idd-lang-panel{width:100%;max-width:100%;height:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;}
 .idd-lang-full .idd-modal-h{gap:14px;flex:0 0 auto;}
 .idd-lang-full .idd-h-center{min-width:0;}
@@ -755,6 +863,8 @@
 .idd-bdropctl{background:rgba(14,18,16,.88) !important;border:1px solid rgba(255,255,255,.10) !important;border-radius:7px !important;}
 .idd-bdedit{background:#1a201c !important;border:1px solid rgba(255,255,255,.08) !important;color:var(--txt) !important;}
 .idd-bdedit.on{border-color:var(--g) !important;background:rgba(66,189,127,.13) !important;color:var(--g) !important;}
+.idd-bdfit{background:#153522 !important;border:1px solid rgba(78,203,141,.45) !important;color:#d9f7e6 !important;border-radius:6px !important;}
+.idd-bdfit:hover{border-color:var(--g) !important;color:#fff !important;}
 
 /* 6) Right rail: quiet gray chrome, green only when active */
 .idd-rail{background:#141917 !important;border-left:1px solid rgba(255,255,255,.07) !important;}
@@ -896,6 +1006,7 @@
 .idd-wrap.idd-topfit .idd-langbtn{min-width:78px;max-width:104px;}
 .idd-wrap.idd-topfit .idd-refreshbtn{width:30px;min-width:30px;max-width:30px;flex-basis:30px !important;}
 .idd-wrap.idd-topfit .idd-res{max-width:124px;overflow:hidden;text-overflow:ellipsis;}
+.idd-wrap.idd-topfit .idd-targetbtn{min-width:54px;max-width:78px;padding-left:8px !important;padding-right:8px !important;}
 .idd-wrap.idd-topfit .idd-seedpill .idd-seedlbl{display:none;}
 .idd-wrap.idd-topfit .idd-seedpill .idd-seed{width:38px;}
 .idd-wrap.idd-topfit .idd-seedopt{padding-left:5px;padding-right:5px;}
@@ -1052,6 +1163,9 @@
       .idd-importbtn.on{background:rgba(72,255,132,.10);color:var(--g);border-color:var(--gdim);}
       .idd-importbtn.pending{background:rgba(232,180,90,.16);color:#ffd48a;border-color:rgba(232,180,90,.45);}
       .idd-importbtn.error{background:rgba(135,25,25,.48);color:#ffd1c7;border-color:rgba(255,120,90,.70);}
+      .idd-targetbtn{min-width:64px;max-width:104px;flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 11px 'Segoe UI';}
+      .idd-targetbtn.on{background:rgba(72,255,132,.12);color:var(--g);border-color:var(--gdim);}
+      .idd-targetbtn.error{background:rgba(135,25,25,.48);color:#ffd1c7;border-color:rgba(255,120,90,.70);}
       .idd-lang-full .idd-modal-panel.idd-lang-panel{width:100%;max-width:100%;height:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;}
       .idd-lang-full .idd-modal-h{gap:14px;flex:0 0 auto;}
       .idd-lang-full .idd-h-center{min-width:0;}
@@ -1329,6 +1443,9 @@
       .idd-elem .g:active{cursor:grabbing;}
       .idd-elem .dup{color:var(--dim);cursor:pointer;padding:0 2px;font-size:12px;}
       .idd-elem .dup:hover{color:var(--g);}
+      .idd-sechead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px 0;}
+      .idd-sechead .idd-seclbl{margin:0;}
+      .idd-addbbox{padding:3px 8px !important;font:bold 10px monospace !important;line-height:1 !important;}
       .idd-elem.drop-before::before,.idd-elem.drop-after::after{content:"";position:absolute;left:4px;right:4px;height:2px;border-radius:999px;background:var(--g);box-shadow:0 0 8px rgba(72,255,132,.75);pointer-events:none;z-index:3;}
       .idd-elem.drop-before::before{top:-2px;}
       .idd-elem.drop-after::after{bottom:-2px;}
@@ -1388,8 +1505,20 @@
         let _bid = 1;            // box id counter
         let bdropDim = 0;        // backdrop darkening 0..0.8 (boxes stay readable over it)
         let resultDim = 0;       // result-image dimming 0..0.85 (display only — the saved image is untouched)
-        let bdT = { nx: 0, ny: 0, nw: 1, nh: 1, set: false };  // backdrop transform (board-relative, ratio-kept)
+        let bdT = { nx: 0, ny: 0, nw: 1, nh: 1, set: false, userSet: false };  // backdrop transform (board-relative, ratio-kept)
         let bdEdit = false;      // backdrop adjust mode (drag to move / corner to resize)
+        function normalizeBackdropTransform(raw) {
+          if (!raw || typeof raw !== "object") return { nx: 0, ny: 0, nw: 1, nh: 1, set: false, userSet: false };
+          const hadUserSet = Object.prototype.hasOwnProperty.call(raw, "userSet");
+          return {
+            nx: Number.isFinite(+raw.nx) ? +raw.nx : 0,
+            ny: Number.isFinite(+raw.ny) ? +raw.ny : 0,
+            nw: Number.isFinite(+raw.nw) && +raw.nw > 0 ? +raw.nw : 1,
+            nh: Number.isFinite(+raw.nh) && +raw.nh > 0 ? +raw.nh : 1,
+            set: !!raw.set,
+            userSet: hadUserSet ? !!raw.userSet : !!raw.set,
+          };
+        }
         let styleMode = "none";  // none | photo | art
         let mp = 1;              // megapixel budget (persisted in caption_data)
         let arLabel = "1:1";     // current aspect-ratio label (persisted in the aspect_ratio widget)
@@ -1510,7 +1639,7 @@
           photoIn.value = d.photo || ""; setW("photo", d.photo || "");
           artIn.value = d.art || ""; setW("art_style", d.art || "");
           applyStyleMode(d.styleMode || "none"); setW("style_mode", d.styleMode || "none");
-          bdropDim = +d.bdropDim || 0; resultDim = +d.resultDim || 0; if (d.bdT) bdT = Object.assign({}, d.bdT);
+          bdropDim = +d.bdropDim || 0; resultDim = +d.resultDim || 0; if (d.bdT) bdT = normalizeBackdropTransform(d.bdT);
           setRailWide(!!d.railWide, false);
           selectedId = boxes.some((b) => b.id === d.selId) ? d.selId : null;
           renderBoxes(); renderPalette(); renderElements(); layoutStage(); applyBackdrop(); applyResultDim();
@@ -1522,7 +1651,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.22-import-same-sig-guard-a";
+        const IDD_REV = "r2026.06.30-generate-target-a";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -1591,6 +1720,8 @@
         // user hasn't generated anything yet — "re-" reads like someone else's verb).
         const regen = el("button", "idd-regen"); regen.textContent = "Generate";
         regen.title = "Run the graph with this caption · Ctrl+Enter";
+        const targetBtn = mkBtn("All"); targetBtn.classList.add("idd-targetbtn");
+        targetBtn.title = "Generate target: All outputs";
         const paintRegen = () => {
           regen.textContent = node._idd && node._idd._last ? "Regenerate" : "Generate";
           fitTopBarSoon();
@@ -1685,7 +1816,7 @@
             await new Promise((resolve) => window.setTimeout(resolve, 35));
             skipNextQueuePreflight = true;
             if (typeof app?.queuePrompt === "function") {
-              await app.queuePrompt(0);
+              await queueDirectorPrompt();
               return true;
             }
             if (typeof app?.extensionManager?.queuePrompt === "function") {
@@ -1937,6 +2068,135 @@
         importBtn.onclick = (e) => { e.stopPropagation(); openImportDialog(); };
         paintImportMode();
         paintPendingPrompt();
+        function outputTargetNodes() {
+          return outputTargetNodesForDirector(node);
+        }
+        function outputNodeLabel(n) {
+          const raw = (n?.title || n?.constructor?.title || n?.type || n?.comfyClass || "Output").trim();
+          return raw + " #" + String(n?.id ?? "?");
+        }
+        function shortOutputNodeLabel(n) {
+          const raw = (n?.title || n?.constructor?.title || n?.type || "Output").trim();
+          const clean = raw.length > 16 ? raw.slice(0, 14).trim() + "..." : raw;
+          return clean + " #" + String(n?.id ?? "?");
+        }
+        function targetState() {
+          return targetStateForDirector(node);
+        }
+        function setTargetState(state) {
+          const props = node.properties || (node.properties = {});
+          if (!state || state.mode !== "node") props[TARGET_PROP] = { mode: "all" };
+          else props[TARGET_PROP] = { mode: "node", nodeId: String(state.nodeId), title: state.title || "" };
+          try { node.graph?.setDirtyCanvas?.(true, true); } catch (e) {}
+          paintTarget();
+        }
+        function selectedTargetNode() {
+          return selectedTargetNodeForDirector(node);
+        }
+        function paintTarget() {
+          const state = targetState();
+          const selected = selectedTargetNode();
+          targetBtn.classList.toggle("on", !!selected);
+          targetBtn.classList.toggle("error", state.mode === "node" && !selected);
+          if (state.mode === "node" && selected) {
+            targetBtn.textContent = shortOutputNodeLabel(selected);
+            targetBtn.title = "Generate target: only " + outputNodeLabel(selected) + " and its upstream branch will run.";
+          } else if (state.mode === "node") {
+            targetBtn.textContent = "Missing";
+            targetBtn.title = "Generate target is missing or no longer downstream from this Director. Choose All outputs or another output.";
+          } else {
+            targetBtn.textContent = "All";
+            targetBtn.title = "Generate target: All outputs. This preserves the old Generate behavior.";
+          }
+          fitTopBarSoon();
+        }
+        function openTargetDialog() {
+          const modal = el("div", "idd-modal"); modal.tabIndex = -1;
+          const panel = el("div", "idd-modal-panel idd-import-panel");
+          const h = el("div", "idd-modal-h");
+          const ht = el("span", "t"); ht.textContent = "Generate Target"; h.append(ht);
+          const hint = el("div", "idd-ml");
+          hint.textContent = "Default runs every output. Choose one output to run only that branch and use its image on the board.";
+          const list = el("div", "idd-importlist"); stop(list);
+          let selected = targetState();
+          function renderTargets() {
+            list.innerHTML = "";
+            const allRow = el("button", "idd-importrow");
+            allRow.type = "button";
+            allRow.classList.toggle("on", selected.mode !== "node");
+            const allName = el("b"); allName.textContent = "All outputs";
+            const allDesc = el("span"); allDesc.textContent = "Current behavior. Every output node in the workflow can run.";
+            allRow.append(allName, allDesc);
+            allRow.onclick = (e) => { e.stopPropagation(); selected = { mode: "all" }; renderTargets(); };
+            allRow.ondblclick = (e) => { e.stopPropagation(); doApply(); };
+            list.appendChild(allRow);
+            const targets = outputTargetNodes();
+            if (!targets.length) {
+              const empty = el("div", "idd-importrow");
+              empty.style.cursor = "default";
+              const name = el("b"); name.textContent = "No output nodes found";
+              const desc = el("span"); desc.textContent = "Add or connect a Preview Image / Save Image output node first.";
+              empty.append(name, desc);
+              list.appendChild(empty);
+            }
+            for (const n of targets) {
+              const row = el("button", "idd-importrow");
+              row.type = "button";
+              const nodeId = String(n.id);
+              row.classList.toggle("on", selected.mode === "node" && String(selected.nodeId) === nodeId);
+              const name = el("b"); name.textContent = outputNodeLabel(n);
+              const desc = el("span"); desc.textContent = "Run only this output branch, then use this output image as the board background.";
+              row.append(name, desc);
+              row.onclick = (e) => { e.stopPropagation(); selected = { mode: "node", nodeId, title: outputNodeLabel(n) }; renderTargets(); };
+              row.ondblclick = (e) => { e.stopPropagation(); doApply(); };
+              list.appendChild(row);
+            }
+          }
+          const acts = el("div", "idd-modal-acts");
+          const cancel = el("button", "idd-mbtn"); cancel.textContent = "Cancel";
+          const apply = el("button", "idd-mbtn save"); apply.textContent = "Apply";
+          acts.append(el("span", "sp"), cancel, apply);
+          panel.append(h, hint, list, acts);
+          modal.append(panel); wrap.appendChild(modal);
+          const close = () => { try { modal.remove(); } catch (e) {} };
+          function doApply() { setTargetState(selected); close(); }
+          modal.addEventListener("keydown", (e) => {
+            e.stopPropagation();
+            if (e.key === "Escape") { e.preventDefault(); close(); }
+            if (e.key === "Enter") { e.preventDefault(); doApply(); }
+          });
+          modal.addEventListener("pointerdown", (e) => { if (e.target === modal) close(); });
+          cancel.onclick = (e) => { e.stopPropagation(); close(); };
+          apply.onclick = (e) => { e.stopPropagation(); doApply(); };
+          renderTargets();
+        }
+        function queueTargetIdsForRun() {
+          const state = targetState();
+          if (state.mode !== "node") return null;
+          const selected = selectedTargetNode();
+          if (!selected) {
+            paintTarget();
+            showRunAlert(
+              "Target output is missing.",
+              "Choose All outputs or select a current Preview/Save output before generating.",
+              "error"
+            );
+            return false;
+          }
+          return [String(selected.id)];
+        }
+        async function queueDirectorPrompt() {
+          const targetIds = queueTargetIdsForRun();
+          if (targetIds === false) return false;
+          if (targetIds && targetIds.length) await app.queuePrompt(0, 1, targetIds);
+          else await app.queuePrompt(0);
+          return true;
+        }
+        function shouldAcceptResultForTarget(detail) {
+          return shouldAcceptResultForDirectorTarget(node, detail);
+        }
+        targetBtn.onclick = (e) => { e.stopPropagation(); openTargetDialog(); };
+        paintTarget();
         const NO_TRANSLATION = "No translation (keep as written)";
         const VIEW_DEFAULT = "English";
         const LEGACY_VIEW_ORIGINAL_VALUE = "Original (as written)";
@@ -2205,7 +2465,8 @@
         }
         let viewTranslateSeq = 0;
         async function translateCaptionToEnglishForOutput(cap, offerFallback = true, retryLabel = "the English output") {
-          const viewSource = getViewLanguage() === ENGLISH_PROMPT ? "auto" : getViewLanguage();
+          const viewSource = getViewLanguage();
+          if (viewSource === ENGLISH_PROMPT) return cap;
           try {
             return (await translateCaptionViaRoute(cap, ENGLISH_PROMPT, viewSource)).caption;
           } catch (err) {
@@ -2253,6 +2514,11 @@
         }
         async function translateBoardToViewLanguage(source = "auto", offerFallback = true) {
           const target = getViewLanguage();
+          const normalizedSource = source === "auto" ? "auto" : normalizeViewLanguage(source);
+          if (target === VIEW_DEFAULT && (normalizedSource === "auto" || normalizedSource === VIEW_DEFAULT)) {
+            paintTranslate();
+            return true;
+          }
           const seq = ++viewTranslateSeq;
           const oldText = translateBtn.textContent;
           translateBtn.textContent = "Translating...";
@@ -2645,13 +2911,24 @@
           setW("aspect_ratio", machine || (RATIOS.some((r) => r[0] === arLabel) ? arLabel : w + ":" + h));
           paintRes(); layoutStage();
         }
+        function applyExternalSizePayload(payload) {
+          if (!payload || typeof payload !== "object") return;
+          const w = clampRes(payload.width);
+          const h = clampRes(payload.height);
+          const rawMachine = typeof payload.aspect_ratio === "string" ? payload.aspect_ratio.trim() : "";
+          const machine = /^\d+\s*:\s*\d+$/.test(rawMachine) ? rawMachine.replace(/\s+/g, "") : w + ":" + h;
+          const label = RATIOS.some((r) => r[0] === machine) ? machine : friendlyRatio(w, h);
+          if (+getW("width", 1024) === w && +getW("height", 1024) === h && getW("aspect_ratio", "") === machine) return;
+          setRes(w, h, label, machine);
+          serialize();
+        }
 
         // order: layout/import/size/language/seed controls → PRIMARY LAST.
         // The ComfyUI title already names this node, so duplicate "Ideogram Director" and
         // the old caption-status text are intentionally not mounted; that keeps Seed visible at default size.
         // Regenerate owns the terminal top-right hotspot (Fitts / Figma·Canva convention); the
         // low-frequency fullscreen joins the board's view cluster instead of crowding the corner.
-        top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, regen);
+        top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, targetBtn, regen);
         paintRes();   // always populate the resolution chip on creation (not just on restore)
         setTimeout(fitTopBarAfterRestore, 0);
 
@@ -2679,6 +2956,11 @@
         paintEye();
         const railBtn = el("button", "idd-railtab"); railBtn.textContent = "»"; railBtn.title = "Collapse panel";
         board.append(grid, bdrop, bimg, ov, zoom);
+        function paintBoardEmptyHint() {
+          const hasBackdrop = bdrop.style.display !== "none" && !!bdrop.dataset.url;
+          const hasResult = bimg.style.display !== "none";
+          board.classList.toggle("empty", !boxes.length && !hasBackdrop && !hasResult);
+        }
         const runAlert = el("div", "idd-runalert");
         const runAlertTitle = el("b");
         const runAlertBody = el("span");
@@ -2810,14 +3092,18 @@
         bdropRange.addEventListener("input", () => { bdropDim = (+bdropRange.value) / 100; bdrop.style.filter = "brightness(" + (1 - bdropDim) + ")"; serialize(); });
         const bdEditBtn = el("button", "idd-bdedit"); bdEditBtn.textContent = "📐 Adjust"; bdEditBtn.title = "Move / resize the backdrop — drag it to move, the corner handle or the size slider to scale";
         bdEditBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+        const bdFitRefBtn = el("button", "idd-bdfit"); bdFitRefBtn.textContent = "Fit Ref"; bdFitRefBtn.title = "Use the loaded reference image ratio for output size";
+        bdFitRefBtn.style.display = "none";
+        bdFitRefBtn.addEventListener("mousedown", (e) => e.stopPropagation());
         // size slider — reliable scaling even when the corner handle has gone off the board (always reachable here)
         const bdScaleIco = el("span"); bdScaleIco.textContent = "↔"; bdScaleIco.title = "Backdrop size"; bdScaleIco.style.display = "none";
         const bdScaleRange = el("input", "idd-bdroprange"); bdScaleRange.type = "range"; bdScaleRange.min = "10"; bdScaleRange.max = "300"; bdScaleRange.step = "5"; bdScaleRange.value = "100"; bdScaleRange.style.display = "none";
         bdScaleRange.addEventListener("input", () => {
           const bw = board.clientWidth, bh = board.clientHeight, iar = (bdrop.naturalWidth / bdrop.naturalHeight) || 1;
-          bdT.nw = (+bdScaleRange.value) / 100; bdT.nh = (bdT.nw * bw / iar) / bh; layoutBackdrop(); serialize();
+          bdT.userSet = true;
+          bdT.nw = (+bdScaleRange.value) / 100; bdT.nh = (bdT.nw * bw / iar) / bh; layoutStage(); serialize();
         });
-        bdropCtl.append(bdropIco, bdropRange, bdScaleIco, bdScaleRange, bdEditBtn); board.append(bdropCtl);
+        bdropCtl.append(bdropIco, bdropRange, bdScaleIco, bdScaleRange, bdEditBtn, bdFitRefBtn); board.append(bdropCtl);
 
         // ── result-image dimmer (board view cluster) — same idea as the backdrop slider: tone the generated
         // image down so boxes / text layout read clearly over it. Display only; saving exports the
@@ -2855,6 +3141,23 @@
           layoutBackdrop();
         }
         bdEditBtn.onclick = (e) => { e.stopPropagation(); setBdEdit(!bdEdit); };
+        function hasLoadedBackdrop() {
+          return bdrop.style.display !== "none" && bdrop.naturalWidth > 0 && bdrop.naturalHeight > 0;
+        }
+        function updateFitRefButton() {
+          bdFitRefBtn.style.display = hasLoadedBackdrop() ? "" : "none";
+        }
+        function fitOutputToReferenceRatio() {
+          if (!hasLoadedBackdrop()) return;
+          const cw = Math.max(64, Math.round(+getW("width", 1024)));
+          const ch = Math.max(64, Math.round(+getW("height", 1024)));
+          const currentMp = resolutionMegapixels(cw, ch);
+          const [w, h] = dimsFor(bdrop.naturalWidth, bdrop.naturalHeight, currentMp);
+          const label = friendlyRatio(w, h);
+          setRes(w, h, label, RATIOS.some((r) => r[0] === label) ? label : w + ":" + h);
+          serialize();
+        }
+        bdFitRefBtn.onclick = (e) => { e.stopPropagation(); fitOutputToReferenceRatio(); };
 
         // Canvas passthrough — RULE: wheel-zoom and middle-click-pan belong to the ComfyUI canvas
         // over the board/photo/bbox surface. Deliberate local scroll areas keep their wheel.
@@ -2953,35 +3256,47 @@
         function aspect() {
           return targetAspect() || imageAspect() || 1;
         }
-        function layoutStage() {
+        function stageRect() {
           const bw = board.clientWidth, bh = board.clientHeight;
-          if (!bw || !bh) return;
+          if (!bw || !bh) return null;
           const ar = aspect();
           let sw = bw, sh = bw / ar;
           if (sh > bh) { sh = bh; sw = bh * ar; }
-          const left = Math.round((bw - sw) / 2), top = Math.round((bh - sh) / 2);
-          for (const elx of [bimg, ov]) {
-            elx.style.left = left + "px"; elx.style.top = top + "px";
-            elx.style.width = Math.round(sw) + "px"; elx.style.height = Math.round(sh) + "px";
-          }
+          return { left: Math.round((bw - sw) / 2), top: Math.round((bh - sh) / 2), width: Math.round(sw), height: Math.round(sh) };
+        }
+        function placeRect(elx, rect) {
+          if (!elx || !rect) return;
+          elx.style.left = rect.left + "px"; elx.style.top = rect.top + "px";
+          elx.style.width = rect.width + "px"; elx.style.height = rect.height + "px";
+        }
+        function hasVisibleResult() {
+          return bimg.style.display !== "none" && bimg.naturalWidth > 0 && bimg.naturalHeight > 0;
+        }
+        function layoutStage() {
+          const srect = stageRect();
+          if (!srect) return;
+          placeRect(bimg, srect);
           layoutBackdrop();   // backdrop has its OWN transform (user move/resize), not stage-fit
+          placeRect(ov, srect);   // boxes always follow the committed output canvas unless Fit Ref changes that canvas
         }
         // backdrop placement is independent + ratio-preserving (NOT stretched to the stage).
         function layoutBackdrop() {
-          const bw = board.clientWidth, bh = board.clientHeight; if (!bw || !bh) return;
+          const bw = board.clientWidth, bh = board.clientHeight; if (!bw || !bh) return null;
+          if (hasLoadedBackdrop() && bdT.set && !bdT.userSet) fitBackdrop(false);
           const iar = (bdrop.naturalWidth / bdrop.naturalHeight) || 1;
           const pxW = bdT.nw * bw, pxH = pxW / iar;   // height ALWAYS from the image ratio → node-resize never distorts it
-          bdrop.style.left = Math.round(bdT.nx * bw) + "px"; bdrop.style.top = Math.round(bdT.ny * bh) + "px";
-          bdrop.style.width = Math.round(pxW) + "px"; bdrop.style.height = Math.round(pxH) + "px";
-          bdHandle.style.left = Math.round(bdT.nx * bw + pxW - 6) + "px";
-          bdHandle.style.top = Math.round(bdT.ny * bh + pxH - 6) + "px";
+          const rect = { left: Math.round(bdT.nx * bw), top: Math.round(bdT.ny * bh), width: Math.round(pxW), height: Math.round(pxH) };
+          placeRect(bdrop, rect);
+          bdHandle.style.left = Math.round(rect.left + pxW - 6) + "px";
+          bdHandle.style.top = Math.round(rect.top + pxH - 6) + "px";
+          return rect;
         }
-        function fitBackdrop() {   // initial: contain in the board at the image's real ratio (no stretch)
+        function fitBackdrop(markUserSet = false) {   // initial: contain in the board at the image's real ratio (no stretch)
           const bw = board.clientWidth, bh = board.clientHeight;
           if (!bw || !bh || !bdrop.naturalWidth) return;
           const iar = bdrop.naturalWidth / bdrop.naturalHeight;
           let w = bw, h = bw / iar; if (h > bh) { h = bh; w = bh * iar; }
-          bdT = { nx: (bw - w) / 2 / bw, ny: (bh - h) / 2 / bh, nw: w / bw, nh: h / bh, set: true };
+          bdT = { nx: (bw - w) / 2 / bw, ny: (bh - h) / 2 / bh, nw: w / bw, nh: h / bh, set: true, userSet: !!markUserSet };
         }
         bimg.addEventListener("load", layoutStage);            // image natural aspect now known
         const stageRO = new ResizeObserver(() => layoutStage()); // board/node resize, rail toggle
@@ -3011,7 +3326,7 @@
         function applyBackdrop() {
           const url = getBackdrop();
           if (url) {
-            if (bdrop.dataset.url !== url) { bdrop.dataset.url = url; bdT.set = false; bdrop.src = url; }  // new image → re-fit on load
+            if (bdrop.dataset.url !== url) { bdrop.dataset.url = url; bdT.set = false; bdT.userSet = false; bdrop.src = url; }  // new image → re-fit on load
             bdrop.style.display = "block"; bdropCtl.style.display = "";
           } else {
             bdrop.dataset.url = ""; bdrop.removeAttribute("src"); bdrop.style.display = "none"; bdropCtl.style.display = "none";
@@ -3019,21 +3334,24 @@
           }
           bdrop.style.filter = "brightness(" + (1 - bdropDim) + ")";
           bdropRange.value = String(Math.round(bdropDim * 100));
-          board.classList.toggle("empty", !url && bimg.style.display === "none");
+          paintBoardEmptyHint();
+          updateFitRefButton();
           layoutStage();
         }
-        bdrop.addEventListener("load", () => { if (!bdT.set) fitBackdrop(); layoutBackdrop(); });
+        bdrop.addEventListener("load", () => { if (!bdT.set) fitBackdrop(false); updateFitRefButton(); layoutStage(); });
         // adjust mode: drag the backdrop body to MOVE; drag the corner handle to RESIZE (keeps ratio).
         let bdDrag = null;
         bdrop.addEventListener("pointerdown", (e) => {
           if (!bdEdit || e.button !== 0) return;
           e.stopPropagation(); e.preventDefault();
+          bdT.userSet = true;
           bdDrag = { mode: "move", sx: e.clientX, sy: e.clientY, nx: bdT.nx, ny: bdT.ny };
           window.addEventListener("pointermove", onBdMove); window.addEventListener("pointerup", onBdUp);
         });
         bdHandle.addEventListener("pointerdown", (e) => {
           if (e.button !== 0) return;
           e.stopPropagation(); e.preventDefault();
+          bdT.userSet = true;
           bdDrag = { mode: "resize", sx: e.clientX, nw: bdT.nw };
           window.addEventListener("pointermove", onBdMove); window.addEventListener("pointerup", onBdUp);
         });
@@ -3049,7 +3367,7 @@
             bdT.nw = nw; bdT.nh = (nw * bw / iar) / bh;   // keep the image's true ratio
             bdScaleRange.value = String(Math.round(nw * 100));   // keep the size slider in sync
           }
-          layoutBackdrop();
+          layoutStage();
         }
         function onBdUp() {
           window.removeEventListener("pointermove", onBdMove); window.removeEventListener("pointerup", onBdUp);
@@ -3092,12 +3410,12 @@
         // Every UI widget is declared "socketless" in INPUT_TYPES so it carries no left-edge socket —
         // the proper, declarative way (works on ComfyUI frontend ≥1.45). On 1.44 the legacy widget path
         // ignores socketless, so we ALSO drop the widget-sockets here as a fallback. Either way only the
-        // two wired inputs survive: backdrop (IMAGE) + import_json (forceInput, declared last so it sits
-        // at the top with no widgets_values shift). This is NOT the old socket-relocation trick — it only
-        // removes never-used sockets; it does not move import_json's wire (forceInput already puts it top).
+        // wired inputs survive: backdrop, import_json, and the optional size override sockets appended
+        // after import_json. This is NOT the old socket-relocation trick — it only removes never-used
+        // widget sockets, so existing saved backdrop/import_json links keep their slots.
         function pruneInputs() {
           if (!node.inputs) return;
-          const keep = { backdrop: 1, import_json: 1 };
+          const keep = { backdrop: 1, import_json: 1, input_width: 1, input_height: 1, input_megapixels: 1 };
           const filtered = node.inputs.filter((inp) => !inp.widget || keep[inp.name] || inp.link != null);
           if (filtered.length !== node.inputs.length) { node.inputs = filtered; node.setDirtyCanvas(true, true); }
         }
@@ -3655,9 +3973,13 @@
 
         // Elements section
         const elemSec = el("div", "idd-sec");
+        const elemHead = el("div", "idd-sechead");
         const elemLbl = el("div", "idd-seclbl"); elemLbl.textContent = "Elements";
+        const addBboxBtn = mkBtn("+BBOX"); addBboxBtn.classList.add("idd-addbbox");
+        addBboxBtn.title = "Add a new BBOX at the center of the board";
+        elemHead.append(elemLbl, addBboxBtn);
         const elemList = el("div");
-        elemSec.append(elemLbl, elemList);
+        elemSec.append(elemHead, elemList);
 
         function clearElementDropPreview() {
           elemList.querySelectorAll(".drop-before,.drop-after").forEach((elx) => {
@@ -3755,7 +4077,7 @@
             row.addEventListener("mouseleave", () => { const bx = ov.querySelector(`[data-idd-box-id="${b.id}"]`); if (bx) bx.classList.remove("hov"); });
             row.append(grip, n, c, t, ty, dup, x); elemList.append(row);
           });
-          if (!boxes.length) { const e0 = el("div", "idd-elem"); e0.style.color = "var(--dim)"; e0.textContent = "Drag on the board to add a region"; elemList.append(e0); }
+          if (!boxes.length) { const e0 = el("div", "idd-elem"); e0.style.color = "var(--dim)"; e0.textContent = "Drag on the board or use +BBOX"; elemList.append(e0); }
         }
 
         // rail order: Style is kept above Elements so Photo/Art stays visible at the compact default size.
@@ -3963,6 +4285,7 @@
             d.addEventListener("mouseleave", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.remove("hov"); });
             ov.append(d);
           });
+          paintBoardEmptyHint();
         }
 
         function rel(e) { const r = ov.getBoundingClientRect(); return { x: clamp01((e.clientX - r.left) / r.width), y: clamp01((e.clientY - r.top) / r.height) }; }
@@ -3991,6 +4314,29 @@
         // single path to change selection: set the id, then re-derive the two views (canvas .sel + list row).
         // markSel only toggles .sel (does NOT recreate box divs) so native dblclick-to-edit stays intact.
         function setSel(id) { selectedId = id; markSel(); renderElements(); }
+        function addCenteredBox() {
+          const w = 0.28;
+          const h = 0.28;
+          const b = {
+            id: _bid++,
+            x: 0.5 - w / 2,
+            y: 0.5 - h / 2,
+            w,
+            h,
+            type: "obj",
+            text: "",
+            desc: "",
+            palette: [],
+            uiColor: uiColorForIndex(boxes.length),
+          };
+          boxes.push(b);
+          selectedId = b.id;
+          try { wrap.focus({ preventScroll: true }); } catch (x) {}
+          renderBoxes();
+          renderElements();
+          serialize();
+        }
+        addBboxBtn.onclick = (e) => { e.stopPropagation(); addCenteredBox(); };
         let drag = null;
         function dragPointerMatches(e) {
           return !e || !drag || drag.pointerId == null || e.pointerId == null || e.pointerId === drag.pointerId;
@@ -4263,6 +4609,7 @@
             translateBtn.title = p.status || "English prompt status";
             setTimeout(() => { paintTranslate(); translateBtn.title = p.status || translateBtn.title; }, 1800);
           },
+          onSize: (p) => { applyExternalSizePayload(p); },
           onExecutionError: (p) => { showExecutionError(p); },
           preflightIncomingPromptBeforeQueue: async () => {
             if (skipNextQueuePreflight) {
@@ -4282,6 +4629,7 @@
             if (!(await ensureEnglishOutputReadyBeforeQueue(true))) return true;
             return false;
           },
+          shouldAcceptResult: (detail) => shouldAcceptResultForTarget(detail),
           setImage: (url) => { bimg.src = url; bimg.style.display = "block"; board.classList.remove("empty"); applyResultDim(); },
           onResult: (im) => {
             if (pendingImport) {
@@ -4318,7 +4666,7 @@
             }
             clearRunAlert();
             if (!seedLocked) { const s = (Math.floor(Math.random() * 0xffffffff)) >>> 0; seedIn.value = String(s); setW("seed", s); }
-            await app.queuePrompt(0);
+            await queueDirectorPrompt();
           } catch (err) { console.error("[Director] regenerate failed", err); }
         });
         // current board → OFFICIAL caption JSON (mirror of the backend _assemble_caption: same
@@ -4709,7 +5057,7 @@
           if (typeof d.resultDim === "number") resultDim = Math.max(0, Math.min(0.85, d.resultDim));
           setRailWide(!!d.railWide, false);
           applyResultDim();
-          if (d.bdropT && typeof d.bdropT === "object") bdT = { nx: +d.bdropT.nx || 0, ny: +d.bdropT.ny || 0, nw: +d.bdropT.nw || 1, nh: +d.bdropT.nh || 1, set: true };
+          if (d.bdropT && typeof d.bdropT === "object") bdT = normalizeBackdropTransform(Object.assign({ set: true }, d.bdropT));
           // display label: a known preset shows as-is; anything else (pixel pairs, odd shapes) shows
           // the nearest common ratio or nothing — never raw "42:23"-style noise.
           {

@@ -49,7 +49,9 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 URLSearchParams,
                 app: {{
                     graph,
-                    registerExtension() {{}},
+                    registerExtension(extension) {{
+                        context.capturedExtension = extension;
+                    }},
                 }},
                 api: {{
                     addEventListener() {{}},
@@ -73,6 +75,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                         this._src = value;
                     }}
                 }},
+                capturedExtension: null,
                 capturedApi: null,
             }};
             context.globalThis = context;
@@ -95,9 +98,27 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
 
             const api = context.capturedApi;
             assert(api, "reviewer graph test API was not exposed");
+            assert(context.capturedExtension, "Local LLM extension must register for configure/onSerialize hooks");
             assert(api.previewTextDialogTitle({{ error: "bad" }}, "result") === "Error", "Result popup title must switch to Error when node state has an error");
             assert(api.previewTextDialogBody({{ answer: "final answer" }}, "result") === "final answer", "Result popup must read live answer text from node state");
             assert(api.previewTextDialogBody({{ thinking: "live thinking" }}, "thinking") === "live thinking", "Thinking popup must read live thinking text from node state");
+            const stateNode = {{ id: 44, properties: {{}}, setDirtyCanvas() {{}} }};
+            const savedState = api.setLocalLLMNodeState(stateNode, {{
+                status: "done",
+                provider: "vLLM",
+                model: "Qwen3-VL-2B-Thinking-FP8",
+                answer: "saved answer",
+                thinking: "saved thinking",
+                index: 2,
+                total: 3,
+                updatedAt: 1234,
+            }});
+            assert(savedState.answer === "saved answer", "Loader state setter must return the saved answer");
+            assert(stateNode.properties.deno_local_llm_state.answer === "saved answer", "Loader state must persist into node.properties");
+            const restoredStateNode = {{ id: 45, properties: {{ deno_local_llm_state: stateNode.properties.deno_local_llm_state }} }};
+            const restoredState = api.restoreLocalLLMStateFromProperties(restoredStateNode);
+            assert(restoredState.answer === "saved answer", "Loader state must restore from workflow properties");
+            assert(restoredStateNode.__denoLocalLLMState.thinking === "saved thinking", "Restored Loader state must hydrate the visible node state");
             const liveDialog = {{
                 overlay: {{ isConnected: true }},
                 kind: "result",
@@ -145,6 +166,46 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const normalizedInfo = {{ widgets_values: [...savedLoaderValues] }};
             api.normalizeLocalLLMLoaderWidgetValues(normalizedInfo);
             assert(normalizedInfo.widgets_values[2] === "codex/missing-saved-lm-studio-model", "Loader configure migration wrapper must update info.widgets_values in place");
+            const loaderNodeType = function () {{}};
+            loaderNodeType.prototype.configure = function (info) {{
+                this.properties = info.properties || {{}};
+                return "configured";
+            }};
+            loaderNodeType.prototype.onSerialize = function (info) {{
+                info.widgets_values = [
+                    ...info.widgets_values,
+                    "Refresh Models",
+                    "Stop LLM",
+                    "Unload LLM",
+                ];
+                return "serialized";
+            }};
+            context.capturedExtension.beforeRegisterNodeDef(loaderNodeType, {{ name: "DenoLocalLLMRefiner" }});
+            const configuredLoader = new loaderNodeType();
+            configuredLoader.id = 46;
+            configuredLoader.type = "DenoLocalLLMRefiner";
+            configuredLoader.widgets = [];
+            const configureInfo = {{
+                widgets_values: [...savedLoaderValues],
+                properties: {{
+                    deno_local_llm_state: {{
+                        status: "done",
+                        provider: "vLLM",
+                        model: "Qwen3-VL-2B-Thinking-FP8",
+                        answer: "workflow answer",
+                        thinking: "workflow thinking",
+                        index: 1,
+                        total: 1,
+                        updatedAt: 2222,
+                    }},
+                }},
+            }};
+            assert(configuredLoader.configure(configureInfo) === "configured", "Loader configure wrapper must preserve the original configure result");
+            assert(configuredLoader.__denoLocalLLMState.answer === "workflow answer", "Loader configure must restore saved result state from properties");
+            const serializedInfo = {{ widgets_values: [...savedLoaderValues], properties: {{}} }};
+            assert(configuredLoader.onSerialize(serializedInfo) === "serialized", "Loader serialize wrapper must preserve the original serialize result");
+            assert(serializedInfo.widgets_values.length === 13, "Loader serialize must remove generated buttons and keep canonical widget count");
+            assert(serializedInfo.properties.deno_local_llm_state.answer === "workflow answer", "Loader serialize must include saved result state in properties");
             const modelChoices = api.modelChoiceValuesWithSavedValue(
                 [{{ id: "google/gemma-4-e4b" }}, {{ id: "google/gemma-4-12b" }}],
                 "codex/missing-saved-lm-studio-model"
@@ -265,6 +326,36 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(normalizedOllamaButtonsBeforeHiddenRows[6] === true, "Loader Ollama saved Thinking On must restore to the visible Thinking toggle after F5");
             assert(normalizedOllamaButtonsBeforeHiddenRows[7] === 1, "Loader Ollama button-before-hidden-row values must keep seed in the current slot");
             assert(normalizedOllamaButtonsBeforeHiddenRows[8] === "fixed", "Loader Ollama button-before-hidden-row values must keep seed mode in the current slot");
+            const currentVllmSavedValuesWithButtonsAfterCustomModel = [
+                "vLLM",
+                "gemma3:1b",
+                "google/gemma-4-12b",
+                "http://127.0.0.1:8000/v1",
+                "Qwen3-VL-2B-Thinking-FP8",
+                "Refresh Models",
+                "Stop LLM",
+                "Unload LLM",
+                "Return only the final prompt.",
+                true,
+                42,
+                "fixed",
+                "Unload after run",
+                5,
+                "Auto: unload only before first LLM call",
+                "Prompt text",
+                "Refresh Models",
+                "Stop LLM",
+                "Unload LLM",
+            ];
+            const normalizedVllmButtonsAfterCustomModel = api.normalizeLocalLLMLoaderSerializedValues(currentVllmSavedValuesWithButtonsAfterCustomModel);
+            assert(normalizedVllmButtonsAfterCustomModel.length === 13, "Loader vLLM saved values with generated buttons after custom_model must normalize to 13 widgets");
+            assert(normalizedVllmButtonsAfterCustomModel[0] === "vLLM", "Loader vLLM button-after-custom-model values must preserve provider");
+            assert(normalizedVllmButtonsAfterCustomModel[3] === "http://127.0.0.1:8000/v1", "Loader vLLM button-after-custom-model values must preserve server URL");
+            assert(normalizedVllmButtonsAfterCustomModel[4] === "Qwen3-VL-2B-Thinking-FP8", "Loader vLLM button-after-custom-model values must preserve custom model");
+            assert(normalizedVllmButtonsAfterCustomModel[5] === "Return only the final prompt.", "Loader vLLM button-after-custom-model values must preserve system prompt");
+            assert(normalizedVllmButtonsAfterCustomModel[6] === true, "Loader vLLM button-after-custom-model values must preserve Thinking");
+            assert(normalizedVllmButtonsAfterCustomModel[7] === 42, "Loader vLLM button-after-custom-model values must preserve seed");
+            assert(normalizedVllmButtonsAfterCustomModel[12] === "Prompt text", "Loader vLLM button-after-custom-model values must preserve prompt");
             const staleFirstRunNode = {{
                 widgets: [
                     {{ name: "provider", value: "Ollama", options: {{ values: ["Ollama", "LM Studio"] }} }},

@@ -200,9 +200,9 @@ def test_ideogram_director_view_language_translates_ascii_non_english_output(mon
     assert ("cielo azul con nubes suaves", "es", "en") in calls
 
 
-def test_ideogram_director_default_english_view_skips_ascii_english_network(monkeypatch):
+def test_ideogram_director_default_english_view_skips_english_network(monkeypatch):
     def fail_request(text, src, tgt, timeout=10.0):
-        raise AssertionError("default English ASCII prompt should not call the translation service")
+        raise AssertionError("default English prompt should not call the translation service")
 
     monkeypatch.setattr(engine, "_request_gtx", fail_request)
     engine._CACHE.clear()
@@ -212,15 +212,16 @@ def test_ideogram_director_default_english_view_skips_ascii_english_network(monk
         width=1024,
         height=1024,
         seed=3,
-        high_level_description="a cat on the beach",
-        background="soft daylight",
+        high_level_description="a “cat” on the beach",
+        background="soft daylight — studio",
         view_language="English",
         translate_output="English",
     )
 
     prompt = json.loads(_director_result(packet)[0])
-    assert prompt["high_level_description"] == "a cat on the beach"
-    assert prompt["compositional_deconstruction"]["background"] == "soft daylight"
+    assert prompt["high_level_description"] == "a “cat” on the beach"
+    assert prompt["compositional_deconstruction"]["background"] == "soft daylight — studio"
+    assert packet["ui"]["idd_translate"][0]["status"] == "English prompt ready. No online translation needed."
 
 
 def test_loads_caption_accepts_fenced_json():
@@ -337,10 +338,10 @@ def test_translate_caption_skips_explicit_same_english_source(monkeypatch):
 
     monkeypatch.setattr(engine, "_request_gtx", fail_request)
     cap = {
-        "high_level_description": "a cat on the beach",
+        "high_level_description": "a “cat” on the beach",
         "compositional_deconstruction": {
-            "background": "soft daylight",
-            "elements": [{"type": "obj", "bbox": [1, 2, 3, 4], "desc": "small puppy"}],
+            "background": "soft daylight — studio",
+            "elements": [{"type": "obj", "bbox": [1, 2, 3, 4], "desc": "small “puppy”"}],
         },
     }
 
@@ -352,7 +353,7 @@ def test_translate_caption_skips_explicit_same_english_source(monkeypatch):
 
 def test_ideogram_director_outputs_english_prompt_only(monkeypatch):
     def fake_translate_caption(cap, src, tgt, opts=None):
-        assert src == "auto"
+        assert src == "ko"
         assert tgt == "en"
         assert opts == DEFAULT_TRANSLATE_OPTS
         out = dict(cap)
@@ -369,6 +370,7 @@ def test_ideogram_director_outputs_english_prompt_only(monkeypatch):
         high_level_description="한국어 원문",
         background="배경",
         style_mode="none",
+        view_language="한국어",
         translate_output="English",
     )
 
@@ -398,6 +400,7 @@ def test_ideogram_director_final_output_uses_selected_translation_engine(monkeyp
         high_level_description="한국어 원문",
         background="배경",
         style_mode="none",
+        view_language="한국어",
         translate_output="English",
         translation_engine="MyMemory",
     )
@@ -406,7 +409,7 @@ def test_ideogram_director_final_output_uses_selected_translation_engine(monkeyp
     assert prompt["high_level_description"] == "translated by selected engine"
     assert calls == [
         (
-            "auto",
+            "ko",
             "en",
             {"translate_text_fields": False, "engine": "MyMemory", "libretranslate_url": ""},
         )
@@ -429,6 +432,7 @@ def test_ideogram_director_final_output_failure_stops_generation(monkeypatch):
             high_level_description="한국어 원문",
             background="배경",
             style_mode="none",
+            view_language="한국어",
             translate_output="English",
             translation_engine="Google",
         )
@@ -443,9 +447,20 @@ def test_ideogram_director_final_output_failure_stops_generation(monkeypatch):
 def test_ideogram_director_v0738_saved_widget_values_remain_prefix():
     input_types = deno_ideogram_director.DenoIdeogramDirector.INPUT_TYPES()
     required = list(input_types["required"].keys())
+    optional = input_types["optional"]
+    assert optional["input_width"][1]["forceInput"] is True
+    assert optional["input_height"][1]["forceInput"] is True
+    assert optional["input_megapixels"][0] == "FLOAT"
+    assert optional["input_megapixels"][1]["forceInput"] is True
+    assert list(optional.keys())[-4:] == [
+        "import_json",
+        "input_width",
+        "input_height",
+        "input_megapixels",
+    ]
     serialized_optional = [
         name
-        for name, spec in input_types["optional"].items()
+        for name, spec in optional.items()
         if name != "backdrop" and not (isinstance(spec, tuple) and len(spec) > 1 and spec[1].get("forceInput"))
     ]
     current_serialized_names = required + serialized_optional
@@ -507,6 +522,56 @@ def test_ideogram_director_v0738_saved_widget_values_remain_prefix():
     assert "libretranslate_url" not in restored
 
 
+def test_ideogram_director_external_width_height_override_snaps_to_16_and_syncs_ui():
+    node = deno_ideogram_director.DenoIdeogramDirector()
+
+    packet = node.build(
+        width=1024,
+        height=1024,
+        seed=3,
+        high_level_description="test",
+        include_aspect_ratio=True,
+        input_width=1001,
+        input_height=777,
+        input_megapixels=2.0,
+    )
+
+    prompt, width, height, _seed, bboxes = _director_result(packet)
+    caption = json.loads(prompt)
+    assert width == 1008
+    assert height == 784
+    assert width % 16 == 0
+    assert height % 16 == 0
+    assert caption["aspect_ratio"] == "9:7"
+    assert bboxes == []
+    assert packet["ui"]["idd_size"][0]["source"] == "input_width_height"
+    assert packet["ui"]["idd_size"][0]["width"] == 1008
+    assert packet["ui"]["idd_size"][0]["height"] == 784
+
+
+def test_ideogram_director_external_megapixels_keeps_current_ratio_and_snaps_to_16():
+    node = deno_ideogram_director.DenoIdeogramDirector()
+
+    packet = node.build(
+        width=1024,
+        height=1024,
+        seed=3,
+        high_level_description="test",
+        aspect_ratio="16:9",
+        include_aspect_ratio=True,
+        input_megapixels=2.1,
+    )
+
+    prompt, width, height, _seed, _bboxes = _director_result(packet)
+    caption = json.loads(prompt)
+    assert width % 16 == 0
+    assert height % 16 == 0
+    assert abs((width * height / 1_000_000) - 2.1) < 0.04
+    assert caption["aspect_ratio"] == "16:9"
+    assert packet["ui"]["idd_size"][0]["source"] == "input_megapixels"
+    assert packet["ui"]["idd_size"][0]["aspect_ratio"] == "16:9"
+
+
 def test_ideogram_director_translation_preserves_rendered_text_fields(monkeypatch):
     calls = []
 
@@ -543,6 +608,7 @@ def test_ideogram_director_translation_preserves_rendered_text_fields(monkeypatc
         seed=7,
         import_json=json.dumps(source),
         import_mode="Always Replace",
+        view_language="한국어",
         translate_output="English",
     )
 
@@ -1222,7 +1288,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
     assert 'const importBtn = mkBtn(IMPORT_REVIEW)' in script
     assert 'const runAlertAccept = el("button", "primary idd-alert-accept")' in script
     assert 'const runAlertKeep = el("button", "idd-alert-keep")' in script
-    assert 'top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, regen)' in script
+    assert 'top.append(layoutsBtn, el("span", "idd-sp"), importBtn, resWrap, translateBtn, translateRefreshBtn, seedPill, targetBtn, regen)' in script
     assert "acceptPrompt" not in script
     assert "keepPrompt" not in script
     assert "function handleConnectedPromptEcho(cap, sig)" in script
@@ -1256,7 +1322,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
     assert "Use Text as Prompt" not in script
     assert "function applyInvalidInputAsPrompt()" not in script
     assert "function queueAfterIncomingPromptDecision()" in script
-    assert "await app.queuePrompt(0)" in script
+    assert "await queueDirectorPrompt()" in script
     assert "function connectedPromptAlreadyCurrent(sig)" in script
     assert "queueInvalidInputPrompt(p.sig || fnv1a(p.json), p.json)" in script
     assert "handleConnectedPromptEcho(cap, sig)" in script
@@ -1271,7 +1337,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.22-import-same-sig-guard-a"' in script
+    assert 'const IDD_REV = "r2026.06.30-generate-target-a"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script
@@ -1339,7 +1405,8 @@ def test_ideogram_director_frontend_view_language_contract():
     assert 'setW("view_language", choice)' in script
     assert 'setW("translate_output", ENGLISH_PROMPT)' in script
     assert 'translateBoardToViewLanguage("auto")' in script
-    assert 'const viewSource = getViewLanguage() === ENGLISH_PROMPT ? "auto" : getViewLanguage();' in script
+    assert 'const viewSource = getViewLanguage();' in script
+    assert "if (viewSource === ENGLISH_PROMPT) return cap;" in script
     assert "translateCaptionViaRoute(cap, ENGLISH_PROMPT, viewSource)" in script
     assert 'translateCaptionToEnglishForOutput(cap, true, "the English JSON output")' in script
     assert 'ensureEnglishOutputReadyBeforeQueue(true)' in script
