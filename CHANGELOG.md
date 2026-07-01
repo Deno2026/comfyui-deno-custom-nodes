@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.66 - 2026-07-01
+
+- Fixed DENO Floating Tools Error Help so large ComfyUI failures keep the browser responsive, the report is prepared only when the user opens it, and the error icon returns to normal after the next confirmed idle run.
+
 ## 0.7.65 - 2026-06-30
 
 - Added `Error Help` to DENO Floating Tools. When a ComfyUI run fails, the helper highlights the DENO icon and opens a GPT/Gemini-ready report window with workflow, Python environment, package, GPU, custom-node, log, and traceback details. Sensitive tokens, cookies, passwords, private keys, and URL credentials are redacted before copy.

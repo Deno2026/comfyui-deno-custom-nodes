@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const DENO_FLOATING_TOOLS_MARKER = "r2026.06.30-sos-report-p";
+const DENO_FLOATING_TOOLS_MARKER = "r2026.07.01-sos-light-b";
 const EXTENSION_NAME = "Deno.FloatingTools";
 const SETTING_ENABLED = "DENO.FloatingTools.Enabled";
 const POSITION_KEY = "denoFloatingTools.position.v1";
@@ -19,6 +19,8 @@ const VIEWPORT_MARGIN = 12;
 const DEFAULT_POSITION = { x: 24, y: 140 };
 const FLOATING_TOOLS_Z_INDEX = 999;
 const SOS_ERROR_AUTO_CLEAR_GRACE_MS = 8000;
+const SOS_QUEUE_BUSY_RETRY_GRACE_MS = 1200;
+const SOS_TEXT_SCAN_LIMIT = 1200;
 const UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const UPDATE_FETCH_TIMEOUT_MS = 10000;
 const COMFYUI_RELEASE_URL = "https://api.github.com/repos/comfyanonymous/ComfyUI/releases/latest";
@@ -53,8 +55,25 @@ let sosValidationObserver = null;
 let lastPromptFailureSignature = "";
 let lastPromptFailureAt = 0;
 let sosErrorStickyUntil = 0;
+let sosLastErrorAt = 0;
+let sosRunClearCandidate = false;
+let sosQueueWasBusyAfterError = false;
 let sosToastHooksInstalled = false;
 let sosToastHookTimer = null;
+let sosValidationScanScheduled = false;
+let sosQueueIdleConfirmBusy = false;
+let sosErrorGeneration = 0;
+
+const PROMPT_FAILURE_ALERT_SELECTORS = [
+    "[role='alert']",
+    "[class*='toast']",
+    "[class*='Toast']",
+    "[class*='error']",
+    "[class*='Error']",
+    ".p-toast",
+    ".p-dialog",
+];
+const PROMPT_FAILURE_ALERT_SELECTOR = PROMPT_FAILURE_ALERT_SELECTORS.join(",");
 
 function getSettings() {
     return app?.ui?.settings || null;
@@ -590,6 +609,7 @@ async function refreshQueueState() {
         const running = Array.isArray(data?.queue_running) ? data.queue_running.length : 0;
         const pending = Array.isArray(data?.queue_pending) ? data.queue_pending.length : 0;
         queueBusy = (running + pending) > 0;
+        noteSosQueueStateAfterError(queueBusy, { confirmedIdle: true });
         setStatus(queueBusy ? "Queue busy" : "Ready");
     } catch (_error) {
         queueBusy = true;
@@ -651,16 +671,19 @@ const ERROR_EVENT_TEXT_KEYS = [
     "exception_message",
 ];
 
-function safeEventScalar(value) {
-    return ["string", "number", "boolean"].includes(typeof value) ? String(value) : "";
+function safeEventScalar(value, maxLength = 900) {
+    if (!["string", "number", "boolean"].includes(typeof value)) return "";
+    const text = String(value).replace(/\s+/g, " ").trim();
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength)}...`;
 }
 
-function safeEventScalarList(value, maxItems = 80) {
+function safeEventScalarList(value, maxItems = 40) {
     if (!Array.isArray(value)) {
         const scalar = safeEventScalar(value);
         return scalar ? [scalar] : [];
     }
-    return value.slice(-maxItems).map(safeEventScalar).filter(Boolean);
+    return value.slice(-maxItems).map((item) => safeEventScalar(item)).filter(Boolean);
 }
 
 function safeFrontendOrigin(value) {
@@ -674,7 +697,7 @@ function safeFrontendOrigin(value) {
 }
 
 function compactExecutionError(detail, promptId = null) {
-    const data = safeJsonClone(detail, {});
+    const data = detail && typeof detail === "object" ? detail : {};
     const result = {};
     const explicitPromptId = safeEventScalar(promptId);
     if (explicitPromptId) result.prompt_id = explicitPromptId;
@@ -710,7 +733,7 @@ function getFirstNodeError(nodeErrors) {
 }
 
 function compactPromptFailure(error) {
-    const data = safeJsonClone(error, {});
+    const data = error && typeof error === "object" ? error : {};
     const topError = data?.error && typeof data.error === "object" ? data.error : {};
     const nodeErrors = data?.node_errors || topError?.node_errors || {};
     const firstNodeError = getFirstNodeError(nodeErrors);
@@ -757,21 +780,86 @@ function applySosIconState() {
 }
 
 function markSosErrorSticky() {
-    sosErrorStickyUntil = Date.now() + SOS_ERROR_AUTO_CLEAR_GRACE_MS;
+    sosLastErrorAt = Date.now();
+    sosErrorStickyUntil = sosLastErrorAt + SOS_ERROR_AUTO_CLEAR_GRACE_MS;
+}
+
+function resetSosClearCandidate() {
+    sosRunClearCandidate = false;
+    sosQueueWasBusyAfterError = false;
+}
+
+function noteSosRunStartedAfterError() {
+    if (!lastExecutionError) return;
+    sosRunClearCandidate = true;
+}
+
+function hasSosQueueIdleClearCandidate() {
+    return Boolean(lastExecutionError && (sosRunClearCandidate || sosQueueWasBusyAfterError));
+}
+
+async function confirmSosQueueIdleForClear() {
+    if (sosQueueIdleConfirmBusy || !hasSosQueueIdleClearCandidate() || typeof api?.fetchApi !== "function") return;
+    sosQueueIdleConfirmBusy = true;
+    const generation = sosErrorGeneration;
+    try {
+        const response = await api.fetchApi("/queue", { cache: "no-store" });
+        if (!response?.ok) return;
+        const data = await response.json();
+        if (generation !== sosErrorGeneration || !hasSosQueueIdleClearCandidate()) return;
+        const running = Array.isArray(data?.queue_running) ? data.queue_running.length : 0;
+        const pending = Array.isArray(data?.queue_pending) ? data.queue_pending.length : 0;
+        noteSosQueueStateAfterError((running + pending) > 0, { confirmedIdle: true });
+    } catch (_error) {
+        // A failed confirmation should not erase a useful error report.
+    } finally {
+        sosQueueIdleConfirmBusy = false;
+    }
+}
+
+function noteSosQueueStateAfterError(isBusy, options = {}) {
+    if (!lastExecutionError) return;
+    if (isBusy) {
+        if (Date.now() - sosLastErrorAt >= SOS_QUEUE_BUSY_RETRY_GRACE_MS) {
+            sosQueueWasBusyAfterError = true;
+        }
+        return;
+    }
+    if (!hasSosQueueIdleClearCandidate()) return;
+    if (options?.confirmedIdle === true) {
+        clearExecutionErrorState({ force: true });
+        return;
+    }
+    void confirmSosQueueIdleForClear();
+}
+
+function queueRemainingFromStatus(detail) {
+    const directRemaining = Number(detail?.exec_info?.queue_remaining);
+    if (Number.isFinite(directRemaining)) return directRemaining;
+    const nestedRemaining = Number(detail?.status?.exec_info?.queue_remaining);
+    return Number.isFinite(nestedRemaining) ? nestedRemaining : null;
+}
+
+function handleSosStatusEvent(detail) {
+    const remaining = queueRemainingFromStatus(detail);
+    if (remaining === null) return;
+    noteSosQueueStateAfterError(remaining > 0);
 }
 
 function rememberExecutionError(detail) {
-    lastExecutionError = compactExecutionError({
-        ...safeJsonClone(detail, {}),
-        received_at: new Date().toISOString(),
-        frontend_origin: String(window.location?.origin || ""),
-    });
+    sosErrorGeneration += 1;
+    lastExecutionError = compactExecutionError(detail);
+    lastExecutionError.received_at = new Date().toISOString();
+    lastExecutionError.frontend_origin = String(window.location?.origin || "");
+    resetSosClearCandidate();
     markSosErrorSticky();
     applySosIconState();
 }
 
 function rememberPromptFailure(error) {
+    sosErrorGeneration += 1;
     lastExecutionError = compactPromptFailure(error);
+    resetSosClearCandidate();
     markSosErrorSticky();
     applySosIconState();
 }
@@ -820,7 +908,7 @@ function rememberFrontendPromptFailure(text) {
 
 function promptFailureTextFromValue(value, depth = 0) {
     if (depth > 2 || value === null || value === undefined) return "";
-    if (["string", "number", "boolean"].includes(typeof value)) return String(value);
+    if (["string", "number", "boolean"].includes(typeof value)) return safeEventScalar(value, SOS_TEXT_SCAN_LIMIT);
     if (Array.isArray(value)) {
         return value.slice(0, 8).map((item) => promptFailureTextFromValue(item, depth + 1)).filter(Boolean).join(" ");
     }
@@ -838,7 +926,13 @@ function promptFailureTextFromValue(value, depth = 0) {
 }
 
 function rememberPromptFailureFromArgs(args) {
-    return rememberFrontendPromptFailure(Array.from(args || []).map((item) => promptFailureTextFromValue(item)).filter(Boolean).join(" "));
+    return rememberFrontendPromptFailure(limitedSosText(Array.from(args || []).map((item) => promptFailureTextFromValue(item)).filter(Boolean).join(" ")));
+}
+
+function limitedSosText(value, maxLength = SOS_TEXT_SCAN_LIMIT) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength)}...`;
 }
 
 function installSosToastHooks() {
@@ -881,6 +975,9 @@ function clearExecutionErrorState(options = {}) {
     }
     lastExecutionError = null;
     sosErrorStickyUntil = 0;
+    sosLastErrorAt = 0;
+    sosQueueIdleConfirmBusy = false;
+    resetSosClearCandidate();
     applySosIconState();
     return true;
 }
@@ -924,28 +1021,58 @@ function installSosPromptFailureHooks() {
     }
 }
 
+function isPromptFailureElement(element) {
+    if (!element || element.nodeType !== 1 || typeof element.matches !== "function") return false;
+    try {
+        return element.matches(PROMPT_FAILURE_ALERT_SELECTOR);
+    } catch (_error) {
+        return false;
+    }
+}
+
+function promptFailureElementFromNode(node) {
+    if (!node) return null;
+    const element = node.nodeType === 3 ? node.parentElement : (node.nodeType === 1 ? node : null);
+    if (!element) return null;
+    if (isPromptFailureElement(element)) return element;
+    try {
+        const closest = typeof element.closest === "function" ? element.closest(PROMPT_FAILURE_ALERT_SELECTOR) : null;
+        if (closest && closest !== document.body && closest !== document.documentElement) return closest;
+    } catch (_error) {
+        // Ignore selector failures and keep the error path lightweight.
+    }
+    if (element !== document.body && element !== document.documentElement && typeof element.querySelector === "function") {
+        try {
+            return element.querySelector(PROMPT_FAILURE_ALERT_SELECTOR);
+        } catch (_error) {
+            return null;
+        }
+    }
+    return null;
+}
+
 function promptFailureTextFromNode(node) {
-    if (!node) return "";
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
-    if (node.nodeType !== Node.ELEMENT_NODE) return "";
-    return node.innerText || node.textContent || "";
+    const element = promptFailureElementFromNode(node);
+    return element ? limitedSosText(element.textContent) : "";
 }
 
 function inspectPromptFailureAlerts() {
-    const selectors = [
-        "[role='alert']",
-        "[class*='toast']",
-        "[class*='Toast']",
-        "[class*='error']",
-        "[class*='Error']",
-        ".p-toast",
-        ".p-dialog",
-    ];
-    const elements = Array.from(document.querySelectorAll(selectors.join(","))).slice(-40);
+    const elements = Array.from(document.querySelectorAll(PROMPT_FAILURE_ALERT_SELECTOR)).slice(-20);
     for (const element of elements) {
         if (rememberFrontendPromptFailure(promptFailureTextFromNode(element))) return true;
     }
     return false;
+}
+
+function schedulePromptFailureAlertInspection() {
+    if (sosValidationScanScheduled) return;
+    sosValidationScanScheduled = true;
+    const inspect = () => {
+        sosValidationScanScheduled = false;
+        inspectPromptFailureAlerts();
+    };
+    if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(inspect);
+    else window.setTimeout(inspect, 0);
 }
 
 function installSosValidationObserver() {
@@ -955,15 +1082,12 @@ function installSosValidationObserver() {
             for (const node of mutation.addedNodes || []) {
                 if (rememberFrontendPromptFailure(promptFailureTextFromNode(node))) return;
             }
-            if (rememberFrontendPromptFailure(promptFailureTextFromNode(mutation.target))) return;
-            if (rememberFrontendPromptFailure(promptFailureTextFromNode(mutation.target?.parentElement))) return;
         }
-        window.requestAnimationFrame?.(inspectPromptFailureAlerts);
+        schedulePromptFailureAlertInspection();
     });
     sosValidationObserver.observe(document.body, {
         childList: true,
         subtree: true,
-        characterData: true,
     });
 }
 
@@ -1706,6 +1830,7 @@ function handleWindowResize() {
 function updateToolsVisibility(value) {
     const enabled = typeof value === "boolean" ? value : isEnabled();
     if (enabled) {
+        installSosRuntimeHooks();
         if (!rootEl) createToolsRoot();
     } else if (rootEl) {
         destroyToolsRoot();
@@ -1714,16 +1839,28 @@ function updateToolsVisibility(value) {
 
 function installSosEventListeners() {
     if (sosEventListenersInstalled) return;
+    if (typeof api?.addEventListener !== "function") return;
     sosEventListenersInstalled = true;
     api?.addEventListener?.("execution_error", (event) => {
         rememberExecutionError(event?.detail || {});
     });
     api?.addEventListener?.("execution_start", () => {
-        clearExecutionErrorState();
+        noteSosRunStartedAfterError();
     });
     api?.addEventListener?.("execution_success", () => {
+        noteSosRunStartedAfterError();
         clearExecutionErrorState({ force: true });
     });
+    api?.addEventListener?.("status", (event) => {
+        handleSosStatusEvent(event?.detail || {});
+    });
+}
+
+function installSosRuntimeHooks() {
+    installSosEventListeners();
+    installSosPromptFailureHooks();
+    scheduleSosToastHooks();
+    installSosValidationObserver();
 }
 
 app.registerExtension({
@@ -1740,10 +1877,7 @@ app.registerExtension({
         },
     ],
     setup() {
-        installSosEventListeners();
-        installSosPromptFailureHooks();
-        scheduleSosToastHooks();
-        installSosValidationObserver();
+        installSosRuntimeHooks();
         queueMicrotask(updateToolsVisibility);
     },
 });

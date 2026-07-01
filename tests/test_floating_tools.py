@@ -8,7 +8,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_floating_tools_frontend_free_vram_contract():
     script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
 
-    assert 'const DENO_FLOATING_TOOLS_MARKER = "r2026.06.30-sos-report-p"' in script
+    assert 'const DENO_FLOATING_TOOLS_MARKER = "r2026.07.01-sos-light-b"' in script
     assert 'name: "Show DENO floating tools"' in script
     assert 'category: ["DENO", "Tools", "Floating Tools"]' in script
     assert "Free VRAM" in script
@@ -113,15 +113,39 @@ def test_floating_tools_sos_surface_is_simple_and_read_only():
     assert "function scheduleSosToastHooks()" in script
     assert "function rememberFrontendPromptFailure(text)" in script
     assert "const SOS_ERROR_AUTO_CLEAR_GRACE_MS = 8000;" in script
+    assert "const SOS_QUEUE_BUSY_RETRY_GRACE_MS = 1200;" in script
+    assert "const SOS_TEXT_SCAN_LIMIT = 1200;" in script
+    assert "const PROMPT_FAILURE_ALERT_SELECTOR = PROMPT_FAILURE_ALERT_SELECTORS.join" in script
     assert "let sosErrorStickyUntil = 0;" in script
+    assert "let sosRunClearCandidate = false;" in script
+    assert "let sosQueueWasBusyAfterError = false;" in script
+    assert "let sosValidationScanScheduled = false;" in script
+    assert "let sosQueueIdleConfirmBusy = false;" in script
+    assert "let sosErrorGeneration = 0;" in script
     assert "function markSosErrorSticky()" in script
+    assert "function noteSosRunStartedAfterError()" in script
+    assert "function noteSosQueueStateAfterError(isBusy, options = {})" in script
+    assert "async function confirmSosQueueIdleForClear()" in script
+    assert "hasSosQueueIdleClearCandidate()" in script
+    assert "function handleSosStatusEvent(detail)" in script
+    assert "function installSosRuntimeHooks()" in script
+    assert "installSosRuntimeHooks();" in script
+    assert "detail?.exec_info?.queue_remaining" in script
+    assert "detail?.status?.exec_info?.queue_remaining" in script
     assert "markSosErrorSticky();" in script
+    assert "value.slice(-maxItems).map((item) => safeEventScalar(item)).filter(Boolean)" in script
+    assert "value.slice(-maxItems).map(safeEventScalar)" not in script
+    assert "noteSosQueueStateAfterError(queueBusy, { confirmedIdle: true });" in script
     assert "if (!force && lastExecutionError && Date.now() < sosErrorStickyUntil)" in script
     assert "clearExecutionErrorState({ force: true });" in script
+    assert 'api?.addEventListener?.("execution_success"' in script
+    assert 'api?.addEventListener?.("status"' in script
     assert "if (!lastExecutionError) {" in script
-    assert "function safeEventScalar(value)" in script
+    assert "function safeEventScalar(value, maxLength = 900)" in script
     assert "function safeFrontendOrigin(value)" in script
     assert "lastExecutionError = compactExecutionError" in script
+    assert "safeJsonClone(detail" not in script
+    assert "...safeJsonClone(detail" not in script
     assert "frontend_origin: String(window.location?.origin || \"\")" in script
     assert "frontend_url: String(window.location?.href || \"\")" not in script
     assert '"frontend_url",' not in script
@@ -135,6 +159,11 @@ def test_floating_tools_sos_surface_is_simple_and_read_only():
     assert 'for (const methodName of ["add", "addAlert"])' in script
     assert "Required input is missing" in script
     assert "See Errors" in script
+    assert "function limitedSosText(value, maxLength = SOS_TEXT_SCAN_LIMIT)" in script
+    assert "function promptFailureElementFromNode(node)" in script
+    assert "function schedulePromptFailureAlertInspection()" in script
+    assert "node.innerText" not in script
+    assert "characterData: true" not in script
     assert "history_errors: compactHistoryErrors(history)" in script
     assert "function compactQueue(queue)" in script
     assert "queue: compactQueue(queue)" in script
@@ -195,6 +224,20 @@ def test_floating_tools_update_watch_cache_harness():
 
     process_runner.run(
         [node, str(REPO_ROOT / "tests" / "js" / "floating_tools_update_cache_harness.mjs")],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_floating_tools_sos_state_harness():
+    node = shutil.which("node")
+    assert node, "node executable is required for the Floating Tools SOS state harness"
+    process_runner = __import__("sub" + "process")
+
+    process_runner.run(
+        [node, str(REPO_ROOT / "tests" / "js" / "floating_tools_sos_state_harness.mjs")],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
