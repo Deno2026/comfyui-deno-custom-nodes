@@ -32,6 +32,30 @@ class UnsupportedTiledConditioning(RuntimeError):
     """Raised when a conditioning feature cannot be spatially tiled safely."""
 
 
+KNOWN_SPATIAL_MODEL_COND_KEYS = frozenset({
+    "guide_mask",
+    "mask",
+    "pixel_mask",
+})
+
+KNOWN_NON_SPATIAL_MODEL_COND_KEYS = frozenset({
+    "attention_mask",
+    "c_crossattn",
+    "clip",
+    "clip_g",
+    "clip_l",
+    "crossattn",
+    "frame_rate",
+    "guide_attention_entries",
+    "keyframe_idxs",
+    "latent_shapes",
+    "pooled_output",
+    "ref_audio",
+})
+
+UPSCALER_MEMORY_BYTES_PER_TILE_ELEMENT = 3000.0
+
+
 def _runtime_module(name: str):
     return importlib.import_module(name)
 
@@ -112,6 +136,80 @@ def _crop_spatial_tensor(
     return tensor
 
 
+def _normalize_model_cond_key(key: Any) -> str:
+    return str(key).lower()
+
+
+def _crop_known_spatial_tensor(
+    key: Any,
+    tensor: torch.Tensor,
+    spec: TileSpec,
+    full_height: int,
+    full_width: int,
+) -> torch.Tensor:
+    if tensor.ndim < 4:
+        raise UnsupportedTiledConditioning(
+            f"model_conds[{key!r}] must be a spatial tensor with at least "
+            f"4 dimensions, got {tuple(tensor.shape)}."
+        )
+
+    spatial_shape = tuple(tensor.shape[-2:])
+    if spatial_shape == (full_height, full_width):
+        return tensor[..., spec.y0:spec.y1, spec.x0:spec.x1].contiguous()
+    if spatial_shape == (spec.height, spec.width):
+        return tensor
+
+    raise UnsupportedTiledConditioning(
+        f"model_conds[{key!r}] has unsupported spatial shape {spatial_shape}; "
+        f"expected full latent {full_height}x{full_width} or tile "
+        f"{spec.height}x{spec.width}."
+    )
+
+
+def _crop_known_spatial_value(
+    key: Any,
+    value: Any,
+    spec: TileSpec,
+    full_height: int,
+    full_width: int,
+) -> Any:
+    if isinstance(value, torch.Tensor):
+        return _crop_known_spatial_tensor(key, value, spec, full_height, full_width)
+
+    if isinstance(value, list):
+        if not all(isinstance(item, torch.Tensor) for item in value):
+            raise UnsupportedTiledConditioning(
+                f"model_conds[{key!r}] must be a tensor or a list of tensors "
+                "when used as spatial conditioning."
+            )
+        return [
+            _crop_known_spatial_tensor(key, item, spec, full_height, full_width)
+            for item in value
+        ]
+
+    if value is None:
+        return value
+
+    raise UnsupportedTiledConditioning(
+        f"model_conds[{key!r}] must be tensor-like spatial conditioning, "
+        f"got {type(value).__name__}."
+    )
+
+
+def _debug_unknown_model_cond_tensor(
+    key: Any,
+    value: torch.Tensor,
+    spec: TileSpec,
+    full_height: int,
+    full_width: int,
+) -> None:
+    print(
+        "[Deno LTX] Leaving unknown model_conds tensor unmodified: "
+        f"key={key!r}, shape={tuple(value.shape)}, "
+        f"full={full_height}x{full_width}, tile={spec.height}x{spec.width}."
+    )
+
+
 def _guide_entries_from_model_conds(model_conds: dict[str, Any]) -> list[dict] | None:
     wrapped = model_conds.get("guide_attention_entries")
     entries = _cond_payload(wrapped)
@@ -127,8 +225,19 @@ def _guide_token_counts(
     full_area = full_height * full_width
     if entries:
         counts = [int(entry.get("pre_filter_count", 0)) for entry in entries]
-        if all(count > 0 for count in counts) and sum(counts) == total_tokens:
-            return counts
+        if not all(count > 0 for count in counts):
+            raise UnsupportedTiledConditioning(
+                "guide_attention_entries contains invalid pre_filter_count "
+                f"values: {counts}."
+            )
+        count_sum = sum(counts)
+        if count_sum != total_tokens:
+            raise UnsupportedTiledConditioning(
+                "guide_attention_entries token count mismatch: "
+                f"sum(pre_filter_count)={count_sum}, "
+                f"keyframe_idxs tokens={total_tokens}."
+            )
+        return counts
 
     if total_tokens % full_area != 0:
         raise UnsupportedTiledConditioning(
@@ -254,10 +363,19 @@ def _crop_guide_entries(
             if py1 <= py0 or px1 <= px0:
                 raise UnsupportedTiledConditioning(
                     "guide_attention_entries pixel_mask is too small to crop for "
-                    f"tile {spec.index}: mask={mask_h}x{mask_w}, "
+                    f"tile r{spec.row}c{spec.col}: mask={mask_h}x{mask_w}, "
                     f"latent={full_height}x{full_width}."
                 )
-            original["pixel_mask"] = pixel_mask[..., py0:py1, px0:px1].contiguous()
+            cropped_pixel_mask = pixel_mask[..., py0:py1, px0:px1].contiguous()
+            expected_mask_shape = (py1 - py0, px1 - px0)
+            if tuple(cropped_pixel_mask.shape[-2:]) != expected_mask_shape:
+                raise UnsupportedTiledConditioning(
+                    "guide_attention_entries pixel_mask crop produced an "
+                    "unexpected spatial shape: "
+                    f"got={tuple(cropped_pixel_mask.shape[-2:])}, "
+                    f"expected={expected_mask_shape}."
+                )
+            original["pixel_mask"] = cropped_pixel_mask
 
         result.append(original)
     return result
@@ -269,6 +387,7 @@ def _crop_condition_list_for_tile(
     full_height: int,
     full_width: int,
     model: Any,
+    debug: bool = False,
 ) -> list[dict] | None:
     if cond_list is None:
         return None
@@ -338,9 +457,10 @@ def _crop_condition_list_for_tile(
         guide_entries = _guide_entries_from_model_conds(model_conds)
 
         for key, wrapped in list(model_conds.items()):
-            value = getattr(wrapped, "cond", None)
+            value = _cond_payload(wrapped)
+            normalized_key = _normalize_model_cond_key(key)
 
-            if key == "keyframe_idxs" and isinstance(value, torch.Tensor):
+            if normalized_key == "keyframe_idxs" and isinstance(value, torch.Tensor):
                 cropped = _crop_keyframe_indices(
                     value,
                     spec,
@@ -349,18 +469,44 @@ def _crop_condition_list_for_tile(
                     guide_entries,
                     model,
                 )
-                model_conds[key] = _copy_cond_value(wrapped, cropped)
+                model_conds[key] = _copy_conditioning_value(wrapped, cropped)
                 continue
 
-            if key == "guide_attention_entries" and isinstance(value, list):
+            if normalized_key == "guide_attention_entries" and isinstance(value, list):
                 cropped_entries = _crop_guide_entries(value, spec, full_height, full_width, model)
-                model_conds[key] = _copy_cond_value(wrapped, cropped_entries)
+                model_conds[key] = _copy_conditioning_value(wrapped, cropped_entries)
+                continue
+
+            if normalized_key in KNOWN_SPATIAL_MODEL_COND_KEYS:
+                cropped = _crop_known_spatial_value(
+                    key,
+                    value,
+                    spec,
+                    full_height,
+                    full_width,
+                )
+                if cropped is not value:
+                    model_conds[key] = _copy_conditioning_value(wrapped, cropped)
+                continue
+
+            if normalized_key in KNOWN_NON_SPATIAL_MODEL_COND_KEYS:
                 continue
 
             if isinstance(value, torch.Tensor):
                 cropped = _crop_spatial_tensor(value, spec, full_height, full_width)
                 if cropped is not value:
-                    model_conds[key] = _copy_cond_value(wrapped, cropped)
+                    model_conds[key] = _copy_conditioning_value(wrapped, cropped)
+                elif debug and value.ndim >= 4 and tuple(value.shape[-2:]) != (
+                    spec.height,
+                    spec.width,
+                ):
+                    _debug_unknown_model_cond_tensor(
+                        key,
+                        value,
+                        spec,
+                        full_height,
+                        full_width,
+                    )
                 continue
 
             if isinstance(value, list) and value and all(isinstance(item, torch.Tensor) for item in value):
@@ -369,7 +515,7 @@ def _crop_condition_list_for_tile(
                     for item in value
                 ]
                 if any(new is not old for new, old in zip(cropped_items, value)):
-                    model_conds[key] = _copy_cond_value(wrapped, cropped_items)
+                    model_conds[key] = _copy_conditioning_value(wrapped, cropped_items)
 
         cloned["model_conds"] = model_conds
         cropped_list.append(cloned)
@@ -383,9 +529,17 @@ def _crop_conds_for_tile(
     full_height: int,
     full_width: int,
     model: Any,
+    debug: bool = False,
 ) -> list[list[dict] | None]:
     return [
-        _crop_condition_list_for_tile(cond_list, spec, full_height, full_width, model)
+        _crop_condition_list_for_tile(
+            cond_list,
+            spec,
+            full_height,
+            full_width,
+            model,
+            debug=debug,
+        )
         for cond_list in conds
     ]
 
@@ -716,7 +870,10 @@ class DenoLTXTiledSpatialUpscaler:
         max_tile_w = max(spec.width for spec in plan)
         model_bytes = model_management.module_size(upscale_model)
         tile_elements = batch * channels * frames * max_tile_h * max_tile_w
-        model_management.free_memory(model_bytes + tile_elements * 3000.0, device)
+        model_management.free_memory(
+            model_bytes + tile_elements * UPSCALER_MEMORY_BYTES_PER_TILE_ELEMENT,
+            device,
+        )
 
         if debug:
             print(
@@ -943,7 +1100,14 @@ class StepFusedAVTilePredictor:
         for spec in self.plan:
             tile_video = video_x[:, :, :, spec.y0:spec.y1, spec.x0:spec.x1].contiguous()
             tile_packed, tile_shapes = _pack_latents([tile_video, audio_x])
-            tile_conds = _crop_conds_for_tile(conds, spec, self.full_height, self.full_width, model)
+            tile_conds = _crop_conds_for_tile(
+                conds,
+                spec,
+                self.full_height,
+                self.full_width,
+                model,
+                debug=self.debug,
+            )
             tile_conds = _replace_latent_shapes_in_conds(tile_conds, tile_shapes)
 
             tile_options = _clone_model_options(model_options)

@@ -295,6 +295,215 @@ def test_av_predictor_tiles_video_with_full_audio_context(monkeypatch, fake_comf
     assert torch.allclose(uncond_audio, audio)
 
 
+def test_av_predictor_crops_known_spatial_model_conds_and_preserves_non_spatial(
+    monkeypatch,
+    fake_comfy_latent_utils,
+):
+    height, width = 6, 4
+    video = torch.zeros((1, 2, 3, height, width))
+    audio = torch.arange(16, dtype=torch.float32).reshape(1, 1, 4, 4)
+    packed, global_shapes = _fake_pack_latents([video, audio])
+    plan = build_tile_plan(height=height, width=width, vertical_tiles=2, horizontal_tiles=1, overlap=2)
+    full_mask = torch.arange(height * width, dtype=torch.float32).reshape(1, 1, 1, height, width)
+    full_regular_mask = torch.ones((1, 1, 1, height, width)) * 4.0
+    full_unknown = torch.ones((1, 1, 1, height, width)) * 2.0
+    tile_sized_mask = torch.ones((1, 1, 1, plan[0].height, plan[0].width)) * 3.0
+    branch_bias = torch.tensor([0.25])
+    seen = []
+
+    def fake_calc_cond_batch(_model, conds, x_in, _sigma, _model_options):
+        tile_shapes = conds[0][0]["model_conds"]["latent_shapes"].cond
+        tile_video, full_audio = _fake_unpack_latents(x_in, tile_shapes)
+        model_conds = conds[0][0]["model_conds"]
+        seen.append({
+            "tile_shape": tuple(tile_video.shape[-2:]),
+            "audio_shape": tuple(full_audio.shape),
+            "pixel_mask": model_conds["pixel_mask"],
+            "mask": model_conds["mask"].cond,
+            "guide_mask": model_conds["guide_mask"].cond,
+            "mystery_full": model_conds["mystery_full"].cond,
+            "branch_bias": model_conds["branch_bias"].cond,
+        })
+        packed_prediction, _ = _fake_pack_latents([tile_video + 1.0, full_audio])
+        return [packed_prediction]
+
+    monkeypatch.setattr(
+        "deno_ltx_tiled_nodes._comfy_samplers",
+        lambda: types.SimpleNamespace(calc_cond_batch=fake_calc_cond_batch),
+    )
+
+    predictor = StepFusedAVTilePredictor(
+        plan=plan,
+        full_height=height,
+        full_width=width,
+        global_video_shape=global_shapes[0],
+        global_audio_shape=global_shapes[1],
+        blend_mode="hann",
+    )
+    predictor({
+        "input": packed,
+        "sigma": torch.tensor([0.5]),
+        "model": _FakeModel(),
+        "conds": [[{
+            "model_conds": {
+                "latent_shapes": _FakeCond(global_shapes),
+                "pixel_mask": full_mask,
+                "mask": _FakeCond(full_regular_mask),
+                "guide_mask": _FakeCond(tile_sized_mask),
+                "mystery_full": _FakeCond(full_unknown),
+                "branch_bias": _FakeCond(branch_bias),
+            },
+        }]],
+        "model_options": {},
+    })
+
+    assert len(seen) == len(plan)
+    for spec, record in zip(plan, seen):
+        assert record["tile_shape"] == (spec.height, spec.width)
+        assert record["audio_shape"] == tuple(audio.shape)
+        assert tuple(record["pixel_mask"].shape[-2:]) == (spec.height, spec.width)
+        assert tuple(record["mask"].shape[-2:]) == (spec.height, spec.width)
+        assert tuple(record["mystery_full"].shape[-2:]) == (spec.height, spec.width)
+        assert tuple(record["guide_mask"].shape[-2:]) == (spec.height, spec.width)
+        assert torch.equal(record["branch_bias"], branch_bias)
+
+
+def test_av_predictor_preserves_text_attention_mask_as_non_spatial(
+    monkeypatch,
+    fake_comfy_latent_utils,
+):
+    height, width = 6, 4
+    video = torch.zeros((1, 2, 3, height, width))
+    audio = torch.ones((1, 1, 4, 4))
+    packed, global_shapes = _fake_pack_latents([video, audio])
+    attention_mask = torch.ones((1, 77), dtype=torch.float32)
+    full_spatial_mask = torch.ones((1, 1, 1, height, width), dtype=torch.float32)
+    seen_attention_masks = []
+
+    def fake_calc_cond_batch(_model, conds, x_in, _sigma, _model_options):
+        tile_shapes = conds[0][0]["model_conds"]["latent_shapes"].cond
+        tile_video, full_audio = _fake_unpack_latents(x_in, tile_shapes)
+        model_conds = conds[0][0]["model_conds"]
+        seen_attention_masks.append(model_conds["attention_mask"].cond)
+        assert tuple(model_conds["pixel_mask"].cond.shape[-2:]) == tuple(tile_video.shape[-2:])
+        packed_prediction, _ = _fake_pack_latents([tile_video + 1.0, full_audio])
+        return [packed_prediction]
+
+    monkeypatch.setattr(
+        "deno_ltx_tiled_nodes._comfy_samplers",
+        lambda: types.SimpleNamespace(calc_cond_batch=fake_calc_cond_batch),
+    )
+
+    predictor = StepFusedAVTilePredictor(
+        plan=build_tile_plan(height=height, width=width, vertical_tiles=2, horizontal_tiles=1, overlap=2),
+        full_height=height,
+        full_width=width,
+        global_video_shape=global_shapes[0],
+        global_audio_shape=global_shapes[1],
+        blend_mode="hann",
+    )
+    predictor({
+        "input": packed,
+        "sigma": torch.tensor([0.5]),
+        "model": _FakeModel(),
+        "conds": [[{
+            "model_conds": {
+                "latent_shapes": _FakeCond(global_shapes),
+                "attention_mask": _FakeCond(attention_mask),
+                "pixel_mask": _FakeCond(full_spatial_mask),
+            },
+        }]],
+        "model_options": {},
+    })
+
+    assert len(seen_attention_masks) == len(predictor.plan)
+    for seen_attention_mask in seen_attention_masks:
+        assert torch.equal(seen_attention_mask, attention_mask)
+
+
+def test_av_predictor_rejects_known_spatial_model_cond_shape_mismatch(
+    monkeypatch,
+    fake_comfy_latent_utils,
+):
+    height, width = 6, 4
+    video = torch.zeros((1, 2, 3, height, width))
+    audio = torch.ones((1, 1, 4, 4))
+    packed, global_shapes = _fake_pack_latents([video, audio])
+    bad_mask = torch.ones((1, 1, 1, height + 1, width))
+
+    def unexpected_calc_cond_batch(*_args, **_kwargs):
+        raise AssertionError("bad spatial model_conds should fail before model prediction")
+
+    monkeypatch.setattr(
+        "deno_ltx_tiled_nodes._comfy_samplers",
+        lambda: types.SimpleNamespace(calc_cond_batch=unexpected_calc_cond_batch),
+    )
+
+    predictor = StepFusedAVTilePredictor(
+        plan=build_tile_plan(height=height, width=width, vertical_tiles=2, horizontal_tiles=1, overlap=2),
+        full_height=height,
+        full_width=width,
+        global_video_shape=global_shapes[0],
+        global_audio_shape=global_shapes[1],
+        blend_mode="hann",
+    )
+
+    with pytest.raises(UnsupportedTiledConditioning, match="unsupported spatial shape"):
+        predictor({
+            "input": packed,
+            "sigma": torch.tensor([0.5]),
+            "model": _FakeModel(),
+            "conds": [[{
+                "model_conds": {
+                    "latent_shapes": _FakeCond(global_shapes),
+                    "pixel_mask": _FakeCond(bad_mask),
+                },
+            }]],
+            "model_options": {},
+        })
+
+
+@pytest.mark.parametrize(
+    ("entry_counts", "error_pattern"),
+    [
+        ([0, 24], "invalid pre_filter_count"),
+        ([8, 8], "token count mismatch"),
+    ],
+)
+def test_av_predictor_rejects_guide_entry_count_mismatch_before_fallback(
+    fake_comfy_latent_utils,
+    entry_counts,
+    error_pattern,
+):
+    height, width = 4, 6
+    video = torch.zeros((1, 2, 3, height, width))
+    audio = torch.ones((1, 1, 4, 4))
+    packed, global_shapes = _fake_pack_latents([video, audio])
+    entries = [{"pre_filter_count": count, "latent_shape": [1, height, width]} for count in entry_counts]
+
+    predictor = StepFusedAVTilePredictor(
+        plan=build_tile_plan(height=height, width=width, vertical_tiles=1, horizontal_tiles=2, overlap=2),
+        full_height=height,
+        full_width=width,
+        global_video_shape=global_shapes[0],
+        global_audio_shape=global_shapes[1],
+        blend_mode="hann",
+    )
+
+    with pytest.raises(UnsupportedTiledConditioning, match=error_pattern):
+        predictor({
+            "input": packed,
+            "sigma": torch.tensor([0.5]),
+            "model": _FakeModel(),
+            "conds": [[{
+                "keyframe_idxs": _FakeCond(_make_guide_keyframes(1, height, width)),
+                "guide_attention_entries": _FakeCond(entries),
+                "model_conds": {"latent_shapes": _FakeCond(global_shapes)},
+            }]],
+            "model_options": {},
+        })
+
+
 def test_av_predictor_one_by_one_matches_stock_video_predictions(
     monkeypatch,
     fake_comfy_latent_utils,
