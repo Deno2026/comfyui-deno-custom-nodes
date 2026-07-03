@@ -6,6 +6,12 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.67 - 2026-07-03
+
+- Fixed `(Deno) Local LLM Loader` and `(Deno) Local LLM Reviewer` saved-workflow handling so provider URLs, prompts, thinking state, and reviewer state stay in the correct saved slots after workflow save, reload, copy, and provider changes.
+- Kept Local LLM server access local-first by default while allowing advanced users to opt in to a specific trusted LAN server with `DENO_LOCAL_LLM_ALLOWED_HOSTS=LAN-IP:port`.
+- Improved `(Deno) LTX High resolution Tiled Sampler` guide and mask conditioning stability with stricter spatial conditioning checks, clearer guide token-count mismatch errors, and pixel-mask crop validation.
+
 ## 0.7.66 - 2026-07-01
 
 - Fixed DENO Floating Tools Error Help so large ComfyUI failures keep the browser responsive, the report is prepared only when the user opens it, and the error icon returns to normal after the next confirmed idle run.

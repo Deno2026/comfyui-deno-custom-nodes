@@ -107,6 +107,36 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const api = context.capturedApi;
             assert(api, "reviewer graph test API was not exposed");
             assert(context.capturedExtension, "Local LLM extension must register for configure/onSerialize hooks");
+            const normalizedReviewerValues = api.normalizeReviewerSerializedValues(["Pass", true, "REVIEWER STATE", null, null]);
+            assert(normalizedReviewerValues.length === 3, "Reviewer serialization must keep only the three backend widgets");
+            assert(normalizedReviewerValues[0] === "Pass", "Reviewer serialization must preserve Pass mode");
+            assert(normalizedReviewerValues[1] === true, "Reviewer serialization must preserve approve_once");
+            assert(normalizedReviewerValues[2] === "REVIEWER STATE", "Reviewer serialization must preserve reviewer_state");
+            const reviewerInfo = {{ widgets_values: ["Review", false, "STATE", null, null] }};
+            api.normalizeReviewerWidgetValues(reviewerInfo);
+            assert(reviewerInfo.widgets_values.length === 3, "Reviewer widget-value normalizer must strip generated custom widget nulls");
+            const gateNodeType = {{
+                prototype: {{
+                    configure(info) {{
+                        this.__baseConfigureValues = [...info.widgets_values];
+                        return "configured";
+                    }},
+                    onSerialize(info) {{
+                        info.widgets_values = ["Review", false, "SERIALIZED STATE", null, null];
+                        return "serialized";
+                    }},
+                }},
+            }};
+            context.capturedExtension.beforeRegisterNodeDef(gateNodeType, {{ name: "DenoAIReviewGate" }});
+            const configuredGate = {{}};
+            const configuredInfo = {{ widgets_values: ["Pass", false, "CONFIGURED STATE", null, null] }};
+            assert(gateNodeType.prototype.configure.call(configuredGate, configuredInfo) === "configured", "Reviewer configure wrapper must preserve the original return");
+            assert(configuredInfo.widgets_values.length === 3, "Reviewer configure wrapper must compact saved widget values before restore");
+            assert(configuredGate.__baseConfigureValues.length === 3, "Reviewer base configure must only receive canonical widget values");
+            const serializedGateInfo = {{ widgets_values: [] }};
+            assert(gateNodeType.prototype.onSerialize.call({{}}, serializedGateInfo) === "serialized", "Reviewer serialize wrapper must preserve the original return");
+            assert(serializedGateInfo.widgets_values.length === 3, "Reviewer serialize wrapper must strip generated widget nulls");
+            assert(serializedGateInfo.widgets_values[2] === "SERIALIZED STATE", "Reviewer serialize wrapper must keep reviewer_state");
             assert(api.previewTextDialogTitle({{ error: "bad" }}, "result") === "Error", "Result popup title must switch to Error when node state has an error");
             assert(api.previewTextDialogBody({{ answer: "final answer" }}, "result") === "final answer", "Result popup must read live answer text from node state");
             assert(api.previewTextDialogBody({{ thinking: "live thinking" }}, "thinking") === "live thinking", "Thinking popup must read live thinking text from node state");
@@ -460,6 +490,11 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(normalizedCloneClipboard[7] === 9876, "Loader clone clipboard serialization must keep seed in the seed slot");
             assert(normalizedCloneClipboard[10] === 5, "Loader clone clipboard serialization must recover keep minutes after clone shifting");
             assert(normalizedCloneClipboard[12] === "Prompt should survive copy", "Loader clone clipboard serialization must recover prompt after clone shifting");
+            api.resetLocalLLMGeneratedWidgetValues(clonedClipboardShiftNode);
+            assert(api.getWidget(clonedClipboardShiftNode, "deno_local_llm_refresh_models").value === "Refresh Models", "Loader reload cleanup must reset Refresh Models button value after ComfyUI shifts saved model text into it");
+            assert(api.getWidget(clonedClipboardShiftNode, "deno_local_llm_stop_llm").value === "Stop LLM", "Loader reload cleanup must reset Stop LLM button value after ComfyUI shifts saved URL into it");
+            assert(api.getWidget(clonedClipboardShiftNode, "deno_local_llm_unload_llm").value === "Unload LLM", "Loader reload cleanup must reset Unload LLM button value after ComfyUI shifts saved model text into it");
+            assert(api.getWidget(clonedClipboardShiftNode, "deno_local_llm_system_prompt_button").value === "System Prompt", "Loader reload cleanup must reset System Prompt button value after ComfyUI restore");
             function makeCopiedLoaderNode(id) {{
                 const node = {{
                     id,

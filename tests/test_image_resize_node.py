@@ -5269,6 +5269,40 @@ def test_local_llm_refiner_normalizes_prompts_seed_modes_and_local_urls():
     assert calls == []
 
 
+def test_local_llm_refiner_lan_allowlist_requires_exact_private_ip_host_port(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    monkeypatch.delenv("DENO_LOCAL_LLM_ALLOWED_HOSTS", raising=False)
+    assert module._parse_local_llm_url("http://127.0.0.1:8000/v1").hostname == "127.0.0.1"
+    with pytest.raises(RuntimeError, match="Only local LLM servers"):
+        module._parse_local_llm_url("http://192.168.100.100:8080/v1")
+
+    monkeypatch.setenv("DENO_LOCAL_LLM_ALLOWED_HOSTS", "192.168.100.100:8080")
+    parsed = module._parse_local_llm_url("http://192.168.100.100:8080/v1")
+    assert parsed.hostname == "192.168.100.100"
+    assert parsed.port == 8080
+    with pytest.raises(RuntimeError, match="Only local LLM servers"):
+        module._parse_local_llm_url("http://192.168.100.100:8081/v1")
+
+    monkeypatch.setenv(
+        "DENO_LOCAL_LLM_ALLOWED_HOSTS",
+        "192.168.100.*:8080 192.168.100.0/24:8080 lan-box.local:8080 metadata.google.internal:80 169.254.169.254:80 169.254.1.2:8080",
+    )
+    for blocked_url in [
+        "http://192.168.100.100:8080/v1",
+        "http://lan-box.local:8080/v1",
+        "http://metadata.google.internal/v1",
+        "http://169.254.169.254/v1",
+        "http://169.254.1.2:8080/v1",
+    ]:
+        with pytest.raises(RuntimeError, match="Only local LLM servers"):
+            module._parse_local_llm_url(blocked_url)
+
+    with pytest.raises(RuntimeError, match="username/password"):
+        module._parse_local_llm_url("http://user:pass@127.0.0.1:8000/v1")
+
+
 def test_resize_box_declares_comfyui_contract():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoResolutionSetup"]

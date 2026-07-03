@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import http.client
+import ipaddress
 import itertools
 from io import BytesIO
 import json
@@ -14,7 +15,7 @@ import re
 import threading
 import time
 import urllib.parse
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from PIL import Image
@@ -129,6 +130,7 @@ SHIFTED_MODEL_WIDGET_VALUES = {
     "ComfyUI VRAM",
     "Ollama Model",
     "LM Studio Model",
+    "Detected Models",
     "Legacy Model",
     "Custom Model",
     "Custom Server URL",
@@ -137,6 +139,9 @@ SHIFTED_MODEL_WIDGET_VALUES = {
 MISSING_SAVED_MODEL_PREFIX = "Missing saved model: "
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+LOCAL_LLM_ALLOWED_HOSTS_ENV = "DENO_LOCAL_LLM_ALLOWED_HOSTS"
+LOCAL_LLM_BLOCKED_REMOTE_HOSTNAMES = {"metadata.google.internal"}
+LOCAL_LLM_BLOCKED_REMOTE_IPS = {ipaddress.ip_address("169.254.169.254")}
 PROGRESS_EVENT = "deno-local-llm-progress"
 THINK_TAG_RE = re.compile(r"<(?:think|thinking)>(.*?)</(?:think|thinking)>", re.IGNORECASE | re.DOTALL)
 FINAL_PROMPT_TAG_RE = re.compile(r"<final\\?_prompt>(.*?)</final\\?_prompt>", re.IGNORECASE | re.DOTALL)
@@ -159,17 +164,136 @@ def _json_response(payload: Dict[str, Any], status: int = 200):
     return web.json_response(payload, status=status)
 
 
+def _canonical_local_llm_host(host: str) -> str:
+    return str(host or "").strip().strip("[]").rstrip(".").lower()
+
+
+def _is_loopback_local_llm_host(host: str) -> bool:
+    return _canonical_local_llm_host(host) in {"127.0.0.1", "localhost", "::1"}
+
+
+LocalLLMIPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+
+
+def _local_llm_ip_literal(host: str) -> Optional[LocalLLMIPAddress]:
+    try:
+        return ipaddress.ip_address(_canonical_local_llm_host(host))
+    except ValueError:
+        return None
+
+
+def _is_allowed_lan_local_llm_address(address: LocalLLMIPAddress) -> bool:
+    return bool(
+        address.is_private
+        and not address.is_loopback
+        and not address.is_link_local
+        and not address.is_multicast
+        and not address.is_unspecified
+        and address not in LOCAL_LLM_BLOCKED_REMOTE_IPS
+    )
+
+
+def _default_local_llm_port(scheme: str) -> int:
+    return 443 if str(scheme or "").lower() == "https" else 80
+
+
+def _safe_local_llm_port(parsed: urllib.parse.ParseResult) -> int:
+    try:
+        return int(parsed.port or _default_local_llm_port(parsed.scheme))
+    except ValueError as exc:
+        raise RuntimeError("Local LLM server URL has an invalid port.") from exc
+
+
+def _is_blocked_remote_local_llm_host(host: str) -> bool:
+    normalized = _canonical_local_llm_host(host)
+    if normalized in LOCAL_LLM_BLOCKED_REMOTE_HOSTNAMES:
+        return True
+    address = _local_llm_ip_literal(normalized)
+    if address is None:
+        return False
+    return bool(
+        address in LOCAL_LLM_BLOCKED_REMOTE_IPS
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_unspecified
+    )
+
+
+def _parse_allowed_local_llm_host_token(token: str) -> Optional[Tuple[str, int]]:
+    value = str(token or "").strip()
+    if not value or "*" in value or "\\" in value:
+        return None
+    has_scheme = "://" in value
+    if has_scheme:
+        parsed = urllib.parse.urlparse(value)
+        if parsed.scheme not in {"http", "https"}:
+            return None
+        if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+            return None
+    else:
+        if "/" in value:
+            return None
+        parsed = urllib.parse.urlparse(f"//{value}", scheme="http")
+    if parsed.username or parsed.password:
+        return None
+    host = _canonical_local_llm_host(parsed.hostname or "")
+    if not host or _is_loopback_local_llm_host(host) or _is_blocked_remote_local_llm_host(host):
+        return None
+    address = _local_llm_ip_literal(host)
+    if address is None or not _is_allowed_lan_local_llm_address(address):
+        return None
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is None:
+        if has_scheme:
+            port = _default_local_llm_port(parsed.scheme)
+        else:
+            return None
+    return str(address), int(port)
+
+
+def _allowed_remote_local_llm_hosts() -> Set[Tuple[str, int]]:
+    raw = os.environ.get(LOCAL_LLM_ALLOWED_HOSTS_ENV, "")
+    allowed: Set[Tuple[str, int]] = set()
+    for token in re.split(r"[,;\s]+", raw):
+        entry = _parse_allowed_local_llm_host_token(token)
+        if entry:
+            allowed.add(entry)
+    return allowed
+
+
+def _is_remote_local_llm_host_allowed(parsed: urllib.parse.ParseResult) -> bool:
+    host = _canonical_local_llm_host(parsed.hostname or "")
+    if not host or _is_blocked_remote_local_llm_host(host):
+        return False
+    address = _local_llm_ip_literal(host)
+    if address is None or not _is_allowed_lan_local_llm_address(address):
+        return False
+    return (str(address), _safe_local_llm_port(parsed)) in _allowed_remote_local_llm_hosts()
+
+
+def _remote_local_llm_allowlist_error() -> str:
+    return (
+        "Only local LLM servers are allowed for this DENO node by default. "
+        "Use 127.0.0.1 or localhost. "
+        f"To use a LAN LLM server, set {LOCAL_LLM_ALLOWED_HOSTS_ENV}=LAN-IP:port on the ComfyUI host. "
+        "Use only servers you own and trust; this opt-in is not stored in workflows."
+    )
+
+
 def _parse_local_llm_url(url: str) -> urllib.parse.ParseResult:
     parsed = urllib.parse.urlparse(str(url or "").strip())
     if parsed.scheme not in {"http", "https"}:
         raise RuntimeError("Use a local http:// or https:// server URL.")
-    host = parsed.hostname or ""
-    if host.lower() not in LOCAL_HOSTS:
-        raise RuntimeError(
-            "Only local LLM servers are allowed for this DENO node. "
-            "Use 127.0.0.1 or localhost."
-        )
-    return parsed
+    if parsed.username or parsed.password:
+        raise RuntimeError("Do not include username/password in a local LLM server URL.")
+    host = _canonical_local_llm_host(parsed.hostname or "")
+    _safe_local_llm_port(parsed)
+    if _is_loopback_local_llm_host(host) or _is_remote_local_llm_host_allowed(parsed):
+        return parsed
+    raise RuntimeError(_remote_local_llm_allowlist_error())
 
 
 def _assert_local_url(url: str) -> None:
@@ -183,9 +307,17 @@ def _open_local_llm_http_connection(
     host = parsed.hostname
     if not host:
         raise RuntimeError("Local LLM server URL is missing a host.")
-    port = parsed.port
+    canonical_host = _canonical_local_llm_host(host)
+    if canonical_host == "localhost":
+        connection_host = "127.0.0.1"
+    else:
+        address = _local_llm_ip_literal(canonical_host)
+        if address is None:
+            raise RuntimeError(_remote_local_llm_allowlist_error())
+        connection_host = str(address)
+    port = _safe_local_llm_port(parsed)
     connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-    return connection_cls(host, port, timeout=timeout)
+    return connection_cls(connection_host, port, timeout=timeout)
 
 
 def _strip_trailing_slash(url: str) -> str:
@@ -1932,7 +2064,9 @@ class DenoLocalLLMRefiner:
         "Designed for prompt-batcher workflows: use the in-node Prompt field or connect STRING into Prompt, "
         "and this node processes the whole prompt batch in one execution so the local LLM can stay "
         "loaded until the batch is complete.\n\n"
-        "Only localhost / 127.0.0.1 servers are allowed."
+        "Only localhost / 127.0.0.1 servers are allowed by default. "
+        "Advanced users can allow a specific LAN LLM server with "
+        f"{LOCAL_LLM_ALLOWED_HOSTS_ENV}=LAN-IP:port on the ComfyUI host; this opt-in is not stored in workflows."
     )
 
     @classmethod

@@ -10,6 +10,7 @@ const GATE_DISPLAY_NAME = "(Deno) Local LLM Reviewer";
 const GATE_LEGACY_DISPLAY_NAMES = new Set(["(Deno) AI Review Gate", "(Deno) Local LLM Gate"]);
 const GENERATED_PREFIX = "deno_local_llm_";
 const GATE_GENERATED_PREFIX = "deno_local_llm_gate_";
+const OPENAI_MODEL_PICKER_NAME = `${GENERATED_PREFIX}model_picker`;
 const DEFAULT_WIDTH = 560;
 const GATE_DEFAULT_WIDTH = 420;
 const PREVIEW_HEIGHT = 150;
@@ -82,9 +83,11 @@ const COMFY_VRAM_ALIASES = {
 };
 const SEED_MODE_VALUES = ["fixed", "increment", "decrement", "randomize"];
 const LOADER_SERIALIZED_WIDGET_COUNT = 13;
+const GATE_SERIALIZED_WIDGET_COUNT = 3;
 const LOADER_STATE_PROPERTY = "deno_local_llm_state";
 const LOADER_STATE_SCHEMA = 1;
 const LOADER_STATE_TEXT_LIMIT = 120000;
+const LOADER_SERVER_URLS_BY_PROVIDER_PROPERTY = "denoLocalLLMServerUrlsByProvider";
 const LOADER_SERIALIZED_WIDGET_NAMES = [
     "provider",
     "ollama_model",
@@ -102,6 +105,13 @@ const LOADER_SERIALIZED_WIDGET_NAMES = [
 ];
 const LOADER_GENERATED_BUTTON_VALUES = ["Refresh Models", "Stop LLM", "Unload LLM"];
 const LOADER_SYSTEM_PROMPT_BUTTON_VALUE = "System Prompt";
+const LOADER_GENERATED_WIDGET_RESET_VALUES = Object.freeze({
+    [`${GENERATED_PREFIX}refresh_models`]: "Refresh Models",
+    [`${GENERATED_PREFIX}stop_llm`]: "Stop LLM",
+    [`${GENERATED_PREFIX}unload_llm`]: "Unload LLM",
+    [`${GENERATED_PREFIX}preview`]: "",
+    [`${GENERATED_PREFIX}system_prompt_button`]: LOADER_SYSTEM_PROMPT_BUTTON_VALUE,
+});
 const MISSING_SAVED_MODEL_PREFIX = "Missing saved model: ";
 const LEGACY_CONTROL_AFTER_GENERATE_VALUES = new Set(["fixed", "randomize", "increment", "decrement", "random"]);
 const SHIFTED_MODEL_WIDGET_VALUES = new Set([
@@ -124,6 +134,7 @@ const SHIFTED_MODEL_WIDGET_VALUES = new Set([
     "ComfyUI VRAM",
     "Ollama Model",
     "LM Studio Model",
+    "Detected Models",
     "Legacy Model",
     "Custom Model",
     "Custom Server URL",
@@ -631,6 +642,12 @@ app.registerExtension({
     name: "Deno.LocalLLMRefiner",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name === GATE_NODE_NAME) {
+            const configure = nodeType.prototype.configure;
+            nodeType.prototype.configure = function (info) {
+                normalizeReviewerWidgetValues(info);
+                return configure?.apply(this, arguments);
+            };
+
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 const result = onNodeCreated?.apply(this, arguments);
@@ -642,6 +659,13 @@ app.registerExtension({
             nodeType.prototype.onConfigure = function () {
                 const result = onConfigure?.apply(this, arguments);
                 queueMicrotask(() => setupGateNode(this));
+                return result;
+            };
+
+            const onSerialize = nodeType.prototype.onSerialize;
+            nodeType.prototype.onSerialize = function (info) {
+                const result = onSerialize?.apply(this, arguments);
+                normalizeReviewerWidgetValues(info);
                 return result;
             };
 
@@ -753,6 +777,30 @@ function normalizeLocalLLMLoaderWidgetValues(info) {
     return normalized;
 }
 
+function normalizeReviewerWidgetValues(info) {
+    if (!info || !Array.isArray(info.widgets_values)) {
+        return null;
+    }
+    const normalized = normalizeReviewerSerializedValues(info.widgets_values);
+    info.widgets_values = normalized;
+    return normalized;
+}
+
+function normalizeReviewerSerializedValues(values) {
+    if (!Array.isArray(values)) {
+        return null;
+    }
+    const normalized = values.slice(0, GATE_SERIALIZED_WIDGET_COUNT);
+    while (normalized.length < GATE_SERIALIZED_WIDGET_COUNT) {
+        normalized.push("");
+    }
+    const mode = String(normalized[0] || "Review");
+    normalized[0] = mode === "Pass" ? "Pass" : "Review";
+    normalized[1] = normalized[1] === true || String(normalized[1]).toLowerCase() === "true";
+    normalized[2] = normalized[2] == null ? "" : String(normalized[2]);
+    return normalized;
+}
+
 function normalizeLocalLLMLoaderSerializedValues(values) {
     if (!Array.isArray(values)) {
         return null;
@@ -764,7 +812,34 @@ function normalizeLocalLLMLoaderSerializedValues(values) {
         normalized = normalizeLocalLLMLoaderLegacyButtonValues(normalized);
         generatedButtonStart = findLocalLLMGeneratedButtonRunStart(normalized);
     }
+    normalized = normalizeLocalLLMLoaderGeneratedPickerValues(normalized);
     return normalized.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
+}
+
+function normalizeLocalLLMLoaderGeneratedPickerValues(values) {
+    const normalized = [...values];
+    const provider = normalizeProviderValue(normalized[0]);
+    const customModel = String(normalized[4] ?? "").trim();
+    const extraAfterCustomModel = String(normalized[5] ?? "").trim();
+    const shiftedSeed = normalized[8];
+    const likelyGeneratedPickerValue =
+        normalized.length > LOADER_SERIALIZED_WIDGET_COUNT &&
+        OPENAI_COMPATIBLE_PROVIDERS.has(provider) &&
+        customModel &&
+        (extraAfterCustomModel === customModel ||
+            extraAfterCustomModel === "Detected Models" ||
+            (
+                typeof normalized[6] === "string" &&
+                typeof normalized[7] === "boolean" &&
+                (typeof shiftedSeed === "number" || /^-?\d+(?:\.\d+)?$/.test(String(shiftedSeed ?? "").trim())) &&
+                SEED_MODE_VALUES.includes(String(normalized[9] ?? ""))
+            )) &&
+        typeof normalized[6] !== "boolean" &&
+        typeof normalized[7] === "boolean";
+    if (likelyGeneratedPickerValue) {
+        normalized.splice(5, 1);
+    }
+    return normalized;
 }
 
 function localLLMLoaderSerializedValuesFromWidgets(node, fallbackValues) {
@@ -945,6 +1020,27 @@ function applyLocalLLMLoaderSavedWidgetValues(node, values) {
             widget.value = value;
             changed = true;
         }
+    }
+    changed = resetLocalLLMGeneratedWidgetValues(node) || changed;
+    return changed;
+}
+
+function resetLocalLLMGeneratedWidgetValues(node) {
+    if (!node || !Array.isArray(node.widgets)) {
+        return false;
+    }
+    let changed = false;
+    for (const [name, value] of Object.entries(LOADER_GENERATED_WIDGET_RESET_VALUES)) {
+        const widget = getWidget(node, name);
+        if (!widget) {
+            continue;
+        }
+        if (widget.value !== value) {
+            widget.value = value;
+            changed = true;
+        }
+        widget.options = { ...(widget.options || {}), serialize: false };
+        widget.serializeValue = () => undefined;
     }
     return changed;
 }
@@ -1549,9 +1645,12 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         isLocalLLMOwnExecutionError,
         localLLMExecutionErrorMessage,
         nextLocalLLMSeedValue,
+        normalizeReviewerSerializedValues,
+        normalizeReviewerWidgetValues,
         normalizeLocalLLMLoaderSerializedValues,
         normalizeLocalLLMLoaderWidgetValues,
         localLLMLoaderSerializedValuesFromWidgets,
+        resetLocalLLMGeneratedWidgetValues,
         persistLocalLLMStateToProperties,
         restoreLocalLLMStateFromProperties,
         sanitizeLocalLLMState,
@@ -3806,6 +3905,7 @@ function ensureSingleSystemPromptButton(node) {
     if (anchor) {
         moveWidgetAfter(node, keep, anchor);
     }
+    resetLocalLLMGeneratedWidgetValues(node);
 }
 
 function positionPromptWidget(node) {
@@ -3945,7 +4045,15 @@ function repairSavedWidgetValues(node) {
     const customServerWidget = getWidget(node, "custom_server_url");
     if (customServerWidget) {
         const value = String(customServerWidget.value || "").trim();
-        customServerWidget.value = value && isLikelyUrl(value) ? value : LEGACY_CUSTOM_DEFAULT_URL;
+        if (value && isLikelyUrl(value)) {
+            customServerWidget.value = value;
+            if (value !== LEGACY_CUSTOM_DEFAULT_URL) {
+                delete customServerWidget.__denoLocalLLMRepairedBlankServerUrl;
+            }
+        } else {
+            customServerWidget.value = LEGACY_CUSTOM_DEFAULT_URL;
+            customServerWidget.__denoLocalLLMRepairedBlankServerUrl = true;
+        }
     }
 
     const seedWidget = getWidget(node, "seed");
@@ -3996,6 +4104,8 @@ function repairSavedWidgetValues(node) {
     if (thinkingWidget && typeof thinkingWidget.value !== "boolean") {
         thinkingWidget.value = String(thinkingWidget.value).toLowerCase() === "true";
     }
+
+    resetLocalLLMGeneratedWidgetValues(node);
 }
 
 function repairLegacyProviderValues(node) {
@@ -4017,7 +4127,10 @@ function repairLegacyProviderValues(node) {
     const shiftedFromOldTwoProviderNode =
         Boolean(customServerWidget) &&
         Boolean(customModelWidget) &&
-        (!isLikelyUrl(customServerValue) || isShiftedCustomModelValue(customModelValue));
+        (
+            (customServerValue && !isLikelyUrl(customServerValue)) ||
+            (customModelValue && isShiftedCustomModelValue(customModelValue))
+        );
 
     if (!shiftedFromOldTwoProviderNode) {
         return;
@@ -4282,18 +4395,163 @@ function defaultOpenAIProviderUrl(provider) {
 }
 
 function applyOpenAIProviderServerDefault(node, provider) {
-    if (!OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
-        return;
-    }
     const widget = getWidget(node, "custom_server_url");
-    if (!widget) {
+    const previousProviderRaw = String(node.__denoLocalLLMLastProvider || "").trim();
+    const previousProvider = previousProviderRaw ? normalizeProviderValue(previousProviderRaw) : "";
+    const current = String(widget?.value || "").trim();
+    if (previousProvider && previousProvider !== provider && OPENAI_COMPATIBLE_PROVIDERS.has(previousProvider)) {
+        rememberOpenAIProviderServerUrl(node, previousProvider, current);
+    }
+    if (!OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
+        node.__denoLocalLLMLastProvider = provider;
+        node.__denoLocalLLMProviderInitialized = true;
         return;
     }
-    const current = String(widget.value || "").trim();
-    const defaultUrls = new Set([LEGACY_CUSTOM_DEFAULT_URL, CUSTOM_DEFAULT_URL, VLLM_DEFAULT_URL, LLAMA_CPP_DEFAULT_URL]);
-    if (!current || defaultUrls.has(current)) {
-        widget.value = defaultOpenAIProviderUrl(provider);
+    if (!widget) {
+        node.__denoLocalLLMLastProvider = provider;
+        node.__denoLocalLLMProviderInitialized = true;
+        return;
     }
+    const providerDefault = defaultOpenAIProviderUrl(provider);
+    const cached = openAIProviderServerUrl(node, provider);
+    const providerChanged = Boolean(previousProvider && previousProvider !== provider);
+    const repairedBlankServerUrl = Boolean(widget.__denoLocalLLMRepairedBlankServerUrl);
+    if (cached && (providerChanged || !current)) {
+        widget.value = cached;
+        if (cached === providerDefault) {
+            widget.__denoLocalLLMAppliedServerDefault = providerDefault;
+        } else {
+            delete widget.__denoLocalLLMAppliedServerDefault;
+        }
+        delete widget.__denoLocalLLMRepairedBlankServerUrl;
+        rememberOpenAIProviderServerUrl(node, provider, widget.value);
+        node.__denoLocalLLMLastProvider = provider;
+        node.__denoLocalLLMProviderInitialized = true;
+        return;
+    }
+    const activeCurrent = String(widget.value || "").trim();
+    if (!current || repairedBlankServerUrl) {
+        widget.value = providerDefault;
+        widget.__denoLocalLLMAppliedServerDefault = providerDefault;
+    } else if (
+        widget.__denoLocalLLMAppliedServerDefault === activeCurrent ||
+        providerChanged
+    ) {
+        widget.value = providerDefault;
+        widget.__denoLocalLLMAppliedServerDefault = providerDefault;
+    } else if (String(widget.value || "").trim() !== providerDefault) {
+        delete widget.__denoLocalLLMAppliedServerDefault;
+    }
+    delete widget.__denoLocalLLMRepairedBlankServerUrl;
+    rememberOpenAIProviderServerUrl(node, provider, widget.value);
+    node.__denoLocalLLMLastProvider = provider;
+    node.__denoLocalLLMProviderInitialized = true;
+}
+
+function openAIProviderServerUrlCache(node) {
+    node.properties = node.properties || {};
+    const current = node.properties[LOADER_SERVER_URLS_BY_PROVIDER_PROPERTY];
+    if (current && typeof current === "object" && !Array.isArray(current)) {
+        return current;
+    }
+    const cache = {};
+    node.properties[LOADER_SERVER_URLS_BY_PROVIDER_PROPERTY] = cache;
+    return cache;
+}
+
+function openAIProviderServerUrl(node, provider) {
+    const cache = node?.properties?.[LOADER_SERVER_URLS_BY_PROVIDER_PROPERTY];
+    if (!cache || typeof cache !== "object" || Array.isArray(cache)) {
+        return "";
+    }
+    return String(cache[normalizeProviderValue(provider)] || "").trim();
+}
+
+function rememberOpenAIProviderServerUrl(node, provider, value) {
+    const providerKey = normalizeProviderValue(provider);
+    const url = String(value || "").trim();
+    if (!OPENAI_COMPATIBLE_PROVIDERS.has(providerKey) || !isLikelyUrl(url)) {
+        return;
+    }
+    const cache = openAIProviderServerUrlCache(node);
+    cache[providerKey] = url;
+}
+
+function openAIModelChoicesForProvider(node, provider) {
+    const providerKey = normalizeProviderValue(provider);
+    const stored = node?.properties?.denoLocalLLMModelChoicesByProvider?.[providerKey];
+    return normalizeModelChoices(Array.isArray(stored) ? stored : []);
+}
+
+function openAIModelPickerValues(choices) {
+    const seen = new Set();
+    const values = [];
+    for (const choice of choices || []) {
+        const id = String(choice?.id || "").trim();
+        if (!id || seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        values.push(id);
+    }
+    return values;
+}
+
+function removeOpenAIModelPickerRows(node) {
+    node.widgets = (node.widgets || []).filter((widget) => {
+        if (String(widget?.name || "") !== OPENAI_MODEL_PICKER_NAME) {
+            return true;
+        }
+        removeWidgetElement(widget);
+        return false;
+    });
+}
+
+function syncOpenAIModelPicker(node, provider) {
+    const providerKey = normalizeProviderValue(provider);
+    const modelWidget = getWidget(node, "custom_model");
+    if (!OPENAI_COMPATIBLE_PROVIDERS.has(providerKey) || !modelWidget) {
+        removeOpenAIModelPickerRows(node);
+        return null;
+    }
+    const values = openAIModelPickerValues(openAIModelChoicesForProvider(node, providerKey));
+    if (!values.length) {
+        removeOpenAIModelPickerRows(node);
+        return null;
+    }
+    if (!hasUsableSavedModelValue(modelWidget.value)) {
+        modelWidget.value = values[0];
+    }
+    let picker = getWidget(node, OPENAI_MODEL_PICKER_NAME);
+    if (!picker) {
+        picker = node.addWidget?.("combo", "Detected Models", values[0], () => {
+            const selected = String(picker?.value || "").trim();
+            if (!selected) {
+                return;
+            }
+            modelWidget.value = selected;
+            setLocalLLMNodeState(node, {
+                provider: currentProvider(node),
+                model: selected,
+                status: "ready",
+                thinking: "Detected model copied into the Model field.",
+            });
+            refreshNode(node);
+        }, { values, list: values });
+        if (!picker) {
+            return null;
+        }
+    }
+    picker.name = OPENAI_MODEL_PICKER_NAME;
+    picker.label = "Detected Models";
+    picker.type = "combo";
+    picker.options = { ...(picker.options || {}), values, list: values, serialize: false };
+    picker.serializeValue = () => undefined;
+    const current = String(modelWidget.value || "").trim();
+    picker.value = values.includes(current) ? current : values[0];
+    setWidgetHidden(picker, false);
+    moveWidgetAfter(node, picker, modelWidget);
+    return picker;
 }
 
 function setActiveProviderModelVisibility(node) {
@@ -4321,6 +4579,7 @@ function setActiveProviderModelVisibility(node) {
         customModelWidget.type = usesOpenAICompatible ? "text" : customModelWidget.type;
         customModelWidget.label = "Model";
     }
+    syncOpenAIModelPicker(node, provider);
     const customServerWidget = getWidget(node, "custom_server_url");
     if (customServerWidget) {
         customServerWidget.label = "Server URL";
@@ -4488,9 +4747,13 @@ function ensureSingleRefreshButton(node) {
     const keep = refreshes[0];
     node.widgets = (node.widgets || []).filter((widget) => !isRefreshButtonWidget(widget) || widget === keep);
     const modelWidget = activeModelWidget(node);
-    if (modelWidget) {
+    const picker = getWidget(node, OPENAI_MODEL_PICKER_NAME);
+    if (picker) {
+        moveWidgetAfter(node, keep, picker);
+    } else if (modelWidget) {
         moveWidgetAfter(node, keep, modelWidget);
     }
+    resetLocalLLMGeneratedWidgetValues(node);
 }
 
 function ensureSingleStopButton(node) {
@@ -4507,6 +4770,7 @@ function ensureSingleStopButton(node) {
     } else if (modelWidget) {
         moveWidgetAfter(node, keep, modelWidget);
     }
+    resetLocalLLMGeneratedWidgetValues(node);
 }
 
 function ensureSingleUnloadButton(node) {
@@ -4526,6 +4790,7 @@ function ensureSingleUnloadButton(node) {
     } else if (modelWidget) {
         moveWidgetAfter(node, keep, modelWidget);
     }
+    resetLocalLLMGeneratedWidgetValues(node);
 }
 
 function ensureSinglePreviewWidget(node) {
@@ -4831,6 +5096,7 @@ function updateModelChoices(node, provider, choices) {
         if (widget && Array.isArray(choices) && choices.length && !hasUsableSavedModelValue(widget.value)) {
             widget.value = String(choices[0]?.id || "");
         }
+        syncOpenAIModelPicker(node, providerKey);
         return;
     }
     if (widget && Array.isArray(choices) && choices.length) {
