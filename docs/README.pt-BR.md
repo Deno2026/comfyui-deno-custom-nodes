@@ -6,9 +6,9 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-Você pode usar este repo livremente.
+Você pode usar, estudar, modificar e redistribuir este repo sob GPL-3.0.
 
-Os nós, documentos, exemplos, workflows e assets pertencentes à DENO neste repo podem ser usados, copiados, modificados, publicados, redistribuídos e usados comercialmente. Você não precisa mencionar a DENO, o criador ou este repo quando usá-los.
+Os nós, documentos, exemplos, workflows e assets do projeto pertencentes à DENO neste repo são publicados sob GNU GPL v3.0 (`GPL-3.0-only`). Uso comercial é permitido, mas versões modificadas distribuídas devem seguir a GPL-3.0 e manter os avisos de licença e copyright exigidos.
 
 Modelos, checkpoints, LoRAs, bibliotecas, ferramentas e serviços de terceiros continuam com suas próprias licenças e termos. Se um workflow usa um modelo ou asset específico, confira e siga essa licença antes de compartilhar ou vender resultados.
 
