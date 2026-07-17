@@ -6,6 +6,15 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.68 - 2026-07-18
+
+- Fixed `(Deno) Ideogram Director` result-image restoration, panel cleanup, reroute backdrop lookup, queue preflight handling, and targeted pending-import events without changing normal generation settings or outputs.
+- Fixed `(Deno) Local LLM Loader` and `(Deno) Local LLM Reviewer` workflow isolation, progress routing, queue-time seed updates, popup ownership, prompt preservation, and scheme-less local server URL restoration.
+- Fixed multi-image, advanced image-source, and video-preview handling so active source failures stop clearly, unchanged local files avoid repeated full validation, folder changes invalidate correctly, and temporary previews from different workflows no longer collide.
+- Fixed Multi LoRA and LTX Multi LoRA legacy saved boolean values so disabled slots remain disabled without changing current widget order or normal loading behavior.
+- Fixed Resize Box disconnected size reporting and Multi Image Loader-to-Sequencer reroute notifications while preserving the existing preview drag feel and Sequencer polling behavior.
+- Corrected Local Model Downloader documentation to match its existing registered-root lookup behavior.
+
 ## 0.7.67 - 2026-07-03
 
 - Fixed `(Deno) Local LLM Loader` and `(Deno) Local LLM Reviewer` saved-workflow handling so provider URLs, prompts, thinking state, and reviewer state stay in the correct saved slots after workflow save, reload, copy, and provider changes.
