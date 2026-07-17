@@ -827,4 +827,53 @@ assert.equal(
 assertDynamicInputContract(staleCatalogNode);
 assertNoGhostGeometryAfterNativeArrange(staleCatalogNode);
 
+const pushCounts = { direct: 0, branchA: 0, branchB: 0, blocked: 0 };
+const pushLoader = { id: 700, type: "DenoMultiImageLoader", outputs: [{ links: [7001, 7099, 7010] }] };
+const pushRerouteA = { id: 701, type: "Reroute", inputs: [], outputs: [{ links: [7002, 7003] }] };
+const pushRerouteB = { id: 702, comfyClass: "Reroute", inputs: [], outputs: [{ links: [7004, 7005, 7006, 7999] }] };
+const pushDirect = { id: 703, comfyClass: "DenoLTXSequencer", _syncImageCount() { pushCounts.direct += 1; } };
+const pushBranchA = { id: 704, comfyClass: "DenoLTXSequencer", _syncImageCount() { pushCounts.branchA += 1; } };
+const pushBranchB = { id: 705, type: "DenoLTXSequencer", _syncImageCount() { pushCounts.branchB += 1; } };
+const pushOrdinary = { id: 706, type: "ImageScale", outputs: [{ links: [7008] }] };
+const pushBlocked = { id: 707, comfyClass: "DenoLTXSequencer", _syncImageCount() { pushCounts.blocked += 1; } };
+const pushNodes = [pushLoader, pushRerouteA, pushRerouteB, pushDirect, pushBranchA, pushBranchB, pushOrdinary, pushBlocked];
+const pushGraph = {
+  _nodes: pushNodes,
+  links: {
+    7001: { origin_id: 700, target_id: 701 },
+    7002: { origin_id: 701, target_id: 704 },
+    7003: { origin_id: 701, target_id: 702 },
+    7004: { origin_id: 702, target_id: 704 },
+    7005: { origin_id: 702, target_id: 705 },
+    7006: { origin_id: 702, target_id: 701 },
+    7008: { origin_id: 706, target_id: 707 },
+    7010: { origin_id: 700, target_id: 703 },
+    7099: { origin_id: 700, target_id: 706 },
+  },
+  getNodeById(id) {
+    return this._nodes.find((node) => String(node.id) === String(id)) || null;
+  },
+};
+for (const node of pushNodes) node.graph = pushGraph;
+hooks.notifyConnectedSequencers(pushLoader, 12);
+assert.deepEqual(
+  pushCounts,
+  { direct: 1, branchA: 1, branchB: 1, blocked: 0 },
+  "loader push must cross only Reroute nodes, support branches, ignore stale/cycles, and notify each sequencer once",
+);
+
+const uploadCalls = [];
+const uploadResult = await hooks.collectUploadedPaths(
+  [{ name: "a" }, { name: "bad-http" }, { name: "bad-json" }, { name: "b" }],
+  async (file) => {
+    uploadCalls.push(file.name);
+    if (file.name === "bad-http") return "";
+    if (file.name === "bad-json") throw new Error("invalid JSON");
+    return `input/${file.name}.png`;
+  },
+);
+assert.deepEqual(uploadCalls, ["a", "bad-http", "bad-json", "b"], "one failed upload must not stop later files");
+assert.deepEqual(Array.from(uploadResult.uploaded), ["input/a.png", "input/b.png"], "successful upload paths must preserve input order");
+assert.equal(uploadResult.failedCount, 2, "HTTP and parse failures must both be counted");
+
 console.log("ltx_sequencer_input_slots_harness passed");

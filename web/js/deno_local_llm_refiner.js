@@ -151,11 +151,22 @@ let previewPointerUpHandler = null;
 let previewPointerLeaveHandler = null;
 let previewScrollbarCursorActive = false;
 let previewScrollbarDragState = null;
+let previewScrollbarDragOwnerFrame = 0;
 let reviewerTooltipElement = null;
-let reviewerTooltipOwner = "";
+let reviewerTooltipOwner = null;
+let reviewerTooltipOwnerFrame = 0;
 const progressListenerApis = new WeakSet();
+const localLLMQueuePromptApis = new WeakSet();
 let progressListenerRetryScheduled = false;
-const localLLMStateByNodeId = new Map();
+const localLLMStateByNode = new WeakMap();
+const localLLMDialogTokenByNode = new WeakMap();
+const localLLMOwnedUiByNode = new WeakMap();
+let localLLMDialogTokenCounter = 0;
+const localLLMGraphByPromptBundle = new WeakMap();
+const localLLMPromptGraphById = new Map();
+const localLLMPromptGraphRememberedAtById = new Map();
+const LOCAL_LLM_EXECUTION_MAP_LIMIT = 64;
+const LOCAL_LLM_EXECUTION_MAP_TTL_MS = 24 * 60 * 60 * 1000;
 const previewTextDialogsByKey = new Map();
 let registeredNodeData = null;
 let reviewerGraphPromptHookInstalled = false;
@@ -305,19 +316,246 @@ function safeNodeGraph(node) {
     }
 }
 
+function localLLMActiveGraph() {
+    try {
+        return app?.canvas?.graph || app?.graph || app?.rootGraph || null;
+    } catch {
+        return null;
+    }
+}
+
+function requestLocalLLMAnimationFrame(callback) {
+    try {
+        return globalThis?.window?.requestAnimationFrame?.(callback) || 0;
+    } catch {
+        return 0;
+    }
+}
+
+function cancelLocalLLMAnimationFrame(frame) {
+    if (!frame) {
+        return;
+    }
+    try {
+        globalThis?.window?.cancelAnimationFrame?.(frame);
+    } catch {
+        // Ignore teardown races while ComfyUI replaces a graph tab.
+    }
+}
+
+function ownLocalLLMBodyOverlay(node, overlay, beforeRemove = null) {
+    const key = localLLMNodeStateKey(node);
+    if (!key || !overlay) {
+        return () => overlay?.remove?.();
+    }
+
+    const nativeRemove = typeof overlay.remove === "function"
+        ? overlay.remove.bind(overlay)
+        : () => overlay.parentNode?.removeChild?.(overlay);
+    let active = true;
+    let frame = 0;
+    const owners = localLLMOwnedUiByNode.get(key) || new Set();
+    localLLMOwnedUiByNode.set(key, owners);
+
+    const release = () => {
+        if (!active) {
+            return;
+        }
+        active = false;
+        cancelLocalLLMAnimationFrame(frame);
+        frame = 0;
+        owners.delete(close);
+        if (!owners.size) {
+            localLLMOwnedUiByNode.delete(key);
+        }
+    };
+    const close = () => {
+        if (!active) {
+            return;
+        }
+        release();
+        try {
+            beforeRemove?.();
+        } finally {
+            nativeRemove();
+        }
+    };
+    owners.add(close);
+    try {
+        overlay.remove = close;
+    } catch {
+        // The owner watcher still releases bookkeeping if a host element locks remove().
+    }
+
+    const ownerGraph = safeNodeGraph(node);
+    const watchOwner = () => {
+        frame = 0;
+        if (!active) {
+            return;
+        }
+        if (!overlay.isConnected) {
+            close();
+            return;
+        }
+        const activeGraph = localLLMActiveGraph();
+        if (ownerGraph && activeGraph && activeGraph !== ownerGraph) {
+            close();
+            return;
+        }
+        frame = requestLocalLLMAnimationFrame(watchOwner);
+    };
+    frame = requestLocalLLMAnimationFrame(watchOwner);
+    return close;
+}
+
+function closeLocalLLMOwnedUi(node) {
+    const key = localLLMNodeStateKey(node);
+    if (!key) {
+        return;
+    }
+    for (const close of Array.from(localLLMOwnedUiByNode.get(key) || [])) {
+        try {
+            close();
+        } catch {
+            // Continue closing the remaining node-owned UI.
+        }
+    }
+    localLLMOwnedUiByNode.delete(key);
+    for (const [dialogKey, dialog] of Array.from(previewTextDialogsByKey.entries())) {
+        if (dialog?.node !== node) {
+            continue;
+        }
+        try {
+            dialog.overlay?.remove?.();
+        } catch {
+            // The stale entry is removed below even if its host element is already gone.
+        }
+        previewTextDialogsByKey.delete(dialogKey);
+    }
+    cancelPreviewScrollbarDrag(node);
+    removeReviewerTooltipForNode(node);
+}
+
+function installLocalLLMNodeCleanup(node) {
+    if (!node || node.__denoLocalLLMNodeCleanupInstalled) {
+        return;
+    }
+    node.__denoLocalLLMNodeCleanupInstalled = true;
+    const previousOnRemoved = node.onRemoved;
+    node.onRemoved = function (...args) {
+        closeLocalLLMOwnedUi(this);
+        return previousOnRemoved?.apply(this, args);
+    };
+}
+
 function markGraphDirty(node) {
     node?.setDirtyCanvas?.(true, true);
     safeAppGraph()?.setDirtyCanvas?.(true, true);
 }
 
 function localLLMNodeStateKey(node) {
-    const key = String(node?.id ?? "");
-    return key || null;
+    return node && (typeof node === "object" || typeof node === "function") ? node : null;
+}
+
+function pruneLocalLLMPromptGraphs(now = Date.now()) {
+    const currentTime = Number(now);
+    for (const [key, rememberedAt] of Array.from(localLLMPromptGraphRememberedAtById.entries())) {
+        if (
+            Number.isFinite(currentTime) &&
+            Number.isFinite(Number(rememberedAt)) &&
+            currentTime - Number(rememberedAt) > LOCAL_LLM_EXECUTION_MAP_TTL_MS
+        ) {
+            localLLMPromptGraphRememberedAtById.delete(key);
+            localLLMPromptGraphById.delete(key);
+        }
+    }
+    while (localLLMPromptGraphById.size > LOCAL_LLM_EXECUTION_MAP_LIMIT) {
+        const oldestKey = localLLMPromptGraphById.keys().next().value;
+        localLLMPromptGraphById.delete(oldestKey);
+        localLLMPromptGraphRememberedAtById.delete(oldestKey);
+    }
+    return localLLMPromptGraphById.size;
+}
+
+function rememberLocalLLMPromptBundleGraph(promptBundle, graph) {
+    if (
+        !promptBundle ||
+        (typeof promptBundle !== "object" && typeof promptBundle !== "function") ||
+        !graph
+    ) {
+        return false;
+    }
+    localLLMGraphByPromptBundle.set(promptBundle, graph);
+    return true;
+}
+
+function rememberLocalLLMPromptGraph(promptId, graph) {
+    const key = String(promptId || "").trim();
+    if (!key || !graph) {
+        return false;
+    }
+    const now = Date.now();
+    pruneLocalLLMPromptGraphs(now);
+    localLLMPromptGraphById.delete(key);
+    localLLMPromptGraphRememberedAtById.delete(key);
+    localLLMPromptGraphById.set(key, graph);
+    localLLMPromptGraphRememberedAtById.set(key, now);
+    pruneLocalLLMPromptGraphs(now);
+    return true;
+}
+
+function forgetLocalLLMPromptGraph(promptId) {
+    const key = String(promptId || "").trim();
+    if (!key) {
+        return false;
+    }
+    localLLMPromptGraphRememberedAtById.delete(key);
+    return localLLMPromptGraphById.delete(key);
+}
+
+function localLLMNodeInGraph(graph, nodeId) {
+    const id = String(nodeId ?? "");
+    if (!graph || !id) {
+        return null;
+    }
+    const numericId = Number(id);
+    const idMap = graph?._nodes_by_id;
+    const node =
+        graph?.getNodeById?.(id) ||
+        (!Number.isNaN(numericId) ? graph?.getNodeById?.(numericId) : null) ||
+        (typeof idMap?.get === "function" ? idMap.get(id) || idMap.get(numericId) : null) ||
+        idMap?.[id] ||
+        (!Number.isNaN(numericId) ? idMap?.[numericId] : null) ||
+        localLLMGraphNodes(graph).find((candidate) => String(candidate?.id ?? "") === id);
+    return node?.type === NODE_NAME ? node : null;
+}
+
+function localLLMNodeForExecutionDetail(detail) {
+    const promptId = String(detail?.prompt_id || "").trim();
+    if (!promptId) {
+        return null;
+    }
+    pruneLocalLLMPromptGraphs();
+    return localLLMNodeInGraph(localLLMPromptGraphById.get(promptId), detail?.node_id);
+}
+
+function localLLMNodeDialogToken(node) {
+    const key = localLLMNodeStateKey(node);
+    if (!key) {
+        return "";
+    }
+    let token = localLLMDialogTokenByNode.get(key);
+    if (!token) {
+        localLLMDialogTokenCounter += 1;
+        token = `node-${localLLMDialogTokenCounter}`;
+        localLLMDialogTokenByNode.set(key, token);
+    }
+    return token;
 }
 
 function localLLMCachedStateForNode(node) {
     const key = localLLMNodeStateKey(node);
-    return key ? localLLMStateByNodeId.get(key) || null : null;
+    return key ? localLLMStateByNode.get(key) || null : null;
 }
 
 function localLLMStateText(value) {
@@ -366,7 +604,7 @@ function restoreLocalLLMStateFromProperties(node) {
     node.__denoLocalLLMState = restored;
     const key = localLLMNodeStateKey(node);
     if (key) {
-        localLLMStateByNodeId.set(key, restored);
+        localLLMStateByNode.set(key, restored);
     }
     return restored;
 }
@@ -379,7 +617,7 @@ function setLocalLLMNodeState(node, patch) {
     const previous =
         node.__denoLocalLLMState ||
         restoreLocalLLMStateFromProperties(node) ||
-        (key ? localLLMStateByNodeId.get(key) : null) ||
+        (key ? localLLMStateByNode.get(key) : null) ||
         {};
     const next = sanitizeLocalLLMState({
         ...previous,
@@ -388,7 +626,7 @@ function setLocalLLMNodeState(node, patch) {
     }) || {};
     node.__denoLocalLLMState = next;
     if (key) {
-        localLLMStateByNodeId.set(key, next);
+        localLLMStateByNode.set(key, next);
     }
     persistLocalLLMStateToProperties(node, next);
     updateOpenPreviewTextDialogs(node, next);
@@ -437,7 +675,7 @@ function localLLMProgressStatePatch(node, detail) {
 }
 
 function previewTextDialogKey(node, kind) {
-    const nodeKey = localLLMNodeStateKey(node);
+    const nodeKey = localLLMNodeDialogToken(node);
     const textKind = String(kind || "");
     return nodeKey && textKind ? `${nodeKey}:${textKind}` : "";
 }
@@ -507,18 +745,10 @@ function localLLMNodeById(nodeId, options = {}) {
     if (!id) {
         return null;
     }
-    const numericId = Number(id);
     const localNodes = [];
     for (const graph of localLLMCandidateGraphs()) {
-        const idMap = graph?._nodes_by_id;
-        const node =
-            graph?.getNodeById?.(id) ||
-            (!Number.isNaN(numericId) ? graph?.getNodeById?.(numericId) : null) ||
-            (typeof idMap?.get === "function" ? idMap.get(id) || idMap.get(numericId) : null) ||
-            idMap?.[id] ||
-            (!Number.isNaN(numericId) ? idMap?.[numericId] : null) ||
-            localLLMGraphNodes(graph).find((candidate) => String(candidate?.id ?? "") === id);
-        if (node?.type === NODE_NAME) {
+        const node = localLLMNodeInGraph(graph, id);
+        if (node) {
             return node;
         }
         for (const candidate of localLLMGraphNodes(graph)) {
@@ -762,6 +992,7 @@ app.registerExtension({
     },
     setup() {
         installProgressListener();
+        installLocalLLMApiQueuePromptHook(api);
         installReviewerGraphToPromptHook();
         installGraphScan();
         installPreviewWheelHandler();
@@ -1062,12 +1293,37 @@ function installReviewerGraphToPromptHook() {
     }
     reviewerGraphPromptHookInstalled = true;
     app["graphToPrompt"] = async function (...args) {
+        const sourceGraph = args[0] || this?.rootGraph || safeAppGraph();
         const result = await originalGraphToPrompt.apply(this, args);
+        rememberLocalLLMPromptBundleGraph(result, sourceGraph);
         migrateLocalLLMPromptInputNames(result?.output);
         applyReviewerSubmitModes(result?.output);
-        applyLocalLLMAfterGenerateSeedModes(result?.output);
         return result;
     };
+}
+
+function installLocalLLMApiQueuePromptHook(targetApi = api) {
+    if (!targetApi || (typeof targetApi !== "object" && typeof targetApi !== "function")) {
+        return false;
+    }
+    if (localLLMQueuePromptApis.has(targetApi)) {
+        return true;
+    }
+    const originalQueuePrompt = targetApi.queuePrompt;
+    if (typeof originalQueuePrompt !== "function") {
+        return false;
+    }
+    targetApi.queuePrompt = async function (...args) {
+        const promptBundle = args?.[1];
+        const submittedGraph = localLLMGraphByPromptBundle.get(promptBundle) || null;
+        const result = await originalQueuePrompt.apply(this, args);
+        if (submittedGraph && result?.prompt_id) {
+            rememberLocalLLMPromptGraph(result.prompt_id, submittedGraph);
+        }
+        return result;
+    };
+    localLLMQueuePromptApis.add(targetApi);
+    return true;
 }
 
 function normalizeLocalLLMSeedMode(value) {
@@ -1100,25 +1356,67 @@ function applyLocalLLMAfterGenerateSeedModes(output) {
             continue;
         }
         const node = localLLMNodeById(id, { allowSingleFallback: false });
-        const seedWidget = getWidget(node, "seed");
-        const modeWidget = getWidget(node, "seed_mode");
-        if (!seedWidget || !modeWidget) {
-            continue;
-        }
-        const mode = normalizeLocalLLMSeedMode(modeWidget.value ?? entry?.inputs?.seed_mode);
-        if (mode === "fixed") {
-            continue;
-        }
-        const nextSeed = nextLocalLLMSeedValue(seedWidget.value, mode);
-        if (Number(seedWidget.value) !== nextSeed) {
-            seedWidget.value = nextSeed;
-            changed = true;
-        }
-    }
-    if (changed) {
-        safeAppGraph()?.setDirtyCanvas?.(true, true);
+        changed = advanceLocalLLMSeedAfterQueued(node, entry?.inputs?.seed_mode) || changed;
     }
     return changed;
+}
+
+function advanceLocalLLMSeedAfterQueued(node, fallbackMode) {
+    const seedWidget = getWidget(node, "seed");
+    const modeWidget = getWidget(node, "seed_mode");
+    if (!seedWidget || !modeWidget) {
+        return false;
+    }
+    const mode = normalizeLocalLLMSeedMode(modeWidget.value ?? fallbackMode);
+    if (mode === "fixed") {
+        return false;
+    }
+    const nextSeed = nextLocalLLMSeedValue(seedWidget.value, mode);
+    if (Number(seedWidget.value) === nextSeed) {
+        return false;
+    }
+    seedWidget.value = nextSeed;
+    markGraphDirty(node);
+    return true;
+}
+
+function normalizeLocalLLMServerBeforeQueue(node) {
+    const widget = getWidget(node, "custom_server_url");
+    if (!widget) {
+        return false;
+    }
+    const normalized = normalizeServerUrlValue(widget.value);
+    if (!normalized || normalized === String(widget.value || "").trim()) {
+        return false;
+    }
+    widget.value = normalized;
+    rememberOpenAIProviderServerUrl(node, currentProvider(node), normalized);
+    markGraphDirty(node);
+    return true;
+}
+
+function installLocalLLMQueueCallbacks(node) {
+    const seedWidget = getWidget(node, "seed");
+    if (seedWidget && !seedWidget.__denoLocalLLMSeedAfterQueued) {
+        const originalAfterQueued = seedWidget.afterQueued;
+        seedWidget.afterQueued = function () {
+            const result = originalAfterQueued?.apply(this, arguments);
+            advanceLocalLLMSeedAfterQueued(node);
+            return result;
+        };
+        seedWidget.__denoLocalLLMSeedAfterQueued = true;
+    }
+
+    const serverWidget = getWidget(node, "custom_server_url");
+    if (serverWidget && !serverWidget.__denoLocalLLMServerBeforeQueued) {
+        const originalBeforeQueued = serverWidget.beforeQueued;
+        serverWidget.beforeQueued = function () {
+            const result = originalBeforeQueued?.apply(this, arguments);
+            normalizeLocalLLMServerBeforeQueue(node);
+            return result;
+        };
+        serverWidget.__denoLocalLLMServerBeforeQueued = true;
+    }
 }
 
 function migrateLocalLLMPromptInputNames(output) {
@@ -1399,6 +1697,29 @@ function incrementReviewerRetrySeed(node) {
     };
 }
 
+function restoreReviewerRetrySeed(seedChange) {
+    const widget = seedChange?.widget;
+    const oldSeed = Number(seedChange?.oldSeed);
+    const newSeed = Number(seedChange?.newSeed);
+    if (!widget || !Number.isFinite(oldSeed) || Number(widget.value) !== newSeed) {
+        return false;
+    }
+    widget.value = oldSeed;
+    if (typeof widget.callback === "function") {
+        try {
+            widget.callback(oldSeed, app.canvas, seedChange.node);
+        } catch {
+            try {
+                widget.callback(oldSeed);
+            } catch {
+                // Best-effort; the guarded value restore has already completed.
+            }
+        }
+    }
+    markGraphDirty(seedChange.node);
+    return true;
+}
+
 function collectPromptLinkAncestors(output, link) {
     const keep = new Set();
     if (!isPromptLink(link)) {
@@ -1642,7 +1963,9 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         applyReviewerRegenerateMode,
         applyReviewerSubmitModes,
         applyLocalLLMAfterGenerateSeedModes,
+        advanceLocalLLMSeedAfterQueued,
         isLocalLLMOwnExecutionError,
+        isShiftedCustomModelValue,
         localLLMExecutionErrorMessage,
         nextLocalLLMSeedValue,
         normalizeReviewerSerializedValues,
@@ -1667,18 +1990,30 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         hasUsableSavedModelValue,
         collectReviewerSeedCandidates,
         collectReviewerSelectableSeedCandidates,
+        closeLocalLLMOwnedUi,
         incrementReviewerRetrySeed,
+        installLocalLLMApiQueuePromptHook,
+        installLocalLLMNodeCleanup,
+        installLocalLLMQueueCallbacks,
+        localLLMNodeForExecutionDetail,
         maybeAutoRetryReviewer,
         previewTextDialogBody,
         previewTextDialogTitle,
         setPreviewTextDialogContent,
         previewTextWidth,
+        normalizeServerUrlValue,
+        ownLocalLLMBodyOverlay,
+        pruneLocalLLMPromptGraphs,
+        rememberLocalLLMPromptBundleGraph,
+        rememberLocalLLMPromptGraph,
         repairPromptWidgetValue,
         resetReviewerAutoRetry,
         reviewerControlTooltip,
         reviewerHoverKeyFromGraphMouse,
         reviewerAutoRetryEnabled,
         reviewerRefreshSize,
+        reviewerQueueResultAccepted,
+        restoreReviewerRetrySeed,
         reviewerWidgetDrawWidth,
         reviewerWidgetLayoutWidth,
         setReviewerAutoRetryEnabled,
@@ -1706,8 +2041,7 @@ function installProgressListener() {
             }
             progressListenerApis.add(eventApi);
             eventApi.addEventListener("deno-local-llm-progress", ({ detail }) => {
-                const nodeId = String(detail?.node_id ?? "");
-                const node = localLLMNodeById(nodeId);
+                const node = localLLMNodeForExecutionDetail(detail);
                 if (!node) {
                     return;
                 }
@@ -1718,7 +2052,7 @@ function installProgressListener() {
                 if (!isLocalLLMOwnExecutionError(detail)) {
                     return;
                 }
-                const node = localLLMNodeById(detail?.node_id, { allowSingleFallback: false });
+                const node = localLLMNodeForExecutionDetail(detail);
                 if (!node) {
                     return;
                 }
@@ -1730,6 +2064,11 @@ function installProgressListener() {
                 });
                 markGraphDirty(node);
             });
+            for (const eventName of ["execution_success", "execution_error", "execution_interrupted"]) {
+                eventApi.addEventListener(eventName, ({ detail }) => {
+                    forgetLocalLLMPromptGraph(detail?.prompt_id);
+                });
+            }
         }
     } catch (error) {
         console.warn("[Deno.LocalLLM] Progress listener disabled:", error);
@@ -1849,6 +2188,39 @@ function handleCanvasPreviewWheel(event) {
     }
 }
 
+function cancelPreviewScrollbarDrag(node = null, captureTarget = previewPointerAttachedCanvas) {
+    const state = previewScrollbarDragState;
+    if (!state || (node && state.node !== node)) {
+        return false;
+    }
+    previewScrollbarDragState = null;
+    cancelLocalLLMAnimationFrame(previewScrollbarDragOwnerFrame);
+    previewScrollbarDragOwnerFrame = 0;
+    try {
+        captureTarget?.releasePointerCapture?.(state.pointerId);
+    } catch {
+        // Pointer capture may already have been released by the host canvas.
+    }
+    clearPreviewScrollbarCursor();
+    return true;
+}
+
+function watchPreviewScrollbarDragOwner() {
+    cancelLocalLLMAnimationFrame(previewScrollbarDragOwnerFrame);
+    previewScrollbarDragOwnerFrame = 0;
+    const state = previewScrollbarDragState;
+    if (!state) {
+        return;
+    }
+    const ownerGraph = safeNodeGraph(state.node);
+    const activeGraph = localLLMActiveGraph();
+    if (ownerGraph && activeGraph && activeGraph !== ownerGraph) {
+        cancelPreviewScrollbarDrag(state.node);
+        return;
+    }
+    previewScrollbarDragOwnerFrame = requestLocalLLMAnimationFrame(watchPreviewScrollbarDragOwner);
+}
+
 function handleCanvasPreviewPointerMove(event) {
     if (isDenoLocalLLMModalEvent(event)) {
         clearPreviewScrollbarCursor();
@@ -1894,6 +2266,7 @@ function handleCanvasPreviewPointerDown(event) {
         key: hit.key,
         pointerId: event.pointerId,
     };
+    watchPreviewScrollbarDragOwner();
     setPreviewScrollbarCursor(true);
     handlePreviewScrollbarPointer(event, hit.pos, hit.node, hit.key, hit.widget?.scrollbarBounds, hit.widget?.blockLineInfo);
     event.currentTarget?.setPointerCapture?.(event.pointerId);
@@ -1911,8 +2284,7 @@ function handleCanvasPreviewPointerUp(event) {
     if (pos) {
         handlePreviewScrollbarPointer(event, pos, state.node, state.key, state.widget?.scrollbarBounds, state.widget?.blockLineInfo);
     }
-    previewScrollbarDragState = null;
-    event.currentTarget?.releasePointerCapture?.(state.pointerId);
+    cancelPreviewScrollbarDrag(state.node, event.currentTarget);
     setPreviewScrollbarCursor(Boolean(previewScrollbarHitFromEvent(event)));
     event.preventDefault?.();
     event.stopImmediatePropagation?.();
@@ -2219,6 +2591,7 @@ function setupNode(node) {
         return;
     }
     installPreviewWheelHandler();
+    installLocalLLMNodeCleanup(node);
     node.__denoLocalLLMSettingUp = true;
     try {
         if (
@@ -2245,6 +2618,7 @@ function setupNode(node) {
         repairSavedWidgetValues(node);
         applyLocalLLMLoaderSavedWidgetValues(node, node.__denoLocalLLMSavedWidgetValues);
         repairSavedWidgetValues(node);
+        installLocalLLMQueueCallbacks(node);
         restoreLocalLLMStateFromProperties(node);
         const provider = currentProvider(node);
         if (!node.__denoLocalLLMState) {
@@ -2291,6 +2665,7 @@ function setupGateNode(node) {
     if (!node || node.type !== GATE_NODE_NAME || node.__denoLocalLLMGateSettingUp) {
         return;
     }
+    installLocalLLMNodeCleanup(node);
     node.__denoLocalLLMGateSettingUp = true;
     try {
         ensureReviewerRetryProperties(node);
@@ -2738,7 +3113,7 @@ class ReviewerControlsWidget {
             } else if (pressed === "help") {
                 this.hoverKey = "";
                 hideReviewerTooltip(node);
-                openReviewerHowToUseDialog();
+                openReviewerHowToUseDialog(node);
             }
             refreshGateNode(node);
             return true;
@@ -3071,8 +3446,40 @@ function reviewerControlTooltip(key) {
     return tooltips[String(key || "")] || "";
 }
 
-function reviewerTooltipOwnerKey(node) {
-    return String(node?.id ?? node?.type ?? "");
+function stopReviewerTooltipOwnerWatch() {
+    cancelLocalLLMAnimationFrame(reviewerTooltipOwnerFrame);
+    reviewerTooltipOwnerFrame = 0;
+}
+
+function watchReviewerTooltipOwner() {
+    stopReviewerTooltipOwnerWatch();
+    const owner = reviewerTooltipOwner;
+    if (!owner || !reviewerTooltipElement?.isConnected || reviewerTooltipElement.style.display === "none") {
+        return;
+    }
+    const ownerGraph = safeNodeGraph(owner);
+    const activeGraph = localLLMActiveGraph();
+    if (ownerGraph && activeGraph && activeGraph !== ownerGraph) {
+        hideReviewerTooltip(owner);
+        return;
+    }
+    reviewerTooltipOwnerFrame = requestLocalLLMAnimationFrame(watchReviewerTooltipOwner);
+}
+
+function removeReviewerTooltipForNode(node) {
+    if (!node || reviewerTooltipOwner !== node) {
+        return false;
+    }
+    stopReviewerTooltipOwnerWatch();
+    reviewerTooltipOwner = null;
+    const element = reviewerTooltipElement;
+    reviewerTooltipElement = null;
+    try {
+        element?.remove?.();
+    } catch {
+        // The graph host may already have detached the tooltip element.
+    }
+    return true;
 }
 
 function ensureReviewerTooltipElement() {
@@ -3104,11 +3511,11 @@ function ensureReviewerTooltipElement() {
 }
 
 function hideReviewerTooltip(node = null) {
-    const owner = reviewerTooltipOwnerKey(node);
-    if (node && reviewerTooltipOwner && reviewerTooltipOwner !== owner) {
+    if (node && reviewerTooltipOwner && reviewerTooltipOwner !== node) {
         return;
     }
-    reviewerTooltipOwner = "";
+    stopReviewerTooltipOwnerWatch();
+    reviewerTooltipOwner = null;
     if (reviewerTooltipElement) {
         reviewerTooltipElement.style.display = "none";
     }
@@ -3128,7 +3535,8 @@ function showReviewerTooltip(node, text, anchorBounds) {
     const element = ensureReviewerTooltipElement();
     element.textContent = text;
     element.style.display = "block";
-    reviewerTooltipOwner = reviewerTooltipOwnerKey(node);
+    reviewerTooltipOwner = node;
+    watchReviewerTooltipOwner();
 
     const [anchorX, anchorY, anchorW, anchorH] = anchorBounds;
     const graphAnchor = [
@@ -3212,15 +3620,18 @@ async function queueReviewerWithMode(node, mode) {
     }
     clearOtherReviewerSubmitModes(node);
     node._denoReviewerSubmitMode = mode;
+    node._denoReviewerQueueBlockReason = "";
     let clearLater = false;
     try {
         if (typeof app?.queuePrompt === "function") {
-            await app.queuePrompt(0, 1);
-            return true;
+            const result = await app.queuePrompt(0, 1);
+            node._denoReviewerQueueBlockReason = reviewerQueueBlockReason(result);
+            return reviewerQueueResultAccepted(result);
         }
         if (typeof app?.extensionManager?.queuePrompt === "function") {
-            await app.extensionManager.queuePrompt(0, 1);
-            return true;
+            const result = await app.extensionManager.queuePrompt(0, 1);
+            node._denoReviewerQueueBlockReason = reviewerQueueBlockReason(result);
+            return reviewerQueueResultAccepted(result);
         }
         const buttons = Array.from(document?.querySelectorAll?.("button") || []);
         const runButton = buttons.find((button) => {
@@ -3245,6 +3656,39 @@ async function queueReviewerWithMode(node, mode) {
         }
     }
     return false;
+}
+
+function reviewerQueueResultAccepted(result) {
+    if (result === false) {
+        return false;
+    }
+    if (
+        result &&
+        typeof result === "object" &&
+        result.deno_ideogram_director === "preflight_waiting"
+    ) {
+        return false;
+    }
+    return true;
+}
+
+function reviewerQueueBlockReason(result) {
+    if (
+        result &&
+        typeof result === "object" &&
+        result.deno_ideogram_director === "preflight_waiting"
+    ) {
+        return "Complete or cancel the open Ideogram Director preflight, then retry.";
+    }
+    return "";
+}
+
+function takeReviewerQueueBlockReason(node, fallback) {
+    const reason = String(node?._denoReviewerQueueBlockReason || "").trim();
+    if (node) {
+        node._denoReviewerQueueBlockReason = "";
+    }
+    return reason || fallback;
 }
 
 function markReviewerAutoRetryLimit(node) {
@@ -3311,11 +3755,15 @@ function maybeAutoRetryReviewer(node, gateInfo) {
         try {
             const queued = await queueReviewerWithMode(node, REVIEWER_SUBMIT_REGENERATE);
             if (!queued) {
+                restoreReviewerRetrySeed(seedChange);
                 node.__denoLocalLLMGateState = {
                     ...(node.__denoLocalLLMGateState || {}),
                     passed: false,
                     verdict: "FAIL",
-                    reason: "Auto retry could not start. Press Regenerate or Run to retry.",
+                    reason: takeReviewerQueueBlockReason(
+                        node,
+                        "Auto retry could not start. Press Regenerate or Run to retry."
+                    ),
                     source: "Auto retry",
                     updatedAt: Date.now(),
                 };
@@ -3333,7 +3781,10 @@ async function triggerReviewerRegenerate(node) {
     resetReviewerAutoRetry(node);
     const queued = await queueReviewerWithMode(node, REVIEWER_SUBMIT_REGENERATE);
     if (!queued) {
-        setReviewerWaitingReason(node, "Regenerate could not start. Press Run to retry.");
+        setReviewerWaitingReason(
+            node,
+            takeReviewerQueueBlockReason(node, "Regenerate could not start. Press Run to retry.")
+        );
         refreshGateNode(node);
     }
     return queued;
@@ -3345,7 +3796,10 @@ async function triggerReviewerApproveOnce(node) {
     setWidgetValue(node, "approve_once", false, false);
     const queued = await queueReviewerWithMode(node, REVIEWER_SUBMIT_APPROVE_ONCE);
     if (!queued) {
-        setReviewerWaitingReason(node, "Approve Once could not start. Press Run to retry.");
+        setReviewerWaitingReason(
+            node,
+            takeReviewerQueueBlockReason(node, "Approve Once could not start. Press Run to retry.")
+        );
         refreshGateNode(node);
     }
     return queued;
@@ -3455,6 +3909,7 @@ function schedulePostSetupCleanup(node) {
         repairSavedWidgetValues(node);
         repairLegacyProviderValues(node);
         ensureSeedModeWidget(node);
+        installLocalLLMQueueCallbacks(node);
         ensureSinglePreviewWidget(node);
         ensureSingleRefreshButton(node);
         ensureSingleStopButton(node);
@@ -4045,9 +4500,10 @@ function repairSavedWidgetValues(node) {
     const customServerWidget = getWidget(node, "custom_server_url");
     if (customServerWidget) {
         const value = String(customServerWidget.value || "").trim();
-        if (value && isLikelyUrl(value)) {
-            customServerWidget.value = value;
-            if (value !== LEGACY_CUSTOM_DEFAULT_URL) {
+        const normalizedValue = normalizeServerUrlValue(value);
+        if (normalizedValue) {
+            customServerWidget.value = normalizedValue;
+            if (normalizedValue !== LEGACY_CUSTOM_DEFAULT_URL) {
                 delete customServerWidget.__denoLocalLLMRepairedBlankServerUrl;
             }
         } else {
@@ -4240,9 +4696,6 @@ function isShiftedPromptWidgetValue(value) {
         return true;
     }
     if (Object.prototype.hasOwnProperty.call(MODEL_MEMORY_ALIASES, text)) {
-        return true;
-    }
-    if (isLikelyUrl(text)) {
         return true;
     }
     return false;
@@ -4469,8 +4922,8 @@ function openAIProviderServerUrl(node, provider) {
 
 function rememberOpenAIProviderServerUrl(node, provider, value) {
     const providerKey = normalizeProviderValue(provider);
-    const url = String(value || "").trim();
-    if (!OPENAI_COMPATIBLE_PROVIDERS.has(providerKey) || !isLikelyUrl(url)) {
+    const url = normalizeServerUrlValue(value);
+    if (!OPENAI_COMPATIBLE_PROVIDERS.has(providerKey) || !url) {
         return;
     }
     const cache = openAIProviderServerUrlCache(node);
@@ -5284,6 +5737,38 @@ function isLikelyUrl(value) {
     return /^https?:\/\//i.test(String(value || "").trim());
 }
 
+function normalizeServerUrlValue(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+        return "";
+    }
+    let candidate = "";
+    if (/^https?:\/\//i.test(text)) {
+        candidate = text;
+    } else if (
+        /^(?:localhost|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:]+\]):\d{1,5}(?:\/[^\s]*)?$/i.test(text)
+    ) {
+        candidate = `http://${text}`;
+    } else {
+        return "";
+    }
+    try {
+        const parsed = new URL(candidate);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            return "";
+        }
+        if (parsed.port) {
+            const port = Number(parsed.port);
+            if (!Number.isInteger(port) || port < 1 || port > 65535) {
+                return "";
+            }
+        }
+        return candidate;
+    } catch {
+        return "";
+    }
+}
+
 function firstWidgetChoice(widget) {
     const options = widget?.options || {};
     const values = Array.isArray(options.values)
@@ -5813,7 +6298,7 @@ function openSystemPromptDialog(node) {
     saveButton.style.cssText = buttonStyle(true);
     footer.append(clearButton, saveButton);
 
-    const close = () => overlay.remove();
+    const close = ownLocalLLMBodyOverlay(node, overlay);
     const save = () => {
         systemWidget.value = textarea.value;
         node.properties = node.properties || {};
@@ -5972,12 +6457,11 @@ function openPreviewTextDialog(node, kind, titleText, textValue) {
     ].join(";");
 
     const dialogKey = previewTextDialogKey(node, kind);
-    const close = () => {
+    const close = ownLocalLLMBodyOverlay(node, overlay, () => {
         if (dialogKey && previewTextDialogsByKey.get(dialogKey)?.overlay === overlay) {
             previewTextDialogsByKey.delete(dialogKey);
         }
-        overlay.remove();
-    };
+    });
     closeButton.addEventListener("click", close);
     overlay.addEventListener("pointerdown", (event) => {
         if (event.target === overlay) {
@@ -5999,6 +6483,7 @@ function openPreviewTextDialog(node, kind, titleText, textValue) {
     document.body.append(overlay);
     if (dialogKey) {
         previewTextDialogsByKey.set(dialogKey, {
+            node,
             overlay,
             kind,
             titleElement: title,
@@ -6011,7 +6496,7 @@ function openPreviewTextDialog(node, kind, titleText, textValue) {
     textBox.focus();
 }
 
-function openReviewerHowToUseDialog() {
+function openReviewerHowToUseDialog(node) {
     document.querySelector?.(".deno-local-llm-reviewer-help-modal")?.remove();
 
     const overlay = document.createElement("div");
@@ -6097,7 +6582,7 @@ function openReviewerHowToUseDialog() {
     closeFooterButton.style.cssText = buttonStyle(true);
     footer.append(closeFooterButton);
 
-    const close = () => overlay.remove();
+    const close = ownLocalLLMBodyOverlay(node, overlay);
     closeButton.addEventListener("click", close);
     closeFooterButton.addEventListener("click", close);
     overlay.addEventListener("pointerdown", (event) => {
@@ -6181,7 +6666,7 @@ function openReviewerSeedTargetDialog(node) {
         "padding-right:4px",
     ].join(";");
 
-    const close = () => overlay.remove();
+    const close = ownLocalLLMBodyOverlay(node, overlay);
     const select = (target, label) => {
         setReviewerSeedTarget(node, target);
         setReviewerWaitingReason(node, `Seed target: ${label}.`);

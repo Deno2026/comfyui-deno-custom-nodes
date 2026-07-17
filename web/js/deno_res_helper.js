@@ -251,7 +251,8 @@ function drawResolutionSummary(node, ctx) {
     ctx.fill();
     ctx.stroke();
 
-    const previewMeta = drawAspectPreview(ctx, node, x, y, cardWidth, previewHeight, info.width, info.height);
+    const previewSize = previewSizeFromDisplayInfo(info);
+    const previewMeta = drawAspectPreview(ctx, node, x, y, cardWidth, previewHeight, previewSize.width, previewSize.height);
     node.__denoPreviewRect = previewMeta.previewRect;
     node.__denoPreviewAnchors = previewMeta.anchors;
 
@@ -352,6 +353,7 @@ function getPreviewAnchorHit(node, x, y) {
 
 function startAnchorDrag(node, anchorName) {
     const info = calculateDisplayInfo(node);
+    const previewSize = previewSizeFromDisplayInfo(info);
     const previewRect = node.__denoPreviewRect;
     if (!previewRect) {
         return;
@@ -359,8 +361,8 @@ function startAnchorDrag(node, anchorName) {
     node.__denoAnchorDrag = {
         active: true,
         anchor: anchorName,
-        startWidth: info.width,
-        startHeight: info.height,
+        startWidth: previewSize.width,
+        startHeight: previewSize.height,
         startPreviewRect: { ...previewRect },
     };
     bindGlobalDragGuards(node);
@@ -507,18 +509,37 @@ function calculateDisplayInfo(node) {
 
     let targetWidth = width;
     let targetHeight = height;
+    let previewWidth = null;
+    let previewHeight = null;
+    let summaryText = null;
 
     if (mode === PRESET_MODE) {
         const [ratioX, ratioY] = ratioPreset.split(":").map(Number);
         [targetWidth, targetHeight] = computePresetDims(ratioX, ratioY, megapixels, divisibleBy);
     } else if (mode === KEEP_INPUT_RATIO_MODE) {
-        const sourceSize = getLinkedImageSize(node) || { width, height };
-        [targetWidth, targetHeight] = computeKeepInputRatioDims(
-            sourceSize.width,
-            sourceSize.height,
-            megapixels,
-            divisibleBy
-        );
+        const sourceState = getLinkedImageState(node);
+        if (!sourceState.connected) {
+            [previewWidth, previewHeight] = computeKeepInputRatioDims(
+                width,
+                height,
+                megapixels,
+                divisibleBy
+            );
+            targetWidth = roundUp(width, divisibleBy);
+            targetHeight = roundUp(height, divisibleBy);
+        } else {
+            const sourceSize = sourceState.size || { width, height };
+            [targetWidth, targetHeight] = computeKeepInputRatioDims(
+                sourceSize.width,
+                sourceSize.height,
+                megapixels,
+                divisibleBy
+            );
+            if (!sourceState.size) {
+                const targetMegapixels = Number.isFinite(megapixels) ? megapixels.toFixed(2) : "1.00";
+                summaryText = `Input-dependent  |  target ${targetMegapixels} MP  |  divisible by ${divisibleBy}`;
+            }
+        }
     } else {
         targetWidth = roundUp(width, divisibleBy);
         targetHeight = roundUp(height, divisibleBy);
@@ -529,8 +550,17 @@ function calculateDisplayInfo(node) {
     return {
         width: targetWidth,
         height: targetHeight,
+        previewWidth: previewWidth ?? targetWidth,
+        previewHeight: previewHeight ?? targetHeight,
         ratioLabel: finalRatio,
-        text: `${targetWidth} x ${targetHeight}  |  ${finalRatio}  |  ${finalMegapixels} MP  |  divisible by ${divisibleBy}`,
+        text: summaryText || `${targetWidth} x ${targetHeight}  |  ${finalRatio}  |  ${finalMegapixels} MP  |  divisible by ${divisibleBy}`,
+    };
+}
+
+function previewSizeFromDisplayInfo(info) {
+    return {
+        width: Number(info?.previewWidth ?? info?.width ?? 1),
+        height: Number(info?.previewHeight ?? info?.height ?? 1),
     };
 }
 
@@ -626,27 +656,27 @@ function computeKeepInputRatioDims(sourceWidth, sourceHeight, megapixels, divisi
     });
 }
 
-function getLinkedImageSize(node) {
+function getLinkedImageState(node) {
     const imageInput = (node.inputs || []).find((input) => input.name === "image");
     if (!imageInput || imageInput.link == null) {
-        return null;
+        return { connected: false, size: null };
     }
 
     const linkInfo = app.graph?.links?.[imageInput.link];
     if (!linkInfo || !Number.isFinite(linkInfo.origin_id)) {
-        return null;
+        return { connected: true, size: null };
     }
 
     const sourceNode = app.graph?.getNodeById?.(linkInfo.origin_id);
     if (!sourceNode) {
-        return null;
+        return { connected: true, size: null };
     }
 
     const hintedSize = sourceNode.__denoOutputImageSize ?? sourceNode.properties?.__denoOutputImageSize;
     const hintedWidth = Number(hintedSize?.width);
     const hintedHeight = Number(hintedSize?.height);
     if (hintedWidth > 0 && hintedHeight > 0) {
-        return { width: hintedWidth, height: hintedHeight };
+        return { connected: true, size: { width: hintedWidth, height: hintedHeight } };
     }
 
     if (Array.isArray(sourceNode.imgs) && sourceNode.imgs.length > 0) {
@@ -654,7 +684,7 @@ function getLinkedImageSize(node) {
         const imgWidth = Number(firstImage?.naturalWidth ?? firstImage?.width ?? 0);
         const imgHeight = Number(firstImage?.naturalHeight ?? firstImage?.height ?? 0);
         if (imgWidth > 0 && imgHeight > 0) {
-            return { width: imgWidth, height: imgHeight };
+            return { connected: true, size: { width: imgWidth, height: imgHeight } };
         }
     }
 
@@ -663,10 +693,14 @@ function getLinkedImageSize(node) {
     const widthValue = Number(widthWidget?.value);
     const heightValue = Number(heightWidget?.value);
     if (widthValue > 0 && heightValue > 0) {
-        return { width: widthValue, height: heightValue };
+        return { connected: true, size: { width: widthValue, height: heightValue } };
     }
 
-    return null;
+    return { connected: true, size: null };
+}
+
+function getLinkedImageSize(node) {
+    return getLinkedImageState(node).size;
 }
 
 function roundUp(value, multiple) {
@@ -745,4 +779,15 @@ function applyDragGain(baseValue, rawValue) {
         return baseValue;
     }
     return baseValue + (rawValue - baseValue) * DRAG_GAIN;
+}
+
+if (typeof window !== "undefined" && typeof window.__DENO_RES_HELPER_TEST_HOOK__ === "function") {
+    window.__DENO_RES_HELPER_TEST_HOOK__({
+        calculateDisplayInfo,
+        computeKeepInputRatioDims,
+        getLinkedImageSize,
+        getLinkedImageState,
+        previewSizeFromDisplayInfo,
+        roundUp,
+    });
 }

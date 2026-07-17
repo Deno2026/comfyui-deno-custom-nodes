@@ -764,7 +764,7 @@ function setupAdvancedImageSourceLoader(node) {
 
     clearBtn.onclick = () => setPaths([]);
     inputFolderBtn.onclick = () => showInputFolderBrowser(setPaths, getPaths);
-    externalFolderBtn.onclick = () => showExternalFolderBrowser(setPaths, getPaths, folderUploadInput, uploadFiles);
+    externalFolderBtn.onclick = () => showExternalFolderBrowser(node, setPaths, getPaths, folderUploadInput, uploadFiles);
     urlPathBtn.onclick = () => showSourceTextDialog(setPaths, getPaths);
 
     container.ondragover = (event) => {
@@ -793,7 +793,14 @@ function setupAdvancedImageSourceLoader(node) {
         }
     });
 
-    installMiddleMouseCanvasPan(container);
+    node.__denoAdvancedPanCleanup?.();
+    node.__denoAdvancedPanCleanup = installMiddleMouseCanvasPan(container);
+    const originalOnRemoved = node.onRemoved;
+    node.onRemoved = function () {
+        this.__denoAdvancedPanCleanup?.();
+        this.__denoAdvancedPanCleanup = null;
+        return originalOnRemoved?.apply(this, arguments);
+    };
 
     setTimeout(() => {
         node._denoUpdateAdvancedSourceVisibility?.();
@@ -804,6 +811,7 @@ function setupAdvancedImageSourceLoader(node) {
 
 function installMiddleMouseCanvasPan(root) {
     let forwardingPan = false;
+    let cleanedUp = false;
 
     const forward = (event) => {
         const canvas = app.canvas?.canvas;
@@ -837,7 +845,7 @@ function installMiddleMouseCanvasPan(root) {
         event.stopPropagation();
     };
 
-    root.addEventListener("mousedown", (event) => {
+    const onMouseDown = (event) => {
         if (!shouldForward(event)) {
             return;
         }
@@ -845,27 +853,27 @@ function installMiddleMouseCanvasPan(root) {
         if (forward(event)) {
             consume(event);
         }
-    }, true);
+    };
 
-    root.addEventListener("mousemove", (event) => {
+    const onRootMouseMove = (event) => {
         if (!shouldForward(event)) {
             return;
         }
         if (forward(event)) {
             consume(event);
         }
-    }, true);
+    };
 
-    window.addEventListener("mousemove", (event) => {
+    const onWindowMouseMove = (event) => {
         if (!forwardingPan) {
             return;
         }
         if (forward(event)) {
             consume(event);
         }
-    }, true);
+    };
 
-    window.addEventListener("mouseup", (event) => {
+    const onWindowMouseUp = (event) => {
         if (!forwardingPan) {
             return;
         }
@@ -875,13 +883,32 @@ function installMiddleMouseCanvasPan(root) {
         if (event.button === 1 || (event.buttons & 4) !== 4) {
             forwardingPan = false;
         }
-    }, true);
+    };
 
-    root.addEventListener("auxclick", (event) => {
+    const onAuxClick = (event) => {
         if (event.button === 1) {
             consume(event);
         }
-    }, true);
+    };
+
+    root.addEventListener("mousedown", onMouseDown, true);
+    root.addEventListener("mousemove", onRootMouseMove, true);
+    window.addEventListener("mousemove", onWindowMouseMove, true);
+    window.addEventListener("mouseup", onWindowMouseUp, true);
+    root.addEventListener("auxclick", onAuxClick, true);
+
+    return () => {
+        if (cleanedUp) {
+            return;
+        }
+        cleanedUp = true;
+        forwardingPan = false;
+        root.removeEventListener("mousedown", onMouseDown, true);
+        root.removeEventListener("mousemove", onRootMouseMove, true);
+        window.removeEventListener("mousemove", onWindowMouseMove, true);
+        window.removeEventListener("mouseup", onWindowMouseUp, true);
+        root.removeEventListener("auxclick", onAuxClick, true);
+    };
 }
 
 function showInputFolderBrowser(setPaths, getPaths) {
@@ -897,13 +924,14 @@ function showInputFolderBrowser(setPaths, getPaths) {
     });
 }
 
-function showExternalFolderBrowser(setPaths, getPaths, folderUploadInput, uploadFiles) {
+function showExternalFolderBrowser(node, setPaths, getPaths, folderUploadInput, uploadFiles) {
     const rootRow = document.createElement("div");
     rootRow.style.cssText = "display:flex; gap:8px; align-items:center;";
 
     const rootInput = document.createElement("input");
     rootInput.type = "text";
     rootInput.placeholder = "Paste an absolute folder path, for example D:\\Images\\Project";
+    rootInput.value = String(node.__denoAdvancedLastExternalRoot || "");
     rootInput.style.cssText = inputStyle();
 
     const loadBtn = createActionButton("Load Path");
@@ -932,7 +960,10 @@ function showExternalFolderBrowser(setPaths, getPaths, folderUploadInput, upload
         title: "Add images from an external folder",
         rootControls: rootRow,
         initialStatus: "Paste a folder path and click Load Path, or use Upload Folder... to import a folder.",
-        fetchEntries: (folderPath) => fetchExternalFolderImages(rootInput.value, folderPath),
+        fetchEntries: async (folderPath) => {
+            const rootPath = String(rootInput.value || "").trim();
+            return fetchExternalFolderImagesAndRemember(node, rootPath, folderPath);
+        },
         getPreviewUrl: (entry) => externalImagePreviewUrl(entry.path),
         getSourceValue: (entry) => entry.path,
         setPaths,
@@ -1229,6 +1260,13 @@ async function fetchExternalFolderImages(rootPath, folderPath = "") {
     };
 }
 
+async function fetchExternalFolderImagesAndRemember(node, rootPath, folderPath = "") {
+    const root = String(rootPath || "").trim();
+    const payload = await fetchExternalFolderImages(root, folderPath);
+    node.__denoAdvancedLastExternalRoot = root;
+    return payload;
+}
+
 function inputImagePreviewUrl(path) {
     const normalized = normalizeSlashPath(path);
     const parts = normalized.split("/").filter(Boolean);
@@ -1250,10 +1288,11 @@ function externalImagePreviewUrl(path) {
 
 function getPreviewUrl(path) {
     const text = String(path || "").trim();
-    if (/^https?:\/\//i.test(text)) {
+    const location = classifySourceLocation(text);
+    if (location === "url") {
         return text;
     }
-    if (/^[a-zA-Z]:[\\/]/.test(text) || text.startsWith("\\\\")) {
+    if (location === "external") {
         return externalImagePreviewUrl(text);
     }
     if (IMAGE_RE.test(text)) {
@@ -1263,14 +1302,25 @@ function getPreviewUrl(path) {
 }
 
 function getSourceKind(path) {
-    const text = String(path || "");
-    if (/^https?:\/\//i.test(text)) {
+    const location = classifySourceLocation(path);
+    if (location === "url") {
         return "URL";
     }
-    if (/^[a-zA-Z]:[\\/]/.test(text) || text.startsWith("\\\\")) {
+    if (location === "external") {
         return "Path";
     }
     return "Image";
+}
+
+function classifySourceLocation(path) {
+    const text = String(path || "").trim();
+    if (/^https?:\/\//i.test(text)) {
+        return "url";
+    }
+    if (/^[a-zA-Z]:[\\/]/.test(text) || text.startsWith("\\\\") || text.startsWith("/")) {
+        return "external";
+    }
+    return "input";
 }
 
 function createOverlay() {
@@ -1391,4 +1441,14 @@ function sanitizePathPart(value) {
         .replace(/^\.+$/, "_")
         .trim()
         .slice(0, 80) || "folder";
+}
+
+if (typeof window !== "undefined" && typeof window.__DENO_ADVANCED_IMAGE_SOURCE_TEST_HOOK__ === "function") {
+    window.__DENO_ADVANCED_IMAGE_SOURCE_TEST_HOOK__({
+        classifySourceLocation,
+        fetchExternalFolderImagesAndRemember,
+        getPreviewUrl,
+        getSourceKind,
+        installMiddleMouseCanvasPan,
+    });
 }

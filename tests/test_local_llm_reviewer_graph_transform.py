@@ -34,8 +34,18 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 }},
                 setDirtyCanvas() {{}},
             }};
+            const animationFrames = new Map();
+            let nextAnimationFrame = 1;
+            function flushAnimationFrames() {{
+                const callbacks = Array.from(animationFrames.values());
+                animationFrames.clear();
+                for (const callback of callbacks) {{
+                    callback();
+                }}
+            }}
             const context = {{
                 console,
+                process,
                 Date,
                 Math,
                 JSON,
@@ -46,6 +56,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 Object,
                 Set,
                 Map,
+                URL,
                 URLSearchParams,
                 app: {{
                     graph,
@@ -60,6 +71,14 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 window: {{
                     addEventListener() {{}},
                     setTimeout() {{ return 0; }},
+                    requestAnimationFrame(callback) {{
+                        const id = nextAnimationFrame++;
+                        animationFrames.set(id, callback);
+                        return id;
+                    }},
+                    cancelAnimationFrame(id) {{
+                        animationFrames.delete(id);
+                    }},
                 }},
                 queueMicrotask(callback) {{
                     callback();
@@ -107,6 +126,53 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const api = context.capturedApi;
             assert(api, "reviewer graph test API was not exposed");
             assert(context.capturedExtension, "Local LLM extension must register for configure/onSerialize hooks");
+            const uiGraphA = {{ name: "workflow-a" }};
+            const uiGraphB = {{ name: "workflow-b" }};
+            context.app.canvas = {{ graph: uiGraphA }};
+            const uiOwnerA = {{ id: 12, type: "DenoLocalLLMRefiner", graph: uiGraphA }};
+            const uiOwnerB = {{ id: 12, type: "DenoLocalLLMRefiner", graph: uiGraphB }};
+            const overlayA = {{ isConnected: true, removeCalls: 0, remove() {{ this.isConnected = false; this.removeCalls += 1; }} }};
+            const overlayB = {{ isConnected: true, removeCalls: 0, remove() {{ this.isConnected = false; this.removeCalls += 1; }} }};
+            api.ownLocalLLMBodyOverlay(uiOwnerA, overlayA);
+            api.ownLocalLLMBodyOverlay(uiOwnerB, overlayB);
+            api.closeLocalLLMOwnedUi(uiOwnerA);
+            assert(overlayA.removeCalls === 1, "Removing one Loader must close its owned body overlay");
+            assert(overlayB.removeCalls === 0, "Same-id Loader in another workflow must keep its own body overlay");
+
+            const tabOverlay = {{ isConnected: true, removeCalls: 0, remove() {{ this.isConnected = false; this.removeCalls += 1; }} }};
+            api.ownLocalLLMBodyOverlay(uiOwnerA, tabOverlay);
+            context.app.canvas.graph = uiGraphB;
+            flushAnimationFrames();
+            assert(tabOverlay.removeCalls === 1, "A body overlay must close when its owning workflow tab is no longer active");
+            assert(overlayB.removeCalls === 0, "Tab cleanup must not close the active same-id node's overlay");
+
+            let previousOnRemovedCalls = 0;
+            const cleanupOwner = {{
+                id: 13,
+                type: "DenoLocalLLMRefiner",
+                graph: uiGraphB,
+                onRemoved() {{ previousOnRemovedCalls += 1; }},
+            }};
+            const cleanupOverlay = {{ isConnected: true, removeCalls: 0, remove() {{ this.isConnected = false; this.removeCalls += 1; }} }};
+            api.installLocalLLMNodeCleanup(cleanupOwner);
+            api.ownLocalLLMBodyOverlay(cleanupOwner, cleanupOverlay);
+            cleanupOwner.onRemoved();
+            assert(cleanupOverlay.removeCalls === 1, "Node removal must close only that node's owned UI");
+            assert(previousOnRemovedCalls === 1, "Node cleanup must preserve the existing onRemoved callback exactly once");
+            api.closeLocalLLMOwnedUi(uiOwnerB);
+
+            const ttlNode = {{ id: 91, type: "DenoLocalLLMRefiner" }};
+            const ttlGraph = {{ getNodeById(id) {{ return Number(id) === 91 ? ttlNode : null; }} }};
+            api.rememberLocalLLMPromptGraph("ttl-prompt", ttlGraph);
+            assert(
+                api.localLLMNodeForExecutionDetail({{ prompt_id: "ttl-prompt", node_id: 91 }}) === ttlNode,
+                "A live prompt mapping must resolve its exact Loader"
+            );
+            api.pruneLocalLLMPromptGraphs(Date.now() + 25 * 60 * 60 * 1000);
+            assert(
+                api.localLLMNodeForExecutionDetail({{ prompt_id: "ttl-prompt", node_id: 91 }}) === null,
+                "A stale prompt mapping must expire instead of leaking into a later workflow"
+            );
             const normalizedReviewerValues = api.normalizeReviewerSerializedValues(["Pass", true, "REVIEWER STATE", null, null]);
             assert(normalizedReviewerValues.length === 3, "Reviewer serialization must keep only the three backend widgets");
             assert(normalizedReviewerValues[0] === "Pass", "Reviewer serialization must preserve Pass mode");
@@ -291,6 +357,11 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             }};
             assert(configuredLoader.configure(configureInfo) === "configured", "Loader configure wrapper must preserve the original configure result");
             assert(configuredLoader.__denoLocalLLMState.answer === "workflow answer", "Loader configure must restore saved result state from properties");
+            const sameIdOtherWorkflowNode = {{ id: 46, type: "DenoLocalLLMRefiner", properties: {{}} }};
+            assert(
+                api.getLocalLLMNodeState(sameIdOtherWorkflowNode).answer !== "workflow answer",
+                "Loader state must be scoped to the actual node object, not a node id reused by another workflow"
+            );
             const serializedInfo = {{ widgets_values: [...savedLoaderValues], properties: {{}} }};
             assert(configuredLoader.onSerialize(serializedInfo) === "serialized", "Loader serialize wrapper must preserve the original serialize result");
             assert(serializedInfo.widgets_values.length === 13, "Loader serialize must remove generated buttons and keep canonical widget count");
@@ -710,6 +781,67 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const realPromptWidget = {{ value: "A calm forest with soft morning light" }};
             const repairedRealPrompt = api.repairPromptWidgetValue(realPromptWidget);
             assert(repairedRealPrompt === false && realPromptWidget.value.includes("forest"), "Real prompt text must be preserved");
+            const urlPromptWidget = {{ value: "https://example.com/reference.png use this composition and lighting" }};
+            const repairedUrlPrompt = api.repairPromptWidgetValue(urlPromptWidget);
+            assert(
+                repairedUrlPrompt === false && urlPromptWidget.value.startsWith("https://example.com/reference.png"),
+                "A real prompt that starts with a URL must never be erased as shifted legacy data"
+            );
+            assert(
+                api.normalizeServerUrlValue("127.0.0.1:8080/v1") === "http://127.0.0.1:8080/v1",
+                "Scheme-less local server addresses must be normalized instead of silently replaced"
+            );
+            assert(api.normalizeServerUrlValue("127.0.0.1:99999/v1") === "", "Out-of-range server ports must be rejected");
+            assert(api.isShiftedCustomModelValue("model:1234") === false, "A colon-bearing saved model id must not be misclassified as a server URL");
+            let originalBeforeQueuedCalls = 0;
+            let originalAfterQueuedCalls = 0;
+            const queueLifecycleNode = {{
+                widgets: [
+                    {{ name: "provider", value: "Custom" }},
+                    {{
+                        name: "custom_server_url",
+                        value: "127.0.0.1:8080/v1",
+                        beforeQueued() {{ originalBeforeQueuedCalls += 1; }},
+                    }},
+                    {{
+                        name: "seed",
+                        value: 40,
+                        afterQueued() {{ originalAfterQueuedCalls += 1; }},
+                    }},
+                    {{ name: "seed_mode", value: "increment" }},
+                ],
+                setDirtyCanvas() {{}},
+            }};
+            api.installLocalLLMQueueCallbacks(queueLifecycleNode);
+            queueLifecycleNode.widgets[1].beforeQueued();
+            assert(originalBeforeQueuedCalls === 1, "Server URL wrapper must preserve the original beforeQueued callback");
+            assert(queueLifecycleNode.widgets[1].value === "http://127.0.0.1:8080/v1", "Queue preflight must normalize a scheme-less server URL in place");
+            assert(queueLifecycleNode.widgets[2].value === 40, "Seed must not change before a queue succeeds");
+            queueLifecycleNode.widgets[2].afterQueued();
+            assert(originalAfterQueuedCalls === 1, "Seed wrapper must preserve the original afterQueued callback");
+            assert(queueLifecycleNode.widgets[2].value === 41, "Increment seed mode must advance exactly once after a successful queue");
+            api.installLocalLLMQueueCallbacks(queueLifecycleNode);
+            queueLifecycleNode.widgets[2].afterQueued({{ isPartialExecution: true }});
+            assert(originalAfterQueuedCalls === 2, "Repeated setup must not stack the original afterQueued callback");
+            assert(queueLifecycleNode.widgets[2].value === 42, "A successful partial queue must preserve the existing once-per-queue seed behavior");
+            const rollbackCallbackValues = [];
+            const rollbackWidget = {{
+                value: 42,
+                callback(value) {{ rollbackCallbackValues.push(value); }},
+            }};
+            const rollbackChange = {{ widget: rollbackWidget, node: queueLifecycleNode, oldSeed: 41, newSeed: 42 }};
+            assert(api.restoreReviewerRetrySeed(rollbackChange) === true, "A seed changed for a rejected queue must be restorable");
+            assert(rollbackWidget.value === 41, "Rejected queue rollback must restore the original seed");
+            assert(rollbackCallbackValues.join(",") === "41", "Rejected queue rollback must preserve the seed callback contract");
+            rollbackWidget.value = 99;
+            assert(api.restoreReviewerRetrySeed(rollbackChange) === false, "Rollback must not overwrite a seed the user changed while preflight was open");
+            assert(rollbackWidget.value === 99, "Guarded rollback must preserve the user's newer seed value");
+            assert(
+                api.reviewerQueueResultAccepted({{ prompt_id: null, deno_ideogram_director: "preflight_waiting" }}) === false,
+                "Reviewer retry must not report Ideogram preflight waiting as a queued run"
+            );
+            assert(api.reviewerQueueResultAccepted(null) === true, "Legacy queue helpers that resolve null must keep their previous accepted behavior");
+            assert(api.reviewerQueueResultAccepted(true) === true, "Reviewer retry must accept a normal queued result");
 
             const seedGenerator = {{
                 id: 1,
@@ -960,6 +1092,42 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(reviewerState.snapshot_image.filename === "deno_llm_reviewer_3.npy", "Approve Once must pass the saved snapshot descriptor");
             assert(approveOutput["4"].inputs.images[0] === "3" && approveOutput["4"].inputs.images[1] === 0, "Downstream image links must reroute to the reviewer output");
             assert(approveOutput["4"].inputs.filename_prefix[0] === "6", "Downstream side-dependencies must stay connected");
+
+            (async () => {{
+                const workflowNodeA = {{ id: 77, type: "DenoLocalLLMRefiner", properties: {{}} }};
+                const workflowNodeB = {{ id: 77, type: "DenoLocalLLMRefiner", properties: {{}} }};
+                const workflowGraphA = {{
+                    _nodes: [workflowNodeA],
+                    getNodeById(id) {{ return String(id) === "77" ? workflowNodeA : null; }},
+                }};
+                const workflowGraphB = {{
+                    _nodes: [workflowNodeB],
+                    getNodeById(id) {{ return String(id) === "77" ? workflowNodeB : null; }},
+                }};
+                const promptBundleA = {{ workflow: {{ id: "duplicated-workflow-id" }}, output: {{}} }};
+                api.rememberLocalLLMPromptBundleGraph(promptBundleA, workflowGraphA);
+                const promptApi = {{
+                    async queuePrompt() {{ return {{ prompt_id: "prompt-from-workflow-a" }}; }},
+                }};
+                assert(api.installLocalLLMApiQueuePromptHook(promptApi) === true, "The internal prompt API hook must install once");
+                await promptApi.queuePrompt(0, promptBundleA, {{}});
+                context.app.graph = workflowGraphB;
+                assert(
+                    api.localLLMNodeForExecutionDetail({{ prompt_id: "prompt-from-workflow-a", node_id: 77 }}) === workflowNodeA,
+                    "Progress must stay on the submitted graph even after another workflow with the same node id becomes active"
+                );
+                assert(
+                    api.localLLMNodeForExecutionDetail({{ prompt_id: "unknown-prompt", node_id: 77 }}) === null,
+                    "An unknown prompt id must never fall back to the active same-id node"
+                );
+                assert(
+                    api.localLLMNodeForExecutionDetail({{ node_id: 77 }}) === null,
+                    "Unscoped progress must not mutate a guessed same-id node"
+                );
+            }})().catch((error) => {{
+                console.error(error);
+                process.exitCode = 1;
+            }});
             """
         ),
         encoding="utf-8",

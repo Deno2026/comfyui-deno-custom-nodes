@@ -891,9 +891,23 @@ function normalizeBackendValues(node) {
 
 function normalizeBool(node, key, fallback) {
     const value = getValue(node, key, fallback);
-    if (typeof value !== "boolean") {
-        setValue(node, key, Boolean(value));
+    const normalized = coerceBooleanValue(value);
+    if (value !== normalized) {
+        setValue(node, key, normalized);
     }
+}
+
+function coerceBooleanValue(value) {
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (["", "0", "false", "off", "no"].includes(normalized)) {
+            return false;
+        }
+        if (["1", "true", "on", "yes"].includes(normalized)) {
+            return true;
+        }
+    }
+    return Boolean(value);
 }
 
 function normalizeNumber(node, key, fallback, min, max, integer = false) {
@@ -1494,4 +1508,11 @@ function escapeHtml(value) {
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;");
+}
+
+if (typeof window !== "undefined" && typeof window.__DENO_LTX_MULTI_LORA_TEST_HOOK__ === "function") {
+    window.__DENO_LTX_MULTI_LORA_TEST_HOOK__({
+        coerceBooleanValue,
+        normalizeBool,
+    });
 }

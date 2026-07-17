@@ -1,6 +1,7 @@
 import hashlib
 import os
 import math
+from functools import lru_cache
 from typing import List, Tuple
 
 import numpy as np
@@ -23,6 +24,7 @@ from .deno_resolution_common import (
 
 IMAGE_INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
 INPUT_BROWSER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
+IMAGE_FILE_INSPECTION_CACHE_SIZE = 512
 
 
 def _get_folder_paths():
@@ -207,8 +209,9 @@ def _image_file_error(path: str) -> str | None:
     if resolved_path is None:
         return path
     try:
-        with Image.open(resolved_path) as image:
-            image.verify()
+        cache_key = _file_stat_cache_key(resolved_path)
+        if not _cached_image_is_valid(cache_key):
+            return path
     except Exception:
         return path
     return None
@@ -229,10 +232,44 @@ def _no_selected_images_message() -> str:
     )
 
 
-def _hash_file_contents(hasher, path: str) -> None:
+def _file_stat_cache_key(path: str) -> tuple:
+    real_path = os.path.realpath(path)
+    stat = os.stat(real_path)
+    return (
+        real_path,
+        int(stat.st_dev),
+        int(stat.st_ino),
+        int(stat.st_size),
+        int(stat.st_mtime_ns),
+        int(getattr(stat, "st_ctime_ns", 0)),
+    )
+
+
+@lru_cache(maxsize=IMAGE_FILE_INSPECTION_CACHE_SIZE)
+def _cached_image_is_valid(cache_key: tuple) -> bool:
+    path = cache_key[0]
+    try:
+        with Image.open(path) as image:
+            image.verify()
+    except Exception:
+        return False
+    return True
+
+
+@lru_cache(maxsize=IMAGE_FILE_INSPECTION_CACHE_SIZE)
+def _cached_file_sha256(cache_key: tuple) -> bytes:
+    path = cache_key[0]
+    file_hasher = hashlib.sha256()
     with open(path, "rb") as file:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            hasher.update(chunk)
+            file_hasher.update(chunk)
+    return file_hasher.digest()
+
+
+def _hash_file_contents(hasher, path: str) -> None:
+    cache_key = _file_stat_cache_key(path)
+    hasher.update(b"sha256\0")
+    hasher.update(_cached_file_sha256(cache_key))
 
 
 def _round_down(value: float, multiple: int) -> int:
@@ -547,10 +584,18 @@ class DenoMultiImageLoader:
                 "then run the workflow again."
             )
 
-        can_batch = all(image.shape == loaded_images[0].shape for image in loaded_images)
-        if can_batch:
-            multi_output = torch.cat(loaded_images, dim=0)
-        else:
-            multi_output = torch.zeros((1, int(height), int(width), 3), dtype=torch.float32)
+        reference_shape = tuple(loaded_images[0].shape)
+        mismatched = [
+            f"{paths[index]} -> {tuple(image.shape)}"
+            for index, image in enumerate(loaded_images)
+            if tuple(image.shape) != reference_shape
+        ]
+        if mismatched:
+            raise RuntimeError(
+                "[DenoMultiImageLoader] Resized images do not share one batch shape. "
+                f"Expected {reference_shape}; mismatched: {_format_path_preview(mismatched)}."
+            )
+
+        multi_output = torch.cat(loaded_images, dim=0)
 
         return (multi_output, int(width), int(height))

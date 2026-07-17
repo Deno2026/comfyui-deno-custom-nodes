@@ -50,7 +50,7 @@ def _as_slot_count(value) -> int:
 
 def _is_slot_enabled(value) -> bool:
     if isinstance(value, str):
-        return value.strip().lower() not in {"false", "0", "off", "no"}
+        return value.strip().lower() not in {"", "false", "0", "off", "no"}
     return bool(value)
 
 
@@ -204,7 +204,7 @@ class DenoLTXMultiLoraLoader:
         current_clip = clip
 
         for index in range(1, slot_count + 1):
-            slot_enabled = bool(kwargs.get(_slot_key("enabled", index), True))
+            slot_enabled = _is_slot_enabled(kwargs.get(_slot_key("enabled", index), True))
             if not slot_enabled:
                 continue
 

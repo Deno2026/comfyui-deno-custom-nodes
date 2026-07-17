@@ -383,12 +383,17 @@ def _normalize_view_language(view_language):
     return VIEW_LANGUAGE_DEFAULT
 
 
-def _translation_opts(translation_engine=None, libretranslate_url=""):
-    return {
+def _translation_opts(translation_engine=None, libretranslate_url="", timeout=None, attempts=None):
+    opts = {
         "translate_text_fields": False,
         "engine": translate_engine.normalize_translation_engine(translation_engine),
         "libretranslate_url": libretranslate_url if isinstance(libretranslate_url, str) else "",
     }
+    if timeout is not None:
+        opts["timeout"] = timeout
+    if attempts is not None:
+        opts["attempts"] = attempts
+    return opts
 
 
 def _prepare_caption_for_text_safe_translation(caption):
@@ -462,6 +467,8 @@ def _translate_caption_for_view(
     view_language=VIEW_LANGUAGE_DEFAULT,
     translation_engine=translate_engine.TRANSLATION_ENGINE_DEFAULT,
     libretranslate_url="",
+    timeout=None,
+    attempts=None,
 ):
     """Translate an Ideogram caption for the editor view.
 
@@ -477,7 +484,7 @@ def _translate_caption_for_view(
         caption,
         source_code,
         target_code,
-        _translation_opts(translation_engine, libretranslate_url),
+        _translation_opts(translation_engine, libretranslate_url, timeout, attempts),
     )
     return translated, changed, sent, translate_engine.display_for_code(target_code)
 
@@ -680,9 +687,8 @@ def _send_pending_import(unique_id, sig, imported=None, raw_json="", invalid=Fal
             client_id = getattr(instance, "client_id", None)
             if client_id:
                 sender(PENDING_EVENT, payload, client_id)
-            # Browser tabs and disposable test clients can change faster than the server-side
-            # current client id. Broadcast as well so the visible node can always show Apply/Keep.
-            sender(PENDING_EVENT, payload)
+            else:
+                sender(PENDING_EVENT, payload)
     except Exception:
         pass
 
@@ -1040,6 +1046,7 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
         libretranslate_url = data.get("libretranslate_url") or ""
         if not isinstance(libretranslate_url, str):
             libretranslate_url = ""
+        is_queue_preflight = data.get("purpose") == "queue_preflight"
         try:
             translated, changed, sent, display = _translate_caption_for_view(
                 caption,
@@ -1047,6 +1054,8 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
                 target,
                 translation_engine,
                 libretranslate_url,
+                5.0 if is_queue_preflight else None,
+                1 if is_queue_preflight else None,
             )
         except Exception as exc:
             return web.json_response({

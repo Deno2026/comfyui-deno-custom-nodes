@@ -186,6 +186,58 @@ def load_package():
     return module
 
 
+def test_video_preview_temp_file_is_scoped_by_workflow_id(tmp_path):
+    package = load_package()
+    module = importlib.import_module("comfyui_deno_custom_nodes.deno_video_preview")
+    sys.modules["folder_paths"].get_temp_directory = lambda: str(tmp_path)
+
+    hidden = package.NODE_CLASS_MAPPINGS["DenoVideoPreview"].INPUT_TYPES()["hidden"]
+    assert hidden == {"unique_id": "UNIQUE_ID", "extra_pnginfo": "EXTRA_PNGINFO"}
+
+    workflow_a = {"workflow": {"id": "11111111-1111-4111-8111-111111111111"}}
+    workflow_b = {"workflow": {"id": "22222222-2222-4222-8222-222222222222"}}
+    workflow_a_id = module._workflow_id_from_extra_pnginfo(workflow_a)
+    workflow_b_id = module._workflow_id_from_extra_pnginfo(workflow_b)
+    first = module._stable_preview_path("42", workflow_a_id)
+    same = module._stable_preview_path("42", workflow_a_id)
+    other_workflow = module._stable_preview_path("42", workflow_b_id)
+    punctuation_a = module._stable_preview_path("1:23", workflow_a_id)
+    punctuation_b = module._stable_preview_path("12:3", workflow_a_id)
+
+    assert first == same
+    assert first[0] != other_workflow[0]
+    assert first[1] != other_workflow[1]
+    assert first[1].startswith("deno_vprev_")
+    assert first[1].endswith(".mp4")
+    assert punctuation_a[1] != punctuation_b[1]
+    assert module._workflow_id_from_extra_pnginfo({"workflow": {"extra": "malformed"}}) == "legacy-workflow"
+    assert module._workflow_id_from_extra_pnginfo({"workflow": {"extra": {"workspace_info": []}}}) == "legacy-workflow"
+
+
+def test_local_llm_progress_event_includes_active_prompt_id(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    sent = []
+    source_payload = {"node_id": "7", "status": "running"}
+
+    monkeypatch.setattr(module, "_active_prompt_id", lambda: "prompt-workflow-a")
+    monkeypatch.setattr(
+        module.PromptServer,
+        "instance",
+        types.SimpleNamespace(send_sync=lambda event, payload: sent.append((event, dict(payload)))),
+    )
+
+    module._send_progress(source_payload)
+
+    assert source_payload == {"node_id": "7", "status": "running"}
+    assert sent == [
+        (
+            module.PROGRESS_EVENT,
+            {"node_id": "7", "status": "running", "prompt_id": "prompt-workflow-a"},
+        )
+    ]
+
+
 def test_node_registration_exports_expected_nodes():
     package = load_package()
 
@@ -608,7 +660,8 @@ def test_ideogram_director_elements_list_is_front_to_back_without_reversing_outp
     assert ".idd-sechead{display:flex;align-items:center;justify-content:space-between;gap:8px;" in script
     assert ".idd-addbbox{padding:3px 8px !important;" in script
     assert "function paintBoardEmptyHint()" in script
-    assert 'board.classList.toggle("empty", !boxes.length && !hasBackdrop && !hasResult);' in script
+    assert 'const hasBackdropHint = backdropHint.style.display !== "none";' in script
+    assert 'board.classList.toggle("empty", !boxes.length && !hasBackdrop && !hasResult && !hasBackdropHint);' in script
     assert "function addCenteredBox()" in script
     assert 'addBboxBtn.onclick = (e) => { e.stopPropagation(); addCenteredBox(); };' in script
     assert "paintBoardEmptyHint();" in script
@@ -841,6 +894,33 @@ function same(actual, expected, label) {
   const { director } = makeGraph({ connectDirector: false });
   director.properties.idd_regen_target = { mode: "all" };
   check(helpers.shouldAcceptResultForDirectorTarget(director, { node: 9 }), "all mode keeps legacy result acceptance");
+}
+{
+  const source = { id: 10, type: "LoadImage", inputs: [], outputs: [] };
+  const rerouteA = { id: 11, type: "Reroute", inputs: [{ link: 201 }], outputs: [] };
+  const rerouteB = { id: 12, type: "Reroute", inputs: [{ link: 202 }], outputs: [] };
+  const director = {
+    id: 1,
+    inputs: [{ name: "backdrop", link: 203 }],
+    findInputSlot(name) { return name === "backdrop" ? 0 : -1; },
+  };
+  const nodes = [source, rerouteA, rerouteB, director];
+  const graph = {
+    _nodes: nodes,
+    links: {
+      201: { id: 201, origin_id: 10, target_id: 11 },
+      202: { id: 202, origin_id: 11, target_id: 12 },
+      203: { id: 203, origin_id: 12, target_id: 1 },
+    },
+    getNodeById(id) { return nodes.find((entry) => String(entry.id) === String(id)) || null; },
+  };
+  for (const entry of nodes) entry.graph = graph;
+  const traced = helpers.backdropSourceNodeForDirector(director);
+  check(traced.linked && traced.source === source, "backdrop traversal follows only explicit Reroute nodes");
+
+  rerouteA.inputs[0].link = 202;
+  const cycled = helpers.backdropSourceNodeForDirector(director);
+  check(cycled.linked && cycled.source === null, "backdrop Reroute cycles stop without a guessed source");
 }
 """
     result = subprocess.run([node_bin, "-e", harness, str(REPO_ROOT)], text=True, capture_output=True)
@@ -2609,6 +2689,25 @@ def test_multi_lora_metadata_fields_do_not_affect_loading():
     assert node_cls().load_multi_lora(model, clip, 1, lora_1="__none__", trigger_1="deno style") == (model, clip)
 
 
+def test_multi_lora_empty_legacy_enabled_value_remains_disabled_during_loading():
+    package = load_package()
+    model = object()
+    clip = object()
+
+    for node_name in ("DenoMultiLoraLoader", "DenoLTXMultiLoraLoader"):
+        loader = package.NODE_CLASS_MAPPINGS[node_name]()
+        loader._load_lora_dict = lambda _lora_name: (_ for _ in ()).throw(
+            AssertionError("disabled legacy slot must not attempt to load a LoRA")
+        )
+        assert loader.load_multi_lora(
+            model,
+            clip,
+            1,
+            enabled_1="",
+            lora_1="removed_usb/missing.safetensors",
+        ) == (model, clip)
+
+
 def test_multi_lora_validation_skips_disabled_missing_saved_lora():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiLoraLoader"]
@@ -2630,6 +2729,11 @@ def test_multi_lora_validation_skips_disabled_missing_saved_lora():
         assert node_cls.VALIDATE_INPUTS(active_loras=1, enabled_1=True, lora_1="removed_usb/missing.safetensors") == (
             "LoRA slot 1 is enabled but not installed: removed_usb/missing.safetensors"
         )
+        assert node_cls.VALIDATE_INPUTS(
+            active_loras=1,
+            enabled_1="",
+            lora_1="removed_usb/missing.safetensors",
+        ) is True
     finally:
         folder_paths.get_filename_list = original_get_filename_list
 
@@ -2655,6 +2759,11 @@ def test_ltx_multi_lora_validation_skips_disabled_missing_saved_lora():
         assert node_cls.VALIDATE_INPUTS(active_loras=1, enabled_1=True, lora_1="removed_usb/missing.safetensors") == (
             "LTX LoRA slot 1 is enabled but not installed: removed_usb/missing.safetensors"
         )
+        assert node_cls.VALIDATE_INPUTS(
+            active_loras=1,
+            enabled_1="",
+            lora_1="removed_usb/missing.safetensors",
+        ) is True
     finally:
         folder_paths.get_filename_list = original_get_filename_list
 
@@ -3014,7 +3123,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert 'eventApi.addEventListener("deno-local-llm-progress"' in script
     assert "window?.comfyAPI?.api?.api" in script
     assert "progressListenerApis" in script
-    assert "localLLMStateByNodeId = new Map()" in script
+    assert "localLLMStateByNode = new WeakMap()" in script
     assert "function setLocalLLMNodeState(node, patch)" in script
     assert "function getLocalLLMNodeState(node)" in script
     assert "app?.rootGraph || app?.graph || app?.canvas?.graph" in script
@@ -3059,6 +3168,10 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "saved model not found" in script
     assert "!currentStillExists" not in script
     assert "installProgressListener" in script
+    assert "localLLMGraphByPromptBundle" in script
+    assert "localLLMPromptGraphById" in script
+    assert "installLocalLLMApiQueuePromptHook" in script
+    assert "localLLMNodeForExecutionDetail" in script
     assert "function localLLMProgressStatePatch(node, detail)" in script
     assert "progressError = String(payload.error || \"\")" in script
     assert "exception_message: progressError" in script
@@ -3105,7 +3218,9 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "function safeAppGraph" in script
     assert "installReviewerGraphToPromptHook" in script
     assert "function applyLocalLLMAfterGenerateSeedModes(output)" in script
-    assert "applyLocalLLMAfterGenerateSeedModes(result?.output)" in script
+    assert "applyLocalLLMAfterGenerateSeedModes(result?.output)" not in script
+    assert "installLocalLLMQueueCallbacks" in script
+    assert ".afterQueued" in script
     assert "function nextLocalLLMSeedValue(seed, mode)" in script
     assert "collectReviewerAncestors" in script
     assert "collectPromptLinkAncestors" in script

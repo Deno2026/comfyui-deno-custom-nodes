@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+import types
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,125 @@ def test_language_display_contract():
     assert deno_ideogram_director._VIEW_LANGUAGE_CHOICES[0] == "English"
     assert "Original (as written)" not in deno_ideogram_director._VIEW_LANGUAGE_CHOICES
     assert "한국어" in deno_ideogram_director._VIEW_LANGUAGE_CHOICES
+
+
+def test_smart_english_typography_skips_network_without_changing_text(monkeypatch):
+    calls = []
+
+    def fail_if_called(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("network translation must be skipped")
+
+    monkeypatch.setattr(engine, "_request_translation", fail_if_called)
+    engine._CACHE.clear()
+    text = "It’s ready — use it…\u00a0Now."
+
+    assert engine.should_skip_translation(text, "auto", "English") is True
+    assert engine.translate_text(text, "auto", "English") == text
+    assert engine.should_skip_translation("C’est déjà prêt", "auto", "English") is False
+    assert calls == []
+
+
+def test_translate_text_attempt_limit_is_opt_in_and_default_stays_three(monkeypatch):
+    calls = []
+
+    def fail_request(text, src, tgt, timeout=10.0, engine=None, libretranslate_url=""):
+        calls.append(timeout)
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(engine, "_request_translation", fail_request)
+    monkeypatch.setattr(engine.time, "sleep", lambda _seconds: None)
+    engine._CACHE.clear()
+
+    with pytest.raises(RuntimeError, match="offline"):
+        engine.translate_text("대기 제한", "auto", "English", timeout=5.0, attempts=1)
+    assert calls == [5.0]
+
+    calls.clear()
+    with pytest.raises(RuntimeError, match="offline"):
+        engine.translate_text("기본 재시도", "auto", "English")
+    assert calls == [10.0, 10.0, 10.0]
+
+
+def test_ideogram_queue_preflight_translation_options_are_narrow(monkeypatch):
+    captured = []
+
+    def fake_translate_caption(cap, src, tgt, opts=None):
+        captured.append(dict(opts or {}))
+        return cap, 0, 0
+
+    monkeypatch.setattr(deno_ideogram_director.translate_engine, "translate_caption", fake_translate_caption)
+    caption = {"high_level_description": "테스트"}
+
+    deno_ideogram_director._translate_caption_for_view(
+        caption,
+        "auto",
+        "English",
+        timeout=5.0,
+        attempts=1,
+    )
+    deno_ideogram_director._translate_caption_for_view(caption, "auto", "English")
+
+    assert captured[0]["timeout"] == 5.0
+    assert captured[0]["attempts"] == 1
+    assert "timeout" not in captured[1]
+    assert "attempts" not in captured[1]
+
+
+def test_pending_import_targets_one_client_or_broadcasts_once(monkeypatch):
+    calls = []
+    instance = types.SimpleNamespace(
+        client_id="client-a",
+        send_sync=lambda *args: calls.append(args),
+    )
+    monkeypatch.setattr(deno_ideogram_director, "_HAS_COMFY", True)
+    monkeypatch.setattr(
+        deno_ideogram_director,
+        "PromptServer",
+        types.SimpleNamespace(instance=instance),
+        raising=False,
+    )
+
+    deno_ideogram_director._send_pending_import("7", "sig-a", {"high_level_description": "test"})
+    assert len(calls) == 1
+    assert calls[0][0] == deno_ideogram_director.PENDING_EVENT
+    assert calls[0][2] == "client-a"
+
+    calls.clear()
+    instance.client_id = None
+    deno_ideogram_director._send_pending_import("7", "sig-b", {"high_level_description": "test"})
+    assert len(calls) == 1
+    assert len(calls[0]) == 2
+
+
+def test_result_image_descriptor_does_not_change_backend_prompt_or_outputs():
+    base_caption_data = {
+        "boxes": [{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4, "type": "obj", "desc": "subject"}],
+        "stylePalette": ["#112233"],
+    }
+    with_result = dict(base_caption_data)
+    with_result["resultImage"] = {
+        "filename": "ComfyUI_00001_.png",
+        "subfolder": "",
+        "type": "temp",
+    }
+    kwargs = {
+        "width": 1024,
+        "height": 1024,
+        "seed": 3,
+        "high_level_description": "clean portrait",
+    }
+
+    without_packet = deno_ideogram_director.DenoIdeogramDirector().build(
+        **kwargs,
+        caption_data=json.dumps(base_caption_data, separators=(",", ":")),
+    )
+    with_packet = deno_ideogram_director.DenoIdeogramDirector().build(
+        **kwargs,
+        caption_data=json.dumps(with_result, separators=(",", ":")),
+    )
+
+    assert _director_result(with_packet) == _director_result(without_packet)
 
 
 def test_ideogram_director_view_language_helper_preserves_literal_text(monkeypatch):
@@ -1407,7 +1527,7 @@ def test_ideogram_director_frontend_view_language_contract():
     assert 'translateBoardToViewLanguage("auto")' in script
     assert 'const viewSource = getViewLanguage();' in script
     assert "if (viewSource === ENGLISH_PROMPT) return cap;" in script
-    assert "translateCaptionViaRoute(cap, ENGLISH_PROMPT, viewSource)" in script
+    assert "translateCaptionViaRoute(cap, ENGLISH_PROMPT, viewSource, routeOptions)" in script
     assert 'translateCaptionToEnglishForOutput(cap, true, "the English JSON output")' in script
     assert 'ensureEnglishOutputReadyBeforeQueue(true)' in script
     assert "Generation was stopped before using a non-English prompt." in (

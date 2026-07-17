@@ -340,7 +340,7 @@ Main features:
 - supports saved creator presets inside the workflow and restores them from browser storage after a page reload
 - supports Hugging Face direct links and Civitai page/download links without Python-side network requests
 - checks ComfyUI-registered model folders, including custom folder names from `extra_model_paths`
-- can find matching files inside model subfolders when users organize large model libraries by project or model family
+- checks each preset's exact target path inside those registered model folders without scanning unrelated nested project folders
 - shows target ComfyUI model subfolders so viewers know exactly where files should go
 
 Creator preset link guide:

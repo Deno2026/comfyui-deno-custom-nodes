@@ -372,9 +372,25 @@ def should_skip_translation(text: str, src: str, tgt: str) -> bool:
         return True
     if src_code and src_code != "auto" and src_code == tgt_code:
         return True
-    if src_code == "auto" and tgt_code == "en" and all(ord(ch) < 128 for ch in text):
+    if src_code == "auto" and tgt_code == "en" and all(
+        ord(ch) < 128 for ch in _normalize_english_typography_for_detection(text)
+    ):
         return True
     return False
+
+
+def _normalize_english_typography_for_detection(text: str) -> str:
+    """Map common smart punctuation to ASCII for language detection only."""
+    return str(text).translate(str.maketrans({
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2026": "...",
+        "\u00a0": " ",
+    }))
 
 
 def translate_text(
@@ -384,6 +400,7 @@ def translate_text(
     timeout=10.0,
     engine=None,
     libretranslate_url="",
+    attempts=3,
 ) -> str:
     """Translate one string through the selected online translation endpoint.
 
@@ -403,8 +420,12 @@ def translate_text(
     if cached is not None:
         return cached
 
+    try:
+        attempt_count = max(1, min(3, int(attempts)))
+    except (TypeError, ValueError):
+        attempt_count = 3
     last_exc = None
-    for attempt in range(3):
+    for attempt in range(attempt_count):
         gap = time.monotonic() - _last_call[0]
         if gap < 0.15:
             time.sleep(0.15 - gap)
@@ -461,6 +482,8 @@ def translate_caption(obj, src, tgt, opts=None):
     translate_text_fields = bool(opts.get("translate_text_fields", False))
     engine = normalize_translation_engine(opts.get("engine"))
     libretranslate_url = opts.get("libretranslate_url") or ""
+    timeout = opts.get("timeout", 10.0)
+    attempts = opts.get("attempts", 3)
     changed = 0
     sent = 0
 
@@ -475,8 +498,10 @@ def translate_caption(obj, src, tgt, opts=None):
             value,
             src,
             tgt,
+            timeout=timeout,
             engine=engine,
             libretranslate_url=libretranslate_url,
+            attempts=attempts,
         )
         if out != value:
             changed += 1

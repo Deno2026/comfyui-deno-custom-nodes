@@ -1608,12 +1608,26 @@ def _openai_user_content(prompt: str, images: Optional[List[Dict[str, Any]]]) ->
     return parts
 
 
+def _active_prompt_id() -> str:
+    try:
+        from comfy_execution.utils import get_executing_context
+
+        context = get_executing_context()
+        return str(getattr(context, "prompt_id", "") or "").strip()
+    except Exception:
+        return ""
+
+
 def _send_progress(payload: Dict[str, Any]) -> None:
     try:
         instance = getattr(PromptServer, "instance", None)
         sender = getattr(instance, "send_sync", None)
         if sender:
-            sender(PROGRESS_EVENT, payload)
+            event_payload = dict(payload)
+            prompt_id = _active_prompt_id()
+            if prompt_id and not event_payload.get("prompt_id"):
+                event_payload["prompt_id"] = prompt_id
+            sender(PROGRESS_EVENT, event_payload)
     except Exception:
         pass
 

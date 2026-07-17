@@ -932,19 +932,22 @@ function setupMultiImageLoader(node, options = {}) {
     }
 
     async function uploadFiles(fileList) {
-        const uploaded = [];
-        for (const file of Array.from(fileList || [])) {
+        const { uploaded, failedCount } = await collectUploadedPaths(fileList, async (file) => {
             const body = new FormData();
             body.append("image", file);
             const response = await api.fetchApi("/upload/image", { method: "POST", body });
             if (response.status !== 200) {
-                continue;
+                return "";
             }
             const payload = await response.json();
-            uploaded.push(payload.subfolder ? `${payload.subfolder}/${payload.name}` : payload.name);
-        }
+            const name = String(payload?.name || "").trim();
+            return name ? (payload.subfolder ? `${payload.subfolder}/${name}` : name) : "";
+        });
         if (uploaded.length) {
             setPaths(getPaths().concat(uploaded));
+        }
+        if (failedCount > 0) {
+            showLoaderToast(`${failedCount} image${failedCount === 1 ? "" : "s"} could not be uploaded.`);
         }
     }
 
@@ -1733,6 +1736,25 @@ function showLoaderToast(message) {
     toast.textContent = message;
     document.body.appendChild(toast);
     window.setTimeout(() => toast.remove(), 1450);
+}
+
+async function collectUploadedPaths(fileList, uploadOne) {
+    const uploaded = [];
+    let failedCount = 0;
+    for (const file of Array.from(fileList || [])) {
+        try {
+            const path = String(await uploadOne(file) || "").trim();
+            if (path) {
+                uploaded.push(path);
+            } else {
+                failedCount += 1;
+            }
+        } catch (error) {
+            failedCount += 1;
+            console.warn("[Deno.MultiImageLoader] Image upload failed.", error);
+        }
+    }
+    return { uploaded, failedCount };
 }
 
 function ensureLoaderToastStyles() {
@@ -3692,21 +3714,56 @@ function reconcileSequencerInputSlots(node) {
 }
 
 function notifyConnectedSequencers(loaderNode, count) {
-    if (!loaderNode.graph) {
+    const graph = loaderNode.graph;
+    if (!graph) {
         return;
     }
-
+    const pendingLinks = [];
     for (const output of loaderNode.outputs || []) {
         for (const linkId of output?.links || []) {
-            const link = loaderNode.graph.links[linkId];
-            if (!link) {
-                continue;
+            pendingLinks.push(linkId);
+        }
+    }
+
+    const visitedLinks = new Set();
+    const visitedReroutes = new Set();
+    const notifiedSequencers = new Set();
+    while (pendingLinks.length) {
+        const linkId = pendingLinks.shift();
+        const linkKey = String(linkId ?? "");
+        if (!linkKey || visitedLinks.has(linkKey)) {
+            continue;
+        }
+        visitedLinks.add(linkKey);
+        const link = getGraphLink(graph, linkId);
+        if (!link) {
+            continue;
+        }
+        const targetId = link.target_id ?? link.targetId ?? link.target;
+        const targetNode = graph.getNodeById?.(targetId);
+        if (!targetNode) {
+            continue;
+        }
+        const targetClass = String(targetNode.comfyClass || targetNode.type || "");
+        if (targetClass === SEQUENCER_NODE) {
+            if (!notifiedSequencers.has(targetNode)) {
+                notifiedSequencers.add(targetNode);
+                targetNode._syncImageCount?.(count);
             }
-            const targetNode = loaderNode.graph.getNodeById(link.target_id);
-            if (!targetNode || targetNode.comfyClass !== SEQUENCER_NODE) {
-                continue;
+            continue;
+        }
+        if (targetClass !== "Reroute") {
+            continue;
+        }
+        const rerouteKey = String(targetNode.id ?? targetId);
+        if (visitedReroutes.has(rerouteKey)) {
+            continue;
+        }
+        visitedReroutes.add(rerouteKey);
+        for (const output of targetNode.outputs || []) {
+            for (const nestedLink of output?.links || []) {
+                pendingLinks.push(nestedLink);
             }
-            targetNode._syncImageCount?.(count);
         }
     }
 }
@@ -3985,9 +4042,11 @@ if (typeof window !== "undefined" && typeof window.__DENO_EXTRA_NODES_TEST_HOOK_
         resolveSequencerInputWidget,
         shouldShowSequencerDynamicWidget,
         getSequencerInputPinReasons,
+        collectUploadedPaths,
         ensureSequencerDynamicWidget,
         isSequencerVueNodesMode,
         getInputLinkIds,
+        notifyConnectedSequencers,
         setupSequencer,
     });
 }

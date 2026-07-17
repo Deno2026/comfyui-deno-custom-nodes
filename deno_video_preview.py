@@ -16,6 +16,7 @@ YouTube: https://www.youtube.com/@Denoise-AI
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from fractions import Fraction
@@ -40,14 +41,44 @@ def _require_av():
         ) from exc
 
 
-def _stable_preview_path(unique_id):
+def _workflow_id_from_extra_pnginfo(extra_pnginfo):
+    """Return ComfyUI's persistent workflow id without depending on node ids.
+
+    Current ComfyUI guarantees a top-level workflow ``id`` when a workflow is
+    created or loaded.  The small list/tuple tolerance keeps this compatible
+    with hosts that wrap hidden inputs while preserving the same node contract.
+    """
+    candidates = extra_pnginfo if isinstance(extra_pnginfo, (list, tuple)) else [extra_pnginfo]
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        workflow = candidate.get("workflow")
+        workflows = workflow if isinstance(workflow, (list, tuple)) else [workflow]
+        for item in workflows:
+            if not isinstance(item, dict):
+                continue
+            workflow_id = str(item.get("id") or "").strip()
+            if workflow_id:
+                return workflow_id
+            extra = item.get("extra")
+            workspace_info = extra.get("workspace_info") if isinstance(extra, dict) else None
+            workspace_id = str(workspace_info.get("id") or "").strip() if isinstance(workspace_info, dict) else ""
+            if workspace_id:
+                return f"workspace:{workspace_id}"
+    return "legacy-workflow"
+
+
+def _stable_preview_path(unique_id, workflow_id=None):
     import folder_paths
 
     temp_dir = folder_paths.get_temp_directory()
     abs_dir = os.path.join(temp_dir, PREVIEW_SUBFOLDER)
     os.makedirs(abs_dir, exist_ok=True)
-    node_token = "".join(c for c in str(unique_id) if c.isalnum()) or "node"
-    filename = f"deno_vprev_{node_token}.mp4"
+    workflow_key = str(workflow_id or "legacy-workflow").strip() or "legacy-workflow"
+    workflow_token = hashlib.sha256(workflow_key.encode("utf-8")).hexdigest()[:16]
+    node_key = str(unique_id) or "node"
+    node_token = hashlib.sha256(node_key.encode("utf-8")).hexdigest()[:16]
+    filename = f"deno_vprev_{workflow_token}_{node_token}.mp4"
     return os.path.join(abs_dir, filename), filename, PREVIEW_SUBFOLDER
 
 
@@ -195,6 +226,7 @@ class DenoVideoPreview:
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
+                "extra_pnginfo": "EXTRA_PNGINFO",
             },
         }
 
@@ -204,7 +236,7 @@ class DenoVideoPreview:
     CATEGORY = "Deno/Image"
     OUTPUT_NODE = True
 
-    def preview(self, images, frame_rate: int, audio=None, unique_id=None):
+    def preview(self, images, frame_rate: int, audio=None, unique_id=None, extra_pnginfo=None):
         if not isinstance(images, torch.Tensor) or images.ndim != 4:
             raise ValueError(
                 "Expected IMAGE tensor [batch, height, width, channels], "
@@ -227,7 +259,8 @@ class DenoVideoPreview:
         if out_w <= 0 or out_h <= 0:
             raise ValueError("(Deno) Video Preview needs frames at least 2x2.")
 
-        out_path, filename, subfolder = _stable_preview_path(unique_id)
+        workflow_id = _workflow_id_from_extra_pnginfo(extra_pnginfo)
+        out_path, filename, subfolder = _stable_preview_path(unique_id, workflow_id)
 
         container = av.open(out_path, mode="w", options={"movflags": "+faststart"})
         try:

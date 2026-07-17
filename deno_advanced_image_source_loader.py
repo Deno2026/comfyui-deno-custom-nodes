@@ -1,3 +1,4 @@
+import hashlib
 import io
 import ipaddress
 import os
@@ -209,7 +210,10 @@ async def deno_advanced_external_image_view(request):
 
 
 def _is_remote_image_url(source: str) -> bool:
-    parsed = urllib.parse.urlparse(str(source or "").strip())
+    try:
+        parsed = urllib.parse.urlparse(str(source or "").strip())
+    except ValueError:
+        return False
     return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
 
 
@@ -315,7 +319,16 @@ def _open_image_source(source: str) -> Image.Image | None:
         return None
 
 
-def _expand_image_sources(sources: List[str], recursive_folders: bool = False) -> List[str]:
+def _record_source_failure(failures: List[str] | None, source: str) -> None:
+    if failures is not None and source not in failures:
+        failures.append(source)
+
+
+def _expand_image_sources(
+    sources: List[str],
+    recursive_folders: bool = False,
+    failures: List[str] | None = None,
+) -> List[str]:
     expanded = []
     for source in sources:
         raw_source = str(source or "").strip().strip('"')
@@ -326,14 +339,19 @@ def _expand_image_sources(sources: List[str], recursive_folders: bool = False) -
         if os.path.isdir(local_candidate):
             try:
                 if recursive_folders:
+                    def on_walk_error(exc):
+                        print(f"[DenoAdvancedImageSourceLoader] Failed to scan folder {local_candidate}: {exc}")
+                        _record_source_failure(failures, raw_source)
+
                     walker = os.walk(
                         local_candidate,
-                        onerror=lambda exc: print(f"[DenoAdvancedImageSourceLoader] Failed to scan folder {local_candidate}: {exc}"),
+                        onerror=on_walk_error,
                     )
                 else:
                     walker = [(local_candidate, [], os.listdir(local_candidate))]
             except OSError as exc:
                 print(f"[DenoAdvancedImageSourceLoader] Failed to scan folder {local_candidate}: {exc}")
+                _record_source_failure(failures, raw_source)
                 continue
 
             folder_files = []
@@ -342,6 +360,8 @@ def _expand_image_sources(sources: List[str], recursive_folders: bool = False) -
                     full_path = os.path.join(current_dir, file_name)
                     if os.path.isfile(full_path) and os.path.splitext(full_path)[1].lower() in INPUT_BROWSER_IMAGE_EXTENSIONS:
                         folder_files.append(os.path.realpath(full_path))
+            if not folder_files:
+                _record_source_failure(failures, raw_source)
             expanded.extend(sorted(folder_files, key=lambda item: item.lower()))
             continue
 
@@ -370,6 +390,76 @@ def _filter_disabled_sources(sources: List[str], disabled_image_paths: str) -> L
     if not disabled:
         return sources
     return [source for source in sources if source not in disabled]
+
+
+def _format_source_preview(sources: List[str]) -> str:
+    preview = ", ".join(str(source) for source in sources[:3])
+    if len(sources) > 3:
+        preview += f", ... (+{len(sources) - 3} more)"
+    return preview
+
+
+def _validate_active_sources(image_paths: str, disabled_image_paths: str) -> str | bool:
+    active_sources = _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths)
+    invalid_sources = []
+
+    for source in active_sources:
+        raw_source = str(source or "").strip().strip('"')
+        try:
+            parsed = urllib.parse.urlparse(raw_source)
+        except ValueError:
+            invalid_sources.append(raw_source)
+            continue
+        if parsed.scheme.lower() in {"http", "https"}:
+            if not parsed.netloc or not parsed.hostname:
+                invalid_sources.append(raw_source)
+            continue
+        if "://" in raw_source:
+            invalid_sources.append(raw_source)
+            continue
+        if _resolve_path(raw_source) is None:
+            invalid_sources.append(raw_source)
+
+    if invalid_sources:
+        return (
+            "[DenoAdvancedImageSourceLoader] Active local image source(s) are missing, or a URL is invalid: "
+            f"{_format_source_preview(invalid_sources)}. Fix or disable the source, then run the workflow again."
+        )
+    return True
+
+
+def _update_source_stat_hash(hasher, source: str) -> None:
+    raw_source = str(source or "").strip().strip('"')
+    hasher.update(raw_source.encode("utf-8", "surrogatepass"))
+    hasher.update(b"\0")
+
+    if _is_remote_image_url(raw_source):
+        hasher.update(b"url\0")
+        return
+
+    resolved_path = _resolve_path(raw_source)
+    if resolved_path is None:
+        hasher.update(b"missing\0")
+        return
+
+    real_path = os.path.realpath(resolved_path)
+    try:
+        stat = os.stat(real_path)
+    except OSError:
+        hasher.update(b"unreadable\0")
+        return
+
+    hasher.update(b"local\0")
+    for value in (
+        real_path,
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_size,
+        stat.st_mtime_ns,
+        getattr(stat, "st_ctime_ns", 0),
+    ):
+        hasher.update(str(value).encode("utf-8", "surrogatepass"))
+        hasher.update(b"\0")
 
 
 def _split_input_image_batch(images) -> List[torch.Tensor]:
@@ -435,6 +525,8 @@ class DenoAdvancedImageSourceLoader:
         interpolation=None,
         resize_method=None,
         list_output_mode=None,
+        image_paths=None,
+        disabled_image_paths=None,
     ):
         for result in (
             validate_combo_choice("mode", mode, ["Keep Input Ratio", "Preset Ratio", "Manual Input"]),
@@ -445,7 +537,58 @@ class DenoAdvancedImageSourceLoader:
         ):
             if result is not True:
                 return result
-        return validate_active_ratio_preset(mode, ratio_preset)
+        ratio_result = validate_active_ratio_preset(mode, ratio_preset)
+        if ratio_result is not True:
+            return ratio_result
+        return _validate_active_sources(image_paths or "", disabled_image_paths or "")
+
+    @classmethod
+    def IS_CHANGED(
+        cls,
+        image_paths,
+        mode,
+        ratio_preset,
+        megapixels,
+        width,
+        height,
+        divisible_by,
+        interpolation,
+        resize_method,
+        recursive_folders,
+        list_output_mode,
+        disabled_image_paths="",
+        images=None,
+    ):
+        del images
+
+        hasher = hashlib.sha256()
+        hasher.update(b"deno_advanced_image_source_loader_v1")
+        for value in (
+            mode,
+            ratio_preset,
+            megapixels,
+            width,
+            height,
+            divisible_by,
+            interpolation,
+            resize_method,
+            recursive_folders,
+            list_output_mode,
+        ):
+            hasher.update(str(value).encode("utf-8", "surrogatepass"))
+            hasher.update(b"\0")
+
+        active_sources = _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths)
+        for source in active_sources:
+            hasher.update(b"source\0")
+            _update_source_stat_hash(hasher, source)
+
+        expanded_sources = _expand_image_sources(active_sources, bool(recursive_folders))
+        for source in expanded_sources:
+            hasher.update(b"expanded\0")
+            _update_source_stat_hash(hasher, source)
+
+        return hasher.hexdigest()
 
     def load_images(
         self,
@@ -464,15 +607,30 @@ class DenoAdvancedImageSourceLoader:
         images=None,
     ):
         source_inputs = _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths)
-        sources = _expand_image_sources(source_inputs, bool(recursive_folders))
+        failed_sources = []
+        sources = _expand_image_sources(source_inputs, bool(recursive_folders), failures=failed_sources)
         originals = _split_input_image_batch(images)
-        loaded_image_count = len(originals)
 
         for source in sources:
             image_tensor = _image_source_to_tensor(source)
             if image_tensor is not None:
                 originals.append(image_tensor)
-                loaded_image_count += 1
+            else:
+                _record_source_failure(failed_sources, source)
+
+        if failed_sources:
+            raise RuntimeError(
+                "[DenoAdvancedImageSourceLoader] Active image source(s) could not be loaded: "
+                f"{_format_source_preview(failed_sources)}. Fix or disable the source, then run the workflow again."
+            )
+
+        if not originals:
+            raise RuntimeError(
+                "[DenoAdvancedImageSourceLoader] No active images are available. "
+                "Add an image path, URL, or folder, or connect the images input, then run the workflow again."
+            )
+
+        loaded_image_count = len(originals)
 
         if mode == "Preset Ratio":
             width, height = compute_aligned_ratio_dims(ratio_preset, megapixels, int(divisible_by))
@@ -482,10 +640,6 @@ class DenoAdvancedImageSourceLoader:
         else:
             width = round_up(width, int(divisible_by))
             height = round_up(height, int(divisible_by))
-
-        if not originals:
-            blank = torch.zeros((1, int(height), int(width), 3), dtype=torch.float32)
-            return (blank, [blank], int(width), int(height), 0)
 
         batch_images = [
             _resize_tensor(
