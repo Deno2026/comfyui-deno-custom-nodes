@@ -134,7 +134,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "workflow-diagnostics",
         "gpt-gemini-report",
         "free-vram",
-        "update-watch",
+        "comfyui-stable",
         "portable-comfyui",
     }
     assert required_keywords.issubset(set(keywords))
@@ -184,13 +184,30 @@ def test_public_readmes_use_current_ltx_tiled_display_name():
         assert old_name not in text
 
 
-def test_publish_workflow_exists_and_fails_without_registry_secret():
+def test_publish_workflow_waits_for_exact_main_ci_and_fails_without_registry_secret():
     workflow = PUBLISH_WORKFLOW_PATH.read_text()
 
     assert "name: Publish to Comfy registry" in workflow
     assert "workflow_dispatch:" in workflow
-    assert "paths:" in workflow
-    assert "- pyproject.toml" in workflow
+    assert "target_sha:" in workflow
+    assert "workflow_run:" in workflow
+    assert "- ci" in workflow
+    assert "- completed" in workflow
+    assert "github.event.workflow_run.event == 'push'" in workflow
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "github.event.workflow_run.head_sha" in workflow
+    assert "actions: read" in workflow
+    assert "group: registry-publish-${{ github.repository }}" in workflow
+    assert "cancel-in-progress: false" in workflow
+    assert "actions/workflows/ci.yml/runs" in workflow
+    assert "-f branch=main" in workflow
+    assert "-f event=push" in workflow
+    assert "-f status=success" in workflow
+    assert '-f head_sha="$TARGET_SHA"' in workflow
+    assert "ref: ${{ env.TARGET_SHA }}" in workflow
+    assert "No successful main push CI run exists" in workflow
+    assert "no longer the current main head" in workflow
+    assert "paths:" not in workflow
     assert "REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}" in workflow
     assert "REGISTRY_ACCESS_TOKEN secret is missing" in workflow
     assert "if: ${{ env.REGISTRY_ACCESS_TOKEN != '' }}" not in workflow

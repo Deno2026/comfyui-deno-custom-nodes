@@ -6,7 +6,8 @@ import vm from "node:vm";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const scriptPath = path.join(repoRoot, "web/js/deno_floating_tools.js");
-const UPDATE_CACHE_KEY = "denoFloatingTools.updateStatus.v1";
+const UPDATE_CACHE_KEY = "denoFloatingTools.comfyStableVersion.v2";
+const LEGACY_UPDATE_CACHE_KEY = "denoFloatingTools.updateStatus.v1";
 const UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 function makeResponse(payload) {
@@ -19,7 +20,17 @@ function makeResponse(payload) {
   };
 }
 
-function makeHarness({ system, latestVersions, failLatestMetadata = false, systemResponses = null }) {
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function makeHarness({
+  system,
+  tagPages,
+  failLatestMetadata = false,
+  systemResponses = null,
+  systemStatus = 200,
+}) {
   let now = 0;
   const storage = new Map();
   const fetchCalls = [];
@@ -75,6 +86,7 @@ function makeHarness({ system, latestVersions, failLatestMetadata = false, syste
           addEventListener() {},
           classList: { add() {}, remove() {}, toggle() {} },
           dataset: {},
+          replaceChildren() {},
           setAttribute() {},
           style: {},
         };
@@ -97,28 +109,25 @@ function makeHarness({ system, latestVersions, failLatestMetadata = false, syste
           ? systemResponses[Math.min(systemResponseIndex, systemResponses.length - 1)]
           : system;
         systemResponseIndex += 1;
-        return makeResponse({ system: await responseSource });
+        const resolved = await responseSource;
+        if (resolved instanceof Error) throw resolved;
+        return {
+          ...makeResponse({ system: resolved }),
+          ok: systemStatus >= 200 && systemStatus < 300,
+          status: systemStatus,
+        };
       },
     },
     async fetch(url) {
       const textUrl = String(url);
       fetchCalls.push(textUrl);
-      if (failLatestMetadata) {
-        throw new Error("remote latest metadata offline");
-      }
-      if (textUrl.includes("/ComfyUI/releases/latest")) {
-        return makeResponse({ tag_name: latestVersions.comfyui });
-      }
-      if (textUrl.includes("/ComfyUI/tags?")) {
-        return makeResponse(latestVersions.comfyui ? [{ name: latestVersions.comfyui }] : []);
-      }
-      if (textUrl.includes("/comfyui-workflow-templates/json")) {
-        return makeResponse({ info: { version: latestVersions.templates } });
-      }
-      if (textUrl.includes("/comfyui-frontend-package/json")) {
-        return makeResponse({ info: { version: latestVersions.frontend } });
-      }
-      throw new Error(`Unexpected fetch URL: ${textUrl}`);
+      assert.ok(
+        textUrl.startsWith("https://api.github.com/repos/Comfy-Org/ComfyUI/tags?per_page=100&page="),
+        `unexpected non-ComfyUI-Stable request: ${textUrl}`,
+      );
+      if (failLatestMetadata) throw new Error("remote stable metadata offline");
+      const page = Number.parseInt(new URL(textUrl).searchParams.get("page"), 10) || 1;
+      return makeResponse(tagPages?.[page - 1] || []);
     },
   };
   context.window = context;
@@ -133,7 +142,8 @@ globalThis.__hooks = {
   requestUpdateCheck,
   getLatestMetadataTime,
   isLatestMetadataFresh,
-  latestVersionsFromState,
+  latestComfyUiStableVersionFromTags,
+  hasComfyUiStableUpdate,
 };
 `;
   vm.runInNewContext(source, context, { filename: scriptPath });
@@ -146,11 +156,19 @@ globalThis.__hooks = {
     setNow(value) {
       now = value;
     },
-    setCachedState(state) {
-      storage.set(UPDATE_CACHE_KEY, JSON.stringify(state));
+    setCachedMetadata(metadata) {
+      storage.set(UPDATE_CACHE_KEY, JSON.stringify(metadata));
     },
-    getCachedState() {
-      return JSON.parse(storage.get(UPDATE_CACHE_KEY));
+    setLegacyState(state) {
+      storage.set(LEGACY_UPDATE_CACHE_KEY, JSON.stringify(state));
+    },
+    getCachedMetadata() {
+      const raw = storage.get(UPDATE_CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    },
+    getLegacyState() {
+      const raw = storage.get(LEGACY_UPDATE_CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
     },
   };
 }
@@ -167,195 +185,256 @@ function nextTick() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function assertSingleComfyUiItem(state, expected) {
+  const normalized = plain(state);
+  assert.equal(normalized.items.length, 1);
+  assert.deepEqual(normalized.items[0], {
+    id: "comfyui",
+    label: "Version",
+    installed: expected.installed,
+    latest: expected.latest,
+    updateAvailable: expected.updateAvailable,
+  });
+}
+
 const latestFetchedAt = 1_000_000;
 const oneHourLater = latestFetchedAt + 60 * 60 * 1000;
 const expiredTime = latestFetchedAt + UPDATE_CACHE_TTL_MS + 1;
 
+// Fresh metadata is reusable, but the installed version is always read live.
 {
+  const firstPage = [
+    { name: "v0.28.0" },
+    { name: "v0.99.0-rc1" },
+    ...Array.from({ length: 98 }, () => ({ name: "v0.3.0" })),
+  ];
   const harness = makeHarness({
     system: {
-      comfyui_version: "0.25.1",
-      installed_templates_version: "0.10.0",
-      comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.15" }],
+      comfyui_version: "0.27.0",
+      installed_templates_version: "0.1.0",
+      comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.0.0" }],
     },
-    latestVersions: {
-      comfyui: "v0.26.1",
-      templates: "0.10.7",
-      frontend: "1.45.19",
-    },
+    tagPages: [firstPage, [{ name: "v0.28.1" }, { name: "latest" }]],
   });
-  harness.setCachedState({
-    status: "updates",
-    checkedAt: latestFetchedAt,
-    latestCheckedAt: latestFetchedAt,
-    items: [
-      { id: "comfyui", label: "ComfyUI", installed: "0.25.1", latest: "0.26.0", updateAvailable: true },
-      { id: "templates", label: "Templates", installed: "0.10.0", latest: "0.10.7", updateAvailable: true },
-      { id: "frontend", label: "Frontend", installed: "1.45.15", latest: "1.45.19", updateAvailable: true },
-    ],
-  });
+  harness.setCachedMetadata({ latestVersion: "0.28.0", latestCheckedAt: latestFetchedAt });
 
   harness.setNow(oneHourLater);
-  await harness.hooks.checkUpdates(false);
-  let state = harness.getCachedState();
-  assert.equal(harness.fetchCalls.length, 0, "fresh latest metadata should be reused");
-  assert.equal(state.checkedAt, oneHourLater, "local sync timestamp should update");
-  assert.equal(state.latestCheckedAt, latestFetchedAt, "latest metadata timestamp must not slide");
-  assert.equal(harness.hooks.getLatestMetadataTime(state), latestFetchedAt);
+  let state = await harness.hooks.checkUpdates(false);
+  assert.equal(harness.fetchCalls.length, 0, "fresh stable metadata should be reused");
+  assert.equal(harness.apiCalls.length, 1, "installed core must still be read live");
+  assert.equal(state.status, "updates");
+  assertSingleComfyUiItem(state, { installed: "0.27.0", latest: "0.28.0", updateAvailable: true });
+  assert.equal(harness.hooks.hasComfyUiStableUpdate(state), true);
+  assert.deepEqual(harness.getCachedMetadata(), {
+    latestVersion: "0.28.0",
+    latestCheckedAt: latestFetchedAt,
+  }, "using a cache must not slide its freshness timestamp");
 
   harness.setNow(expiredTime);
-  await harness.hooks.checkUpdates(false);
-  state = harness.getCachedState();
-  assert.equal(harness.fetchCalls.length, 3, "expired latest metadata should be fetched");
+  state = await harness.hooks.checkUpdates(false);
+  assert.equal(harness.fetchCalls.length, 2, "all stable tag pages should be fetched after expiry");
   assert.equal(state.latestCheckedAt, expiredTime);
-  assert.equal(state.items.find((item) => item.id === "comfyui").latest, "0.26.1");
+  assertSingleComfyUiItem(state, { installed: "0.27.0", latest: "0.28.1", updateAvailable: true });
+  assert.deepEqual(Object.keys(harness.getCachedMetadata()).sort(), ["latestCheckedAt", "latestVersion"]);
 }
 
+// A local core newer than cached metadata forces a stable metadata refresh.
+{
+  const harness = makeHarness({
+    system: { comfyui_version: "0.28.1" },
+    tagPages: [[{ name: "v0.28.1" }]],
+  });
+  harness.setCachedMetadata({ latestVersion: "0.28.0", latestCheckedAt: latestFetchedAt });
+  harness.setNow(oneHourLater);
+
+  const state = await harness.hooks.checkUpdates(false);
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.equal(state.status, "latest");
+  assertSingleComfyUiItem(state, { installed: "0.28.1", latest: "0.28.1", updateAvailable: false });
+}
+
+// Frontend and template drift is ignored when the stable core is current.
 {
   const harness = makeHarness({
     system: {
-      comfyui_version: "0.26.2",
-      installed_templates_version: "0.10.7",
-      comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.19" }],
+      comfyui_version: "0.28.1",
+      installed_templates_version: "0.1.0",
+      required_frontend_version: "1.0.0",
+      comfy_package_versions: [
+        { name: "comfyui-workflow-templates", installed: "0.1.0" },
+        { name: "comfyui-frontend-package", installed: "1.0.0" },
+      ],
     },
-    latestVersions: {
-      comfyui: "v0.26.2",
-      templates: "0.10.7",
-      frontend: "1.45.19",
-    },
+    tagPages: [[{ name: "v0.28.1" }]],
   });
-  harness.setCachedState({
+  harness.setNow(oneHourLater);
+
+  const state = await harness.hooks.checkUpdates(true);
+  assert.equal(state.status, "latest");
+  assertSingleComfyUiItem(state, { installed: "0.28.1", latest: "0.28.1", updateAvailable: false });
+  assert.equal(harness.hooks.hasComfyUiStableUpdate(state), false);
+  assert.equal(harness.fetchCalls.length, 1);
+}
+
+// A legacy three-package cache cannot render or authorize NEW in the v2 contract.
+{
+  const harness = makeHarness({
+    system: { comfyui_version: "0.28.1" },
+    tagPages: [[{ name: "v0.28.1" }]],
+  });
+  const legacyState = {
     status: "updates",
     checkedAt: latestFetchedAt,
-    latestCheckedAt: latestFetchedAt,
     items: [
-      { id: "comfyui", label: "ComfyUI", installed: "0.25.1", latest: "0.26.0", updateAvailable: true },
-      { id: "templates", label: "Templates", installed: "0.10.0", latest: "0.10.0", updateAvailable: false },
-      { id: "frontend", label: "Frontend", installed: "1.45.15", latest: "1.45.15", updateAvailable: false },
+      { id: "comfyui", installed: "0.28.1", latest: "0.28.1", updateAvailable: false },
+      { id: "templates", installed: "0.1.0", latest: "9.9.9", updateAvailable: true },
+      { id: "frontend", installed: "1.0.0", latest: "9.9.9", updateAvailable: true },
     ],
-  });
-
+  };
+  harness.setLegacyState(legacyState);
   harness.setNow(oneHourLater);
-  await harness.hooks.checkUpdates(false);
-  const state = harness.getCachedState();
-  assert.equal(harness.fetchCalls.length, 3, "installed newer than cached latest should force metadata fetch");
-  assert.equal(state.latestCheckedAt, oneHourLater);
-  assert.deepEqual(
-    state.items.map((item) => [item.id, item.installed, item.latest, item.updateAvailable]),
-    [
-      ["comfyui", "0.26.2", "0.26.2", false],
-      ["templates", "0.10.7", "0.10.7", false],
-      ["frontend", "1.45.19", "1.45.19", false],
-    ],
-  );
+
+  const state = await harness.hooks.checkUpdates(false);
+  assert.equal(harness.fetchCalls.length, 1, "v1 cache must be ignored");
+  assert.equal(state.status, "latest");
+  assertSingleComfyUiItem(state, { installed: "0.28.1", latest: "0.28.1", updateAvailable: false });
+  assert.deepEqual(harness.getLegacyState(), legacyState, "legacy cache is inert, not migrated into v2");
 }
 
+// Remote failure is fail-closed: current core remains visible, latest and NEW do not.
 {
   const harness = makeHarness({
-    system: {
-      comfyui_version: "0.26.2",
-      installed_templates_version: "0.10.7",
-      comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.19" }],
-    },
-    latestVersions: {},
+    system: { comfyui_version: "0.28.1" },
+    tagPages: [],
     failLatestMetadata: true,
   });
-
   harness.setNow(oneHourLater);
-  await harness.hooks.checkUpdates(true);
-  const state = harness.getCachedState();
+
+  const state = await harness.hooks.checkUpdates(true);
   assert.equal(state.status, "error");
-  assert.equal(state.items.length, 3);
-  assert.deepEqual(
-    state.items.map((item) => [item.id, item.installed, item.latest, item.updateAvailable]),
-    [
-      ["comfyui", "0.26.2", "", false],
-      ["templates", "0.10.7", "", false],
-      ["frontend", "1.45.19", "", false],
-    ],
-    "remote latest failure should keep live installed versions and mark latest values unknown",
-  );
+  assertSingleComfyUiItem(state, { installed: "0.28.1", latest: "", updateAvailable: false });
+  assert.equal(harness.hooks.hasComfyUiStableUpdate(state), false);
+  assert.equal(harness.getCachedMetadata(), null, "failed metadata must not be cached");
 }
 
+// HTTP 200 metadata without a strict numeric stable tag cannot claim Latest.
 {
   const harness = makeHarness({
-    system: {
-      comfyui_version: "0.26.2",
-      installed_templates_version: "0.10.7",
-      comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.19" }],
-    },
-    latestVersions: {
-      comfyui: "",
-      templates: "0.10.7",
-      frontend: "1.45.19",
-    },
+    system: { comfyui_version: "0.28.1" },
+    tagPages: [[
+      { name: "v0.29.0-rc1" },
+      { name: "v0.29.0+build" },
+      { name: "V0.29.0" },
+      { name: "latest" },
+    ]],
   });
-
   harness.setNow(oneHourLater);
-  await harness.hooks.checkUpdates(true);
-  const state = harness.getCachedState();
-  assert.equal(state.status, "error", "malformed HTTP 200 metadata must not render Latest");
+
+  const state = await harness.hooks.checkUpdates(true);
+  assert.equal(state.status, "error");
   assert.match(state.error, /incomplete/i);
+  assert.equal(harness.hooks.hasComfyUiStableUpdate(state), false);
 }
 
+// A tag listing that never reaches a terminal short page fails closed at the safety cap.
+{
+  const fullTagPage = Array.from({ length: 100 }, (_, index) => ({ name: `v0.1.${index}` }));
+  const harness = makeHarness({
+    system: { comfyui_version: "0.28.1" },
+    tagPages: Array.from({ length: 20 }, () => fullTagPage),
+  });
+  harness.setNow(oneHourLater);
+
+  const state = await harness.hooks.checkUpdates(true);
+  assert.equal(state.status, "error");
+  assert.match(state.error, /safe page limit/i);
+  assert.equal(harness.fetchCalls.length, 20);
+  assert.equal(harness.hooks.hasComfyUiStableUpdate(state), false);
+  assert.equal(harness.getCachedMetadata(), null);
+}
+
+// An unavailable or prerelease local core is not silently reported as Latest.
 {
   const harness = makeHarness({
-    system: {
-      comfyui_version: "0.26.2",
-      installed_templates_version: "0.10.7",
-      comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.19" }],
-    },
-    latestVersions: {
-      comfyui: "v0.26.2",
-      templates: "0.10.7",
-      frontend: "1.45.19",
-    },
+    system: { comfyui_version: "0.28.1-rc1" },
+    tagPages: [[{ name: "v0.28.1" }]],
   });
-  harness.setCachedState({
-    status: "latest",
-    checkedAt: oneHourLater + 1,
-    latestCheckedAt: oneHourLater + 1,
-    items: [
-      { id: "comfyui", latest: "0.26.2" },
-      { id: "templates", latest: "0.10.7" },
-      { id: "frontend", latest: "1.45.19" },
-    ],
-  });
-
   harness.setNow(oneHourLater);
-  await harness.hooks.checkUpdates(false);
-  assert.equal(harness.fetchCalls.length, 3, "future metadata timestamps must force a fresh fetch");
+
+  const state = await harness.hooks.checkUpdates(true);
+  assert.equal(state.status, "error");
+  assert.equal(state.items.length, 0);
+  assert.equal(harness.fetchCalls.length, 0, "invalid local metadata should fail before remote fetch");
 }
 
+// A non-OK /system_stats response cannot reuse cached versions or reach the remote check.
+{
+  const harness = makeHarness({
+    system: { comfyui_version: "0.28.1" },
+    systemStatus: 503,
+    tagPages: [[{ name: "v0.28.1" }]],
+  });
+  harness.setCachedMetadata({ latestVersion: "0.28.1", latestCheckedAt: latestFetchedAt });
+  harness.setNow(oneHourLater);
+
+  const state = await harness.hooks.checkUpdates(false);
+  assert.equal(state.status, "error");
+  assert.match(state.error, /local http 503/i);
+  assert.equal(state.items.length, 0);
+  assert.equal(harness.fetchCalls.length, 0);
+}
+
+// Future cache timestamps are rejected and force a refresh.
+{
+  const harness = makeHarness({
+    system: { comfyui_version: "0.28.1" },
+    tagPages: [[{ name: "v0.28.1" }]],
+  });
+  harness.setCachedMetadata({ latestVersion: "0.28.1", latestCheckedAt: oneHourLater + 1 });
+  harness.setNow(oneHourLater);
+
+  await harness.hooks.checkUpdates(false);
+  assert.equal(harness.fetchCalls.length, 1);
+}
+
+// A manual click during the automatic check queues exactly one forced stable refresh.
 {
   const firstSystem = deferred();
-  const liveSystem = {
-    comfyui_version: "0.26.2",
-    installed_templates_version: "0.10.7",
-    comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.19" }],
-  };
+  const liveSystem = { comfyui_version: "0.28.1" };
   const harness = makeHarness({
     system: liveSystem,
     systemResponses: [firstSystem.promise, liveSystem],
-    latestVersions: {
-      comfyui: "v0.26.2",
-      templates: "0.10.7",
-      frontend: "1.45.19",
-    },
+    tagPages: [[{ name: "v0.28.1" }]],
   });
-
   harness.setNow(oneHourLater);
+
   const automaticCheck = harness.hooks.checkUpdates(false);
   await nextTick();
   assert.equal(harness.apiCalls.length, 1, "automatic check should be in flight");
   await harness.hooks.requestUpdateCheck(true);
   firstSystem.resolve(liveSystem);
   await automaticCheck;
-  for (let attempt = 0; attempt < 10 && (harness.apiCalls.length < 2 || harness.fetchCalls.length < 6); attempt += 1) {
+  for (let attempt = 0; attempt < 10 && (harness.apiCalls.length < 2 || harness.fetchCalls.length < 2); attempt += 1) {
     await nextTick();
   }
-  assert.equal(harness.apiCalls.length, 2, "manual force click should queue one extra check");
-  assert.equal(harness.fetchCalls.length, 6, "queued force check should refetch public latest metadata");
+  assert.equal(harness.apiCalls.length, 2, "manual force click should queue one extra local check");
+  assert.equal(harness.fetchCalls.length, 2, "queued force check should refetch stable metadata once");
 }
 
-console.log("floating-tools update cache harness passed");
+// Defensive badge authority ignores template-only fabricated states.
+{
+  const harness = makeHarness({
+    system: { comfyui_version: "0.28.1" },
+    tagPages: [[{ name: "v0.28.1" }]],
+  });
+  assert.equal(harness.hooks.hasComfyUiStableUpdate({
+    status: "updates",
+    items: [{ id: "templates", installed: "0.1.0", latest: "9.9.9", updateAvailable: true }],
+  }), false);
+  assert.equal(harness.hooks.hasComfyUiStableUpdate({
+    status: "updates",
+    items: [{ id: "comfyui", installed: "0.28.0", latest: "0.28.1", updateAvailable: true }],
+  }), true);
+}
+
+console.log("floating-tools ComfyUI Stable cache harness passed");

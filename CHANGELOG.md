@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.70 - 2026-07-19
+
+- Changed DENO Floating Tools so its `NEW` badge and version row track ComfyUI Stable only, without checking or displaying separate frontend and workflow-template package versions.
+
 ## 0.7.69 - 2026-07-18
 
 - Preserved saved workflows that used the retired video-only LTX tiled sampler by mapping them through ComfyUI's native node replacement flow while keeping current LTX AV sampler defaults, validation, outputs, and visible controls unchanged.

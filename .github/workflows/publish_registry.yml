@@ -2,22 +2,36 @@ name: Publish to Comfy registry
 
 on:
   workflow_dispatch:
-  push:
+    inputs:
+      target_sha:
+        description: Exact current main commit SHA to publish after its push CI succeeds
+        required: true
+        type: string
+  workflow_run:
+    workflows:
+      - ci
+    types:
+      - completed
     branches:
       - main
-    paths:
-      - pyproject.toml
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: registry-publish-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   publish-node:
     name: Publish Custom Node to registry
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
       REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
     steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-
       - name: Check Registry token
         shell: bash
         run: |
@@ -26,26 +40,59 @@ jobs:
             exit 1
           fi
 
-      - name: Check publish eligibility
-        id: publish-check
+      - name: Verify exact main CI success
         shell: bash
         env:
-          EVENT_BEFORE: ${{ github.event.before }}
-          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          if [ "$EVENT_NAME" = "push" ] && [ -n "$EVENT_BEFORE" ] && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            if ! git cat-file -e "$EVENT_BEFORE^{commit}" 2>/dev/null; then
-              git fetch --no-tags --depth=1 origin "$EVENT_BEFORE" || true
-            fi
+          if ! [[ "$TARGET_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::target_sha must be a full 40-character commit SHA."
+            exit 1
+          fi
 
-            if git cat-file -e "$EVENT_BEFORE^{commit}" 2>/dev/null && ! git diff --name-only "$EVENT_BEFORE" "$GITHUB_SHA" | grep -qx "pyproject.toml"; then
-              echo "pyproject.toml was not changed; skipping registry publish."
-              echo "should_publish=false" >> "$GITHUB_OUTPUT"
-              exit 0
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              echo "::error::Manual Registry publish must be dispatched from main."
+              exit 1
+            fi
+            if [ "${TARGET_SHA,,}" != "${GITHUB_SHA,,}" ]; then
+              echo "::error::target_sha must match the exact main commit selected for this dispatch."
+              exit 1
             fi
           fi
+
+          MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
+          if [ "${TARGET_SHA,,}" != "${MAIN_SHA,,}" ]; then
+            echo "::error::Refusing to publish a commit that is no longer the current main head."
+            exit 1
+          fi
+
+          SUCCESSFUL_RUNS="$(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f branch=main \
+              -f event=push \
+              -f status=success \
+              -f head_sha="$TARGET_SHA" \
+              -f per_page=1 \
+              --jq '.total_count'
+          )"
+          if [ "$SUCCESSFUL_RUNS" -lt 1 ]; then
+            echo "::error::No successful main push CI run exists for target_sha $TARGET_SHA."
+            exit 1
+          fi
+
+      - name: Check out exact tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+
+      - name: Check publish eligibility
+        id: publish-check
+        shell: bash
+        run: |
+          set -euo pipefail
 
           VERSION="$(python - <<'PY'
           import tomllib

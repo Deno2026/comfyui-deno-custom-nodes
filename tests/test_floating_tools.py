@@ -8,9 +8,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_floating_tools_frontend_free_vram_contract():
     script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
 
-    assert 'const DENO_FLOATING_TOOLS_MARKER = "r2026.07.01-sos-light-b"' in script
+    assert 'const DENO_FLOATING_TOOLS_MARKER = "r2026.07.19-comfy-stable-only-a"' in script
     assert 'name: "Show DENO floating tools"' in script
     assert 'category: ["DENO", "Tools", "Floating Tools"]' in script
+    assert 'const SETTING_ENABLED = "DENO.FloatingTools.Enabled";' in script
+    assert 'const POSITION_KEY = "denoFloatingTools.position.v1";' in script
     assert "Free VRAM" in script
     assert "const BADGE_TOP_PAD = 8;" in script
     assert "const BADGE_RIGHT_PAD = 10;" in script
@@ -33,23 +35,31 @@ def test_floating_tools_frontend_free_vram_contract():
     assert "Queue busy" in script
 
 
-def test_floating_tools_update_watch_is_read_only():
+def test_floating_tools_comfyui_stable_check_is_read_only():
     script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
 
-    assert "Update Watch" in script
+    assert "ComfyUI Stable" in script
+    assert "Update Watch" not in script
     assert "Check Updates" in script
     assert 'api.fetchApi("/system_stats"' in script
-    assert "https://pypi.org/pypi/" in script
-    assert "comfyui-workflow-templates" in script
-    assert "comfyui-frontend-package" in script
-    assert "https://api.github.com/repos/comfyanonymous/ComfyUI/releases/latest" in script
+    assert "https://api.github.com/repos/Comfy-Org/ComfyUI/tags?per_page=100" in script
+    assert "https://pypi.org/pypi/" not in script
+    assert "comfyui-workflow-templates" not in script
+    assert "comfyui-frontend-package" not in script
+    assert "/ComfyUI/releases/latest" not in script
+    assert 'id: "templates"' not in script
+    assert 'id: "frontend"' not in script
+    assert 'const UPDATE_CACHE_KEY = "denoFloatingTools.comfyStableVersion.v2";' in script
+    assert "denoFloatingTools.updateStatus.v1" not in script
+    assert "function latestComfyUiStableVersionFromTags(tags)" in script
+    assert "function hasComfyUiStableUpdate(state)" in script
     assert "deno-floating-tools-update-badge" in script
     assert 'updateBadgeEl.textContent = "NEW"' in script
-    assert "New update available." in script
+    assert "New stable ComfyUI version available." in script
     assert "새로운 업데이트가 발견되었습니다." not in script
     assert "Portable helper only" not in script
     assert "Use your launcher or Manager to update" not in script
-    assert "if (!normalizeVersion(latest) || !normalizeVersion(installed)) return false;" in script
+    assert "if (!latestParts || !installedParts) return false;" in script
 
     forbidden = [
         "pip " + "install",
@@ -179,32 +189,30 @@ def test_floating_tools_sos_surface_is_simple_and_read_only():
     assert (REPO_ROOT / "web" / "js" / "assets" / "deno_floating_tools_error_icon.png").exists()
 
 
-def test_floating_tools_update_watch_resyncs_local_versions_before_using_cache():
+def test_floating_tools_comfyui_stable_resyncs_local_version_before_using_cache():
     script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
 
     assert "function getLatestMetadataTime(state)" in script
     assert "function isLatestMetadataFresh(state)" in script
-    assert "function latestVersionsFromState(state)" in script
-    assert "function installedVersionsFromSystem(system)" in script
-    assert "function latestVersionsCoverInstalled(latest, installed)" in script
-    assert "function fetchLocalUpdateSystem()" in script
-    assert "function fetchLatestUpdateVersions()" in script
-    assert "function buildUpdateState(system, latestVersions, latestCheckedAt)" in script
-    assert "function buildOfflineUpdateState(system, error)" in script
+    assert "function readCachedStableMetadata()" in script
+    assert "function latestMetadataCoversInstalled(metadata, installedVersion)" in script
+    assert "function fetchInstalledComfyUiVersion()" in script
+    assert "async function fetchComfyUiStableLatest()" in script
+    assert "function buildUpdateState(installedVersion, latestVersion, latestCheckedAt)" in script
+    assert "function buildOfflineUpdateState(installedVersion, error)" in script
     assert "let updateStartupTimer = null;" in script
     assert "let queuedUpdateForce = false;" in script
-    assert "system = await fetchLocalUpdateSystem();" in script
-    assert "const installedVersions = installedVersionsFromSystem(system);" in script
+    assert "installedVersion = await fetchInstalledComfyUiVersion();" in script
     assert "let latestCheckedAt = null;" in script
-    assert "const cachedLatestVersions = latestVersionsFromState(cached);" in script
-    assert "&& latestVersionsCoverInstalled(cachedLatestVersions, installedVersions)" in script
-    assert "latestVersions = cachedLatestVersions;" in script
+    assert "&& latestMetadataCoversInstalled(cached, installedVersion)" in script
+    assert "latestVersion = cached.latestVersion;" in script
     assert "latestCheckedAt = getLatestMetadataTime(cached);" in script
-    assert "latestVersions = await fetchLatestUpdateVersions();" in script
+    assert "latestVersion = await fetchComfyUiStableLatest();" in script
     assert "latestCheckedAt = Date.now();" in script
-    assert "const state = buildUpdateState(system, latestVersions, latestCheckedAt);" in script
+    assert "writeStoredJson(UPDATE_CACHE_KEY, { latestVersion, latestCheckedAt });" in script
+    assert "const state = buildUpdateState(installedVersion, latestVersion, latestCheckedAt);" in script
     assert "latestCheckedAt," in script
-    assert 'if (cached) renderUpdateState({ ...cached, status: "checking" });' in script
+    assert 'renderUpdateState({ status: "idle", items: [] });' in script
     assert "function clearUpdateStartupTimer()" in script
     assert "window.clearTimeout(updateStartupTimer);" in script
     assert "updateStartupTimer = window.setTimeout(() => {" in script
@@ -215,6 +223,7 @@ def test_floating_tools_update_watch_resyncs_local_versions_before_using_cache()
     assert "if (!force && isUpdateCacheFresh(cached)) {\n        renderUpdateState(cached);" not in script
     assert "if (!isUpdateCacheFresh(cached)) {\n        window.setTimeout(() => checkUpdates(false), 1200);" not in script
     assert "function isUpdateCacheFresh(state)" not in script
+    assert "system," not in script[script.index("function buildUpdateState"):script.index("function requestUpdateCheck")]
 
 
 def test_floating_tools_update_watch_cache_harness():

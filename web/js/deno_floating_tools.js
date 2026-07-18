@@ -1,11 +1,11 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const DENO_FLOATING_TOOLS_MARKER = "r2026.07.01-sos-light-b";
+const DENO_FLOATING_TOOLS_MARKER = "r2026.07.19-comfy-stable-only-a";
 const EXTENSION_NAME = "Deno.FloatingTools";
 const SETTING_ENABLED = "DENO.FloatingTools.Enabled";
 const POSITION_KEY = "denoFloatingTools.position.v1";
-const UPDATE_CACHE_KEY = "denoFloatingTools.updateStatus.v1";
+const UPDATE_CACHE_KEY = "denoFloatingTools.comfyStableVersion.v2";
 const ICON_URL = new URL("./assets/deno_floating_tools_icon.png", import.meta.url).toString();
 const ERROR_ICON_URL = new URL("./assets/deno_floating_tools_error_icon.png", import.meta.url).toString();
 const ROOT_ID = "deno-floating-tools-root";
@@ -23,9 +23,8 @@ const SOS_QUEUE_BUSY_RETRY_GRACE_MS = 1200;
 const SOS_TEXT_SCAN_LIMIT = 1200;
 const UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const UPDATE_FETCH_TIMEOUT_MS = 10000;
-const COMFYUI_RELEASE_URL = "https://api.github.com/repos/comfyanonymous/ComfyUI/releases/latest";
-const COMFYUI_TAGS_URL = "https://api.github.com/repos/comfyanonymous/ComfyUI/tags?per_page=10";
-const PYPI_JSON_BASE = "https://pypi.org/pypi/";
+const COMFYUI_TAGS_URL = "https://api.github.com/repos/Comfy-Org/ComfyUI/tags?per_page=100";
+const COMFYUI_TAG_PAGE_LIMIT = 20;
 
 let rootEl = null;
 let panelEl = null;
@@ -1276,30 +1275,29 @@ async function copySosReport() {
     }
 }
 
-function normalizeVersion(value) {
-    return String(value || "")
-        .trim()
-        .replace(/^v/i, "")
-        .split("+")[0]
-        .split("-")[0];
+function stableVersionParts(value, requireVPrefix = false) {
+    const pattern = requireVPrefix
+        ? /^v(\d+)\.(\d+)\.(\d+)$/
+        : /^v?(\d+)\.(\d+)\.(\d+)$/;
+    const match = pattern.exec(String(value || "").trim());
+    if (!match) return null;
+    const parts = match.slice(1).map((part) => Number.parseInt(part, 10));
+    return parts.every(Number.isSafeInteger) ? parts : null;
 }
 
-function compareVersions(left, right) {
-    const leftParts = normalizeVersion(left).split(".").map((part) => Number.parseInt(part, 10));
-    const rightParts = normalizeVersion(right).split(".").map((part) => Number.parseInt(part, 10));
-    const length = Math.max(leftParts.length, rightParts.length);
-    for (let index = 0; index < length; index += 1) {
-        const leftValue = Number.isFinite(leftParts[index]) ? leftParts[index] : 0;
-        const rightValue = Number.isFinite(rightParts[index]) ? rightParts[index] : 0;
-        if (leftValue > rightValue) return 1;
-        if (leftValue < rightValue) return -1;
+function compareVersionParts(leftParts, rightParts) {
+    for (let index = 0; index < 3; index += 1) {
+        if (leftParts[index] > rightParts[index]) return 1;
+        if (leftParts[index] < rightParts[index]) return -1;
     }
     return 0;
 }
 
 function isNewerVersion(latest, installed) {
-    if (!normalizeVersion(latest) || !normalizeVersion(installed)) return false;
-    return compareVersions(latest, installed) > 0;
+    const latestParts = stableVersionParts(latest);
+    const installedParts = stableVersionParts(installed);
+    if (!latestParts || !installedParts) return false;
+    return compareVersionParts(latestParts, installedParts) > 0;
 }
 
 function formatVersion(value) {
@@ -1307,14 +1305,8 @@ function formatVersion(value) {
 }
 
 function compactVersion(value) {
-    return normalizeVersion(value);
-}
-
-function packageVersion(system, packageName) {
-    const target = packageName.toLowerCase().replace(/_/g, "-");
-    const packages = Array.isArray(system?.comfy_package_versions) ? system.comfy_package_versions : [];
-    const found = packages.find((item) => String(item?.name || "").toLowerCase().replace(/_/g, "-") === target);
-    return found?.installed || found?.required || "";
+    const parts = stableVersionParts(value);
+    return parts ? parts.join(".") : "";
 }
 
 async function fetchJsonWithTimeout(url) {
@@ -1333,20 +1325,34 @@ async function fetchJsonWithTimeout(url) {
     }
 }
 
-async function fetchPypiLatest(packageName) {
-    const data = await fetchJsonWithTimeout(`${PYPI_JSON_BASE}${encodeURIComponent(packageName)}/json`);
-    return data?.info?.version || "";
+function latestComfyUiStableVersionFromTags(tags) {
+    let latestParts = null;
+    for (const item of Array.isArray(tags) ? tags : []) {
+        const candidateParts = stableVersionParts(item?.name, true);
+        if (!candidateParts) continue;
+        if (!latestParts || compareVersionParts(candidateParts, latestParts) > 0) {
+            latestParts = candidateParts;
+        }
+    }
+    return latestParts ? latestParts.join(".") : "";
 }
 
-async function fetchComfyUiLatest() {
-    try {
-        const release = await fetchJsonWithTimeout(COMFYUI_RELEASE_URL);
-        if (release?.tag_name) return release.tag_name;
-    } catch (_error) {
-        // Fall through to tags. Some mirrors or rate limits make releases less reliable.
+async function fetchComfyUiStableLatest() {
+    let latestVersion = "";
+    for (let page = 1; page <= COMFYUI_TAG_PAGE_LIMIT; page += 1) {
+        const tags = await fetchJsonWithTimeout(`${COMFYUI_TAGS_URL}&page=${page}`);
+        if (!Array.isArray(tags)) throw new Error("ComfyUI Stable metadata is incomplete.");
+        const pageLatest = latestComfyUiStableVersionFromTags(tags);
+        if (pageLatest && (!latestVersion || isNewerVersion(pageLatest, latestVersion))) {
+            latestVersion = pageLatest;
+        }
+        if (tags.length < 100) break;
+        if (page === COMFYUI_TAG_PAGE_LIMIT) {
+            throw new Error("ComfyUI Stable tag list exceeded the safe page limit.");
+        }
     }
-    const tags = await fetchJsonWithTimeout(COMFYUI_TAGS_URL);
-    return Array.isArray(tags) && tags[0]?.name ? tags[0].name : "";
+    if (!latestVersion) throw new Error("ComfyUI Stable metadata is incomplete.");
+    return latestVersion;
 }
 
 function setUpdateStatus(text) {
@@ -1373,7 +1379,7 @@ function setUpdateBadge(state) {
         rootEl?.classList.add("deno-floating-tools-update-checking");
         updateBadgeEl.classList.add("checking");
         updateBadgeEl.textContent = "...";
-    } else if (status === "updates") {
+    } else if (status === "updates" && hasComfyUiStableUpdate(state)) {
         rootEl?.classList.add("deno-floating-tools-update-available");
         updateBadgeEl.classList.add("available");
         updateBadgeEl.textContent = "NEW";
@@ -1387,18 +1393,21 @@ function setUpdateBadge(state) {
 function renderUpdateDetails(state) {
     if (!updateDetailsEl) return;
     updateDetailsEl.replaceChildren();
-    const items = Array.isArray(state?.items) ? state.items : [];
+    const items = (Array.isArray(state?.items) ? state.items : [])
+        .filter((item) => item?.id === "comfyui")
+        .slice(0, 1);
     if (!items.length) {
         const empty = document.createElement("div");
         empty.className = "deno-floating-tools-note";
-        empty.textContent = state?.error || "Run Check Updates to compare versions.";
+        empty.textContent = state?.error || "Run Check Updates to compare the stable version.";
         updateDetailsEl.appendChild(empty);
         return;
     }
     for (const item of items) {
+        const updateAvailable = isNewerVersion(item.latest, item.installed);
         const row = document.createElement("div");
         row.className = "deno-floating-tools-update-row";
-        if (item.updateAvailable) row.classList.add("available");
+        if (updateAvailable) row.classList.add("available");
 
         const label = document.createElement("div");
         label.className = "deno-floating-tools-update-label";
@@ -1408,7 +1417,7 @@ function renderUpdateDetails(state) {
         value.className = "deno-floating-tools-update-value";
         const installed = formatVersion(item.installed);
         const latest = formatVersion(item.latest);
-        value.textContent = item.updateAvailable ? `${installed} -> ${latest}` : `${installed} / latest ${latest}`;
+        value.textContent = updateAvailable ? `${installed} -> ${latest}` : `${installed} / latest ${latest}`;
 
         row.append(label, value);
         updateDetailsEl.appendChild(row);
@@ -1419,12 +1428,12 @@ function renderUpdateState(state) {
     lastUpdateState = state;
     setUpdateButtonState();
     setUpdateBadge(state);
+    const stableUpdateAvailable = state?.status === "updates" && hasComfyUiStableUpdate(state);
     if (state?.status === "checking") {
         setUpdateStatus("Checking");
-    } else if (state?.status === "updates") {
-        const count = state.items.filter((item) => item.updateAvailable).length;
-        setUpdateStatus(`${count} update${count === 1 ? "" : "s"}`);
-    } else if (state?.status === "latest") {
+    } else if (stableUpdateAvailable) {
+        setUpdateStatus("Update");
+    } else if (["latest", "updates"].includes(state?.status)) {
         setUpdateStatus("Latest");
     } else if (state?.status === "error") {
         setUpdateStatus("Offline");
@@ -1433,25 +1442,32 @@ function renderUpdateState(state) {
     }
     renderUpdateDetails(state);
     if (updateHintEl) {
-        updateHintEl.textContent = state?.status === "updates" ? "New update available." : "";
+        updateHintEl.textContent = stableUpdateAvailable ? "New stable ComfyUI version available." : "";
     }
 }
 
-function readCachedUpdateState() {
+function hasComfyUiStableUpdate(state) {
+    const item = (Array.isArray(state?.items) ? state.items : [])
+        .find((candidate) => candidate?.id === "comfyui");
+    return Boolean(
+        item?.updateAvailable === true
+        && isNewerVersion(item.latest, item.installed),
+    );
+}
+
+function readCachedStableMetadata() {
     const cached = readStoredJson(UPDATE_CACHE_KEY, null);
     if (!cached || typeof cached !== "object") return null;
-    if (!Number.isFinite(Number(cached.checkedAt)) && getLatestMetadataTime(cached) === null) return null;
-    if (
-        ["latest", "updates"].includes(cached.status)
-        && !hasCompleteLatestVersions(latestVersionsFromState(cached))
-    ) {
-        return null;
-    }
-    return cached;
+    const latestVersion = compactVersion(cached.latestVersion);
+    const latestCheckedAt = getLatestMetadataTime(cached);
+    if (!latestVersion || latestCheckedAt === null) return null;
+    return { latestVersion, latestCheckedAt };
 }
 
 function getLatestMetadataTime(state) {
-    const value = Number(state?.latestCheckedAt ?? state?.checkedAt);
+    const rawValue = state?.latestCheckedAt;
+    if (rawValue === null || rawValue === undefined || rawValue === "") return null;
+    const value = Number(rawValue);
     return Number.isFinite(value) ? value : null;
 }
 
@@ -1461,33 +1477,12 @@ function isLatestMetadataFresh(state) {
     return Boolean(age >= 0 && age < UPDATE_CACHE_TTL_MS);
 }
 
-function latestVersionsFromState(state) {
-    const items = Array.isArray(state?.items) ? state.items : [];
-    const latest = {};
-    for (const item of items) {
-        if (item?.id) latest[item.id] = compactVersion(item.latest);
-    }
-    return latest;
-}
-
-function hasCompleteLatestVersions(latest) {
+function latestMetadataCoversInstalled(metadata, installedVersion) {
     return Boolean(
-        compactVersion(latest?.comfyui)
-        && compactVersion(latest?.templates)
-        && compactVersion(latest?.frontend),
+        compactVersion(metadata?.latestVersion)
+        && compactVersion(installedVersion)
+        && !isNewerVersion(installedVersion, metadata.latestVersion),
     );
-}
-
-function installedVersionsFromSystem(system) {
-    return {
-        comfyui: compactVersion(system.comfyui_version),
-        templates: compactVersion(system.installed_templates_version || packageVersion(system, "comfyui-workflow-templates")),
-        frontend: compactVersion(packageVersion(system, "comfyui-frontend-package") || system.required_frontend_version),
-    };
-}
-
-function latestVersionsCoverInstalled(latest, installed) {
-    return ["comfyui", "templates", "frontend"].every((id) => !isNewerVersion(installed?.[id], latest?.[id]));
 }
 
 function clearUpdateStartupTimer() {
@@ -1496,80 +1491,48 @@ function clearUpdateStartupTimer() {
     updateStartupTimer = null;
 }
 
-async function fetchLocalUpdateSystem() {
+async function fetchInstalledComfyUiVersion() {
     const localResponse = await api.fetchApi("/system_stats", { cache: "no-store" });
     if (!localResponse.ok) throw new Error(`Local HTTP ${localResponse.status}`);
     const localData = await localResponse.json();
-    return localData?.system || {};
+    const installedVersion = compactVersion(localData?.system?.comfyui_version);
+    if (!installedVersion) throw new Error("Installed ComfyUI version is unavailable.");
+    return installedVersion;
 }
 
-async function fetchLatestUpdateVersions() {
-    const [comfyLatest, templatesLatest, frontendLatest] = await Promise.all([
-        fetchComfyUiLatest(),
-        fetchPypiLatest("comfyui-workflow-templates"),
-        fetchPypiLatest("comfyui-frontend-package"),
-    ]);
-    const latestVersions = {
-        comfyui: comfyLatest,
-        templates: templatesLatest,
-        frontend: frontendLatest,
+function buildUpdateItems(installedVersion, latestVersion) {
+    const item = {
+        id: "comfyui",
+        label: "Version",
+        installed: compactVersion(installedVersion),
+        latest: compactVersion(latestVersion),
     };
-    if (!hasCompleteLatestVersions(latestVersions)) {
-        throw new Error("Latest version metadata is incomplete.");
-    }
-    return latestVersions;
-}
-
-function buildUpdateItems(system, latestVersions) {
-    const installedVersions = installedVersionsFromSystem(system);
-    return [
-        {
-            id: "comfyui",
-            label: "ComfyUI",
-            installed: installedVersions.comfyui,
-            latest: compactVersion(latestVersions.comfyui),
-        },
-        {
-            id: "templates",
-            label: "Templates",
-            installed: installedVersions.templates,
-            latest: compactVersion(latestVersions.templates),
-        },
-        {
-            id: "frontend",
-            label: "Frontend",
-            installed: installedVersions.frontend,
-            latest: compactVersion(latestVersions.frontend),
-        },
-    ].map((item) => ({
+    return [{
         ...item,
         updateAvailable: isNewerVersion(item.latest, item.installed),
-    }));
+    }];
 }
 
-function buildUpdateState(system, latestVersions, latestCheckedAt) {
-    if (!hasCompleteLatestVersions(latestVersions)) {
-        throw new Error("Latest version metadata is incomplete.");
-    }
-    const items = buildUpdateItems(system, latestVersions);
-    const hasUpdates = items.some((item) => item.updateAvailable);
+function buildUpdateState(installedVersion, latestVersion, latestCheckedAt) {
+    if (!compactVersion(installedVersion)) throw new Error("Installed ComfyUI version is unavailable.");
+    if (!compactVersion(latestVersion)) throw new Error("ComfyUI Stable metadata is incomplete.");
+    const items = buildUpdateItems(installedVersion, latestVersion);
+    const hasUpdates = hasComfyUiStableUpdate({ items });
     return {
         status: hasUpdates ? "updates" : "latest",
         checkedAt: Date.now(),
         latestCheckedAt,
-        system,
         items,
     };
 }
 
-function buildOfflineUpdateState(system, error) {
+function buildOfflineUpdateState(installedVersion, error) {
     return {
         status: "error",
         checkedAt: Date.now(),
         latestCheckedAt: null,
-        system,
         error: String(error?.message || error || "Latest version check failed."),
-        items: buildUpdateItems(system, {}),
+        items: buildUpdateItems(installedVersion, ""),
     };
 }
 
@@ -1579,43 +1542,39 @@ async function checkUpdates(force = false) {
         setUpdateButtonState();
         return lastUpdateState;
     }
-    const cached = readCachedUpdateState();
+    const cached = readCachedStableMetadata();
     updateBusy = true;
     queuedUpdateForce = false;
     renderUpdateState({ status: "checking", items: lastUpdateState?.items || [] });
-    let system = null;
+    let installedVersion = "";
     try {
-        system = await fetchLocalUpdateSystem();
-        const installedVersions = installedVersionsFromSystem(system);
-        let latestVersions = null;
+        installedVersion = await fetchInstalledComfyUiVersion();
+        let latestVersion = "";
         let latestCheckedAt = null;
-        if (!force && isLatestMetadataFresh(cached)) {
-            const cachedLatestVersions = latestVersionsFromState(cached);
-            if (
-                hasCompleteLatestVersions(cachedLatestVersions)
-                && latestVersionsCoverInstalled(cachedLatestVersions, installedVersions)
-            ) {
-                latestVersions = cachedLatestVersions;
-                latestCheckedAt = getLatestMetadataTime(cached);
-            }
+        if (
+            !force
+            && isLatestMetadataFresh(cached)
+            && latestMetadataCoversInstalled(cached, installedVersion)
+        ) {
+            latestVersion = cached.latestVersion;
+            latestCheckedAt = getLatestMetadataTime(cached);
         }
-        if (!latestVersions) {
-            latestVersions = await fetchLatestUpdateVersions();
+        if (!latestVersion) {
+            latestVersion = await fetchComfyUiStableLatest();
             latestCheckedAt = Date.now();
+            writeStoredJson(UPDATE_CACHE_KEY, { latestVersion, latestCheckedAt });
         }
 
-        const state = buildUpdateState(system, latestVersions, latestCheckedAt);
-        writeStoredJson(UPDATE_CACHE_KEY, state);
+        const state = buildUpdateState(installedVersion, latestVersion, latestCheckedAt);
         renderUpdateState(state);
         return state;
     } catch (error) {
-        const state = system ? buildOfflineUpdateState(system, error) : {
+        const state = installedVersion ? buildOfflineUpdateState(installedVersion, error) : {
             status: "error",
             checkedAt: Date.now(),
             error: String(error?.message || error || "Update check failed."),
-            items: lastUpdateState?.items || [],
+            items: [],
         };
-        if (system) writeStoredJson(UPDATE_CACHE_KEY, state);
         renderUpdateState(state);
         return state;
     } finally {
@@ -1635,9 +1594,7 @@ function requestUpdateCheck(force = false) {
 
 function initializeUpdateWatch() {
     clearUpdateStartupTimer();
-    const cached = readCachedUpdateState();
-    if (cached) renderUpdateState({ ...cached, status: "checking" });
-    else renderUpdateState({ status: "idle", items: [] });
+    renderUpdateState({ status: "idle", items: [] });
     updateStartupTimer = window.setTimeout(() => {
         updateStartupTimer = null;
         requestUpdateCheck(false);
@@ -1718,7 +1675,7 @@ function createToolsRoot() {
 
     const updateTitle = document.createElement("div");
     updateTitle.className = "deno-floating-tools-section-title";
-    updateTitle.textContent = "Update Watch";
+    updateTitle.textContent = "ComfyUI Stable";
     updateStatusEl = document.createElement("span");
     updateStatusEl.className = "deno-floating-tools-update-status";
     updateStatusEl.textContent = "Not checked";

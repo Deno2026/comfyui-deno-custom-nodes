@@ -16,7 +16,7 @@ Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
 This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
-The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, optional **DENO Floating Tools** for Free VRAM, Portable update checks, and GPT/Gemini-ready Error Help reports, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the 한국어 전용 **디스코드용 영상 / 이미지 압축** page.
+The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, optional **DENO Floating Tools** for Free VRAM, ComfyUI Stable update checks, and GPT/Gemini-ready Error Help reports, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the 한국어 전용 **디스코드용 영상 / 이미지 압축** page.
 
 ## Release Notes
 
@@ -46,7 +46,7 @@ This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph
 
 DENO Floating Tools is an optional helper under `Settings > DENO > Tools`. It is off by default.
 
-When enabled, it adds a small draggable DENO icon to the ComfyUI screen. The panel can free ComfyUI VRAM through ComfyUI's built-in memory cleanup endpoint, show read-only update status for Portable installs, and open an Error Help report when a run fails.
+When enabled, it adds a small draggable DENO icon to the ComfyUI screen. The panel can free ComfyUI VRAM through ComfyUI's built-in memory cleanup endpoint, show read-only current/latest status for the ComfyUI Stable core release, and open an Error Help report when a run fails.
 
 Error Help creates a GPT/Gemini-ready report with the current workflow, Python executable and environment type, package versions, GPU details, recent traceback/log context, and custom node summary. It is read-only, opens a report window first, and copies only when you click `Copy Report`. Common secrets such as tokens, cookies, passwords, private keys, and URL credentials are masked before copy.
 
@@ -500,8 +500,8 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `workflow tools`
 - `floating tools`
 - `free vram`
-- `update watch`
-- `portable update check`
+- `comfyui stable`
+- `stable update check`
 
 ## Install
 
