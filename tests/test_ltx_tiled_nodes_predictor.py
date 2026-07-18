@@ -1044,6 +1044,209 @@ def test_av_sampler_freezes_audio_output_and_denoised_output(monkeypatch, fake_c
     assert torch.allclose(denoised_audio, audio)
 
 
+def test_av_sampler_preserves_retired_video_only_one_tile_execution(monkeypatch):
+    _patch_av_sampler_runtime(monkeypatch)
+    monkeypatch.setattr(
+        "deno_ltx_tiled_nodes._comfy_utils",
+        lambda: types.SimpleNamespace(PROGRESS_BAR_ENABLED=False),
+    )
+    video = torch.arange(1 * 2 * 3 * 4 * 4, dtype=torch.float32).reshape(
+        (1, 2, 3, 4, 4)
+    )
+    calls = []
+
+    class LegacyNoise:
+        seed = 321
+
+        def generate_noise(self, latent):
+            assert latent["samples"] is video
+            return torch.zeros_like(latent["samples"])
+
+    class LegacyGuider:
+        model_options = {}
+        model_patcher = types.SimpleNamespace(
+            model=types.SimpleNamespace(process_latent_out=lambda value: value)
+        )
+
+        def sample(
+            self,
+            noise,
+            source,
+            sampler,
+            sigmas,
+            *,
+            denoise_mask=None,
+            callback=None,
+            disable_pbar=True,
+            seed=None,
+        ):
+            calls.append(
+                {
+                    "noise": noise,
+                    "source": source,
+                    "sampler": sampler,
+                    "sigmas": sigmas,
+                    "denoise_mask": denoise_mask,
+                    "disable_pbar": disable_pbar,
+                    "seed": seed,
+                }
+            )
+            callback.x0_output["x0"] = source + 2.0
+            return source + 1.0
+
+    sampler_token = object()
+    sigmas = torch.tensor([1.0, 0.0])
+    output, denoised = DenoLTXAVStepFusedTiledSampler().sample(
+        LegacyNoise(),
+        LegacyGuider(),
+        sampler_token,
+        sigmas,
+        {
+            "samples": video,
+            "noise_mask": torch.ones_like(video),
+            "workflow_tag": "legacy-preserved",
+            "downscale_ratio_spacial": 8,
+            "downscale_ratio_temporal": 2,
+        },
+        horizontal_tiles=1,
+        vertical_tiles=1,
+        overlap=1,
+        audio_mode="freeze",
+        blend_mode="hann",
+        aggressive_memory_cleanup=False,
+        debug=False,
+        _deno_legacy_video_compat=True,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["source"] is video
+    assert calls[0]["sampler"] is sampler_token
+    assert calls[0]["sigmas"] is sigmas
+    assert calls[0]["seed"] == 321
+    assert torch.equal(output["samples"], video + 1.0)
+    assert torch.equal(denoised["samples"], video + 2.0)
+    assert output["workflow_tag"] == "legacy-preserved"
+    assert denoised["workflow_tag"] == "legacy-preserved"
+    assert "deno_ltx_step_fused_tiling" not in output
+    assert "deno_ltx_step_fused_tiling" not in denoised
+    for latent in (output, denoised):
+        assert "downscale_ratio_spacial" not in latent
+        assert "downscale_ratio_temporal" not in latent
+
+
+def test_current_av_sampler_stays_strict_for_video_only_latent_without_migration_marker(monkeypatch):
+    _patch_av_sampler_runtime(monkeypatch)
+    monkeypatch.setattr(
+        "deno_ltx_tiled_nodes._reject_unsupported_guider",
+        lambda _guider: None,
+    )
+    video = torch.zeros((1, 2, 3, 4, 4))
+
+    with pytest.raises(TypeError, match="expects an LTX AV nested latent"):
+        DenoLTXAVStepFusedTiledSampler().sample(
+            _FakeNoise(),
+            _FakeSamplerGuider(x0_video=video, x0_audio=torch.zeros((1, 1, 2, 2))),
+            object(),
+            torch.tensor([1.0, 0.0]),
+            {"samples": video},
+            horizontal_tiles=1,
+            vertical_tiles=1,
+            overlap=1,
+            audio_mode="freeze",
+        )
+
+
+def test_legacy_video_migration_marker_runs_v0762_default_one_by_two_tiles(monkeypatch):
+    _patch_av_sampler_runtime(monkeypatch)
+    monkeypatch.setattr(
+        "deno_ltx_tiled_nodes._comfy_utils",
+        lambda: types.SimpleNamespace(PROGRESS_BAR_ENABLED=False),
+    )
+    video = torch.arange(1 * 2 * 3 * 32 * 16, dtype=torch.float32).reshape(
+        (1, 2, 3, 32, 16)
+    )
+    previous_calls = []
+
+    def previous_calculator(args):
+        previous_calls.append(args)
+        return [args["input"] + 0.25]
+
+    class LegacyNoise:
+        seed = 987
+
+        def generate_noise(self, latent):
+            assert latent["samples"] is video
+            return torch.zeros_like(video)
+
+    class LegacyGuider:
+        model_options = {"sampler_calc_cond_batch_function": previous_calculator}
+        model_patcher = types.SimpleNamespace(
+            model=types.SimpleNamespace(process_latent_out=lambda value: value)
+        )
+
+        def sample(
+            self,
+            noise,
+            source,
+            sampler,
+            sigmas,
+            *,
+            denoise_mask=None,
+            callback=None,
+            disable_pbar=True,
+            seed=None,
+        ):
+            assert torch.equal(noise, torch.zeros_like(video))
+            assert source is video
+            assert seed == 987
+            hook = self.model_options["sampler_calc_cond_batch_function"]
+            predictions = hook(
+                {
+                    "input": source,
+                    "sigma": sigmas[:1],
+                    "model": object(),
+                    "conds": [[], []],
+                    "model_options": self.model_options,
+                }
+            )
+            assert len(predictions) == 1
+            assert tuple(predictions[0].shape) == tuple(source.shape)
+            callback.x0_output["x0"] = source + 2.0
+            return source + 1.0
+
+    output, denoised = DenoLTXAVStepFusedTiledSampler().sample(
+        LegacyNoise(),
+        LegacyGuider(),
+        object(),
+        torch.tensor([1.0, 0.0]),
+        {"samples": video, "workflow_tag": "legacy-1x2"},
+        horizontal_tiles=1,
+        vertical_tiles=2,
+        overlap=8,
+        audio_mode="freeze",
+        blend_mode="hann",
+        aggressive_memory_cleanup=False,
+        debug=False,
+        _deno_legacy_video_compat=True,
+    )
+
+    assert len(previous_calls) == 2
+    assert all(tuple(call["input"].shape[-2:]) == (20, 16) for call in previous_calls)
+    assert torch.equal(output["samples"], video + 1.0)
+    assert torch.equal(denoised["samples"], video + 2.0)
+    assert output["workflow_tag"] == "legacy-1x2"
+    assert denoised["workflow_tag"] == "legacy-1x2"
+    expected_meta = {
+        "horizontal_tiles": 1,
+        "vertical_tiles": 2,
+        "overlap": 8,
+        "blend_mode": "hann",
+        "prediction_calls": 1,
+    }
+    assert output["deno_ltx_step_fused_tiling"] == expected_meta
+    assert denoised["deno_ltx_step_fused_tiling"] == expected_meta
+
+
 def test_av_sampler_rejects_missing_callback_x0(monkeypatch, fake_comfy_latent_utils):
     _patch_av_sampler_runtime(monkeypatch)
     video = torch.zeros((1, 2, 3, 6, 4))

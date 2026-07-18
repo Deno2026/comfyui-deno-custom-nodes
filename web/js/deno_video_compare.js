@@ -191,6 +191,9 @@ function getState(node) {
       panStart: null, down: null, raf: 0, dom: null,
       ar: 16 / 9, _fitting: false, _wasPlaying: false, burnLabels: false,
       manualSized: isManualSized(node), resizeTrackingArmed: false,
+      destroyed: false, detached: false, connectedOnce: false, resumeOnAttach: false,
+      beginRun: 0, beginInterval: null, beginTimeout: null,
+      transientCleanups: new Set(), audioController: null,
       // audio (Phase 2): WebAudio fed by raw planar f32 PCM
       actx: null, master: null, gA: null, gB: null,
       bufA: null, bufB: null, srcA: null, srcB: null,
@@ -229,21 +232,112 @@ app.registerExtension({
     };
     const onRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
-      const s = this.__dvp;
-      if (s && s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; }
-      if (s) {
-        try { stopAudioSources(this); } catch (e) {}
-        if (s.actx) { try { s.actx.close(); } catch (e) {} s.actx = null; }
-        if (s.cache) s.cache.clear();
-        if (s.dom?.onFullscreenChange) {
-          document.removeEventListener("fullscreenchange", s.dom.onFullscreenChange);
-          document.removeEventListener("webkitfullscreenchange", s.dom.onFullscreenChange);
-        }
-      }
+      disposeVideoCompareNode(this);
       return onRemoved?.apply(this, arguments);
     };
   },
 });
+
+function clearPlaybackBeginTimers(state) {
+  if (state.beginInterval != null) {
+    clearInterval(state.beginInterval);
+    state.beginInterval = null;
+  }
+  if (state.beginTimeout != null) {
+    clearTimeout(state.beginTimeout);
+    state.beginTimeout = null;
+  }
+}
+
+function cancelPendingPlaybackBegin(state) {
+  state.beginRun = (state.beginRun || 0) + 1;
+  clearPlaybackBeginTimers(state);
+}
+
+function schedulePlaybackBegin(state, firstFrame, begin) {
+  cancelPendingPlaybackBegin(state);
+  const run = state.beginRun;
+  let begun = false;
+  const finish = () => {
+    if (begun || state.destroyed || run !== state.beginRun) return false;
+    if (begin() === false) return false;
+    begun = true;
+    clearPlaybackBeginTimers(state);
+    return true;
+  };
+  if (!firstFrame || firstFrame.ready) {
+    if (finish()) return finish;
+  }
+  state.beginInterval = setInterval(() => {
+    if (!firstFrame || firstFrame.ready) finish();
+  }, 40);
+  state.beginTimeout = setTimeout(finish, 1500);
+  return finish;
+}
+
+function clearTransientInteractions(state) {
+  for (const cleanup of [...(state.transientCleanups || [])]) {
+    try { cleanup(); } catch (e) {}
+  }
+  state.transientCleanups?.clear();
+}
+
+function closeAudioContext(node, clearBuffers = false) {
+  const state = node.__dvp;
+  if (!state) return;
+  state.audioController?.abort();
+  state.audioController = null;
+  state.audioRun = (state.audioRun || 0) + 1;
+  try { stopAudioSources(node); } catch (e) {}
+  if (state.actx) {
+    try { state.actx.close(); } catch (e) {}
+  }
+  state.actx = null;
+  state.master = null;
+  state.gA = null;
+  state.gB = null;
+  if (clearBuffers) {
+    state.bufA = null;
+    state.bufB = null;
+  }
+}
+
+function stopDetachedVideoCompare(node, state) {
+  state.resumeOnAttach = state.playing;
+  state.detached = true;
+  state.playing = false;
+  cancelPendingPlaybackBegin(state);
+  clearTransientInteractions(state);
+  closeAudioContext(node);
+  if (state.dom?.playBtn) {
+    state.dom.playBtn.textContent = "▶";
+    state.dom.playBtn.classList.remove("on");
+  }
+}
+
+function disposeVideoCompareNode(node) {
+  const state = node.__dvp;
+  if (!state || state.destroyed) return;
+  state.destroyed = true;
+  state.playing = false;
+  cancelPendingPlaybackBegin(state);
+  clearTransientInteractions(state);
+  if (state.raf) {
+    cancelAnimationFrame(state.raf);
+    state.raf = 0;
+  }
+  closeAudioContext(node, true);
+  if (state.cache) {
+    for (const entry of state.cache.values()) {
+      try { entry.img.src = ""; } catch (e) {}
+    }
+    state.cache.clear();
+  }
+  if (state.dom?.onFullscreenChange) {
+    document.removeEventListener("fullscreenchange", state.dom.onFullscreenChange);
+    document.removeEventListener("webkitfullscreenchange", state.dom.onFullscreenChange);
+  }
+}
 
 function applyOutputLabel(node) {
   const o = node && node.outputs && node.outputs[0];
@@ -257,6 +351,8 @@ function setupNode(node) {
   if (!node || node.__dvpSetup) return;
   node.__dvpSetup = true;
   const st = getState(node);
+  st.destroyed = false;
+  st.detached = false;
   st.manualSized = isManualSized(node);
 
   for (const n of HIDDEN_WIDGETS) hideWidget(getWidget(node, n));
@@ -290,8 +386,25 @@ function setupNode(node) {
       return r;
     };
   }
+  if (!node.__dvpDrawWrapped) {
+    node.__dvpDrawWrapped = true;
+    const originalDraw = node.onDrawBackground;
+    node.onDrawBackground = function () {
+      const result = originalDraw?.apply(this, arguments);
+      const state = this.__dvp;
+      if (state && !state.destroyed && state.dom?.root?.isConnected) {
+        const shouldResume = state.detached && state.resumeOnAttach;
+        ensureAnimationLoop(this);
+        if (shouldResume) {
+          state.resumeOnAttach = false;
+          startPlayback(this);
+        }
+      }
+      return result;
+    };
+  }
   queueMicrotask(() => { st.resizeTrackingArmed = true; });
-  if (!st.raf) st.raf = requestAnimationFrame(loopOf(node));
+  ensureAnimationLoop(node);
 }
 
 function buildDom(node) {
@@ -513,13 +626,27 @@ function stepFrame(node, dir) {
   s.t = Math.max(0, Math.min((i + 0.5) / Math.max(1e-6, s.fps), durOf(node)));
   render(node);
 }
+function ensureAnimationLoop(node) {
+  const state = getState(node);
+  if (state.destroyed || state.raf) return;
+  state.detached = false;
+  state.raf = requestAnimationFrame(loopOf(node));
+}
 function loopOf(node) {
   const tick = () => {
     const s = node.__dvp;
-    if (!s) return;
+    if (!s || s.destroyed) return;
     if (!s.dom || !s.dom.root.isConnected) {
-      s.raf = requestAnimationFrame(tick); return;
+      if (s.connectedOnce) {
+        s.raf = 0;
+        stopDetachedVideoCompare(node, s);
+        return;
+      }
+      s.raf = requestAnimationFrame(tick);
+      return;
     }
+    s.connectedOnce = true;
+    s.detached = false;
     if (s.playing && s.frameCount > 0) {
       const dur = durOf(node);
       const t = s.startT + (performance.now() - s.playMs) / 1000 * s.speed;
@@ -531,7 +658,7 @@ function loopOf(node) {
       } else s.t = t;
     }
     render(node);
-    s.raf = requestAnimationFrame(tick);
+    if (!s.destroyed) s.raf = requestAnimationFrame(tick);
   };
   return tick;
 }
@@ -547,6 +674,7 @@ function unlinkAudioNode(source) {
 }
 function ensureCtx(node) {
   const s = getState(node);
+  if (s.destroyed || s.detached) return null;
   if (!s.actx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
@@ -566,8 +694,8 @@ function markGesture(node) {
   ensureCtx(node);
   applyAudioGains(node);
 }
-async function decodeF32(url, ch, samples, sr, ctx) {
-  const res = await fetch(url);
+async function decodeF32(url, ch, samples, sr, ctx, signal = undefined) {
+  const res = await fetch(url, { signal });
   const pcm = new Float32Array(await res.arrayBuffer());
   const buf = ctx.createBuffer(Math.max(1, ch), Math.max(1, samples), sr || 44100);
   for (let c = 0; c < ch; c++) {
@@ -584,22 +712,35 @@ function audioViewUrl(node, fn) {
 }
 async function loadAudio(node) {
   const s = getState(node);
+  s.audioController?.abort();
+  s.audioController = null;
+  if (s.destroyed || s.detached) return;
+  const controller = new AbortController();
+  s.audioController = controller;
+  const run = ++s.audioRun;
   s.bufA = s.bufB = null;
   s.metaA = (s.metaA && s.metaA.filename) ? s.metaA : null;
   s.metaB = (s.metaB && s.metaB.filename) ? s.metaB : null;
-  if (!s.metaA && !s.metaB) { applyAudioGains(node); return; }
+  if (!s.metaA && !s.metaB) {
+    if (s.audioController === controller) s.audioController = null;
+    applyAudioGains(node);
+    return;
+  }
   const ctx = ensureCtx(node);
-  if (!ctx) return;
-  const run = ++s.audioRun;
+  if (!ctx) {
+    if (s.audioController === controller) s.audioController = null;
+    return;
+  }
   const jobs = [];
   if (s.metaA) jobs.push(decodeF32(audioViewUrl(node, s.metaA.filename),
-    s.metaA.channels, s.metaA.samples, s.metaA.sample_rate, ctx)
-    .then((b) => { if (run === s.audioRun) s.bufA = b; }).catch(() => {}));
+    s.metaA.channels, s.metaA.samples, s.metaA.sample_rate, ctx, controller.signal)
+    .then((b) => { if (run === s.audioRun && !s.destroyed) s.bufA = b; }).catch(() => {}));
   if (s.metaB) jobs.push(decodeF32(audioViewUrl(node, s.metaB.filename),
-    s.metaB.channels, s.metaB.samples, s.metaB.sample_rate, ctx)
-    .then((b) => { if (run === s.audioRun) s.bufB = b; }).catch(() => {}));
+    s.metaB.channels, s.metaB.samples, s.metaB.sample_rate, ctx, controller.signal)
+    .then((b) => { if (run === s.audioRun && !s.destroyed) s.bufB = b; }).catch(() => {}));
   await Promise.all(jobs);
-  if (run !== s.audioRun) return;
+  if (s.audioController === controller) s.audioController = null;
+  if (run !== s.audioRun || controller.signal.aborted || s.destroyed || s.detached) return;
   // default the A/B selector to a side that actually carries sound
   if (s.audio === "A" && !physAudioBuf(node, "A") && physAudioBuf(node, "B")) s.audio = "B";
   else if (s.audio === "B" && !physAudioBuf(node, "B") && physAudioBuf(node, "A")) s.audio = "A";
@@ -818,7 +959,10 @@ function updateLabels(node) {
 function handleExecuted(node, output) {
   setupNode(node);
   const s = getState(node), d = s.dom;
-  if (!d) return;
+  if (!d || s.destroyed) return;
+  cancelPendingPlaybackBegin(s);
+  s.resumeOnAttach = false;
+  ensureAnimationLoop(node);
   const m = Array.isArray(output.deno_video_compare)
     ? (output.deno_video_compare[0] || {}) : {};
   s.filesA = Array.isArray(m.files_a) ? m.files_a : [];
@@ -876,21 +1020,16 @@ function handleExecuted(node, output) {
   // the original waiting on loadedmetadata before playing)
   const refSide = s.haveA ? "a" : (s.haveB ? "b" : null);
   const begin = () => {
-    if (!(s.haveA || s.haveB)) return;
+    if (s.destroyed || s.detached || !d.root.isConnected || !(s.haveA || s.haveB)) return false;
     s.t = 0; s.startT = 0;
     if (s.mode === "Toggle") pausePlayback(node);
     else startPlayback(node);
     render(node);
+    return true;
   };
   if (!refSide) { render(node); return; }
   const e0 = getImg(node, refSide, 0);
-  if (e0 && e0.ready) begin();
-  else if (e0) {
-    const wait = setInterval(() => {
-      if (e0.ready) { clearInterval(wait); begin(); }
-    }, 40);
-    setTimeout(() => { clearInterval(wait); begin(); }, 1500);
-  } else begin();
+  schedulePlaybackBegin(s, e0, begin);
   render(node);
 }
 
@@ -944,6 +1083,7 @@ function startFullscreenHorizontalPan(node, event) {
   if (s.zoom <= 1 || (!s.haveA && !s.haveB)) return true;
 
   let startX = event.clientX - s.panX;
+  let active = true;
   d.stage.classList.add("grabbing");
 
   const move = (ev) => {
@@ -953,15 +1093,22 @@ function startFullscreenHorizontalPan(node, event) {
     clampPan(node);
     render(node);
   };
-  const done = (ev) => {
-    ev?.preventDefault?.();
-    ev?.stopPropagation?.();
+  const cleanup = () => {
+    if (!active) return;
+    active = false;
     d.stage.classList.remove("grabbing");
     window.removeEventListener("pointermove", move, true);
     window.removeEventListener("pointerup", done, true);
     window.removeEventListener("pointercancel", done, true);
+    s.transientCleanups.delete(cleanup);
+  };
+  const done = (ev) => {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+    cleanup();
   };
 
+  s.transientCleanups.add(cleanup);
   window.addEventListener("pointermove", move, true);
   window.addEventListener("pointerup", done, true);
   window.addEventListener("pointercancel", done, true);
@@ -1055,6 +1202,7 @@ function wireInteractions(node, d, btns) {
     const cv = app.canvas;
     if (!cv || !cv.ds || !cv.ds.offset) return;
     let lx = e.clientX, ly = e.clientY;
+    let active = true;
     const mv = (ev) => {
       const sc = cv.ds.scale || 1;
       cv.ds.offset[0] += (ev.clientX - lx) / sc;
@@ -1063,12 +1211,19 @@ function wireInteractions(node, d, btns) {
       (cv.setDirty ? cv.setDirty(true, true)
         : app.graph?.setDirtyCanvas(true, true));
     };
-    const up = () => {
+    const cleanup = () => {
+      if (!active) return;
+      active = false;
       window.removeEventListener("pointermove", mv, true);
       window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+      s.transientCleanups.delete(cleanup);
     };
+    const up = () => cleanup();
+    s.transientCleanups.add(cleanup);
     window.addEventListener("pointermove", mv, true);
     window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
   }, true);
   d.root.addEventListener("auxclick", (e) => {
     if (e.button !== 1 || !isFullscreenRoot(d.root)) return;
@@ -1159,4 +1314,11 @@ function scrubTo(node, clientX) {
   const r = s.dom.scrub.getBoundingClientRect();
   const ratio = Math.max(0, Math.min(1, (clientX - r.left) / (r.width || 1)));
   seekAll(node, ratio * (getTimeline(node).dur || 0));
+}
+
+if (typeof window !== "undefined" && typeof window.__DENO_VIDEO_COMPARE_TEST_HOOK__ === "function") {
+  window.__DENO_VIDEO_COMPARE_TEST_HOOK__({
+    cancelPendingPlaybackBegin,
+    schedulePlaybackBegin,
+  });
 }

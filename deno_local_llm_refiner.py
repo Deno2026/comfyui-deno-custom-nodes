@@ -1287,6 +1287,25 @@ def _word_found(text: str, words: List[str]) -> Optional[str]:
     return None
 
 
+def _negated_word_found(text: str, words: List[str]) -> Optional[str]:
+    lowered = str(text or "").lower()
+    for word in words:
+        needle = str(word or "").strip().lower()
+        if not needle:
+            continue
+        escaped = re.escape(needle)
+        patterns = (
+            rf"\bnot\s+(?!(?:only|just)\b)(?:(?:a|an|the)\s+)?(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
+            rf"\b(?:cannot|can't|cant)\s+(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
+            rf"\b(?:do|does|did|would|should|could|can|is|are|was|were|have|has|had)\s+not\s+(?:(?:a|an|the)\s+)?(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
+            rf"\bnever\s+(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
+            rf"\b(?:unable|refuse(?:d|s)?|decline(?:d|s)?|fail(?:ed|s)?)\s+to\s+(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
+        )
+        if any(re.search(pattern, lowered) for pattern in patterns):
+            return str(word).strip()
+    return None
+
+
 def _judge_review_text(
     review: Any,
     pass_words: Any,
@@ -1303,10 +1322,13 @@ def _judge_review_text(
         for key in ("verdict", "status", "result", "decision"):
             if key in parsed:
                 value = str(parsed.get(key) or "").strip()
+                negated_pass_hit = _negated_word_found(value, pass_tokens)
                 pass_hit = _word_found(value, pass_tokens)
                 reject_hit = _word_found(value, reject_tokens)
                 if reject_hit:
                     return False, "FAIL", reason or f"Reviewer returned {value}."
+                if negated_pass_hit:
+                    return False, "FAIL", _friendly_review_reason(reason, negated_pass_hit, False)
                 if pass_hit:
                     return True, "OK", reason or f"Reviewer returned {value}."
         for key in ("ok", "pass", "passed", "accepted", "save"):
@@ -1314,9 +1336,12 @@ def _judge_review_text(
                 return bool(parsed[key]), "OK" if parsed[key] else "FAIL", reason or f"Reviewer field {key}={parsed[key]}."
 
     reject_hit = _word_found(review_text, reject_tokens)
+    negated_pass_hit = _negated_word_found(review_text, pass_tokens)
     pass_hit = _word_found(review_text, pass_tokens)
     if reject_hit:
         return False, "FAIL", _friendly_review_reason(reason, reject_hit, False)
+    if negated_pass_hit:
+        return False, "FAIL", _friendly_review_reason(reason, negated_pass_hit, False)
     if pass_hit:
         return True, "OK", _friendly_review_reason(reason, pass_hit, True)
 
@@ -1447,25 +1472,62 @@ def _image_attachment_metadata(attachments: List[Dict[str, Any]]) -> List[Dict[s
     ]
 
 
-def _stable_reviewer_preview_path(unique_id: Any = None) -> Tuple[str, str, str]:
+def _reviewer_workflow_id_from_extra_pnginfo(extra_pnginfo: Any) -> Optional[str]:
+    candidates = extra_pnginfo if isinstance(extra_pnginfo, (list, tuple)) else [extra_pnginfo]
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        workflow = candidate.get("workflow")
+        workflows = workflow if isinstance(workflow, (list, tuple)) else [workflow]
+        for item in workflows:
+            if not isinstance(item, dict):
+                continue
+            workflow_id = str(item.get("id") or "").strip()
+            if workflow_id:
+                return workflow_id
+            extra = item.get("extra")
+            workspace_info = extra.get("workspace_info") if isinstance(extra, dict) else None
+            workspace_id = str(workspace_info.get("id") or "").strip() if isinstance(workspace_info, dict) else ""
+            if workspace_id:
+                return f"workspace:{workspace_id}"
+    return None
+
+
+def _reviewer_storage_token(unique_id: Any = None, extra_pnginfo: Any = None) -> str:
+    node_key = str(_extract_scalar(unique_id, "node") or "node")
+    workflow_id = _reviewer_workflow_id_from_extra_pnginfo(extra_pnginfo)
+    if not workflow_id:
+        return "".join(c for c in node_key if c.isalnum()) or "node"
+    workflow_token = hashlib.sha256(workflow_id.encode("utf-8")).hexdigest()[:16]
+    node_token = hashlib.sha256(node_key.encode("utf-8")).hexdigest()[:16]
+    return f"{workflow_token}_{node_token}"
+
+
+def _stable_reviewer_preview_path(
+    unique_id: Any = None,
+    extra_pnginfo: Any = None,
+) -> Tuple[str, str, str]:
     import folder_paths
 
     temp_dir = folder_paths.get_temp_directory()
     abs_dir = os.path.join(temp_dir, REVIEWER_PREVIEW_SUBFOLDER)
     os.makedirs(abs_dir, exist_ok=True)
-    node_token = "".join(c for c in str(_extract_scalar(unique_id, "node")) if c.isalnum()) or "node"
-    filename = f"deno_llm_reviewer_{node_token}.jpg"
+    storage_token = _reviewer_storage_token(unique_id, extra_pnginfo)
+    filename = f"deno_llm_reviewer_{storage_token}.jpg"
     return os.path.join(abs_dir, filename), filename, REVIEWER_PREVIEW_SUBFOLDER
 
 
-def _stable_reviewer_snapshot_path(unique_id: Any = None) -> Tuple[str, str, str]:
+def _stable_reviewer_snapshot_path(
+    unique_id: Any = None,
+    extra_pnginfo: Any = None,
+) -> Tuple[str, str, str]:
     import folder_paths
 
     temp_dir = folder_paths.get_temp_directory()
     abs_dir = os.path.join(temp_dir, REVIEWER_PREVIEW_SUBFOLDER)
     os.makedirs(abs_dir, exist_ok=True)
-    node_token = "".join(c for c in str(_extract_scalar(unique_id, "node")) if c.isalnum()) or "node"
-    filename = f"deno_llm_reviewer_{node_token}.npy"
+    storage_token = _reviewer_storage_token(unique_id, extra_pnginfo)
+    filename = f"deno_llm_reviewer_{storage_token}.npy"
     return os.path.join(abs_dir, filename), filename, REVIEWER_PREVIEW_SUBFOLDER
 
 
@@ -1491,12 +1553,16 @@ def _normalize_image_array_for_snapshot(image: Any) -> Optional[np.ndarray]:
     return np.clip(arr, 0.0, 1.0).astype(np.float32, copy=False)
 
 
-def _save_reviewer_snapshot_image(image: Any, unique_id: Any = None) -> Optional[Dict[str, Any]]:
+def _save_reviewer_snapshot_image(
+    image: Any,
+    unique_id: Any = None,
+    extra_pnginfo: Any = None,
+) -> Optional[Dict[str, Any]]:
     try:
         arr = _normalize_image_array_for_snapshot(image)
         if arr is None:
             return None
-        out_path, filename, subfolder = _stable_reviewer_snapshot_path(unique_id)
+        out_path, filename, subfolder = _stable_reviewer_snapshot_path(unique_id, extra_pnginfo)
         np.save(out_path, arr, allow_pickle=False)
         return {
             "filename": filename,
@@ -1553,6 +1619,7 @@ def _load_reviewer_snapshot_image(reviewer_state: Any, unique_id: Any = None):
 def _save_reviewer_preview_image(
     image: Any,
     unique_id: Any = None,
+    extra_pnginfo: Any = None,
     max_side: int = 640,
 ) -> Optional[Dict[str, Any]]:
     image = _extract_media(image)
@@ -1584,7 +1651,7 @@ def _save_reviewer_preview_image(
         pil = Image.fromarray(arr, "RGB")
         original_width, original_height = pil.size
         pil.thumbnail((int(max_side), int(max_side)), Image.Resampling.LANCZOS)
-        out_path, filename, subfolder = _stable_reviewer_preview_path(unique_id)
+        out_path, filename, subfolder = _stable_reviewer_preview_path(unique_id, extra_pnginfo)
         pil.save(out_path, format="JPEG", quality=90)
         return {
             "filename": filename,
@@ -2027,6 +2094,32 @@ def unload_local_llm_model(provider: str, server_url: str, model: str) -> Dict[s
     raise RuntimeError("Provider must be Ollama, LM Studio, llama.cpp, vLLM, or Custom.")
 
 
+def _cleanup_aborted_local_llm_batch(provider: str, server_url: str, model: str) -> Dict[str, Any]:
+    """Best-effort cleanup for an unload-after-run batch that ended before its last request."""
+    try:
+        result = unload_local_llm_model(provider, server_url, model)
+        if isinstance(result, dict):
+            if not result.get("ok"):
+                logging.warning(
+                    "DENO Local LLM could not unload an aborted %s batch for %s: %s",
+                    provider,
+                    model,
+                    result.get("message") or result.get("error") or result,
+                )
+            return result
+        return {"ok": True, "result": result}
+    except Exception as cleanup_error:
+        logging.warning(
+            "DENO Local LLM cleanup after an aborted %s batch failed for %s: %s",
+            provider,
+            model,
+            cleanup_error,
+        )
+        return {"ok": False, "error": str(cleanup_error)}
+    finally:
+        _clear_local_llm_warm(provider, server_url, model)
+
+
 async def _handle_list_models(request):
     try:
         payload = await request.json()
@@ -2257,6 +2350,8 @@ class DenoLocalLLMRefiner:
         thinking_results: List[str] = []
         post_run_unload_warnings: List[str] = []
         total = len(prompts)
+        batch_request_started = False
+        batch_cleanup_state: Dict[str, bool] = {"provider_cleanup_attempted": False}
 
         _send_progress({
             "node_id": node_id,
@@ -2291,6 +2386,8 @@ class DenoLocalLLMRefiner:
                 current_seed = _seed_for_index(seed_value, seed_mode_value, index)
                 is_last = index == total - 1
                 active_key = _mark_local_llm_active(provider_value, server_value, model_value)
+                batch_request_started = True
+                batch_cleanup_state = {"provider_cleanup_attempted": False}
                 try:
                     answer, thought, raw = self._run_single(
                         provider=provider_value,
@@ -2307,6 +2404,7 @@ class DenoLocalLLMRefiner:
                         node_id=node_id,
                         index=index + 1,
                         total=total,
+                        cleanup_state=batch_cleanup_state,
                     )
                 finally:
                     _clear_local_llm_active(active_key)
@@ -2327,6 +2425,12 @@ class DenoLocalLLMRefiner:
                 results.append(answer)
                 thinking_results.append(thought)
         except Exception as exc:
+            if (
+                memory_value == MEMORY_UNLOAD_AFTER_RUN
+                and batch_request_started
+                and not batch_cleanup_state.get("provider_cleanup_attempted", False)
+            ):
+                _cleanup_aborted_local_llm_batch(provider_value, server_value, model_value)
             _send_progress({
                 "node_id": node_id,
                 "status": "error",
@@ -2388,6 +2492,7 @@ class DenoLocalLLMRefiner:
         node_id: str,
         index: int,
         total: int,
+        cleanup_state: Optional[Dict[str, bool]] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
         if provider == PROVIDER_LM_STUDIO:
             return self._run_lm_studio(
@@ -2404,6 +2509,7 @@ class DenoLocalLLMRefiner:
                 node_id,
                 index,
                 total,
+                cleanup_state,
             )
         if provider in OPENAI_COMPATIBLE_PROVIDERS:
             return self._run_openai_compatible(
@@ -2421,6 +2527,7 @@ class DenoLocalLLMRefiner:
                 node_id,
                 index,
                 total,
+                cleanup_state,
             )
         return self._run_ollama(
             server_url,
@@ -2436,6 +2543,7 @@ class DenoLocalLLMRefiner:
             node_id,
             index,
             total,
+            cleanup_state,
         )
 
     def _run_ollama(
@@ -2453,6 +2561,7 @@ class DenoLocalLLMRefiner:
         node_id: str,
         index: int,
         total: int,
+        cleanup_state: Optional[Dict[str, bool]] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
         base = _normalize_ollama_url(server_url)
         memory_value = _normalize_model_memory(model_memory)
@@ -2479,7 +2588,15 @@ class DenoLocalLLMRefiner:
         last_emit = 0.0
         cancel_key = _llm_state_key(PROVIDER_OLLAMA, base, model)
 
+        request_observed = False
         for chunk in _http_stream_json_lines(f"{base}/api/chat", payload, cancel_key=cancel_key):
+            if not request_observed:
+                request_observed = True
+                if _should_unload_after_run(memory_value, is_last) and cleanup_state is not None:
+                    # A provider response proves that the terminal Ollama request carrying
+                    # keep_alive=0m was accepted. Post-processing must not issue a second
+                    # unload request for that same completed provider-owned cleanup.
+                    cleanup_state["provider_cleanup_attempted"] = True
             if chunk.get("error"):
                 detail = str(chunk.get("error"))
                 if _looks_like_model_unavailable_error(detail):
@@ -2559,6 +2676,7 @@ class DenoLocalLLMRefiner:
         node_id: str,
         index: int,
         total: int,
+        cleanup_state: Optional[Dict[str, bool]] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
         provider = _normalize_provider(provider)
         server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
@@ -2654,6 +2772,8 @@ class DenoLocalLLMRefiner:
                     )
         finally:
             if _should_unload_after_run(memory_value, is_last):
+                if cleanup_state is not None:
+                    cleanup_state["provider_cleanup_attempted"] = True
                 post_run_unload = self._openai_compatible_unload_after_run(provider, server_root, model)
 
         raw = {
@@ -2710,6 +2830,7 @@ class DenoLocalLLMRefiner:
         node_id: str,
         index: int,
         total: int,
+        cleanup_state: Optional[Dict[str, bool]] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
         native_base = _normalize_lm_native_url(server_url)
         openai_base = _normalize_lm_openai_url(server_url)
@@ -2738,41 +2859,41 @@ class DenoLocalLLMRefiner:
         # while the real request uses LM Studio's native chat endpoint.
         cancel_key = _llm_state_key(PROVIDER_LM_STUDIO, openai_base, model)
 
-        for event_name, chunk in _http_stream_sse(f"{native_base}/api/v1/chat", payload, cancel_key=cancel_key):
-            if chunk.get("error"):
-                error = chunk.get("error")
-                if isinstance(error, dict):
-                    detail = str(error.get("message") or error)
-                else:
-                    detail = str(error)
-                if _looks_like_model_unavailable_error(detail):
-                    raise RuntimeError(_model_unavailable_message(model, detail))
-                raise RuntimeError(detail)
-            event_type = str(chunk.get("type") or event_name or "")
-            content = str(chunk.get("content") or "") if event_type == "message.delta" else ""
-            thought = str(chunk.get("content") or "") if event_type == "reasoning.delta" else ""
-            if content:
-                answer_parts.append(content)
-            if thought and thinking:
-                thinking_parts.append(thought)
-            if event_type == "chat.end":
-                final_meta = chunk
-            now = time.monotonic()
-            if now - last_emit > 0.12 or content or thought:
-                last_emit = now
-                _send_progress({
-                    "node_id": node_id,
-                    "status": "running",
-                    "provider": PROVIDER_LM_STUDIO,
-                    "model": model,
-                    "index": index,
-                    "total": total,
-                    "answer": "".join(answer_parts),
-                    "thinking": "".join(thinking_parts),
-                })
-
         diagnostic_meta: Optional[Dict[str, Any]] = None
         try:
+            for event_name, chunk in _http_stream_sse(f"{native_base}/api/v1/chat", payload, cancel_key=cancel_key):
+                if chunk.get("error"):
+                    error = chunk.get("error")
+                    if isinstance(error, dict):
+                        detail = str(error.get("message") or error)
+                    else:
+                        detail = str(error)
+                    if _looks_like_model_unavailable_error(detail):
+                        raise RuntimeError(_model_unavailable_message(model, detail))
+                    raise RuntimeError(detail)
+                event_type = str(chunk.get("type") or event_name or "")
+                content = str(chunk.get("content") or "") if event_type == "message.delta" else ""
+                thought = str(chunk.get("content") or "") if event_type == "reasoning.delta" else ""
+                if content:
+                    answer_parts.append(content)
+                if thought and thinking:
+                    thinking_parts.append(thought)
+                if event_type == "chat.end":
+                    final_meta = chunk
+                now = time.monotonic()
+                if now - last_emit > 0.12 or content or thought:
+                    last_emit = now
+                    _send_progress({
+                        "node_id": node_id,
+                        "status": "running",
+                        "provider": PROVIDER_LM_STUDIO,
+                        "model": model,
+                        "index": index,
+                        "total": total,
+                        "answer": "".join(answer_parts),
+                        "thinking": "".join(thinking_parts),
+                    })
+
             answer = "".join(answer_parts).strip()
             thought = "".join(thinking_parts).strip()
             if not answer and not thought and final_meta:
@@ -2785,6 +2906,8 @@ class DenoLocalLLMRefiner:
                 )
         finally:
             if _should_unload_after_run(memory_value, is_last):
+                if cleanup_state is not None:
+                    cleanup_state["provider_cleanup_attempted"] = True
                 self._lm_unload_best_effort(native_base, model)
 
         raw = {
@@ -2835,6 +2958,7 @@ class DenoAIReviewGate:
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
+                "extra_pnginfo": "EXTRA_PNGINFO",
             },
         }
 
@@ -2875,6 +2999,7 @@ class DenoAIReviewGate:
         unclear_result="Reject",
         unique_id=None,
         reviewer_state="",
+        extra_pnginfo=None,
     ):
         normalized_mode = str(review_mode or "Review").strip()
         if normalized_mode == "Pass" or bool(approve_once):
@@ -2889,6 +3014,7 @@ class DenoAIReviewGate:
                 source="Manual pass" if normalized_mode == "Pass" else "Approve once",
                 preview_image=image,
                 unique_id=unique_id,
+                extra_pnginfo=extra_pnginfo,
                 approve_once_consumed=bool(approve_once),
             )
 
@@ -2907,6 +3033,7 @@ class DenoAIReviewGate:
             source="Text review",
             preview_image=image,
             unique_id=unique_id,
+            extra_pnginfo=extra_pnginfo,
         )
 
     def _gate_result(
@@ -2923,6 +3050,7 @@ class DenoAIReviewGate:
         blocked_count: Optional[int] = None,
         preview_image=None,
         unique_id=None,
+        extra_pnginfo=None,
         approve_once_consumed: bool = False,
     ):
         blocker = ExecutionBlocker(None)
@@ -2940,10 +3068,18 @@ class DenoAIReviewGate:
             ui_info["blocked_count"] = int(blocked_count)
         if approve_once_consumed:
             ui_info["approve_once_consumed"] = True
-        preview_meta = _save_reviewer_preview_image(preview_image if preview_image is not None else image, unique_id)
+        preview_meta = _save_reviewer_preview_image(
+            preview_image if preview_image is not None else image,
+            unique_id,
+            extra_pnginfo,
+        )
         if preview_meta:
             ui_info["preview_image"] = preview_meta
-        snapshot_meta = _save_reviewer_snapshot_image(preview_image if preview_image is not None else image, unique_id)
+        snapshot_meta = _save_reviewer_snapshot_image(
+            preview_image if preview_image is not None else image,
+            unique_id,
+            extra_pnginfo,
+        )
         if snapshot_meta:
             ui_info["snapshot_image"] = snapshot_meta
 

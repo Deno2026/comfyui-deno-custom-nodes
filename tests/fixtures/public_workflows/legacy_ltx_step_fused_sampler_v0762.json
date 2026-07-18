@@ -1,0 +1,150 @@
+{
+  "id": "deno-legacy-ltx-step-fused-v0762",
+  "revision": 0,
+  "last_node_id": 21,
+  "last_link_id": 8,
+  "nodes": [
+    {
+      "id": 10,
+      "type": "FixtureNoiseSource",
+      "pos": [-300, 20],
+      "size": [180, 60],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "noise", "type": "NOISE", "links": [1]}],
+      "properties": {}
+    },
+    {
+      "id": 11,
+      "type": "FixtureGuiderSource",
+      "pos": [-300, 100],
+      "size": [180, 60],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "guider", "type": "GUIDER", "links": [2]}],
+      "properties": {}
+    },
+    {
+      "id": 12,
+      "type": "FixtureSamplerSource",
+      "pos": [-300, 180],
+      "size": [180, 60],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "sampler", "type": "SAMPLER", "links": [3]}],
+      "properties": {}
+    },
+    {
+      "id": 13,
+      "type": "FixtureSigmasSource",
+      "pos": [-300, 260],
+      "size": [180, 60],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "sigmas", "type": "SIGMAS", "links": [4]}],
+      "properties": {}
+    },
+    {
+      "id": 14,
+      "type": "FixtureLatentSource",
+      "pos": [-300, 340],
+      "size": [180, 60],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "latent", "type": "LATENT", "links": [5]}],
+      "properties": {}
+    },
+    {
+      "id": 15,
+      "type": "FixtureComboSource",
+      "pos": [-300, 420],
+      "size": [180, 60],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "blend", "type": "COMBO", "links": [6]}],
+      "properties": {}
+    },
+    {
+      "id": 1,
+      "type": "DenoLTXStepFusedTiledSampler",
+      "pos": [100, 100],
+      "size": [360, 310],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {"name": "noise", "type": "NOISE", "link": 1},
+        {"name": "guider", "type": "GUIDER", "link": 2},
+        {"name": "sampler", "type": "SAMPLER", "link": 3},
+        {"name": "sigmas", "type": "SIGMAS", "link": 4},
+        {"name": "latent_image", "type": "LATENT", "link": 5},
+        {"name": "horizontal_tiles", "type": "INT", "widget": {"name": "horizontal_tiles"}, "link": null},
+        {"name": "vertical_tiles", "type": "INT", "widget": {"name": "vertical_tiles"}, "link": null},
+        {"name": "overlap", "type": "INT", "widget": {"name": "overlap"}, "link": null},
+        {"name": "blend_mode", "type": "COMBO", "widget": {"name": "blend_mode"}, "link": 6},
+        {"name": "aggressive_memory_cleanup", "type": "BOOLEAN", "widget": {"name": "aggressive_memory_cleanup"}, "link": null},
+        {"name": "debug", "type": "BOOLEAN", "widget": {"name": "debug"}, "link": null}
+      ],
+      "outputs": [
+        {"name": "output", "type": "LATENT", "links": [7]},
+        {"name": "denoised_output", "type": "LATENT", "links": [8]}
+      ],
+      "properties": {
+        "cnr_id": "deno-custom-nodes",
+        "ver": "0.7.62",
+        "Node name for S&R": "DenoLTXStepFusedTiledSampler"
+      },
+      "widgets_values": [1, 2, 8, "hann", false, false]
+    },
+    {
+      "id": 20,
+      "type": "FixtureLatentSink",
+      "pos": [600, 120],
+      "size": [180, 60],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [{"name": "latent", "type": "LATENT", "link": 7}],
+      "outputs": [],
+      "properties": {}
+    },
+    {
+      "id": 21,
+      "type": "FixtureLatentSink",
+      "pos": [600, 220],
+      "size": [180, 60],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [{"name": "latent", "type": "LATENT", "link": 8}],
+      "outputs": [],
+      "properties": {}
+    }
+  ],
+  "links": [
+    [1, 10, 0, 1, 0, "NOISE"],
+    [2, 11, 0, 1, 1, "GUIDER"],
+    [3, 12, 0, 1, 2, "SAMPLER"],
+    [4, 13, 0, 1, 3, "SIGMAS"],
+    [5, 14, 0, 1, 4, "LATENT"],
+    [6, 15, 0, 1, 8, "COMBO"],
+    [7, 1, 0, 20, 0, "LATENT"],
+    [8, 1, 1, 21, 0, "LATENT"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {"frontendVersion": "1.45.14"},
+  "version": 0.4
+}

@@ -88,13 +88,19 @@ def _optional_module_for_class():
     return mapping
 
 
-def _node_replacements():
+def _node_replacement_specs():
     for node in ast.walk(_init_tree()):
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id == "DENO_NODE_REPLACEMENTS":
-                    replacements = ast.literal_eval(node.value)
-                    return {r["old_node_id"]: r["new_node_id"] for r in replacements}
+                    return tuple(ast.literal_eval(node.value))
+    return ()
+
+
+def _node_replacements():
+    replacements = _node_replacement_specs()
+    if replacements:
+        return {r["old_node_id"]: r["new_node_id"] for r in replacements}
     return {}
 
 
@@ -772,6 +778,100 @@ def test_fixture_deno_node_types_are_registered(fixture):
             f"{fixture.name}: DENO node '{node_type}' is neither registered in "
             f"NODE_CLASS_MAPPINGS nor in DENO_NODE_REPLACEMENTS"
         )
+
+
+def test_legacy_ltx_step_fused_sampler_replacement_contract_is_complete():
+    specs = {
+        spec["old_node_id"]: spec for spec in _node_replacement_specs()
+    }
+    replacement = specs["DenoLTXStepFusedTiledSampler"]
+
+    assert replacement["new_node_id"] == "DenoLTXAVStepFusedTiledSampler"
+    assert replacement["old_widget_ids"] == [
+        "horizontal_tiles",
+        "vertical_tiles",
+        "overlap",
+        "blend_mode",
+        "aggressive_memory_cleanup",
+        "debug",
+    ]
+    assert replacement["input_mapping"] == [
+        {"new_id": "noise", "old_id": "noise"},
+        {"new_id": "guider", "old_id": "guider"},
+        {"new_id": "sampler", "old_id": "sampler"},
+        {"new_id": "sigmas", "old_id": "sigmas"},
+        {"new_id": "latent_image", "old_id": "latent_image"},
+        {"new_id": "horizontal_tiles", "old_id": "horizontal_tiles"},
+        {"new_id": "vertical_tiles", "old_id": "vertical_tiles"},
+        {"new_id": "overlap", "old_id": "overlap"},
+        {"new_id": "audio_mode", "set_value": "freeze"},
+        {"new_id": "blend_mode", "old_id": "blend_mode"},
+        {
+            "new_id": "aggressive_memory_cleanup",
+            "old_id": "aggressive_memory_cleanup",
+        },
+        {"new_id": "debug", "old_id": "debug"},
+        {"new_id": "_deno_legacy_video_compat", "set_value": True},
+    ]
+    assert replacement["output_mapping"] == [
+        {"old_idx": 0, "new_idx": 0},
+        {"old_idx": 1, "new_idx": 1},
+    ]
+    assert "DenoLTXStepFusedTiledSampler" not in REGISTERED_IDS
+
+
+def test_legacy_ltx_step_fused_sampler_fixture_locks_saved_widget_order():
+    fixture = FIXTURE_DIR / "legacy_ltx_step_fused_sampler_v0762.json"
+    graph = _load(fixture)
+    nodes = [
+        node
+        for node in graph.get("nodes", [])
+        if node.get("type") == "DenoLTXStepFusedTiledSampler"
+    ]
+    assert len(nodes) == 1
+    assert nodes[0]["widgets_values"] == [1, 2, 8, "hann", False, False]
+    assert [slot["name"] for slot in nodes[0]["outputs"]] == [
+        "output",
+        "denoised_output",
+    ]
+    assert [slot["link"] for slot in nodes[0]["inputs"][:5]] == [1, 2, 3, 4, 5]
+    assert nodes[0]["inputs"][8]["name"] == "blend_mode"
+    assert nodes[0]["inputs"][8]["link"] == 6
+    assert nodes[0]["outputs"][0]["links"] == [7]
+    assert nodes[0]["outputs"][1]["links"] == [8]
+    assert graph["links"] == [
+        [1, 10, 0, 1, 0, "NOISE"],
+        [2, 11, 0, 1, 1, "GUIDER"],
+        [3, 12, 0, 1, 2, "SAMPLER"],
+        [4, 13, 0, 1, 3, "SIGMAS"],
+        [5, 14, 0, 1, 4, "LATENT"],
+        [6, 15, 0, 1, 8, "COMBO"],
+        [7, 1, 0, 20, 0, "LATENT"],
+        [8, 1, 1, 21, 0, "LATENT"],
+    ]
+
+
+def test_legacy_ltx_step_fused_sampler_frontend_replacement_preserves_values_and_links():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is required for the frontend replacement harness")
+
+    replacement = next(
+        spec
+        for spec in _node_replacement_specs()
+        if spec["old_node_id"] == "DenoLTXStepFusedTiledSampler"
+    )
+    fixture = FIXTURE_DIR / "legacy_ltx_step_fused_sampler_v0762.json"
+    harness = REPO_ROOT / "tests" / "js" / "ltx_legacy_replacement_harness.mjs"
+    result = subprocess.run(
+        [node_bin, str(harness), json.dumps(replacement), str(fixture)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"node replacement harness failed:\n{result.stdout}\n{result.stderr}"
+    )
+    assert "ltx_legacy_replacement_harness: ok" in result.stdout
 
 
 @pytest.mark.parametrize("fixture", FIXTURES, ids=lambda p: p.name)

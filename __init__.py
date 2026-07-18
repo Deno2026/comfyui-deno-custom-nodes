@@ -459,6 +459,40 @@ DENO_NODE_REPLACEMENTS = (
         ],
         "output_mapping": None,
     },
+    {
+        "old_node_id": "DenoLTXStepFusedTiledSampler",
+        "new_node_id": "DenoLTXAVStepFusedTiledSampler",
+        "old_widget_ids": [
+            "horizontal_tiles",
+            "vertical_tiles",
+            "overlap",
+            "blend_mode",
+            "aggressive_memory_cleanup",
+            "debug",
+        ],
+        "input_mapping": [
+            {"new_id": "noise", "old_id": "noise"},
+            {"new_id": "guider", "old_id": "guider"},
+            {"new_id": "sampler", "old_id": "sampler"},
+            {"new_id": "sigmas", "old_id": "sigmas"},
+            {"new_id": "latent_image", "old_id": "latent_image"},
+            {"new_id": "horizontal_tiles", "old_id": "horizontal_tiles"},
+            {"new_id": "vertical_tiles", "old_id": "vertical_tiles"},
+            {"new_id": "overlap", "old_id": "overlap"},
+            {"new_id": "audio_mode", "set_value": "freeze"},
+            {"new_id": "blend_mode", "old_id": "blend_mode"},
+            {
+                "new_id": "aggressive_memory_cleanup",
+                "old_id": "aggressive_memory_cleanup",
+            },
+            {"new_id": "debug", "old_id": "debug"},
+            {"new_id": "_deno_legacy_video_compat", "set_value": True},
+        ],
+        "output_mapping": [
+            {"old_idx": 0, "new_idx": 0},
+            {"old_idx": 1, "new_idx": 1},
+        ],
+    },
 )
 
 

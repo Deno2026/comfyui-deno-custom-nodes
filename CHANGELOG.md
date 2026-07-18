@@ -6,6 +6,14 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.69 - 2026-07-18
+
+- Preserved saved workflows that used the retired video-only LTX tiled sampler by mapping them through ComfyUI's native node replacement flow while keeping current LTX AV sampler defaults, validation, outputs, and visible controls unchanged.
+- Fixed Local LLM cleanup and control races so failed or stopped runs still release an owned model once, late Refresh responses cannot overwrite a newer run, Stop and Unload requests finish safely, and negative reviewer verdicts are not mistaken for approval.
+- Fixed workflow-scoped Local LLM Reviewer snapshots, and hardened Video Preview file replacement and cleanup so parallel or saved previews do not overwrite or remove each other's state.
+- Fixed Video Compare batch alignment, fully disabled RTX two-pass passthrough, and exact LTX Sequencer no-op handling without changing results for already aligned or enabled workflows.
+- Hardened saved LoRA values, Bernini choices, Ideogram save paths, update/help caches, preview file replacement, and canvas cleanup so invalid or stale state fails clearly without changing normal controls or outputs.
+
 ## 0.7.68 - 2026-07-18
 
 - Fixed `(Deno) Ideogram Director` result-image restoration, panel cleanup, reroute backdrop lookup, queue preflight handling, and targeted pending-import events without changing normal generation settings or outputs.

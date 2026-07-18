@@ -15,6 +15,7 @@ checks and unit tests outside a running ComfyUI.
 import json
 import hashlib
 import math
+import os
 import re
 
 try:
@@ -25,7 +26,6 @@ except Exception:  # pragma: no cover - direct import during local tests
 # ComfyUI is only importable inside a running ComfyUI process. Guard the imports so
 # this module stays importable for `python -m py_compile` and the standalone tests.
 try:
-    import os
     import shutil
     import folder_paths
     from server import PromptServer
@@ -48,6 +48,17 @@ INVALID_IMPORT_MESSAGE = (
     "The incoming JSON prompt is not valid JSON. The LLM may have generated the wrong format. "
     "Please regenerate it, or keep the current board and run again."
 )
+
+
+def _path_is_within_base(base, candidate):
+    """Resolve links and compare path components, not string prefixes."""
+    try:
+        base_real = os.path.normcase(os.path.realpath(base))
+        candidate_real = os.path.normcase(os.path.realpath(candidate))
+        return os.path.commonpath((base_real, candidate_real)) == base_real
+    except (TypeError, ValueError):
+        # ValueError covers Windows paths on different drives.
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -1090,8 +1101,8 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
         if not base or not filename:
             return web.json_response({"error": "bad source"}, status=400)
         # guard against path traversal
-        src = os.path.abspath(os.path.join(base, subfolder, filename))
-        if not src.startswith(os.path.abspath(base)) or not os.path.isfile(src):
+        src = os.path.realpath(os.path.join(base, subfolder, filename))
+        if not _path_is_within_base(base, src) or not os.path.isfile(src):
             return web.json_response({"error": "source not found"}, status=404)
 
         out_dir = folder_paths.get_output_directory()

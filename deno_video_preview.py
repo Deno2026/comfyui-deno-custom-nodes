@@ -19,6 +19,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import glob
+import threading
+import uuid
 from fractions import Fraction
 
 import numpy as np
@@ -26,6 +29,7 @@ import torch
 
 
 PREVIEW_SUBFOLDER = "deno_vprev"
+DIRECT_PROMPT_PREVIEW_LIMIT = 4
 
 
 def _require_av():
@@ -68,6 +72,24 @@ def _workflow_id_from_extra_pnginfo(extra_pnginfo):
     return "legacy-workflow"
 
 
+def _active_prompt_id():
+    try:
+        from comfy_execution.utils import get_executing_context
+
+        context = get_executing_context()
+        return str(getattr(context, "prompt_id", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def _preview_workflow_identity(extra_pnginfo):
+    workflow_id = _workflow_id_from_extra_pnginfo(extra_pnginfo)
+    if workflow_id != "legacy-workflow":
+        return workflow_id
+    prompt_id = _active_prompt_id()
+    return f"prompt:{prompt_id}" if prompt_id else workflow_id
+
+
 def _stable_preview_path(unique_id, workflow_id=None):
     import folder_paths
 
@@ -78,8 +100,40 @@ def _stable_preview_path(unique_id, workflow_id=None):
     workflow_token = hashlib.sha256(workflow_key.encode("utf-8")).hexdigest()[:16]
     node_key = str(unique_id) or "node"
     node_token = hashlib.sha256(node_key.encode("utf-8")).hexdigest()[:16]
-    filename = f"deno_vprev_{workflow_token}_{node_token}.mp4"
+    prefix = "deno_vprev_prompt" if workflow_key.startswith("prompt:") else "deno_vprev"
+    filename = f"{prefix}_{workflow_token}_{node_token}.mp4"
     return os.path.join(abs_dir, filename), filename, PREVIEW_SUBFOLDER
+
+
+def _unique_partial_preview_path(out_path):
+    token = f"{os.getpid()}-{threading.get_ident()}-{uuid.uuid4().hex}"
+    return f"{out_path}.partial-{token}.mp4"
+
+
+def _remove_file_best_effort(path):
+    try:
+        if path and os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def _prune_direct_prompt_previews(out_path, limit=DIRECT_PROMPT_PREVIEW_LIMIT):
+    """Bound prompt-id fallback files without touching persistent workflows."""
+    filename = os.path.basename(out_path)
+    if not filename.startswith("deno_vprev_prompt_"):
+        return
+    node_token = filename.rsplit("_", 1)[-1].removesuffix(".mp4")
+    pattern = os.path.join(os.path.dirname(out_path), f"deno_vprev_prompt_*_{node_token}.mp4")
+    candidates = []
+    for path in glob.glob(pattern):
+        try:
+            candidates.append((os.stat(path).st_mtime_ns, path))
+        except OSError:
+            continue
+    candidates.sort(reverse=True)
+    for _mtime, path in candidates[max(1, int(limit)):]:
+        _remove_file_best_effort(path)
 
 
 def _extract_waveform_and_sr(audio):
@@ -259,10 +313,18 @@ class DenoVideoPreview:
         if out_w <= 0 or out_h <= 0:
             raise ValueError("(Deno) Video Preview needs frames at least 2x2.")
 
-        workflow_id = _workflow_id_from_extra_pnginfo(extra_pnginfo)
+        workflow_id = _preview_workflow_identity(extra_pnginfo)
         out_path, filename, subfolder = _stable_preview_path(unique_id, workflow_id)
+        partial_path = _unique_partial_preview_path(out_path)
+        container = None
+        encode_error = None
+        has_audio = False
+        try:
+            container = av.open(partial_path, mode="w", options={"movflags": "+faststart"})
+        except BaseException:
+            _remove_file_best_effort(partial_path)
+            raise
 
-        container = av.open(out_path, mode="w", options={"movflags": "+faststart"})
         try:
             stream = container.add_stream("libx264", rate=fps)
             stream.width = out_w
@@ -297,14 +359,28 @@ class DenoVideoPreview:
                 _encode_audio(av, container, audio_ctx)
                 if audio_ctx is not None else False
             )
+        except BaseException as exc:
+            encode_error = exc
         finally:
-            container.close()
+            try:
+                container.close()
+            except BaseException as exc:
+                if encode_error is None:
+                    encode_error = exc
 
-        if not os.path.isfile(out_path) or os.path.getsize(out_path) <= 0:
-            raise RuntimeError(
-                "(Deno) Video Preview produced no output file. The frames "
-                "may be an unsupported shape, or PyAV failed to encode H.264."
-            )
+        try:
+            if encode_error is not None:
+                raise encode_error.with_traceback(encode_error.__traceback__)
+            if not os.path.isfile(partial_path) or os.path.getsize(partial_path) <= 0:
+                raise RuntimeError(
+                    "(Deno) Video Preview produced no output file. The frames "
+                    "may be an unsupported shape, or PyAV failed to encode H.264."
+                )
+            os.replace(partial_path, out_path)
+        except BaseException:
+            _remove_file_best_effort(partial_path)
+            raise
+        _prune_direct_prompt_previews(out_path)
 
         return {
             "ui": {

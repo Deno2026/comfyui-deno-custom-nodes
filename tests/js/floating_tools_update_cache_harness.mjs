@@ -109,6 +109,9 @@ function makeHarness({ system, latestVersions, failLatestMetadata = false, syste
       if (textUrl.includes("/ComfyUI/releases/latest")) {
         return makeResponse({ tag_name: latestVersions.comfyui });
       }
+      if (textUrl.includes("/ComfyUI/tags?")) {
+        return makeResponse(latestVersions.comfyui ? [{ name: latestVersions.comfyui }] : []);
+      }
       if (textUrl.includes("/comfyui-workflow-templates/json")) {
         return makeResponse({ info: { version: latestVersions.templates } });
       }
@@ -272,6 +275,56 @@ const expiredTime = latestFetchedAt + UPDATE_CACHE_TTL_MS + 1;
     ],
     "remote latest failure should keep live installed versions and mark latest values unknown",
   );
+}
+
+{
+  const harness = makeHarness({
+    system: {
+      comfyui_version: "0.26.2",
+      installed_templates_version: "0.10.7",
+      comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.19" }],
+    },
+    latestVersions: {
+      comfyui: "",
+      templates: "0.10.7",
+      frontend: "1.45.19",
+    },
+  });
+
+  harness.setNow(oneHourLater);
+  await harness.hooks.checkUpdates(true);
+  const state = harness.getCachedState();
+  assert.equal(state.status, "error", "malformed HTTP 200 metadata must not render Latest");
+  assert.match(state.error, /incomplete/i);
+}
+
+{
+  const harness = makeHarness({
+    system: {
+      comfyui_version: "0.26.2",
+      installed_templates_version: "0.10.7",
+      comfy_package_versions: [{ name: "comfyui-frontend-package", installed: "1.45.19" }],
+    },
+    latestVersions: {
+      comfyui: "v0.26.2",
+      templates: "0.10.7",
+      frontend: "1.45.19",
+    },
+  });
+  harness.setCachedState({
+    status: "latest",
+    checkedAt: oneHourLater + 1,
+    latestCheckedAt: oneHourLater + 1,
+    items: [
+      { id: "comfyui", latest: "0.26.2" },
+      { id: "templates", latest: "0.10.7" },
+      { id: "frontend", latest: "1.45.19" },
+    ],
+  });
+
+  harness.setNow(oneHourLater);
+  await harness.hooks.checkUpdates(false);
+  assert.equal(harness.fetchCalls.length, 3, "future metadata timestamps must force a fresh fetch");
 }
 
 {

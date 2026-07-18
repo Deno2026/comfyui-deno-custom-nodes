@@ -22,6 +22,29 @@ def _director_result(packet):
     return packet["result"] if isinstance(packet, dict) else packet
 
 
+def test_ideogram_save_path_containment_uses_components_and_resolves_links(tmp_path):
+    base = tmp_path / "input"
+    inside = base / "nested" / "image.png"
+    sibling = tmp_path / "input-escape" / "image.png"
+    inside.parent.mkdir(parents=True)
+    sibling.parent.mkdir(parents=True)
+    inside.write_bytes(b"inside")
+    sibling.write_bytes(b"outside")
+
+    assert deno_ideogram_director._path_is_within_base(base, inside) is True
+    assert deno_ideogram_director._path_is_within_base(base, sibling) is False
+    assert deno_ideogram_director._path_is_within_base(
+        base, base / ".." / "input-escape" / "image.png"
+    ) is False
+
+    link = base / "outside-link.png"
+    try:
+        link.symlink_to(sibling)
+    except (OSError, NotImplementedError):
+        return
+    assert deno_ideogram_director._path_is_within_base(base, link) is False
+
+
 def test_language_display_contract():
     assert len(engine.LANGS) == 106
     assert engine.code_for_display("자동 감지") == "auto"

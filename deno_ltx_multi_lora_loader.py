@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Tuple
 
 import comfy.lora
@@ -59,6 +60,8 @@ def _validate_range(kwargs, key: str, label: str, minimum: float, maximum: float
         value = float(kwargs.get(key, 1.0))
     except Exception:
         return f"{label} must be a number."
+    if not math.isfinite(value):
+        return f"{label} must be a finite number."
     if value < minimum or value > maximum:
         return f"{label} must be between {minimum:g} and {maximum:g}."
     return None
@@ -209,6 +212,18 @@ class DenoLTXMultiLoraLoader:
                 continue
 
             lora_name = str(kwargs.get(_slot_key("lora", index), LORA_NONE_OPTION))
+            strength = float(kwargs.get(_slot_key("strength", index), 1.0))
+            audio_scale = float(kwargs.get(_slot_key("audio", index), 1.0))
+            video_scale = float(kwargs.get(_slot_key("video", index), 1.0))
+            for value, label in (
+                (strength, "strength"),
+                (audio_scale, "audio strength"),
+                (video_scale, "video strength"),
+            ):
+                if not math.isfinite(value):
+                    raise ValueError(
+                        f"LTX LoRA slot {index} {label} must be a finite number."
+                    )
 
             lora_sd = self._load_lora_dict(lora_name)
             if lora_sd is None:
@@ -223,11 +238,8 @@ class DenoLTXMultiLoraLoader:
             lora_converted = comfy.lora_convert.convert_lora(lora_sd)
             loaded = comfy.lora.load_lora(lora_converted, key_map)
 
-            audio_scale = float(kwargs.get(_slot_key("audio", index), 1.0))
-            video_scale = float(kwargs.get(_slot_key("video", index), 1.0))
             loaded = self._apply_av_scaling(loaded, audio_scale=audio_scale, video_scale=video_scale)
 
-            strength = float(kwargs.get(_slot_key("strength", index), 1.0))
             if current_model is not None:
                 patched_model = current_model.clone()
                 patched_model.add_patches(loaded, strength)

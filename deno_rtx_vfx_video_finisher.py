@@ -148,6 +148,12 @@ class DenoRTXVFXVideoFinisher:
         ratio_preset: str,
         resize_method: str,
     ):
+        # A fully disabled finisher is a true pass-through. Return before any
+        # CUDA / RTX VFX probing so CPU-only workflows can leave the node in
+        # place without changing tensor identity, dtype, device, or channels.
+        if first_pass == "Off" and upscale_pass == "Off":
+            return (images,)
+
         if not torch.cuda.is_available():
             raise RuntimeError("NVIDIA RTX VFX requires CUDA. This ComfyUI Python does not currently see CUDA.")
 

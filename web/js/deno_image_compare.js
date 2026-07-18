@@ -28,7 +28,7 @@ const COLORS = {
 };
 
 function imageDataToUrl(data) {
-    return api.apiURL(`/view?filename=${encodeURIComponent(data.filename)}&type=${data.type}&subfolder=${data.subfolder}${app.getPreviewFormatParam()}${app.getRandParam()}`);
+    return api.apiURL(`/view?filename=${encodeURIComponent(data.filename)}&type=${encodeURIComponent(data.type || "output")}&subfolder=${encodeURIComponent(data.subfolder || "")}${app.getPreviewFormatParam()}${app.getRandParam()}`);
 }
 
 app.registerExtension({

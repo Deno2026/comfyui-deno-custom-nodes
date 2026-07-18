@@ -1441,6 +1441,12 @@ function readCachedUpdateState() {
     const cached = readStoredJson(UPDATE_CACHE_KEY, null);
     if (!cached || typeof cached !== "object") return null;
     if (!Number.isFinite(Number(cached.checkedAt)) && getLatestMetadataTime(cached) === null) return null;
+    if (
+        ["latest", "updates"].includes(cached.status)
+        && !hasCompleteLatestVersions(latestVersionsFromState(cached))
+    ) {
+        return null;
+    }
     return cached;
 }
 
@@ -1451,7 +1457,8 @@ function getLatestMetadataTime(state) {
 
 function isLatestMetadataFresh(state) {
     const latestCheckedAt = getLatestMetadataTime(state);
-    return Boolean(latestCheckedAt !== null && Date.now() - latestCheckedAt < UPDATE_CACHE_TTL_MS);
+    const age = latestCheckedAt === null ? Number.POSITIVE_INFINITY : Date.now() - latestCheckedAt;
+    return Boolean(age >= 0 && age < UPDATE_CACHE_TTL_MS);
 }
 
 function latestVersionsFromState(state) {
@@ -1502,11 +1509,15 @@ async function fetchLatestUpdateVersions() {
         fetchPypiLatest("comfyui-workflow-templates"),
         fetchPypiLatest("comfyui-frontend-package"),
     ]);
-    return {
+    const latestVersions = {
         comfyui: comfyLatest,
         templates: templatesLatest,
         frontend: frontendLatest,
     };
+    if (!hasCompleteLatestVersions(latestVersions)) {
+        throw new Error("Latest version metadata is incomplete.");
+    }
+    return latestVersions;
 }
 
 function buildUpdateItems(system, latestVersions) {
@@ -1537,6 +1548,9 @@ function buildUpdateItems(system, latestVersions) {
 }
 
 function buildUpdateState(system, latestVersions, latestCheckedAt) {
+    if (!hasCompleteLatestVersions(latestVersions)) {
+        throw new Error("Latest version metadata is incomplete.");
+    }
     const items = buildUpdateItems(system, latestVersions);
     const hasUpdates = items.some((item) => item.updateAvailable);
     return {

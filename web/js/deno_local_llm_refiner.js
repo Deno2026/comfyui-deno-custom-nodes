@@ -157,10 +157,12 @@ let reviewerTooltipOwner = null;
 let reviewerTooltipOwnerFrame = 0;
 const progressListenerApis = new WeakSet();
 const localLLMQueuePromptApis = new WeakSet();
+const localLLMAppQueuePromptApps = new WeakSet();
 let progressListenerRetryScheduled = false;
 const localLLMStateByNode = new WeakMap();
 const localLLMDialogTokenByNode = new WeakMap();
 const localLLMOwnedUiByNode = new WeakMap();
+const localLLMAsyncActionByNode = new WeakMap();
 let localLLMDialogTokenCounter = 0;
 const localLLMGraphByPromptBundle = new WeakMap();
 const localLLMPromptGraphById = new Map();
@@ -436,6 +438,81 @@ function closeLocalLLMOwnedUi(node) {
     removeReviewerTooltipForNode(node);
 }
 
+function localLLMAsyncActionCanAbort(action) {
+    return String(action || "") === "refresh";
+}
+
+function abortLocalLLMAsyncAction(actionState) {
+    if (!actionState?.controller || !localLLMAsyncActionCanAbort(actionState.action)) {
+        return false;
+    }
+    try {
+        actionState.controller.abort();
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function invalidateLocalLLMAsyncAction(node, reason = "invalidated") {
+    const key = localLLMNodeStateKey(node);
+    if (!key) {
+        return 0;
+    }
+    const previous = localLLMAsyncActionByNode.get(key);
+    abortLocalLLMAsyncAction(previous);
+    const generation = Math.max(0, Number(previous?.generation) || 0) + 1;
+    localLLMAsyncActionByNode.set(key, {
+        generation,
+        action: "",
+        reason: String(reason || "invalidated"),
+        controller: null,
+    });
+    return generation;
+}
+
+function beginLocalLLMAsyncAction(node, action) {
+    const key = localLLMNodeStateKey(node);
+    if (!key) {
+        return null;
+    }
+    const previous = localLLMAsyncActionByNode.get(key);
+    abortLocalLLMAsyncAction(previous);
+    const token = {
+        generation: Math.max(0, Number(previous?.generation) || 0) + 1,
+        action: String(action || "action"),
+        controller: typeof AbortController === "function" ? new AbortController() : null,
+    };
+    localLLMAsyncActionByNode.set(key, token);
+    return token;
+}
+
+function isLocalLLMAsyncActionCurrent(node, token) {
+    const key = localLLMNodeStateKey(node);
+    return Boolean(key && token && localLLMAsyncActionByNode.get(key) === token);
+}
+
+function finishLocalLLMAsyncAction(node, token) {
+    const key = localLLMNodeStateKey(node);
+    if (!key || !token || localLLMAsyncActionByNode.get(key) !== token) {
+        return false;
+    }
+    localLLMAsyncActionByNode.set(key, {
+        generation: token.generation,
+        action: "",
+        reason: "finished",
+        controller: null,
+    });
+    return true;
+}
+
+function localLLMAsyncFetchOptions(token, options) {
+    if (!token?.controller?.signal) {
+        return options;
+    }
+    return { ...options, signal: token.controller.signal };
+}
+
 function installLocalLLMNodeCleanup(node) {
     if (!node || node.__denoLocalLLMNodeCleanupInstalled) {
         return;
@@ -443,6 +520,7 @@ function installLocalLLMNodeCleanup(node) {
     node.__denoLocalLLMNodeCleanupInstalled = true;
     const previousOnRemoved = node.onRemoved;
     node.onRemoved = function (...args) {
+        invalidateLocalLLMAsyncAction(this, "node removed");
         closeLocalLLMOwnedUi(this);
         return previousOnRemoved?.apply(this, args);
     };
@@ -537,6 +615,34 @@ function localLLMNodeForExecutionDetail(detail) {
     }
     pruneLocalLLMPromptGraphs();
     return localLLMNodeInGraph(localLLMPromptGraphById.get(promptId), detail?.node_id);
+}
+
+function invalidateLocalLLMAsyncActionsForExecutionDetail(detail, reason = "execution") {
+    const promptId = String(detail?.prompt_id || "").trim();
+    if (!promptId) {
+        return 0;
+    }
+    pruneLocalLLMPromptGraphs();
+    const graph = localLLMPromptGraphById.get(promptId);
+    if (!graph) {
+        return 0;
+    }
+    const nodeId = detail?.node_id ?? detail?.node;
+    const nodes = nodeId === null || nodeId === undefined || String(nodeId).trim() === ""
+        ? localLLMGraphNodes(graph).filter((node) => node?.type === NODE_NAME)
+        : [localLLMNodeInGraph(graph, nodeId)].filter(Boolean);
+    for (const node of nodes) {
+        invalidateLocalLLMAsyncAction(node, reason);
+    }
+    return nodes.length;
+}
+
+function invalidateLocalLLMAsyncActionsForGraph(graph, reason = "queue submitted") {
+    const nodes = localLLMGraphNodes(graph).filter((node) => node?.type === NODE_NAME);
+    for (const node of nodes) {
+        invalidateLocalLLMAsyncAction(node, reason);
+    }
+    return nodes.length;
 }
 
 function localLLMNodeDialogToken(node) {
@@ -992,6 +1098,7 @@ app.registerExtension({
     },
     setup() {
         installProgressListener();
+        installLocalLLMAppQueuePromptHook(app);
         installLocalLLMApiQueuePromptHook(api);
         installReviewerGraphToPromptHook();
         installGraphScan();
@@ -1316,6 +1423,9 @@ function installLocalLLMApiQueuePromptHook(targetApi = api) {
     targetApi.queuePrompt = async function (...args) {
         const promptBundle = args?.[1];
         const submittedGraph = localLLMGraphByPromptBundle.get(promptBundle) || null;
+        if (submittedGraph) {
+            invalidateLocalLLMAsyncActionsForGraph(submittedGraph, "queue API submitted");
+        }
         const result = await originalQueuePrompt.apply(this, args);
         if (submittedGraph && result?.prompt_id) {
             rememberLocalLLMPromptGraph(result.prompt_id, submittedGraph);
@@ -1323,6 +1433,30 @@ function installLocalLLMApiQueuePromptHook(targetApi = api) {
         return result;
     };
     localLLMQueuePromptApis.add(targetApi);
+    return true;
+}
+
+function installLocalLLMAppQueuePromptHook(targetApp = app) {
+    if (!targetApp || (typeof targetApp !== "object" && typeof targetApp !== "function")) {
+        return false;
+    }
+    if (localLLMAppQueuePromptApps.has(targetApp)) {
+        return true;
+    }
+    const originalQueuePrompt = targetApp.queuePrompt;
+    if (typeof originalQueuePrompt !== "function") {
+        return false;
+    }
+    targetApp.queuePrompt = function (...args) {
+        const submittedGraph = this?.rootGraph || targetApp.rootGraph || safeAppGraph();
+        // app.queuePrompt is the earliest queue boundary. Invalidate read-only
+        // Refresh work before graphToPrompt serializes provider/model widgets.
+        // Stop and Unload requests keep running; only their stale UI ownership
+        // token changes.
+        invalidateLocalLLMAsyncActionsForGraph(submittedGraph, "queue submitted");
+        return originalQueuePrompt.apply(this, args);
+    };
+    localLLMAppQueuePromptApps.add(targetApp);
     return true;
 }
 
@@ -1964,7 +2098,10 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         applyReviewerSubmitModes,
         applyLocalLLMAfterGenerateSeedModes,
         advanceLocalLLMSeedAfterQueued,
+        beginLocalLLMAsyncAction,
+        finishLocalLLMAsyncAction,
         isLocalLLMOwnExecutionError,
+        isLocalLLMAsyncActionCurrent,
         isShiftedCustomModelValue,
         localLLMExecutionErrorMessage,
         nextLocalLLMSeedValue,
@@ -1992,9 +2129,13 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         collectReviewerSelectableSeedCandidates,
         closeLocalLLMOwnedUi,
         incrementReviewerRetrySeed,
+        installLocalLLMAppQueuePromptHook,
         installLocalLLMApiQueuePromptHook,
         installLocalLLMNodeCleanup,
         installLocalLLMQueueCallbacks,
+        invalidateLocalLLMAsyncAction,
+        invalidateLocalLLMAsyncActionsForGraph,
+        invalidateLocalLLMAsyncActionsForExecutionDetail,
         localLLMNodeForExecutionDetail,
         maybeAutoRetryReviewer,
         previewTextDialogBody,
@@ -2019,6 +2160,11 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         setReviewerAutoRetryEnabled,
         setReviewerSeedTarget,
         splitPreviewLinesForWidth,
+        refreshModels,
+        stopLocalModel,
+        unloadLocalModel,
+        wrapModelCallback,
+        wrapProviderCallback,
     });
 }
 
@@ -2045,8 +2191,12 @@ function installProgressListener() {
                 if (!node) {
                     return;
                 }
+                invalidateLocalLLMAsyncAction(node, "execution progress");
                 setLocalLLMNodeState(node, localLLMProgressStatePatch(node, detail));
                 markGraphDirty(node);
+            });
+            eventApi.addEventListener("execution_start", ({ detail }) => {
+                invalidateLocalLLMAsyncActionsForExecutionDetail(detail, "execution started");
             });
             eventApi.addEventListener("execution_error", ({ detail }) => {
                 if (!isLocalLLMOwnExecutionError(detail)) {
@@ -2056,6 +2206,7 @@ function installProgressListener() {
                 if (!node) {
                     return;
                 }
+                invalidateLocalLLMAsyncAction(node, "execution error");
                 setLocalLLMNodeState(node, {
                     status: "error",
                     answer: "",
@@ -2066,6 +2217,9 @@ function installProgressListener() {
             });
             for (const eventName of ["execution_success", "execution_error", "execution_interrupted"]) {
                 eventApi.addEventListener(eventName, ({ detail }) => {
+                    if (eventName === "execution_interrupted") {
+                        invalidateLocalLLMAsyncActionsForExecutionDetail(detail, "execution interrupted");
+                    }
                     forgetLocalLLMPromptGraph(detail?.prompt_id);
                 });
             }
@@ -2640,6 +2794,7 @@ function setupNode(node) {
         setActiveProviderModelVisibility(node);
         wrapProviderCallback(node);
         wrapModelCallback(node);
+        wrapServerCallback(node);
         wrapModelMemoryCallback(node);
         addRefreshButton(node);
         addStopButton(node);
@@ -5077,6 +5232,7 @@ function wrapModelCallback(node) {
         }
         const original = modelWidget.callback;
         modelWidget.callback = function () {
+            invalidateLocalLLMAsyncAction(node, "model changed");
             const result = original?.apply(this, arguments);
             repairModelWidgetValue(modelWidget);
             if (name !== "custom_model") {
@@ -5099,6 +5255,24 @@ function wrapModelCallback(node) {
     }
 }
 
+function wrapServerCallback(node) {
+    const serverWidget = getWidget(node, "custom_server_url");
+    if (!serverWidget || serverWidget.__denoLocalLLMServerWrapped) {
+        return;
+    }
+    const original = serverWidget.callback;
+    serverWidget.callback = function () {
+        invalidateLocalLLMAsyncAction(node, "server changed");
+        const result = original?.apply(this, arguments);
+        const provider = currentProvider(node);
+        if (OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
+            rememberOpenAIProviderServerUrl(node, provider, serverWidget.value);
+        }
+        return result;
+    };
+    serverWidget.__denoLocalLLMServerWrapped = true;
+}
+
 function wrapProviderCallback(node) {
     const providerWidget = getWidget(node, "provider");
     if (!providerWidget || providerWidget.__denoLocalLLMWrapped) {
@@ -5106,6 +5280,7 @@ function wrapProviderCallback(node) {
     }
     const original = providerWidget.callback;
     providerWidget.callback = function () {
+        invalidateLocalLLMAsyncAction(node, "provider changed");
         const result = original?.apply(this, arguments);
         const provider = currentProvider(node);
         setActiveProviderModelVisibility(node);
@@ -5331,6 +5506,10 @@ function isLocalLLMBusyState(node) {
 }
 
 async function stopLocalModel(node) {
+    const action = beginLocalLLMAsyncAction(node, "stop");
+    if (!action) {
+        return;
+    }
     const provider = currentProvider(node);
     const serverUrl = defaultServerForProvider(provider, node);
     const modelWidget = activeModelWidget(node);
@@ -5350,16 +5529,23 @@ async function stopLocalModel(node) {
             status: "stop skipped",
             thinking: "Refresh Models and select an installed local LLM model before stopping.",
         });
+        finishLocalLLMAsyncAction(node, action);
         refreshNode(node);
         return;
     }
     try {
-        const response = await fetch("/deno/local_llm/stop", {
+        const response = await fetch("/deno/local_llm/stop", localLLMAsyncFetchOptions(action, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider, server_url: serverUrl, model }),
-        });
+        }));
+        if (!isLocalLLMAsyncActionCurrent(node, action)) {
+            return;
+        }
         const payload = await response.json();
+        if (!isLocalLLMAsyncActionCurrent(node, action)) {
+            return;
+        }
         if (!response.ok && !payload?.message) {
             throw new Error(payload?.error || `HTTP ${response.status}`);
         }
@@ -5371,6 +5557,9 @@ async function stopLocalModel(node) {
             thinking: String(payload.message || payload.error || "Stop request finished."),
         });
     } catch (error) {
+        if (!isLocalLLMAsyncActionCurrent(node, action)) {
+            return;
+        }
         setLocalLLMNodeState(node, {
             status: "stop failed",
             provider,
@@ -5378,8 +5567,11 @@ async function stopLocalModel(node) {
             answer: "",
             thinking: String(error?.message || error),
         });
+    } finally {
+        if (finishLocalLLMAsyncAction(node, action)) {
+            refreshNode(node);
+        }
     }
-    refreshNode(node);
 }
 
 function isManualUnloadUnavailableMessage(message) {
@@ -5395,6 +5587,11 @@ async function unloadLocalModel(node) {
     const model = String(modelWidget?.value || "").trim();
     const invalidModel = !model || isUnavailableModelWidgetValue(model);
     if (isLocalLLMBusyState(node)) {
+        const key = localLLMNodeStateKey(node);
+        const pendingAction = key ? localLLMAsyncActionByNode.get(key) : null;
+        if (pendingAction?.action !== "unload") {
+            invalidateLocalLLMAsyncAction(node, "unload blocked");
+        }
         setLocalLLMNodeState(node, {
             status: "unload blocked",
             provider,
@@ -5403,6 +5600,10 @@ async function unloadLocalModel(node) {
             thinking: "The local LLM is still generating. Press Stop LLM first, then unload after it has stopped.",
         });
         refreshNode(node);
+        return;
+    }
+    const action = beginLocalLLMAsyncAction(node, "unload");
+    if (!action) {
         return;
     }
     setLocalLLMNodeState(node, {
@@ -5418,16 +5619,23 @@ async function unloadLocalModel(node) {
             status: "unload skipped",
             thinking: "Refresh Models and select an installed local LLM model before unloading.",
         });
+        finishLocalLLMAsyncAction(node, action);
         refreshNode(node);
         return;
     }
     try {
-        const response = await fetch("/deno/local_llm/unload", {
+        const response = await fetch("/deno/local_llm/unload", localLLMAsyncFetchOptions(action, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider, server_url: serverUrl, model }),
-        });
+        }));
+        if (!isLocalLLMAsyncActionCurrent(node, action)) {
+            return;
+        }
         const payload = await response.json();
+        if (!isLocalLLMAsyncActionCurrent(node, action)) {
+            return;
+        }
         const payloadMessage = String(payload?.message || payload?.error || "");
         if (!response.ok && !payloadMessage) {
             throw new Error(payload?.error || `HTTP ${response.status}`);
@@ -5441,6 +5649,9 @@ async function unloadLocalModel(node) {
             thinking: payloadMessage || "Unload request finished.",
         });
     } catch (error) {
+        if (!isLocalLLMAsyncActionCurrent(node, action)) {
+            return;
+        }
         setLocalLLMNodeState(node, {
             status: "LLM unload failed",
             provider,
@@ -5448,11 +5659,18 @@ async function unloadLocalModel(node) {
             answer: "",
             thinking: String(error?.message || error),
         });
+    } finally {
+        if (finishLocalLLMAsyncAction(node, action)) {
+            refreshNode(node);
+        }
     }
-    refreshNode(node);
 }
 
 async function refreshModels(node) {
+    const action = beginLocalLLMAsyncAction(node, "refresh");
+    if (!action) {
+        return;
+    }
     const provider = currentProvider(node);
     const serverUrl = defaultServerForProvider(provider, node);
     const modelWidget = activeModelWidget(node);
@@ -5464,12 +5682,18 @@ async function refreshModels(node) {
     });
     refreshNode(node);
     try {
-        const response = await fetch("/deno/local_llm/models", {
+        const response = await fetch("/deno/local_llm/models", localLLMAsyncFetchOptions(action, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider, server_url: serverUrl }),
-        });
+        }));
+        if (!isLocalLLMAsyncActionCurrent(node, action)) {
+            return;
+        }
         const payload = await response.json();
+        if (!isLocalLLMAsyncActionCurrent(node, action)) {
+            return;
+        }
         if (!response.ok || payload.error) {
             throw new Error(payload.error || `HTTP ${response.status}`);
         }
@@ -5499,6 +5723,9 @@ async function refreshModels(node) {
                 : "No models were returned by the local server.",
         });
     } catch (error) {
+        if (!isLocalLLMAsyncActionCurrent(node, action)) {
+            return;
+        }
         updateModelChoices(node, provider, []);
         if (!OPENAI_COMPATIBLE_PROVIDERS.has(provider) && modelWidget && hasUsableSavedModelValue(savedModel)) {
             modelWidget.value = missingSavedModelDisplayValue(savedModel);
@@ -5512,8 +5739,11 @@ async function refreshModels(node) {
                 ? `Saved ${provider} model "${savedModel}" could not be verified on this PC. ${String(error?.message || error)}`
                 : String(error?.message || error),
         });
+    } finally {
+        if (finishLocalLLMAsyncAction(node, action)) {
+            refreshNode(node);
+        }
     }
-    refreshNode(node);
 }
 
 function normalizeModelChoices(models) {

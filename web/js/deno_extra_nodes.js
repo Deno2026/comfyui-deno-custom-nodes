@@ -994,12 +994,12 @@ function setupMultiImageLoader(node, options = {}) {
         return { name, path };
     }
 
-    async function fetchInputFolderImages(inputPath = "") {
+    async function fetchInputFolderImages(inputPath = "", signal = undefined) {
         const browserPath = normalizeInputFolderPath(inputPath);
         const denoEndpoint = browserPath
             ? `/deno/input-folder-images?path=${encodeURIComponent(browserPath)}`
             : "/deno/input-folder-images";
-        const denoResponse = await api.fetchApi(denoEndpoint, { cache: "no-store" });
+        const denoResponse = await api.fetchApi(denoEndpoint, { cache: "no-store", signal });
         if (denoResponse.status === 200) {
             const payload = await denoResponse.json();
             return {
@@ -1014,7 +1014,7 @@ function setupMultiImageLoader(node, options = {}) {
             throw new Error(`Input folder list failed (${denoResponse.status})`);
         }
 
-        const response = await api.fetchApi("/object_info/LoadImage", { cache: "no-store" });
+        const response = await api.fetchApi("/object_info/LoadImage", { cache: "no-store", signal });
         if (response.status !== 200) {
             throw new Error(`Input folder list failed (${denoResponse.status}, fallback ${response.status})`);
         }
@@ -1029,6 +1029,9 @@ function setupMultiImageLoader(node, options = {}) {
     }
 
     function showInputFolderBrowser() {
+        node.__denoCloseInputFolderBrowser?.();
+        const requestGate = createLatestRequestGate();
+        let closed = false;
         const overlay = document.createElement("div");
         overlay.style.cssText = `
             position: fixed;
@@ -1167,6 +1170,7 @@ function setupMultiImageLoader(node, options = {}) {
         };
 
         const cleanupInputFolderBrowser = () => {
+            requestGate.dispose();
             window.removeEventListener("resize", scheduleVirtualRender);
             if (virtualRenderFrame) {
                 cancelAnimationFrame(virtualRenderFrame);
@@ -1175,9 +1179,17 @@ function setupMultiImageLoader(node, options = {}) {
         };
 
         const closeInputFolderBrowser = () => {
+            if (closed) {
+                return;
+            }
+            closed = true;
             cleanupInputFolderBrowser();
             overlay.remove();
+            if (node.__denoCloseInputFolderBrowser === closeInputFolderBrowser) {
+                node.__denoCloseInputFolderBrowser = null;
+            }
         };
+        node.__denoCloseInputFolderBrowser = closeInputFolderBrowser;
 
         const refreshSelected = () => {
             selectedLabel.textContent = `${selected.size} selected`;
@@ -1389,10 +1401,17 @@ function setupMultiImageLoader(node, options = {}) {
 
         const loadInputFolder = (path = "") => {
             const nextPath = normalizeInputFolderPath(path);
+            const request = requestGate.start();
             status.textContent = "Loading input folder list...";
             list.replaceChildren();
-            return fetchInputFolderImages(nextPath)
+            return fetchInputFolderImages(nextPath, request.signal)
                 .then((payload) => {
+                    if (!request.isCurrent() || closed || !container.isConnected) {
+                        if (!container.isConnected) {
+                            closeInputFolderBrowser();
+                        }
+                        return;
+                    }
                     currentPath = normalizeInputFolderPath(payload.path ?? nextPath);
                     currentParent = normalizeInputFolderPath(payload.parent ?? "");
                     allFolders = payload.folders ?? [];
@@ -1403,6 +1422,9 @@ function setupMultiImageLoader(node, options = {}) {
                     search.focus();
                 })
                 .catch((error) => {
+                    if (!request.isCurrent() || closed || error?.name === "AbortError") {
+                        return;
+                    }
                     status.textContent = `Failed to read input folder list: ${error.message || error}`;
                     allFolders = [];
                     allFiles = [];
@@ -1477,6 +1499,8 @@ function setupMultiImageLoader(node, options = {}) {
     document.addEventListener("paste", pasteHandler, { capture: true });
     const originalRemoved = node.onRemoved;
     node.onRemoved = function () {
+        this.__denoCloseInputFolderBrowser?.();
+        this.__denoCloseInputFolderBrowser = null;
         document.removeEventListener("paste", pasteHandler, { capture: true });
         originalRemoved?.apply(this, arguments);
     };
@@ -1492,6 +1516,41 @@ function setupMultiImageLoader(node, options = {}) {
     node._denoUpdateLoaderVisibility?.();
     render();
     refreshOutputSizeHint();
+}
+
+function createLatestRequestGate() {
+    let generation = 0;
+    let controller = null;
+    let disposed = false;
+
+    const invalidate = () => {
+        generation += 1;
+        controller?.abort();
+        controller = null;
+    };
+
+    return {
+        start() {
+            invalidate();
+            const requestGeneration = generation;
+            controller = new AbortController();
+            if (disposed) {
+                controller.abort();
+            }
+            const signal = controller.signal;
+            return {
+                signal,
+                isCurrent: () => !disposed && !signal.aborted && requestGeneration === generation,
+            };
+        },
+        dispose() {
+            if (disposed) {
+                return;
+            }
+            disposed = true;
+            invalidate();
+        },
+    };
 }
 
 async function calculateLoaderOutputSize(node, paths) {
@@ -4048,5 +4107,6 @@ if (typeof window !== "undefined" && typeof window.__DENO_EXTRA_NODES_TEST_HOOK_
         getInputLinkIds,
         notifyConnectedSequencers,
         setupSequencer,
+        createLatestRequestGate,
     });
 }

@@ -287,6 +287,13 @@ app.registerExtension({
             });
             return result;
         };
+
+        const onRemoved = nodeType.prototype.onRemoved;
+        nodeType.prototype.onRemoved = function () {
+            this.__denoBerniniTaskInfoClose?.();
+            this.__denoBerniniTaskInfoClose = null;
+            return onRemoved?.apply(this, arguments);
+        };
     },
 });
 
@@ -861,7 +868,12 @@ function isInsideBounds(pos, bounds) {
 
 function showTaskInfoPanel(node, event) {
     ensureTaskInfoStyles();
-    document.getElementById("deno-bernini-task-info-panel")?.remove();
+    const existing = document.getElementById("deno-bernini-task-info-panel");
+    if (existing?.__denoClose) {
+        existing.__denoClose();
+    } else {
+        existing?.remove();
+    }
 
     const help = getTaskHelp(node);
     const panel = document.createElement("div");
@@ -886,11 +898,26 @@ function showTaskInfoPanel(node, event) {
         </div>
     `;
 
+    let closed = false;
+    let listenerTimer = 0;
     const close = () => {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        if (listenerTimer) {
+            clearTimeout(listenerTimer);
+            listenerTimer = 0;
+        }
         panel.remove();
         document.removeEventListener("pointerdown", closeOnOutside, true);
         document.removeEventListener("keydown", closeOnEscape, true);
+        if (node.__denoBerniniTaskInfoClose === close) {
+            node.__denoBerniniTaskInfoClose = null;
+        }
     };
+    panel.__denoClose = close;
+    node.__denoBerniniTaskInfoClose = close;
     const closeOnOutside = (pointerEvent) => {
         if (!panel.contains(pointerEvent.target)) {
             close();
@@ -921,9 +948,12 @@ function showTaskInfoPanel(node, event) {
     panel.style.left = `${x}px`;
     panel.style.top = `${y}px`;
 
-    setTimeout(() => {
-        document.addEventListener("pointerdown", closeOnOutside, true);
-        document.addEventListener("keydown", closeOnEscape, true);
+    listenerTimer = setTimeout(() => {
+        listenerTimer = 0;
+        if (!closed && panel.isConnected) {
+            document.addEventListener("pointerdown", closeOnOutside, true);
+            document.addEventListener("keydown", closeOnEscape, true);
+        }
     }, 0);
 }
 

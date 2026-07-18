@@ -994,6 +994,169 @@ class DenoLTXTiledSpatialUpscaler:
         return (result,)
 
 
+class _LegacyVideoStepFusedTilePredictor:
+    """Compatibility predictor for retired video-only saved workflows."""
+
+    def __init__(
+        self,
+        plan: list[TileSpec],
+        full_height: int,
+        full_width: int,
+        blend_mode: BlendMode,
+        previous_calculator: Any = None,
+        aggressive_memory_cleanup: bool = False,
+        debug: bool = False,
+    ) -> None:
+        self.plan = plan
+        self.full_height = full_height
+        self.full_width = full_width
+        self.blend_mode = blend_mode
+        self.previous_calculator = previous_calculator
+        self.aggressive_memory_cleanup = aggressive_memory_cleanup
+        self.debug = debug
+        self.call_count = 0
+        self._window_cache: dict[tuple[str, int, int], torch.Tensor] = {}
+        self._seen_sigma_strings: set[str] = set()
+
+    def _window(self, spec: TileSpec, x: torch.Tensor) -> torch.Tensor:
+        key = (str(x.device), spec.row, spec.col)
+        cached = self._window_cache.get(key)
+        if cached is None:
+            cached = make_spec_window(
+                spec,
+                dtype=torch.float32,
+                device=x.device,
+                mode=self.blend_mode,
+            )
+            self._window_cache[key] = cached
+        return cached
+
+    def _cleanup(self, device: torch.device) -> None:
+        if not self.aggressive_memory_cleanup:
+            return
+        gc.collect()
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    def __call__(self, args: dict) -> list[torch.Tensor]:
+        self.call_count += 1
+        x = args["input"]
+        sigma = args["sigma"]
+        model = args["model"]
+        conds = args["conds"]
+        model_options = args["model_options"]
+
+        if not isinstance(x, torch.Tensor) or x.ndim != 5:
+            raise RuntimeError(
+                "Legacy video-only tiled prediction expected [B,C,F,H,W], got "
+                f"{type(x).__name__} {getattr(x, 'shape', None)}."
+            )
+        if tuple(x.shape[-2:]) != (self.full_height, self.full_width):
+            raise RuntimeError(
+                "Latent spatial shape changed during sampling: expected "
+                f"{self.full_height}x{self.full_width}, got {tuple(x.shape[-2:])}."
+            )
+
+        sigma_value = float(sigma.flatten()[0].detach().cpu())
+        sigma_label = f"{sigma_value:.7g}"
+        if self.debug and sigma_label not in self._seen_sigma_strings:
+            self._seen_sigma_strings.add(sigma_label)
+            print(
+                "[Deno LTX] legacy video step-fused prediction "
+                f"sigma={sigma_label}, tiles={len(self.plan)}"
+            )
+
+        accumulators: list[torch.Tensor] | None = None
+        weights = torch.zeros(
+            (1, 1, 1, self.full_height, self.full_width),
+            dtype=torch.float32,
+            device=x.device,
+        )
+
+        for spec in self.plan:
+            tile_x = x[:, :, :, spec.y0:spec.y1, spec.x0:spec.x1].contiguous()
+            tile_conds = _crop_conds_for_tile(
+                conds,
+                spec,
+                self.full_height,
+                self.full_width,
+                model,
+            )
+
+            tile_options = _clone_model_options(model_options)
+            tile_options.pop("sampler_calc_cond_batch_function", None)
+            transformer_options = tile_options.setdefault("transformer_options", {})
+            transformer_options["deno_ltx_tile"] = {
+                "row": spec.row,
+                "col": spec.col,
+                "origin": (spec.y0, spec.x0),
+                "tile_shape": (spec.height, spec.width),
+                "full_shape": (self.full_height, self.full_width),
+            }
+
+            if self.previous_calculator is not None:
+                tile_args = dict(args)
+                tile_args["input"] = tile_x
+                tile_args["conds"] = tile_conds
+                tile_args["model_options"] = tile_options
+                tile_predictions = self.previous_calculator(tile_args)
+            else:
+                tile_predictions = _comfy_samplers().calc_cond_batch(
+                    model,
+                    tile_conds,
+                    tile_x,
+                    sigma,
+                    tile_options,
+                )
+
+            if accumulators is None:
+                accumulators = [
+                    torch.zeros_like(x, dtype=torch.float32, device=x.device)
+                    for _ in tile_predictions
+                ]
+            if len(tile_predictions) != len(accumulators):
+                raise RuntimeError(
+                    "Conditional prediction count changed between tiles: "
+                    f"expected {len(accumulators)}, got {len(tile_predictions)}."
+                )
+
+            window = self._window(spec, x)
+            for accumulator, prediction in zip(accumulators, tile_predictions):
+                if tuple(prediction.shape) != tuple(tile_x.shape):
+                    raise RuntimeError(
+                        "Tile model prediction shape mismatch: "
+                        f"prediction={tuple(prediction.shape)}, tile={tuple(tile_x.shape)}."
+                    )
+                accumulator[:, :, :, spec.y0:spec.y1, spec.x0:spec.x1].add_(
+                    prediction.float() * window
+                )
+
+            weights[:, :, :, spec.y0:spec.y1, spec.x0:spec.x1].add_(window)
+
+            if self.debug:
+                print(
+                    f"  legacy r{spec.row}c{spec.col} "
+                    f"y={spec.y0}:{spec.y1} x={spec.x0}:{spec.x1}"
+                )
+
+            del tile_x, tile_conds, tile_options, tile_predictions, window
+            self._cleanup(x.device)
+
+        if accumulators is None:
+            raise RuntimeError("No tile predictions were produced.")
+        min_weight = float(weights.min().item())
+        if min_weight <= 1e-7:
+            raise RuntimeError(
+                f"Step-fused tile plan left uncovered pixels; min weight={min_weight}."
+            )
+
+        denominator = weights.clamp_min(1e-8)
+        return [
+            (accumulator / denominator).to(dtype=x.dtype)
+            for accumulator in accumulators
+        ]
+
+
 class StepFusedAVTilePredictor:
     """Tiled video prediction with full-audio context for packed LTX AV latents."""
 
@@ -1205,6 +1368,186 @@ class StepFusedAVTilePredictor:
         return packed_results
 
 
+class _LegacyVideoStepFusedTiledSampler:
+    """Execution-only bridge for the retired public video-only node ID."""
+
+    @staticmethod
+    def _validate_samples(samples: Any) -> torch.Tensor:
+        if _is_nested(samples):
+            raise TypeError(
+                "The retired DENO LTX video-only sampler cannot process AV nested latents."
+            )
+        if not isinstance(samples, torch.Tensor):
+            raise TypeError(
+                f"Expected torch.Tensor latent samples, got {type(samples).__name__}."
+            )
+        if samples.ndim != 5:
+            raise ValueError(
+                f"Expected [B,C,F,H,W] LTX video latent, got {tuple(samples.shape)}."
+            )
+        return samples
+
+    @staticmethod
+    def _fix_channels(guider: Any, latent: dict, samples: torch.Tensor) -> torch.Tensor:
+        return _comfy_sample().fix_empty_latent_channels(
+            guider.model_patcher,
+            samples,
+            latent.get("downscale_ratio_spacial", None),
+            latent.get("downscale_ratio_temporal", None),
+        )
+
+    def sample(
+        self,
+        noise,
+        guider,
+        sampler,
+        sigmas,
+        latent_image,
+        horizontal_tiles=1,
+        vertical_tiles=2,
+        overlap=8,
+        blend_mode: BlendMode = "hann",
+        aggressive_memory_cleanup=False,
+        debug=False,
+    ):
+        latent = latent_image.copy()
+        source = self._validate_samples(latent["samples"])
+        source = self._fix_channels(guider, latent, source)
+        latent["samples"] = source
+
+        _, _, _, height, width = source.shape
+        plan = build_tile_plan(
+            height=height,
+            width=width,
+            vertical_tiles=int(vertical_tiles),
+            horizontal_tiles=int(horizontal_tiles),
+            overlap=int(overlap),
+        )
+
+        if len(plan) == 1:
+            if debug:
+                print(
+                    "[Deno LTX] legacy video workflow requested one tile; "
+                    "using the stock guider.sample path."
+                )
+            return self._stock_sample(noise, guider, sampler, sigmas, latent)
+
+        tiled_guider = copy.copy(guider)
+        tiled_options = _clone_model_options(getattr(guider, "model_options", {}))
+        previous_calculator = tiled_options.get("sampler_calc_cond_batch_function")
+        predictor = _LegacyVideoStepFusedTilePredictor(
+            plan=plan,
+            full_height=height,
+            full_width=width,
+            blend_mode=blend_mode,
+            previous_calculator=previous_calculator,
+            aggressive_memory_cleanup=bool(aggressive_memory_cleanup),
+            debug=bool(debug),
+        )
+        tiled_options["sampler_calc_cond_batch_function"] = predictor
+        tiled_guider.model_options = tiled_options
+
+        noise_mask = latent.get("noise_mask")
+        x0_output: dict[str, Any] = {}
+        callback = _latent_preview().prepare_callback(
+            tiled_guider.model_patcher,
+            sigmas.shape[-1] - 1,
+            x0_output,
+        )
+        global_noise = noise.generate_noise(latent)
+
+        if debug:
+            print(
+                "[Deno LTX] legacy video step-fused sampler input="
+                f"{tuple(source.shape)}, tiles={vertical_tiles}x{horizontal_tiles}, "
+                f"overlap={overlap}, blend={blend_mode}"
+            )
+
+        samples = tiled_guider.sample(
+            global_noise,
+            source,
+            sampler,
+            sigmas,
+            denoise_mask=noise_mask,
+            callback=callback,
+            disable_pbar=not _comfy_utils().PROGRESS_BAR_ENABLED,
+            seed=noise.seed,
+        )
+
+        if predictor.call_count == 0:
+            raise RuntimeError(
+                "The supplied guider did not invoke ComfyUI's conditional-batch "
+                "calculation hook, so legacy video tiled prediction was not active."
+            )
+
+        intermediate_device = _comfy_model_management().intermediate_device()
+        samples = samples.to(intermediate_device)
+
+        output = latent.copy()
+        output.pop("downscale_ratio_spacial", None)
+        output.pop("downscale_ratio_temporal", None)
+        output["samples"] = samples
+        output["deno_ltx_step_fused_tiling"] = {
+            "horizontal_tiles": int(horizontal_tiles),
+            "vertical_tiles": int(vertical_tiles),
+            "overlap": int(overlap),
+            "blend_mode": str(blend_mode),
+            "prediction_calls": int(predictor.call_count),
+        }
+
+        if "x0" in x0_output:
+            x0 = tiled_guider.model_patcher.model.process_latent_out(
+                x0_output["x0"].cpu()
+            )
+            denoised = latent.copy()
+            denoised.pop("downscale_ratio_spacial", None)
+            denoised.pop("downscale_ratio_temporal", None)
+            denoised["samples"] = x0.to(intermediate_device)
+            denoised["deno_ltx_step_fused_tiling"] = output[
+                "deno_ltx_step_fused_tiling"
+            ].copy()
+        else:
+            denoised = output
+
+        return output, denoised
+
+    @staticmethod
+    def _stock_sample(noise, guider, sampler, sigmas, latent):
+        source = latent["samples"]
+        noise_mask = latent.get("noise_mask")
+        x0_output: dict[str, Any] = {}
+        callback = _latent_preview().prepare_callback(
+            guider.model_patcher,
+            sigmas.shape[-1] - 1,
+            x0_output,
+        )
+        samples = guider.sample(
+            noise.generate_noise(latent),
+            source,
+            sampler,
+            sigmas,
+            denoise_mask=noise_mask,
+            callback=callback,
+            disable_pbar=not _comfy_utils().PROGRESS_BAR_ENABLED,
+            seed=noise.seed,
+        ).to(_comfy_model_management().intermediate_device())
+
+        output = latent.copy()
+        output.pop("downscale_ratio_spacial", None)
+        output.pop("downscale_ratio_temporal", None)
+        output["samples"] = samples
+        if "x0" in x0_output:
+            denoised = latent.copy()
+            denoised.pop("downscale_ratio_spacial", None)
+            denoised.pop("downscale_ratio_temporal", None)
+            denoised["samples"] = guider.model_patcher.model.process_latent_out(
+                x0_output["x0"].cpu()
+            ).to(_comfy_model_management().intermediate_device())
+        else:
+            denoised = output
+        return output, denoised
+
+
 class DenoLTXAVStepFusedTiledSampler:
     DESCRIPTION = (
         "Refines the video half of an LTX AV latent with step-fused spatial tiles "
@@ -1252,6 +1595,9 @@ class DenoLTXAVStepFusedTiledSampler:
                 "blend_mode": (["hann", "cosine"], {"default": "hann"}),
                 "aggressive_memory_cleanup": ("BOOLEAN", {"default": True}),
                 "debug": ("BOOLEAN", {"default": False}),
+            },
+            "hidden": {
+                "_deno_legacy_video_compat": "DENO_LEGACY_VIDEO_COMPAT",
             },
         }
 
@@ -1348,7 +1694,26 @@ class DenoLTXAVStepFusedTiledSampler:
         blend_mode: BlendMode = "hann",
         aggressive_memory_cleanup=True,
         debug=False,
+        _deno_legacy_video_compat=False,
     ):
+        if _deno_legacy_video_compat is True:
+            # Compatibility-only path selected by the hidden migration marker
+            # inserted when DenoLTXStepFusedTiledSampler is replaced. Current
+            # AV nodes retain their original strict NestedTensor contract.
+            return _LegacyVideoStepFusedTiledSampler().sample(
+                noise,
+                guider,
+                sampler,
+                sigmas,
+                latent_image,
+                horizontal_tiles=horizontal_tiles,
+                vertical_tiles=vertical_tiles,
+                overlap=overlap,
+                blend_mode=blend_mode,
+                aggressive_memory_cleanup=aggressive_memory_cleanup,
+                debug=debug,
+            )
+
         if audio_mode != "freeze":
             raise ValueError(
                 "Deno LTX AV Step-Fused Tiled Sampler currently only supports "

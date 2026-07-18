@@ -763,9 +763,9 @@ function setupAdvancedImageSourceLoader(node) {
     };
 
     clearBtn.onclick = () => setPaths([]);
-    inputFolderBtn.onclick = () => showInputFolderBrowser(setPaths, getPaths);
+    inputFolderBtn.onclick = () => showInputFolderBrowser(node, setPaths, getPaths);
     externalFolderBtn.onclick = () => showExternalFolderBrowser(node, setPaths, getPaths, folderUploadInput, uploadFiles);
-    urlPathBtn.onclick = () => showSourceTextDialog(setPaths, getPaths);
+    urlPathBtn.onclick = () => showSourceTextDialog(node, setPaths, getPaths);
 
     container.ondragover = (event) => {
         if (isReordering) {
@@ -797,6 +797,8 @@ function setupAdvancedImageSourceLoader(node) {
     node.__denoAdvancedPanCleanup = installMiddleMouseCanvasPan(container);
     const originalOnRemoved = node.onRemoved;
     node.onRemoved = function () {
+        this.__denoCloseAdvancedFolderBrowser?.();
+        this.__denoCloseAdvancedFolderBrowser = null;
         this.__denoAdvancedPanCleanup?.();
         this.__denoAdvancedPanCleanup = null;
         return originalOnRemoved?.apply(this, arguments);
@@ -911,8 +913,9 @@ function installMiddleMouseCanvasPan(root) {
     };
 }
 
-function showInputFolderBrowser(setPaths, getPaths) {
+function showInputFolderBrowser(node, setPaths, getPaths) {
     showBrowserModal({
+        ownerNode: node,
         title: "Add images from ComfyUI input folder",
         rootControls: null,
         initialStatus: "Loading input folder list...",
@@ -941,7 +944,7 @@ function showExternalFolderBrowser(node, setPaths, getPaths, folderUploadInput, 
     let refresh = null;
     loadBtn.onclick = () => refresh?.("");
     uploadFolderBtn.onclick = () => folderUploadInput.click();
-    folderUploadInput.onchange = async (event) => {
+    const onFolderUpload = async (event) => {
         const files = Array.from(event.target.files || []);
         const firstPath = String(files[0]?.webkitRelativePath || "");
         const rootName = sanitizePathPart(firstPath.split("/")[0] || "selected-folder");
@@ -955,24 +958,33 @@ function showExternalFolderBrowser(node, setPaths, getPaths, folderUploadInput, 
         });
         folderUploadInput.value = "";
     };
+    folderUploadInput.onchange = onFolderUpload;
 
     refresh = showBrowserModal({
+        ownerNode: node,
         title: "Add images from an external folder",
         rootControls: rootRow,
         initialStatus: "Paste a folder path and click Load Path, or use Upload Folder... to import a folder.",
-        fetchEntries: async (folderPath) => {
+        fetchEntries: async (folderPath, signal) => {
             const rootPath = String(rootInput.value || "").trim();
-            return fetchExternalFolderImagesAndRemember(node, rootPath, folderPath);
+            return fetchExternalFolderImagesAndRemember(node, rootPath, folderPath, signal);
         },
         getPreviewUrl: (entry) => externalImagePreviewUrl(entry.path),
         getSourceValue: (entry) => entry.path,
         setPaths,
         getPaths,
         waitForManualLoad: true,
+        onClose: () => {
+            if (folderUploadInput.onchange === onFolderUpload) {
+                folderUploadInput.onchange = null;
+            }
+        },
     });
 }
 
-function showSourceTextDialog(setPaths, getPaths) {
+function showSourceTextDialog(node, setPaths, getPaths) {
+    node?.__denoCloseAdvancedFolderBrowser?.();
+    let closed = false;
     const overlay = createOverlay();
     const modal = createModal("Add URLs or file paths");
 
@@ -999,11 +1011,27 @@ function showSourceTextDialog(setPaths, getPaths) {
     const addBtn = createActionButton("Add Sources");
     footer.append(cancelBtn, addBtn);
 
-    cancelBtn.onclick = () => overlay.remove();
+    const close = () => {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        overlay.remove();
+        if (node?.__denoCloseAdvancedFolderBrowser === close) {
+            node.__denoCloseAdvancedFolderBrowser = null;
+        }
+    };
+    if (node) {
+        node.__denoCloseAdvancedFolderBrowser = close;
+    }
+    cancelBtn.onclick = close;
     addBtn.onclick = () => {
+        if (closed) {
+            return;
+        }
         const added = text.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
         setPaths(getPaths().concat(added));
-        overlay.remove();
+        close();
     };
 
     modal.append(text, footer);
@@ -1013,6 +1041,10 @@ function showSourceTextDialog(setPaths, getPaths) {
 }
 
 function showBrowserModal(options) {
+    const ownerNode = options.ownerNode;
+    ownerNode?.__denoCloseAdvancedFolderBrowser?.();
+    const requestGate = createLatestRequestGate();
+    let closed = false;
     const overlay = createOverlay();
     const modal = createModal(options.title);
 
@@ -1055,7 +1087,22 @@ function showBrowserModal(options) {
 
     const header = modal.firstElementChild;
     const closeBtn = header?.querySelector("button");
-    closeBtn.onclick = () => overlay.remove();
+    const closeModal = () => {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        requestGate.dispose();
+        overlay.remove();
+        options.onClose?.();
+        if (ownerNode?.__denoCloseAdvancedFolderBrowser === closeModal) {
+            ownerNode.__denoCloseAdvancedFolderBrowser = null;
+        }
+    };
+    closeBtn.onclick = closeModal;
+    if (ownerNode) {
+        ownerNode.__denoCloseAdvancedFolderBrowser = closeModal;
+    }
 
     if (options.rootControls) {
         modal.append(options.rootControls);
@@ -1173,15 +1220,22 @@ function showBrowserModal(options) {
     };
 
     const loadFolder = async (folderPath = "") => {
+        const request = requestGate.start();
         status.textContent = "Loading...";
         try {
-            const payload = await options.fetchEntries(folderPath);
+            const payload = await options.fetchEntries(folderPath, request.signal);
+            if (!request.isCurrent() || closed || !overlay.isConnected) {
+                return;
+            }
             currentFolder = normalizeSlashPath(payload.path || folderPath || "");
             parentFolder = normalizeSlashPath(payload.parent || "");
             folders = payload.folders || [];
             files = payload.files || [];
             render();
         } catch (error) {
+            if (!request.isCurrent() || closed || error?.name === "AbortError") {
+                return;
+            }
             status.textContent = error.message || String(error);
             folders = [];
             files = [];
@@ -1193,7 +1247,7 @@ function showBrowserModal(options) {
     search.oninput = render;
     addBtn.onclick = () => {
         options.setPaths(options.getPaths().concat(Array.from(selected)));
-        overlay.remove();
+        closeModal();
     };
 
     if (!options.waitForManualLoad) {
@@ -1203,12 +1257,12 @@ function showBrowserModal(options) {
     return loadFolder;
 }
 
-async function fetchInputFolderImages(folderPath = "") {
+async function fetchInputFolderImages(folderPath = "", signal = undefined) {
     const path = normalizeSlashPath(folderPath);
     const endpoint = path
         ? `/deno/input-folder-images?path=${encodeURIComponent(path)}`
         : "/deno/input-folder-images";
-    const response = await api.fetchApi(endpoint, { cache: "no-store" });
+    const response = await api.fetchApi(endpoint, { cache: "no-store", signal });
     if (response.status !== 200) {
         throw new Error(`Input folder list failed (${response.status})`);
     }
@@ -1227,13 +1281,13 @@ async function fetchInputFolderImages(folderPath = "") {
     };
 }
 
-async function fetchExternalFolderImages(rootPath, folderPath = "") {
+async function fetchExternalFolderImages(rootPath, folderPath = "", signal = undefined) {
     const root = String(rootPath || "").trim();
     if (!root) {
         throw new Error("Paste a folder path first.");
     }
     const params = new URLSearchParams({ root, path: normalizeSlashPath(folderPath) });
-    const response = await api.fetchApi(`/deno/advanced/external-folder-images?${params.toString()}`, { cache: "no-store" });
+    const response = await api.fetchApi(`/deno/advanced/external-folder-images?${params.toString()}`, { cache: "no-store", signal });
     if (response.status !== 200) {
         let message = `External folder list failed (${response.status})`;
         try {
@@ -1260,9 +1314,14 @@ async function fetchExternalFolderImages(rootPath, folderPath = "") {
     };
 }
 
-async function fetchExternalFolderImagesAndRemember(node, rootPath, folderPath = "") {
+async function fetchExternalFolderImagesAndRemember(node, rootPath, folderPath = "", signal = undefined) {
     const root = String(rootPath || "").trim();
-    const payload = await fetchExternalFolderImages(root, folderPath);
+    const payload = await fetchExternalFolderImages(root, folderPath, signal);
+    if (signal?.aborted) {
+        const error = new Error("Request aborted");
+        error.name = "AbortError";
+        throw error;
+    }
     node.__denoAdvancedLastExternalRoot = root;
     return payload;
 }
@@ -1321,6 +1380,41 @@ function classifySourceLocation(path) {
         return "external";
     }
     return "input";
+}
+
+function createLatestRequestGate() {
+    let generation = 0;
+    let controller = null;
+    let disposed = false;
+
+    const invalidate = () => {
+        generation += 1;
+        controller?.abort();
+        controller = null;
+    };
+
+    return {
+        start() {
+            invalidate();
+            const requestGeneration = generation;
+            controller = new AbortController();
+            if (disposed) {
+                controller.abort();
+            }
+            const signal = controller.signal;
+            return {
+                signal,
+                isCurrent: () => !disposed && !signal.aborted && requestGeneration === generation,
+            };
+        },
+        dispose() {
+            if (disposed) {
+                return;
+            }
+            disposed = true;
+            invalidate();
+        },
+    };
 }
 
 function createOverlay() {
@@ -1450,5 +1544,6 @@ if (typeof window !== "undefined" && typeof window.__DENO_ADVANCED_IMAGE_SOURCE_
         getPreviewUrl,
         getSourceKind,
         installMiddleMouseCanvasPan,
+        createLatestRequestGate,
     });
 }

@@ -7,13 +7,19 @@ SOURCE = REPO_ROOT / "deno_ltx_tiled_nodes.py"
 
 def test_step_fused_sampler_uses_comfyui_cond_batch_hook():
     source = SOURCE.read_text(encoding="utf-8")
+    current_start = source.index("class DenoLTXAVStepFusedTiledSampler:")
+    current_end = source.index("\nNODE_CLASS_MAPPINGS", current_start)
+    current_sampler_source = source[current_start:current_end]
 
     assert "sampler_calc_cond_batch_function" in source
     assert "_comfy_samplers().calc_cond_batch" in source
     assert "predictor.call_count == 0" in source
-    assert "falling back to output" not in source
-    assert "denoised = output" not in source
+    assert "falling back to output" not in current_sampler_source
+    assert "denoised = output" not in current_sampler_source
+    assert "_require_callback_x0(" in current_sampler_source
     assert "Strict denoised_output mode" in source
+    assert "if _deno_legacy_video_compat is True:" in current_sampler_source
+    assert "if not _is_nested(latent_samples):" not in current_sampler_source
 
 
 def test_av_step_fused_sampler_reports_packed_av_outputs():

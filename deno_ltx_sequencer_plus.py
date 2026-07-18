@@ -63,6 +63,11 @@ class DenoLTXSequencer:
         if bypass:
             return (positive, negative, latent)
 
+        batch_size = int(multi_input.shape[0]) if multi_input is not None else 0
+        effective_count = max(0, min(int(num_images), batch_size))
+        if effective_count <= 0:
+            return (positive, negative, latent)
+
         scale_factors = vae.downscale_index_formula
         # Keep parity with Comfy's LTXVAddGuide base behavior:
         # avoid cloning a large latent tensor up-front because append_keyframe
@@ -71,8 +76,7 @@ class DenoLTXSequencer:
         noise_mask = get_noise_mask(latent)
 
         _, _, latent_length, latent_height, latent_width = latent_image.shape
-        batch_size = int(multi_input.shape[0]) if multi_input is not None else 0
-        effective_count = max(0, min(int(num_images), batch_size))
+        applied_count = 0
 
         for index in range(1, effective_count + 1):
             image = multi_input[index - 1:index]
@@ -128,5 +132,8 @@ class DenoLTXSequencer:
                 strength,
                 scale_factors,
             )
+            applied_count += 1
 
+        if applied_count == 0:
+            return (positive, negative, latent)
         return (positive, negative, {"samples": latent_image, "noise_mask": noise_mask})

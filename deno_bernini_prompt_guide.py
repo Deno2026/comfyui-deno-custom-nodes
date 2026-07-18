@@ -66,6 +66,13 @@ NEGATIVE_PRESETS = [
     NEGATIVE_PRESET_EMPTY,
 ]
 
+_KNOWN_TASK_TYPE_VALUES = frozenset(
+    [*TASK_TYPES, *SYSTEM_PROMPTS.keys(), TASK_TYPE_CUSTOM_LEGACY, "Custom System Prompt"]
+)
+_KNOWN_NEGATIVE_PRESET_VALUES = frozenset(
+    [*NEGATIVE_PRESETS, NEGATIVE_PRESET_CUSTOM, NEGATIVE_PRESET_OFFICIAL_CUSTOM]
+)
+
 OFFICIAL_WAN22_NEGATIVE_PROMPT = (
     "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，"
     "最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，"
@@ -188,6 +195,10 @@ class DenoBerniniPromptGuide:
 
     @classmethod
     def VALIDATE_INPUTS(cls, task_type=None, negative_preset=None):
+        if task_type is not None and str(task_type).strip() not in _KNOWN_TASK_TYPE_VALUES:
+            return f"Unknown Bernini System Prompt mode: {task_type}"
+        if negative_preset is not None and str(negative_preset).strip() not in _KNOWN_NEGATIVE_PRESET_VALUES:
+            return f"Unknown Bernini Negative Preset: {negative_preset}"
         return True
 
     def build(

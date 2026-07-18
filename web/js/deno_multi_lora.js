@@ -46,6 +46,7 @@ app.registerExtension({
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             const result = onNodeCreated?.apply(this, arguments);
+            this.__denoMultiLoraRemoved = false;
             setupNode(this);
             return result;
         };
@@ -53,7 +54,11 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             const result = onConfigure?.apply(this, arguments);
+            this.__denoMultiLoraRemoved = false;
             queueMicrotask(() => {
+                if (this.__denoMultiLoraRemoved) {
+                    return;
+                }
                 setupNode(this);
                 if (this.__denoMultiLoraConfiguredWidgetValues) {
                     applyMultiLoraSerializedValuesToWidgets(this, this.__denoMultiLoraConfiguredWidgetValues);
@@ -64,6 +69,15 @@ app.registerExtension({
                 }
             });
             return result;
+        };
+
+        const onRemoved = nodeType.prototype.onRemoved;
+        nodeType.prototype.onRemoved = function () {
+            this.__denoMultiLoraRemoved = true;
+            this.__denoMultiLoraChooserGeneration =
+                Number(this.__denoMultiLoraChooserGeneration || 0) + 1;
+            closeOwnedMultiLoraUi(this);
+            return onRemoved?.apply(this, arguments);
         };
     },
 });
@@ -706,21 +720,34 @@ class DenoAddLoraWidget extends DenoBaseWidget {
 }
 
 async function showLoraChooser(event, node, index) {
+    const generation = Number(node.__denoMultiLoraChooserGeneration || 0) + 1;
+    node.__denoMultiLoraChooserGeneration = generation;
     const values = await loraOptions(node);
-    new LiteGraph.ContextMenu(values.map((value) => displayLora(value)), {
+    if (node.__denoMultiLoraRemoved || generation !== node.__denoMultiLoraChooserGeneration) {
+        return;
+    }
+    closeOwnedMultiLoraContextMenu(node);
+    const menu = new LiteGraph.ContextMenu(values.map((value) => displayLora(value)), {
         event,
         title: "Choose a LoRA",
         className: "dark",
         scale: Math.max(1, app.canvas?.ds?.scale ?? 1),
         callback: (value) => {
+            if (node.__denoMultiLoraRemoved || generation !== node.__denoMultiLoraChooserGeneration) {
+                return;
+            }
             const selected = String(value?.content ?? value?.value ?? value);
             setValue(node, `lora_${index}`, selected === "None" ? NONE_VALUE : selected);
             redraw(node);
         },
     });
+    node.__denoMultiLoraContextMenu = menu;
 }
 
 function showRemoveLoraMenu(event, node, index) {
+    if (node.__denoMultiLoraRemoved) {
+        return;
+    }
     const count = activeCount(node);
     const enabled = getValue(node, `enabled_${index}`, true);
     const menuItems = [
@@ -745,7 +772,8 @@ function showRemoveLoraMenu(event, node, index) {
         },
     ];
 
-    new LiteGraph.ContextMenu(menuItems, {
+    closeOwnedMultiLoraContextMenu(node);
+    node.__denoMultiLoraContextMenu = new LiteGraph.ContextMenu(menuItems, {
         event,
         title: `LoRA Slot ${index}`,
         className: "dark",
@@ -1269,7 +1297,11 @@ function drawIconButton(ctx, x, y, kind, active) {
 }
 
 function openLoraInfoEditor(node, index) {
+    if (node.__denoMultiLoraRemoved) {
+        return;
+    }
     ensureLoraInfoStyles();
+    node.__denoMultiLoraInfoClose?.();
     const overlay = document.createElement("div");
     overlay.className = "deno-multi-lora-info-overlay";
     const loraName = displayLora(getValue(node, `lora_${index}`, NONE_VALUE));
@@ -1303,7 +1335,18 @@ function openLoraInfoEditor(node, index) {
     triggerInput.value = String(getValue(node, `trigger_${index}`, "") || "");
     descriptionInput.value = String(getValue(node, `description_${index}`, "") || "");
 
-    const close = () => overlay.remove();
+    let closed = false;
+    const close = () => {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        overlay.remove();
+        if (node.__denoMultiLoraInfoClose === close) {
+            node.__denoMultiLoraInfoClose = null;
+        }
+    };
+    node.__denoMultiLoraInfoClose = close;
     const save = () => {
         setValue(node, `trigger_${index}`, triggerInput.value.trim());
         setValue(node, `description_${index}`, descriptionInput.value.trim());
@@ -1339,7 +1382,26 @@ function openLoraInfoEditor(node, index) {
     });
 
     document.body.appendChild(overlay);
-    queueMicrotask(() => triggerInput.focus());
+    queueMicrotask(() => {
+        if (!closed && overlay.isConnected) {
+            triggerInput.focus();
+        }
+    });
+}
+
+function closeOwnedMultiLoraContextMenu(node) {
+    const menu = node?.__denoMultiLoraContextMenu;
+    node.__denoMultiLoraContextMenu = null;
+    try { menu?.close?.(); } catch (_error) {}
+    try { menu?.root?.remove?.(); } catch (_error) {}
+}
+
+function closeOwnedMultiLoraUi(node) {
+    closeOwnedMultiLoraContextMenu(node);
+    node?.__denoMultiLoraInfoClose?.();
+    if (node) {
+        node.__denoMultiLoraInfoClose = null;
+    }
 }
 
 function copyText(text) {

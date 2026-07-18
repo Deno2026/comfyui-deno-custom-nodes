@@ -16,10 +16,13 @@ const CHANGELOG_URL = "https://raw.githubusercontent.com/Deno2026/comfyui-deno-c
 const RELEASE_BASE_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag";
 const VERSION_CACHE_KEY = "denoCustomNodes.versionStatus.v2";
 const VERSION_CACHE_MS = 6 * 60 * 60 * 1000;
+const VERSION_FETCH_TIMEOUT_MS = 8000;
 const MAX_RELEASE_NOTES = 4;
 
 const nodeHelpDescriptions = new Map();
 const popupState = new Map();
+const nodeInstanceKeys = new WeakMap();
+let nodeInstanceKeyCounter = 0;
 let versionStatusPromise = null;
 let canvasHelpCursorTicket = 0;
 let denoVersionStatus = {
@@ -76,7 +79,16 @@ function getNodeClassName(source) {
 }
 
 function getNodeKey(node) {
-    return String(node?.id ?? node?.type ?? node?.comfyClass ?? "");
+    if (node && (typeof node === "object" || typeof node === "function")) {
+        let key = nodeInstanceKeys.get(node);
+        if (!key) {
+            nodeInstanceKeyCounter += 1;
+            key = `deno-help-node-${nodeInstanceKeyCounter}`;
+            nodeInstanceKeys.set(node, key);
+        }
+        return key;
+    }
+    return String(node ?? "");
 }
 
 function getNodeDescription(node) {
@@ -107,6 +119,10 @@ function compareVersions(left, right) {
 
 function normalizeVersion(version) {
     return String(version || "").trim().replace(/^v/i, "");
+}
+
+function isValidVersion(version) {
+    return /^[0-9]+(?:\.[0-9]+){1,3}$/.test(normalizeVersion(version));
 }
 
 function releaseUrl(version) {
@@ -151,7 +167,7 @@ function parseChangelogNotes(markdown, version) {
 
 async function fetchReleaseNotes(version) {
     try {
-        const response = await fetch(`${CHANGELOG_URL}?t=${Date.now()}`, {
+        const response = await fetchWithTimeout(`${CHANGELOG_URL}?t=${Date.now()}`, {
             method: "GET",
             headers: { "Accept": "text/plain" },
             cache: "no-store",
@@ -162,6 +178,16 @@ async function fetchReleaseNotes(version) {
         return parseChangelogNotes(await response.text(), version);
     } catch (_error) {
         return [];
+    }
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = VERSION_FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        window.clearTimeout(timer);
     }
 }
 
@@ -176,7 +202,9 @@ function loadCachedVersionStatus(currentVersion) {
     try {
         const cached = JSON.parse(localStorage.getItem(VERSION_CACHE_KEY) || "null");
         if (!cached || cached.current_version !== currentVersion) return null;
-        if ((Date.now() - Number(cached.checked_at || 0)) > VERSION_CACHE_MS) return null;
+        const age = Date.now() - Number(cached.checked_at || 0);
+        if (!Number.isFinite(age) || age < 0 || age > VERSION_CACHE_MS) return null;
+        if (["latest", "update_available"].includes(cached.status) && !isValidVersion(cached.latest_version)) return null;
         return cached;
     } catch (_error) {
         return null;
@@ -212,7 +240,7 @@ async function refreshDenoVersionStatus() {
 
     versionStatusPromise = (async () => {
         try {
-            const response = await fetch(REGISTRY_INSTALL_URL, {
+            const response = await fetchWithTimeout(REGISTRY_INSTALL_URL, {
                 method: "GET",
                 headers: { "Accept": "application/json" },
                 cache: "no-store",
@@ -221,7 +249,10 @@ async function refreshDenoVersionStatus() {
                 throw new Error(`Comfy Registry returned HTTP ${response.status}`);
             }
             const payload = await response.json();
-            const latestVersion = latestVersionFromRegistryPayload(payload) || currentVersion;
+            const latestVersion = latestVersionFromRegistryPayload(payload);
+            if (!isValidVersion(latestVersion)) {
+                throw new Error("Comfy Registry response did not include a valid version.");
+            }
             const updateAvailable = compareVersions(latestVersion, currentVersion) > 0;
             const releaseNotes = updateAvailable ? await fetchReleaseNotes(latestVersion) : [];
             const status = {

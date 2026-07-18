@@ -84,6 +84,7 @@ app.registerExtension({
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             const result = onNodeCreated?.apply(this, arguments);
+            this.__denoLtxSetupDisposed = false;
             setupNode(this);
             return result;
         };
@@ -91,14 +92,27 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             const result = onConfigure?.apply(this, arguments);
-            queueMicrotask(() => setupNode(this));
+            queueMicrotask(() => {
+                if (!this.__denoLtxSetupDisposed) {
+                    setupNode(this);
+                }
+            });
             return result;
+        };
+
+        const onRemoved = nodeType.prototype.onRemoved;
+        nodeType.prototype.onRemoved = function () {
+            this.__denoLtxSetupUi?.dispose?.();
+            this.__denoLtxSetupUi = null;
+            this.__denoLtxSetupReady = false;
+            this.__denoLtxSetupDisposed = true;
+            return onRemoved?.apply(this, arguments);
         };
     },
 });
 
 function setupNode(node) {
-    if (!node || node.type !== NODE_NAME) {
+    if (!node || node.type !== NODE_NAME || node.__denoLtxSetupDisposed) {
         return;
     }
     if (node.__denoLtxSetupReady) {
@@ -141,7 +155,44 @@ function hideWidget(widget) {
     widget.computeSize = () => [0, -4];
 }
 
+function createLatestRequestGate() {
+    let generation = 0;
+    let controller = null;
+    let disposed = false;
+
+    const invalidate = () => {
+        generation += 1;
+        controller?.abort();
+        controller = null;
+    };
+
+    return {
+        start() {
+            invalidate();
+            const requestGeneration = generation;
+            controller = new AbortController();
+            if (disposed) {
+                controller.abort();
+            }
+            const signal = controller.signal;
+            return {
+                signal,
+                isCurrent: () => !disposed && !signal.aborted && requestGeneration === generation,
+            };
+        },
+        dispose() {
+            if (disposed) {
+                return;
+            }
+            disposed = true;
+            invalidate();
+        },
+    };
+}
+
 function buildUi(node, rootWidget, presetsWidget) {
+    let disposed = false;
+    const requestGate = createLatestRequestGate();
     const root = document.createElement("div");
     root.style.cssText = `
         width:100%;
@@ -393,6 +444,9 @@ function buildUi(node, rootWidget, presetsWidget) {
     }
 
     function setStatus(text, danger = false) {
+        if (disposed) {
+            return;
+        }
         status.textContent = text;
         status.style.color = danger ? "#ffb0b0" : "#94f7af";
     }
@@ -414,8 +468,9 @@ function buildUi(node, rootWidget, presetsWidget) {
         return payload;
     }
 
-    async function postJson(path, body) {
+    async function postJson(path, body, options = {}) {
         return apiJson(path, {
+            ...options,
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -595,6 +650,9 @@ function buildUi(node, rootWidget, presetsWidget) {
     }
 
     function reloadFromWidgets() {
+        if (disposed) {
+            return;
+        }
         state.presetsState = readPresetsState(presetsWidget);
         state.editorPresetId = currentPackage(state.presetsState).id;
         resetRootToAuto();
@@ -605,6 +663,10 @@ function buildUi(node, rootWidget, presetsWidget) {
     }
 
     async function refreshInfo() {
+        if (disposed) {
+            return;
+        }
+        const request = requestGate.start();
         const sequence = ++state.refreshSequence;
         try {
             renderPresetButton();
@@ -615,8 +677,8 @@ function buildUi(node, rootWidget, presetsWidget) {
                 model_root: rootWidget?.value || "",
                 presets_state: state.presetsState,
                 package: active,
-            });
-            if (sequence !== state.refreshSequence) {
+            }, { signal: request.signal });
+            if (!request.isCurrent() || sequence !== state.refreshSequence) {
                 return;
             }
             renderRoots(payload);
@@ -626,7 +688,7 @@ function buildUi(node, rootWidget, presetsWidget) {
             setProgress(existing, total);
             setStatus(existing === total ? "All files found. Press R if model lists need refresh." : "Open missing links, then move files to the shown paths.");
         } catch (error) {
-            if (sequence !== state.refreshSequence) {
+            if (!request.isCurrent() || sequence !== state.refreshSequence || error?.name === "AbortError") {
                 return;
             }
             setStatus(error.message || String(error), true);
@@ -692,9 +754,11 @@ function buildUi(node, rootWidget, presetsWidget) {
         presetMenu.style.display = presetMenu.style.display === "none" ? "block" : "none";
     });
     addPresetButton.addEventListener("click", openNewPresetEditor);
-    document.addEventListener("click", () => {
+    const onDocumentClick = () => {
         presetMenu.style.display = "none";
-    });
+        closeModelPathMenus();
+    };
+    document.addEventListener("click", onDocumentClick);
     editButton.addEventListener("click", () => {
         state.editorPresetId = currentPackage(state.presetsState).id;
         setEditingMode(!state.editing);
@@ -703,10 +767,23 @@ function buildUi(node, rootWidget, presetsWidget) {
     renderPresetButton();
     editor.load(currentPackage(state.presetsState));
     setEditingMode(false);
-    return { root, refreshInfo, computeSize, applyNodeSize, reloadFromWidgets };
+    function dispose() {
+        if (disposed) {
+            return;
+        }
+        disposed = true;
+        state.refreshSequence += 1;
+        requestGate.dispose();
+        document.removeEventListener("click", onDocumentClick);
+        editor.dispose?.();
+    }
+
+    return { root, refreshInfo, computeSize, applyNodeSize, reloadFromWidgets, dispose };
 }
 
 function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, onLayoutChange) {
+    let disposed = false;
+    let layoutFrame = 0;
     const root = document.createElement("div");
     root.style.cssText = `
         display:flex;
@@ -732,7 +809,17 @@ function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, on
 
     const rows = document.createElement("div");
     rows.style.cssText = "display:flex; flex-direction:column; gap:9px;";
-    const scheduleLayout = () => requestAnimationFrame(() => onLayoutChange?.(rows.children.length));
+    const scheduleLayout = () => {
+        if (disposed || layoutFrame) {
+            return;
+        }
+        layoutFrame = requestAnimationFrame(() => {
+            layoutFrame = 0;
+            if (!disposed) {
+                onLayoutChange?.(rows.children.length);
+            }
+        });
+    };
     root.addEventListener("deno-layout-change", scheduleLayout);
     const observer = new MutationObserver(scheduleLayout);
     observer.observe(rows, { childList: true });
@@ -747,9 +834,19 @@ function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, on
 
     root.append(guide, sectionTitle, titleInput.root, fileSectionTitle, rows, actions);
 
+    function disposeRows() {
+        for (const row of [...rows.children]) {
+            row.__denoDispose?.();
+        }
+    }
+
     function load(packageValue = readPackage()) {
+        if (disposed) {
+            return;
+        }
         const packageData = normalizePackage(packageValue);
         titleInput.input.value = packageData.title;
+        disposeRows();
         rows.replaceChildren();
         const files = packageData.files.length ? packageData.files : [{ url: "", target_subdir: "checkpoints", filename: "", size: 0 }];
         for (const file of files) {
@@ -774,6 +871,9 @@ function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, on
     }
 
     addButton.addEventListener("click", () => {
+        if (disposed) {
+            return;
+        }
         rows.append(createFileEditorRow({ url: "", target_subdir: "checkpoints", filename: "", size: 0 }, rows.children.length + 1, getModelSubdirs(), resolveCivitaiUrl));
         renumberRows(rows);
         scheduleLayout();
@@ -781,7 +881,20 @@ function buildEditor(readPackage, getModelSubdirs, resolveCivitaiUrl, onSave, on
     saveButton.addEventListener("click", () => onSave(collect()));
 
     load();
-    return { root, load };
+    function dispose() {
+        if (disposed) {
+            return;
+        }
+        disposed = true;
+        root.removeEventListener("deno-layout-change", scheduleLayout);
+        observer.disconnect();
+        if (layoutFrame) {
+            cancelAnimationFrame(layoutFrame);
+            layoutFrame = 0;
+        }
+        disposeRows();
+    }
+    return { root, load, dispose };
 }
 
 function buildExampleGuide(onUseExample) {
@@ -835,6 +948,8 @@ function buildExampleGuide(onUseExample) {
 }
 
 function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl = null) {
+    let disposed = false;
+    const resetTimers = new Set();
     const row = document.createElement("div");
     row.style.cssText = `
         display:flex;
@@ -855,6 +970,7 @@ function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl =
     const remove = createMiniButton("Remove");
     remove.onclick = () => {
         const parent = row.parentElement;
+        row.__denoDispose?.();
         row.remove();
         if (parent) {
             renumberRows(parent);
@@ -907,19 +1023,31 @@ function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl =
     const civitaiButton = createMiniButton("Civitai");
     civitaiButton.title = "Convert a Civitai page or download URL into a direct browser download link.";
     civitaiButton.onclick = async () => {
+        if (disposed) {
+            return;
+        }
         if (!resolveCivitaiUrl) {
             return;
         }
         const rawUrl = url.input.value.trim();
         if (!rawUrl) {
             civitaiButton.textContent = "No URL";
-            setTimeout(() => { civitaiButton.textContent = "Civitai"; }, 900);
+            const timer = setTimeout(() => {
+                resetTimers.delete(timer);
+                if (!disposed) {
+                    civitaiButton.textContent = "Civitai";
+                }
+            }, 900);
+            resetTimers.add(timer);
             return;
         }
         civitaiButton.disabled = true;
         civitaiButton.textContent = "...";
         try {
             const result = await resolveCivitaiUrl(rawUrl);
+            if (disposed || !row.isConnected) {
+                return;
+            }
             if (result.download_url) {
                 url.input.value = result.download_url;
             }
@@ -935,19 +1063,39 @@ function createFileEditorRow(file, index, modelSubdirs = [], resolveCivitaiUrl =
             }
             civitaiButton.textContent = result.filename ? "Done" : "Link";
         } catch (error) {
+            if (disposed) {
+                return;
+            }
             console.warn("[DENO] Civitai link conversion failed:", error);
             civitaiButton.textContent = "Fail";
         } finally {
-            setTimeout(() => {
-                civitaiButton.disabled = false;
-                civitaiButton.textContent = "Civitai";
-            }, 900);
+            if (!disposed) {
+                const timer = setTimeout(() => {
+                    resetTimers.delete(timer);
+                    if (!disposed) {
+                        civitaiButton.disabled = false;
+                        civitaiButton.textContent = "Civitai";
+                    }
+                }, 900);
+                resetTimers.add(timer);
+            }
         }
     };
     urlRow.append(url.root, civitaiButton);
 
     pathGrid.append(targetSubdir.root, filename.root);
     row.append(header, urlRow, pathGrid, sizeInput);
+    row.__denoDispose = () => {
+        if (disposed) {
+            return;
+        }
+        disposed = true;
+        for (const timer of resetTimers) {
+            clearTimeout(timer);
+        }
+        resetTimers.clear();
+        civitaiButton.disabled = false;
+    };
     return row;
 }
 
@@ -1059,10 +1207,6 @@ function createModelPathField(value, modelSubdirs = []) {
     customInput.addEventListener("input", () => {
         valueInput.value = "";
     });
-    document.addEventListener("click", () => {
-        menu.style.display = "none";
-    });
-
     root.append(label, button, menu, valueInput, customInput);
     return { root, input: valueInput };
 }
@@ -1491,4 +1635,10 @@ async function copyText(text) {
     textarea.select();
     document.execCommand("copy");
     textarea.remove();
+}
+
+if (typeof window !== "undefined" && typeof window.__DENO_LTX_MODEL_DOWNLOADER_TEST_HOOK__ === "function") {
+    window.__DENO_LTX_MODEL_DOWNLOADER_TEST_HOOK__({
+        createLatestRequestGate,
+    });
 }

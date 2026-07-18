@@ -48,6 +48,7 @@ function ensureStyles() {
 }
 
 function installMiddleMouseCanvasPan(root) {
+  let activePanCleanup = null;
   root.addEventListener("pointerdown", (e) => {
     if (e.button !== 1) return;
     const canvas = app.canvas;
@@ -58,11 +59,15 @@ function installMiddleMouseCanvasPan(root) {
 
     let lastX = e.clientX;
     let lastY = e.clientY;
+    let active = true;
 
     const cleanup = () => {
+      if (!active) return;
+      active = false;
       window.removeEventListener("pointermove", move, true);
       window.removeEventListener("pointerup", done, true);
       window.removeEventListener("pointercancel", done, true);
+      if (activePanCleanup === cleanup) activePanCleanup = null;
     };
     const move = (ev) => {
       ev.preventDefault();
@@ -83,6 +88,8 @@ function installMiddleMouseCanvasPan(root) {
       cleanup();
     };
 
+    activePanCleanup?.();
+    activePanCleanup = cleanup;
     window.addEventListener("pointermove", move, true);
     window.addEventListener("pointerup", done, true);
     window.addEventListener("pointercancel", done, true);
@@ -93,6 +100,11 @@ function installMiddleMouseCanvasPan(root) {
     e.preventDefault();
     e.stopPropagation();
   }, true);
+
+  return () => {
+    activePanCleanup?.();
+    activePanCleanup = null;
+  };
 }
 
 function ensureProperties(node) {
@@ -383,7 +395,7 @@ function buildDom(node) {
       bubbles: true, cancelable: true,
     }));
   }, { passive: false });
-  installMiddleMouseCanvasPan(root);
+  state.panCleanup = installMiddleMouseCanvasPan(root);
 
   return state;
 }
@@ -464,6 +476,8 @@ app.registerExtension({
     const onRemoved = nodeType.prototype.onRemoved;
     nodeType.prototype.onRemoved = function () {
       const s = this.__dvprev;
+      s?.panCleanup?.();
+      if (s) s.panCleanup = null;
       if (s?.video) {
         try { s.video.pause(); } catch (e) {}
         s.video.removeAttribute("src");

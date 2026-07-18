@@ -130,9 +130,22 @@ def _composite_frames(mode, video_a, video_b, split_position, swap, toggle_image
     if b is None:
         return a.clamp(0.0, 1.0)
 
-    n = min(int(a.shape[0]), int(b.shape[0]))
-    a = a[:n]
-    b = b[:n]
+    count_a = int(a.shape[0])
+    count_b = int(b.shape[0])
+    n = min(count_a, count_b)
+    if count_a == count_b:
+        # Keep the long-standing equal-batch path bit-for-bit direct.
+        a = a[:n]
+        b = b[:n]
+    else:
+        # The output length remains the shorter batch for saved-workflow and
+        # downstream compatibility, but the longer clip now spans its whole
+        # timeline instead of silently dropping every frame after ``n``.
+        # Keep the shorter clip on its direct slice and resample only the
+        # longer side. For a one-frame output _sample_indices returns [0],
+        # preserving the historical first-frame result.
+        a = a[_sample_indices(count_a, n)] if count_a > n else a[:n]
+        b = b[_sample_indices(count_b, n)] if count_b > n else b[:n]
 
     if mode == "Side by Side":
         h = max(int(a.shape[1]), int(b.shape[1]))

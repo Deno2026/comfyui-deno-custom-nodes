@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Tuple
 
 import comfy.lora
@@ -51,6 +52,8 @@ def _validate_range(kwargs, key: str, label: str, minimum: float, maximum: float
         value = float(kwargs.get(key, 1.0))
     except Exception:
         return f"{label} must be a number."
+    if not math.isfinite(value):
+        return f"{label} must be a finite number."
     if value < minimum or value > maximum:
         return f"{label} must be between {minimum:g} and {maximum:g}."
     return None
@@ -153,6 +156,12 @@ class DenoMultiLoraLoader:
                 continue
 
             lora_name = str(kwargs.get(_slot_key("lora", index), LORA_NONE_OPTION))
+            model_strength = float(kwargs.get(_slot_key("model_strength", index), 1.0))
+            clip_strength = float(kwargs.get(_slot_key("clip_strength", index), 1.0))
+            if not math.isfinite(model_strength):
+                raise ValueError(f"LoRA slot {index} model strength must be a finite number.")
+            if not math.isfinite(clip_strength):
+                raise ValueError(f"LoRA slot {index} CLIP strength must be a finite number.")
             lora_sd = self._load_lora_dict(lora_name)
             if lora_sd is None:
                 continue
@@ -165,9 +174,6 @@ class DenoMultiLoraLoader:
 
             lora_converted = comfy.lora_convert.convert_lora(lora_sd)
             loaded = comfy.lora.load_lora(lora_converted, key_map)
-
-            model_strength = float(kwargs.get(_slot_key("model_strength", index), 1.0))
-            clip_strength = float(kwargs.get(_slot_key("clip_strength", index), 1.0))
 
             if current_model is not None and abs(model_strength) > 1e-9:
                 patched_model = current_model.clone()

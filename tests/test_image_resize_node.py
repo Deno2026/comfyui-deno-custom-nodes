@@ -213,6 +213,60 @@ def test_video_preview_temp_file_is_scoped_by_workflow_id(tmp_path):
     assert module._workflow_id_from_extra_pnginfo({"workflow": {"extra": "malformed"}}) == "legacy-workflow"
     assert module._workflow_id_from_extra_pnginfo({"workflow": {"extra": {"workspace_info": []}}}) == "legacy-workflow"
 
+    original_active_prompt_id = module._active_prompt_id
+    module._active_prompt_id = lambda: "direct-prompt-a"
+    try:
+        assert module._preview_workflow_identity(None) == "prompt:direct-prompt-a"
+        assert module._preview_workflow_identity(workflow_a) == workflow_a_id
+    finally:
+        module._active_prompt_id = original_active_prompt_id
+
+    direct_paths = []
+    for index in range(module.DIRECT_PROMPT_PREVIEW_LIMIT + 2):
+        direct_path = Path(module._stable_preview_path("42", f"prompt:{index}")[0])
+        direct_path.write_bytes(f"prompt-{index}".encode("ascii"))
+        os.utime(direct_path, ns=(index + 1, index + 1))
+        direct_paths.append(direct_path)
+    module._prune_direct_prompt_previews(str(direct_paths[-1]))
+    assert sum(path.exists() for path in direct_paths) == module.DIRECT_PROMPT_PREVIEW_LIMIT
+
+
+def test_video_preview_atomic_failure_preserves_previous_stable_file(monkeypatch, tmp_path):
+    package = load_package()
+    module = importlib.import_module("comfyui_deno_custom_nodes.deno_video_preview")
+    sys.modules["folder_paths"].get_temp_directory = lambda: str(tmp_path)
+    workflow = {"workflow": {"id": "atomic-workflow"}}
+    workflow_id = module._workflow_id_from_extra_pnginfo(workflow)
+    out_path = Path(module._stable_preview_path("7", workflow_id)[0])
+    out_path.write_bytes(b"previous-stable-preview")
+
+    if hasattr(module.torch, "zeros"):
+        images = module.torch.zeros((1, 2, 2, 3), dtype=module.torch.float32)
+    else:
+        class FakeImages:
+            ndim = 4
+            shape = (1, 2, 2, 3)
+
+        images = FakeImages()
+
+    class FailingAv:
+        @staticmethod
+        def open(path, mode="w", options=None):
+            Path(path).write_bytes(b"incomplete-preview")
+            raise RuntimeError("simulated encode open failure")
+
+    monkeypatch.setattr(module, "_require_av", lambda: FailingAv)
+    with pytest.raises(RuntimeError, match="simulated encode open failure"):
+        package.DenoVideoPreview().preview(
+            images,
+            frame_rate=25,
+            unique_id="7",
+            extra_pnginfo=workflow,
+        )
+
+    assert out_path.read_bytes() == b"previous-stable-preview"
+    assert list(out_path.parent.glob(f"{out_path.name}.partial-*.mp4")) == []
+
 
 def test_local_llm_progress_event_includes_active_prompt_id(monkeypatch):
     package = load_package()
@@ -281,6 +335,40 @@ def test_node_registration_exports_expected_nodes():
                 {"new_id": "presets_json", "old_id": "presets_json"},
             ],
             "output_mapping": None,
+        },
+        {
+            "old_node_id": "DenoLTXStepFusedTiledSampler",
+            "new_node_id": "DenoLTXAVStepFusedTiledSampler",
+            "old_widget_ids": [
+                "horizontal_tiles",
+                "vertical_tiles",
+                "overlap",
+                "blend_mode",
+                "aggressive_memory_cleanup",
+                "debug",
+            ],
+            "input_mapping": [
+                {"new_id": "noise", "old_id": "noise"},
+                {"new_id": "guider", "old_id": "guider"},
+                {"new_id": "sampler", "old_id": "sampler"},
+                {"new_id": "sigmas", "old_id": "sigmas"},
+                {"new_id": "latent_image", "old_id": "latent_image"},
+                {"new_id": "horizontal_tiles", "old_id": "horizontal_tiles"},
+                {"new_id": "vertical_tiles", "old_id": "vertical_tiles"},
+                {"new_id": "overlap", "old_id": "overlap"},
+                {"new_id": "audio_mode", "set_value": "freeze"},
+                {"new_id": "blend_mode", "old_id": "blend_mode"},
+                {
+                    "new_id": "aggressive_memory_cleanup",
+                    "old_id": "aggressive_memory_cleanup",
+                },
+                {"new_id": "debug", "old_id": "debug"},
+                {"new_id": "_deno_legacy_video_compat", "set_value": True},
+            ],
+            "output_mapping": [
+                {"old_idx": 0, "new_idx": 0},
+                {"old_idx": 1, "new_idx": 1},
+            ],
         },
     )
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiLoraLoader"] == "(Deno) Multi LoRA Loader"
@@ -363,6 +451,14 @@ def test_ltx_tiled_tile_controls_use_readable_frame_labels():
             assert "fusion_safety_mode" not in optional
             assert "fusion_safety_strength" not in optional
             assert "debug_fusion_stats" not in optional
+            assert input_types["hidden"] == {
+                "_deno_legacy_video_compat": "DENO_LEGACY_VIDEO_COMPAT",
+            }
+            compat_js = (
+                REPO_ROOT / "web" / "js" / "deno_ltx_tiled_sampler_compat.js"
+            ).read_text(encoding="utf-8")
+            assert 'widget.hidden = true' in compat_js
+            assert 'widget.serializeValue = () => widget.value === true' in compat_js
 
 
 def test_ltx_tiled_node_help_markdown_uses_readable_frame_labels():
@@ -445,6 +541,19 @@ def test_deno_node_help_update_state_has_badge():
     assert "showStatusTooltip" not in script
     assert "deno-node-help-status-tip" not in script
     assert 'addEventListener("mouseenter"' not in script
+
+
+def test_deno_node_help_version_and_popup_ownership_harness():
+    node = shutil.which("node")
+    assert node, "node executable is required for the DENO Node Help harness"
+
+    subprocess.run(
+        [node, str(REPO_ROOT / "tests" / "js" / "node_help_version_harness.mjs")],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_public_ltx23_8gb_workflow_keeps_deno_node_contracts():
@@ -1096,6 +1205,8 @@ def test_deno_image_compare_contract_and_frontend_copy():
     assert "for SaveImage" not in script
     assert "save the selected view" not in script
     assert "Compare A and B with live visual modes." in script
+    assert 'type=${encodeURIComponent(data.type || "output")}' in script
+    assert 'subfolder=${encodeURIComponent(data.subfolder || "")}' in script
 
 
 def test_deno_image_compare_runtime_semantics_when_torch_available():
@@ -5248,7 +5359,7 @@ def test_ai_review_gate_passes_or_blocks_media_outputs_from_reviewer_text():
     assert gate_cls.OUTPUT_NODE is True
     assert list(input_types["required"]) == ["review", "review_mode", "approve_once"]
     assert list(input_types["optional"]) == ["image", "audio", "reviewer_state"]
-    assert list(input_types["hidden"]) == ["unique_id"]
+    assert list(input_types["hidden"]) == ["unique_id", "extra_pnginfo"]
     assert "pass_words" not in input_types["required"]
     assert "reject_words" not in input_types["required"]
     assert "unclear_result" not in input_types["required"]
@@ -5612,3 +5723,140 @@ def test_video_compare_validation_accepts_stale_hidden_combo_values():
     node_cls = package.NODE_CLASS_MAPPINGS["DenoVideoCompare"]
 
     assert node_cls.VALIDATE_INPUTS(mode="A/B", toggle_image="C") is True
+
+
+def test_multi_lora_loaders_reject_non_finite_active_strengths_but_ignore_disabled_slots():
+    package = load_package()
+    general_cls = package.NODE_CLASS_MAPPINGS["DenoMultiLoraLoader"]
+    ltx_cls = package.NODE_CLASS_MAPPINGS["DenoLTXMultiLoraLoader"]
+    model = object()
+    clip = object()
+
+    for field in ("model_strength_1", "clip_strength_1"):
+        result = general_cls.VALIDATE_INPUTS(active_loras=1, lora_1="__none__", **{field: float("nan")})
+        assert "finite number" in result
+    for field in ("strength_1", "audio_1", "video_1"):
+        result = ltx_cls.VALIDATE_INPUTS(active_loras=1, lora_1="__none__", **{field: float("inf")})
+        assert "finite number" in result
+
+    with pytest.raises(ValueError, match="finite number"):
+        general_cls().load_multi_lora(model, clip, 1, lora_1="__none__", model_strength_1=float("nan"))
+    with pytest.raises(ValueError, match="finite number"):
+        ltx_cls().load_multi_lora(model, clip, 1, lora_1="__none__", audio_1=float("-inf"))
+
+    assert general_cls.VALIDATE_INPUTS(
+        active_loras=1,
+        enabled_1=False,
+        lora_1="__none__",
+        model_strength_1=float("nan"),
+    ) is True
+    assert ltx_cls().load_multi_lora(
+        model,
+        clip,
+        1,
+        enabled_1=False,
+        lora_1="__none__",
+        video_1=float("nan"),
+    ) == (model, clip)
+
+
+def test_bernini_prompt_guide_rejects_unknown_combo_typos_without_rejecting_exact_legacy_aliases():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoBerniniPromptGuide"]
+
+    for task_type in ("Default", "Reference Video Edit", "rv2v", "custom", "Custom System Prompt"):
+        assert node_cls.VALIDATE_INPUTS(task_type=task_type, negative_preset="Official Wan2.2") is True
+    assert node_cls.VALIDATE_INPUTS(task_type="Text to Vidoe", negative_preset="Official Wan2.2") == (
+        "Unknown Bernini System Prompt mode: Text to Vidoe"
+    )
+    assert node_cls.VALIDATE_INPUTS(task_type="Default", negative_preset="Official Wan 2.2") == (
+        "Unknown Bernini Negative Preset: Official Wan 2.2"
+    )
+
+
+def test_ltx_sequencer_noop_preserves_original_latent_metadata_and_identity():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXSequencer"]
+    positive = [{"positive": True}]
+    negative = [{"negative": True}]
+    sentinel = object()
+    latent = {
+        "samples": np.zeros((1, 1, 2, 1, 1), dtype=np.float32),
+        "batch_index": [9],
+        "custom_metadata": sentinel,
+    }
+    multi_input = np.zeros((1, 2, 2, 3), dtype=np.float32)
+
+    class VAE:
+        downscale_index_formula = (1, 1, 1)
+
+    zero_count = node_cls.execute(
+        positive, negative, VAE(), latent, multi_input, 0, "frames", 24, True, False
+    )
+    zero_strength = node_cls.execute(
+        positive,
+        negative,
+        VAE(),
+        latent,
+        multi_input,
+        1,
+        "frames",
+        24,
+        True,
+        False,
+        insert_frame_1=0,
+        strength_1=0.0,
+    )
+
+    for result in (zero_count, zero_strength):
+        assert result[0] is positive
+        assert result[1] is negative
+        assert result[2] is latent
+        assert result[2]["custom_metadata"] is sentinel
+
+
+def test_video_compare_unequal_batches_sample_only_the_longer_full_timeline():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_video_compare"]
+    torch = sys.modules.get("torch")
+    if torch is None or not hasattr(torch, "tensor"):
+        pytest.skip("real torch is required for Video Compare tensor sampling")
+
+    short = torch.zeros((2, 1, 1, 3), dtype=torch.float32)
+    long_values = torch.tensor([0.0, 0.25, 0.5, 1.0], dtype=torch.float32).view(4, 1, 1, 1)
+    long = long_values.expand(-1, 1, 1, 3).clone()
+
+    long_b = module._composite_frames("Side by Side", short, long, 0.5, False, "B", 24.0)
+    assert tuple(long_b.shape) == (2, 1, 2, 3)
+    assert torch.equal(long_b[:, 0, 1, 0], torch.tensor([0.0, 1.0]))
+
+    long_a = module._composite_frames("Side by Side", long, short, 0.5, False, "B", 24.0)
+    assert torch.equal(long_a[:, 0, 0, 0], torch.tensor([0.0, 1.0]))
+
+    single = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
+    one_frame = module._composite_frames("Side by Side", single, long, 0.5, False, "B", 24.0)
+    assert float(one_frame[0, 0, 1, 0]) == 0.0
+
+
+def test_rtx_video_finisher_off_off_is_exact_preflight_free_passthrough():
+    package = load_package()
+    finisher = package.NODE_CLASS_MAPPINGS["DenoRTXVFXVideoFinisher"]()
+    images = object()
+
+    result = finisher.apply_finisher(
+        images=images,
+        first_pass="Off",
+        first_quality="Retired Quality",
+        upscale_pass="Off",
+        upscale_quality="Retired Quality",
+        resize_type="Retired Resize",
+        scale=2.0,
+        megapixels=4.0,
+        width=3840,
+        height=2160,
+        divisible_by=8,
+        ratio_preset="1712:880",
+        resize_method="Retired Method",
+    )
+
+    assert result[0] is images
