@@ -9,6 +9,9 @@ const LOADER_KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
 const LOADER_PRESET_MODE = "Preset Ratio";
 const LOADER_MANUAL_MODE = "Manual Input";
 const SEQUENCER_LAYOUT_VERSION = 3;
+// Measured legacy-renderer node chrome/stack overhead outside the 155 canonical widget rows.
+const SEQUENCER_FULL_SCHEMA_STACK_BASE_HEIGHT = 114;
+const SEQUENCER_CORRUPT_HEIGHT_TOLERANCE = 160;
 const SEQUENCER_CLONE_PROPERTY_NAMES = [
     "num_images",
     "insert_mode",
@@ -1982,6 +1985,8 @@ function patchSequencer(nodeType) {
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
         const result = onNodeCreated?.apply(this, arguments);
+        catalogSequencerDynamicSurfaces(this);
+        applySequencerWidgetVisibilityOnly(this);
         setTimeout(() => {
             if (!this.__denoSequencerReady) {
                 setupSequencer(this);
@@ -2053,6 +2058,7 @@ function finalizeSequencerConfiguredNode(node, info) {
     applySequencerConfiguredDynamicState(node, info);
     setupSequencer(node);
     if (node) {
+        applySequencerWidgetVisibilityOnly(node);
         node.__denoSequencerLastFinalizedConfigureInfo = info;
         delete node.__denoSequencerConfiguredDynamicWidgetValues;
     }
@@ -2079,6 +2085,7 @@ function applySequencerConfiguredLayoutState(node, info) {
     node.properties = node.properties || {};
 
     if (!incomingLock) {
+        node.__denoSequencerHostRestoreSizingPending = true;
         node.__denoSequencerManualSizeLocked = false;
         node.__denoSequencerManualHeight = null;
         node.__denoSequencerInitialAutoFitPending = true;
@@ -2090,12 +2097,45 @@ function applySequencerConfiguredLayoutState(node, info) {
 
     const incomingManualHeight = Number(incomingProperties.denoSequencerManualHeight);
     const fallbackHeight = Number(info?.size?.[1]);
-    const manualHeight =
-        Number.isFinite(incomingManualHeight) && incomingManualHeight > 0
-            ? incomingManualHeight
-            : Number.isFinite(fallbackHeight) && fallbackHeight > 0
-                ? fallbackHeight
-                : null;
+    const incomingWidth = Number(info?.size?.[0]);
+    const fullSchemaStackHeight = getSequencerFullSchemaStackHeight(
+        node,
+        Number.isFinite(incomingWidth) && incomingWidth > 0
+            ? incomingWidth
+            : node.size?.[0]
+    );
+    const corruptThreshold = getSequencerCorruptHeightThreshold(fullSchemaStackHeight);
+    const hasCorruptManualHeight =
+        Number.isFinite(incomingManualHeight) &&
+        incomingManualHeight > 0 &&
+        incomingManualHeight >= corruptThreshold;
+    const hasCorruptFallbackHeight =
+        Number.isFinite(fallbackHeight) &&
+        fallbackHeight > 0 &&
+        fallbackHeight >= corruptThreshold;
+
+    if (hasCorruptManualHeight && hasCorruptFallbackHeight) {
+        node.__denoSequencerHostRestoreSizingPending = true;
+        node.__denoSequencerManualSizeLocked = false;
+        node.__denoSequencerManualHeight = null;
+        node.__denoSequencerInitialAutoFitPending = true;
+        node.properties.denoSequencerLayoutVersion = SEQUENCER_LAYOUT_VERSION;
+        node.properties.denoSequencerManualSizeLocked = false;
+        delete node.properties.denoSequencerManualHeight;
+        return;
+    }
+
+    let manualHeight = null;
+    if (hasCorruptManualHeight) {
+        manualHeight = Number.isFinite(fallbackHeight) && fallbackHeight > 0
+            ? fallbackHeight
+            : null;
+    } else if (Number.isFinite(incomingManualHeight) && incomingManualHeight > 0) {
+        manualHeight = incomingManualHeight;
+    } else if (Number.isFinite(fallbackHeight) && fallbackHeight > 0) {
+        manualHeight = fallbackHeight;
+    }
+    node.__denoSequencerHostRestoreSizingPending = true;
     node.__denoSequencerManualSizeLocked = true;
     node.__denoSequencerManualHeight = manualHeight;
     node.__denoSequencerInitialAutoFitPending = false;
@@ -2463,6 +2503,7 @@ function setupSequencer(node) {
     }
     node.properties.strength_sync = initialStrengthSync;
     catalogSequencerDynamicSurfaces(node);
+    applySequencerWidgetVisibilityOnly(node);
 
     const configuredLayoutState = node.__denoSequencerLayoutStateConfigured === true;
     const savedLayoutVersion = Number(node.properties.denoSequencerLayoutVersion || 0);
@@ -2509,7 +2550,8 @@ function setupSequencer(node) {
                 !this.__denoSequencerAutoSizing &&
                 !this.__denoSequencerInternalLayout &&
                 !this.__denoSequencerNativeArrangeSizing &&
-                !this.__denoSequencerInitialAutoFitPending
+                !this.__denoSequencerInitialAutoFitPending &&
+                !this.__denoSequencerHostRestoreSizingPending
             ) {
                 this.__denoSequencerManualSizeLocked = true;
                 if (Number.isFinite(Number(afterHeight)) && Number(afterHeight) > 0) {
@@ -2704,26 +2746,8 @@ function setupSequencer(node) {
     };
 
     node._denoUpdateVisibility = function () {
-        const count = Number(this.properties.num_images ?? getWidget(this, "num_images")?.value ?? 0);
-        const mode = this.properties.insert_mode ?? getWidget(this, "insert_mode")?.value ?? "frames";
         catalogSequencerDynamicSurfaces(this);
-        const visibleDynamicIndexes = new Set();
-
-        for (const [name, widget] of this.__denoSequencerDynamicWidgets || []) {
-            const info = getSequencerDynamicInputInfo(name);
-            if (!info) {
-                continue;
-            }
-            const visible = shouldShowSequencerDynamicWidget(this, name, count, mode);
-            if (visible) {
-                visibleDynamicIndexes.add(info.index);
-            }
-            toggleWidgetVisibility(widget, visible);
-        }
-
-        for (const [index, widget] of this.__denoSequencerHeaderWidgets || []) {
-            toggleWidgetVisibility(widget, visibleDynamicIndexes.has(Number(index)));
-        }
+        const visibleDynamicIndexes = applySequencerWidgetVisibilityOnly(this);
 
         composeSequencerWidgetList(this, visibleDynamicIndexes);
         this._denoReconcileInputSlots?.();
@@ -2770,6 +2794,7 @@ function setupSequencer(node) {
         }
         this.properties.num_images = normalizedCount;
         this._currentImageCount = normalizedCount;
+        applySequencerWidgetVisibilityOnly(this);
         this._denoUpdateVisibility?.();
         this._denoReconcileInputSlots?.();
         this.setDirtyCanvas?.(true, true);
@@ -2825,20 +2850,24 @@ function setupSequencer(node) {
     };
 
     setTimeout(() => {
-        // Keep values loaded from workflow JSON intact.
-        // Peer clone is only for fresh sequencer nodes with no dynamic state yet.
-        if (!node.__denoLoadedFromWorkflow && !hasSequencerDynamicState(node)) {
-            const peerNode = getAllSequencerNodes(node).find((candidate) => candidate !== node);
-            if (peerNode) {
-                cloneSequencerState(peerNode, node);
+        try {
+            // Keep values loaded from workflow JSON intact.
+            // Peer clone is only for fresh sequencer nodes with no dynamic state yet.
+            if (!node.__denoLoadedFromWorkflow && !hasSequencerDynamicState(node)) {
+                const peerNode = getAllSequencerNodes(node).find((candidate) => candidate !== node);
+                if (peerNode) {
+                    cloneSequencerState(peerNode, node);
+                }
             }
+            const count = readUpstreamImageCount(node);
+            if (typeof count === "number") {
+                node._syncImageCount?.(count);
+            }
+            node._applyWidgetCount(node.properties.num_images ?? getWidget(node, "num_images")?.value ?? 0);
+            scheduleUpstreamCountSync(node, { propagate: false });
+        } finally {
+            node.__denoSequencerHostRestoreSizingPending = false;
         }
-        const count = readUpstreamImageCount(node);
-        if (typeof count === "number") {
-            node._syncImageCount?.(count);
-        }
-        node._applyWidgetCount(node.properties.num_images ?? getWidget(node, "num_images")?.value ?? 0);
-        scheduleUpstreamCountSync(node, { propagate: false });
     }, 50);
 
     // Keep count in sync even when an intermediate node sits between loader and sequencer.
@@ -3260,6 +3289,33 @@ function resolveSequencerInputWidget(input) {
     return null;
 }
 
+function applySequencerWidgetVisibilityOnly(node) {
+    if (!node) {
+        return new Set();
+    }
+    const count = Number(node.properties?.num_images ?? getWidget(node, "num_images")?.value ?? 0);
+    const mode = node.properties?.insert_mode ?? getWidget(node, "insert_mode")?.value ?? "frames";
+    const visibleDynamicIndexes = new Set();
+
+    for (const [name, widget] of node.__denoSequencerDynamicWidgets || []) {
+        const info = getSequencerDynamicInputInfo(name);
+        if (!info) {
+            continue;
+        }
+        const visible = shouldShowSequencerDynamicWidget(node, name, count, mode);
+        if (visible) {
+            visibleDynamicIndexes.add(info.index);
+        }
+        toggleWidgetVisibility(widget, visible);
+    }
+
+    for (const [index, widget] of node.__denoSequencerHeaderWidgets || []) {
+        toggleWidgetVisibility(widget, visibleDynamicIndexes.has(Number(index)));
+    }
+
+    return visibleDynamicIndexes;
+}
+
 function syncSequencerInputGeometry(node) {
     const count = Number(node?.properties?.num_images ?? getWidget(node, "num_images")?.value ?? 0);
     const mode = node?.properties?.insert_mode ?? getWidget(node, "insert_mode")?.value ?? "frames";
@@ -3307,13 +3363,20 @@ function normalizeSequencerVisibleWidgetPositions(node, width = node?.size?.[0] 
     }
 }
 
-function getSequencerVisibleWidgetHeight(widget, width) {
-    if (!widget || widget.hidden || widget.type === "hidden") {
+function getSequencerWidgetStackHeight(widget, width, { includeHidden = false } = {}) {
+    if (!widget) {
+        return getSequencerDefaultWidgetHeight();
+    }
+    if (!includeHidden && (widget.hidden || widget.type === "hidden")) {
         return 0;
     }
+    const computeSize =
+        includeHidden && typeof widget.__denoOrigComputeSize === "function"
+            ? widget.__denoOrigComputeSize
+            : widget.computeSize;
     const computedSize =
-        typeof widget.computeSize === "function"
-            ? widget.computeSize(width)
+        typeof computeSize === "function"
+            ? computeSize.call(widget, width)
             : null;
     const computedHeight = Array.isArray(computedSize) ? computedSize[1] : null;
     if (Number.isFinite(computedHeight) && computedHeight > 0) {
@@ -3322,11 +3385,50 @@ function getSequencerVisibleWidgetHeight(widget, width) {
     if (Number.isFinite(widget.computedHeight) && widget.computedHeight > 0) {
         return widget.computedHeight;
     }
-    const liteGraphHeight =
+    return getSequencerDefaultWidgetHeight();
+}
+
+function getSequencerDefaultWidgetHeight() {
+    return (
         typeof window !== "undefined" && window.LiteGraph?.NODE_WIDGET_HEIGHT
             ? window.LiteGraph.NODE_WIDGET_HEIGHT
-            : 20;
-    return liteGraphHeight;
+            : 20
+    );
+}
+
+function getSequencerVisibleWidgetHeight(widget, width) {
+    return getSequencerWidgetStackHeight(widget, width);
+}
+
+function getSequencerFullSchemaStackHeight(node, width = node?.size?.[0] ?? 360) {
+    const effectiveWidth = Number.isFinite(Number(width)) && Number(width) > 0
+        ? Number(width)
+        : 360;
+    const widgetByName = new Map();
+    for (const widget of node?.widgets || []) {
+        if (widget?.name) {
+            widgetByName.set(widget.name, widget);
+        }
+    }
+    for (const [name, widget] of node?.__denoSequencerDynamicWidgets || []) {
+        if (name && widget) {
+            widgetByName.set(name, widget);
+        }
+    }
+
+    let height = SEQUENCER_FULL_SCHEMA_STACK_BASE_HEIGHT;
+    for (const name of [...SEQUENCER_CLONE_PROPERTY_NAMES, ...getSequencerDynamicInputNames()]) {
+        height += getSequencerWidgetStackHeight(widgetByName.get(name), effectiveWidth, { includeHidden: true }) + 4;
+    }
+    return Math.max(140, Math.ceil(height));
+}
+
+function getSequencerCorruptHeightThreshold(fullSchemaStackHeight) {
+    const stackHeight = Number(fullSchemaStackHeight);
+    if (!Number.isFinite(stackHeight) || stackHeight <= 0) {
+        return Number.POSITIVE_INFINITY;
+    }
+    return Math.max(140, stackHeight - SEQUENCER_CORRUPT_HEIGHT_TOLERANCE);
 }
 
 function isSequencerVueNodesMode() {
@@ -3355,6 +3457,7 @@ function fitSequencerVisibleSize(node, width = node?.size?.[0] ?? 360) {
     }
     if (isSequencerVueNodesMode()) {
         node.__denoSequencerInitialAutoFitPending = false;
+        node.__denoSequencerHostRestoreSizingPending = false;
         return;
     }
     let bottom = 0;
@@ -3369,10 +3472,24 @@ function fitSequencerVisibleSize(node, width = node?.size?.[0] ?? 360) {
         bottom = Math.max(bottom, y + getSequencerVisibleWidgetHeight(widget, width) + 8);
     }
     const requiredHeight = Math.max(140, Math.ceil(bottom));
-    const manualBaseHeight =
-        node.__denoSequencerManualSizeLocked && !node.__denoSequencerInitialAutoFitPending
-            ? Number(node.__denoSequencerManualHeight || node.properties?.denoSequencerManualHeight || node.size?.[1])
-            : null;
+    const storedManualHeight = Number(
+        node.__denoSequencerManualHeight || node.properties?.denoSequencerManualHeight
+    );
+    let manualBaseHeight = null;
+    if (node.__denoSequencerManualSizeLocked && !node.__denoSequencerInitialAutoFitPending) {
+        if (Number.isFinite(storedManualHeight) && storedManualHeight > 0) {
+            manualBaseHeight = storedManualHeight;
+        } else {
+            const currentHeight = Number(node.size?.[1]);
+            const corruptThreshold = getSequencerCorruptHeightThreshold(
+                getSequencerFullSchemaStackHeight(node, width)
+            );
+            manualBaseHeight =
+                Number.isFinite(currentHeight) && currentHeight > 0 && currentHeight < corruptThreshold
+                    ? currentHeight
+                    : requiredHeight;
+        }
+    }
     const height =
         Number.isFinite(manualBaseHeight) && manualBaseHeight > 0
             ? Math.max(requiredHeight, Math.ceil(manualBaseHeight))
@@ -3380,6 +3497,7 @@ function fitSequencerVisibleSize(node, width = node?.size?.[0] ?? 360) {
     if (!Array.isArray(node.size)) {
         node.size = [width, height];
         node.__denoSequencerInitialAutoFitPending = false;
+        node.__denoSequencerHostRestoreSizingPending = false;
         return;
     }
     if (Math.abs((node.size[1] ?? 0) - height) > 1 || Math.abs((node.size[0] ?? width) - width) > 1) {
@@ -3389,9 +3507,11 @@ function fitSequencerVisibleSize(node, width = node?.size?.[0] ?? 360) {
         } finally {
             node.__denoSequencerAutoSizing = false;
             node.__denoSequencerInitialAutoFitPending = false;
+            node.__denoSequencerHostRestoreSizingPending = false;
         }
     } else {
         node.__denoSequencerInitialAutoFitPending = false;
+        node.__denoSequencerHostRestoreSizingPending = false;
     }
 }
 
@@ -4103,6 +4223,7 @@ if (typeof window !== "undefined" && typeof window.__DENO_EXTRA_NODES_TEST_HOOK_
         getSequencerInputPinReasons,
         collectUploadedPaths,
         ensureSequencerDynamicWidget,
+        getSequencerFullSchemaStackHeight,
         isSequencerVueNodesMode,
         getInputLinkIds,
         notifyConnectedSequencers,

@@ -6,6 +6,8 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+- Fixed `(Deno) LTX Sequencer` growing to its full 50-slot height after a workflow reload, workflow-tab switch, or browser-tab restore when the node had been manually resized, and made already-affected saved workflows recover their compact size automatically the next time they load.
+
 ## 0.7.70 - 2026-07-19
 
 - Changed DENO Floating Tools so its `NEW` badge and version row track ComfyUI Stable only, without checking or displaying separate frontend and workflow-template package versions.

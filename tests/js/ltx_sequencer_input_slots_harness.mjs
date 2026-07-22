@@ -9,9 +9,15 @@ const scriptPath = path.join(repoRoot, "web/js/deno_extra_nodes.js");
 
 let hooks = null;
 let registeredExtension = null;
+let deferTimers = false;
+const deferredTimers = [];
 const context = {
   console,
-  setTimeout(callback) {
+  setTimeout(callback, delay = 0) {
+    if (deferTimers) {
+      deferredTimers.push({ callback, delay });
+      return deferredTimers.length;
+    }
     callback();
     return 1;
   },
@@ -121,6 +127,20 @@ function makeSequencerNode({ count = 1, mode = "frames", id = 101 } = {}) {
     arrangeCalls: 0,
     arrange() {
       this.arrangeCalls += 1;
+    },
+    computeSize() {
+      const width = Number(this.size?.[0] ?? 360);
+      let height = 114;
+      for (const widget of this.widgets || []) {
+        const computedSize = typeof widget.computeSize === "function"
+          ? widget.computeSize(width)
+          : null;
+        const computedHeight = Array.isArray(computedSize) && Number.isFinite(computedSize[1])
+          ? computedSize[1]
+          : context.LiteGraph.NODE_WIDGET_HEIGHT;
+        height += computedHeight + 4;
+      }
+      return [width, Math.ceil(height)];
     },
     setSize(size) {
       this.size = [...size];
@@ -436,6 +456,71 @@ function cloneSerializableInputs(node) {
   return JSON.parse(JSON.stringify(node.inputs));
 }
 
+function beginDeferredTimerWindow() {
+  assert.equal(deferredTimers.length, 0, "deferred timer queue should start empty");
+  deferTimers = true;
+}
+
+function flushDeferredTimers() {
+  deferTimers = false;
+  while (deferredTimers.length) {
+    const pending = deferredTimers.splice(0, deferredTimers.length);
+    for (const { callback } of pending) {
+      callback();
+    }
+  }
+}
+
+function configureSequencerRestore({
+  id,
+  locked,
+  manualHeight,
+  savedHeight,
+  count = 1,
+  mode = "frames",
+}) {
+  const node = makeConfiguredSequencerNode({ count, mode, id });
+  node.size = [270, savedHeight];
+  const properties = {
+    num_images: count,
+    insert_mode: mode,
+    denoSequencerManualSizeLocked: locked,
+  };
+  if (manualHeight !== undefined) {
+    properties.denoSequencerManualHeight = manualHeight;
+  }
+
+  beginDeferredTimerWindow();
+  node.configure({
+    id,
+    type: "DenoLTXSequencer",
+    size: [270, savedHeight],
+    inputs: cloneSerializableInputs(node),
+    properties,
+    widgets_values: makeFullSequencerWidgetsValues({
+      num_images: count,
+      insert_mode: mode,
+    }),
+  });
+  return node;
+}
+
+function simulateSequencerHostRestoreSizePass(node, minimumHeight) {
+  const fullStackHeight = hooks.getSequencerFullSchemaStackHeight(node, node.size[0]);
+  node.setSize([node.size[0], Math.max(minimumHeight, fullStackHeight)]);
+  return fullStackHeight;
+}
+
+const freshOnNodeCreated = makeConfiguredSequencerNode({ count: 1, mode: "frames", id: 100 });
+freshOnNodeCreated.size = [270, 500];
+beginDeferredTimerWindow();
+freshOnNodeCreated.onNodeCreated();
+assert.ok(
+  freshOnNodeCreated.computeSize()[1] < 600,
+  "fresh onNodeCreated must synchronously hide inactive schema widgets before its zero-delay setup timer",
+);
+flushDeferredTimers();
+
 const freshFrames = makeSequencerNode({ count: 1, mode: "frames" });
 hooks.setupSequencer(freshFrames);
 hooks.catalogSequencerInputSlots(freshFrames);
@@ -622,6 +707,180 @@ assert.equal(
   restoredManualSizeNode.size[1],
   manualHeight,
   "saved manual base height should restore even when the loaded size is smaller",
+);
+
+const fingerprintNode = makeSequencerNode({ count: 1, mode: "frames", id: 410 });
+fingerprintNode.size = [270, 500];
+const fullSchemaStackHeight = hooks.getSequencerFullSchemaStackHeight(fingerprintNode, 270);
+assert.ok(
+  Math.abs(fullSchemaStackHeight - 3834) <= 64,
+  `full-schema stack fingerprint at width 270 should stay near 3834, got ${fullSchemaStackHeight}`,
+);
+
+const lockedHostRestoreNode = configureSequencerRestore({
+  id: 411,
+  locked: true,
+  manualHeight: 500,
+  savedHeight: 500,
+});
+assert.ok(
+  lockedHostRestoreNode.computeSize()[1] < 600,
+  "configure must synchronously hide inactive schema widgets before deferred timers run",
+);
+simulateSequencerHostRestoreSizePass(lockedHostRestoreNode, 500);
+assert.equal(
+  lockedHostRestoreNode.properties.denoSequencerManualHeight,
+  500,
+  "host restore sizing must not overwrite a locked saved manual height before settle",
+);
+flushDeferredTimers();
+assert.equal(lockedHostRestoreNode.size[1], 500, "locked host restore should settle to the saved 500px base");
+assert.equal(
+  lockedHostRestoreNode.properties.denoSequencerManualHeight,
+  500,
+  "locked host restore should preserve denoSequencerManualHeight=500",
+);
+assert.equal(
+  lockedHostRestoreNode.__denoSequencerHostRestoreSizingPending,
+  false,
+  "host restore suppression should clear after the deferred settle",
+);
+
+const postSettleManualResizeNode = configureSequencerRestore({
+  id: 417,
+  locked: true,
+  manualHeight: 500,
+  savedHeight: 500,
+});
+simulateSequencerHostRestoreSizePass(postSettleManualResizeNode, 500);
+flushDeferredTimers();
+postSettleManualResizeNode.setSize([270, 640]);
+assert.equal(
+  postSettleManualResizeNode.properties.denoSequencerManualHeight,
+  640,
+  "a real user resize after restore settle must record the new manual height",
+);
+assert.equal(
+  postSettleManualResizeNode.properties.denoSequencerManualSizeLocked,
+  true,
+  "a real user resize after restore settle must keep the manual-size lock",
+);
+
+const unlockedHostRestoreNode = configureSequencerRestore({
+  id: 412,
+  locked: false,
+  savedHeight: 500,
+});
+assert.ok(
+  unlockedHostRestoreNode.computeSize()[1] < 600,
+  "unlocked configure should also synchronously expose a compact computeSize",
+);
+simulateSequencerHostRestoreSizePass(unlockedHostRestoreNode, 500);
+flushDeferredTimers();
+const countOneContentHeight = unlockedHostRestoreNode.size[1];
+assert.ok(countOneContentHeight < 600, "unlocked host restore should settle to compact visible content");
+assert.equal(
+  unlockedHostRestoreNode.properties.denoSequencerManualSizeLocked,
+  false,
+  "unlocked host restore should stay unlocked",
+);
+assert.equal(
+  Object.prototype.hasOwnProperty.call(unlockedHostRestoreNode.properties, "denoSequencerManualHeight"),
+  false,
+  "unlocked host restore should not create a saved manual height",
+);
+
+const missingStoredManualNode = makeSequencerNode({ count: 1, mode: "frames", id: 415 });
+hooks.setupSequencer(missingStoredManualNode);
+missingStoredManualNode.size = [270, fullSchemaStackHeight];
+missingStoredManualNode.__denoSequencerManualSizeLocked = true;
+missingStoredManualNode.__denoSequencerManualHeight = null;
+missingStoredManualNode.__denoSequencerInitialAutoFitPending = false;
+missingStoredManualNode.properties.denoSequencerManualSizeLocked = true;
+delete missingStoredManualNode.properties.denoSequencerManualHeight;
+missingStoredManualNode._denoUpdateVisibility?.();
+assert.equal(
+  missingStoredManualNode.size[1],
+  countOneContentHeight,
+  "locked node without a stored manual height must not use a transient full-stack current height as its floor",
+);
+assert.equal(
+  Object.prototype.hasOwnProperty.call(missingStoredManualNode.properties, "denoSequencerManualHeight"),
+  false,
+  "safe fit fallback should not serialize the transient full-stack height",
+);
+
+const poisonedHostRestoreNode = configureSequencerRestore({
+  id: 413,
+  locked: true,
+  manualHeight: 3834,
+  savedHeight: 3834,
+});
+assert.equal(
+  poisonedHostRestoreNode.properties.denoSequencerManualSizeLocked,
+  false,
+  "near-full-schema saved height should heal by unlocking during configure",
+);
+assert.equal(
+  Object.prototype.hasOwnProperty.call(poisonedHostRestoreNode.properties, "denoSequencerManualHeight"),
+  false,
+  "poisoned 3834px manual height should be deleted during configure",
+);
+simulateSequencerHostRestoreSizePass(poisonedHostRestoreNode, 3834);
+flushDeferredTimers();
+assert.equal(
+  poisonedHostRestoreNode.size[1],
+  countOneContentHeight,
+  "healed poisoned workflow should settle to the same count=1 visible content height",
+);
+assert.equal(
+  poisonedHostRestoreNode.properties.denoSequencerManualSizeLocked,
+  false,
+  "healed poisoned workflow should remain unlocked after settle",
+);
+
+const poisonedManualCompactSizeNode = configureSequencerRestore({
+  id: 416,
+  locked: true,
+  manualHeight: 3834,
+  savedHeight: 500,
+});
+assert.equal(
+  poisonedManualCompactSizeNode.properties.denoSequencerManualSizeLocked,
+  true,
+  "poisoned manual property with a compact saved node size should keep the manual-size lock",
+);
+assert.equal(
+  poisonedManualCompactSizeNode.properties.denoSequencerManualHeight,
+  500,
+  "poisoned manual property with a compact saved node size should recover that saved size as the base",
+);
+simulateSequencerHostRestoreSizePass(poisonedManualCompactSizeNode, 500);
+flushDeferredTimers();
+assert.equal(
+  poisonedManualCompactSizeNode.size[1],
+  500,
+  "recovered compact saved size should survive the host restore pass and settle",
+);
+
+const legitimateLargeManualNode = configureSequencerRestore({
+  id: 414,
+  locked: true,
+  manualHeight: 1200,
+  savedHeight: 1200,
+});
+simulateSequencerHostRestoreSizePass(legitimateLargeManualNode, 1200);
+flushDeferredTimers();
+assert.equal(legitimateLargeManualNode.size[1], 1200, "legitimate 1200px manual base should survive restore exactly");
+assert.equal(
+  legitimateLargeManualNode.properties.denoSequencerManualHeight,
+  1200,
+  "legitimate large manual height should remain serialized",
+);
+assert.equal(
+  legitimateLargeManualNode.properties.denoSequencerManualSizeLocked,
+  true,
+  "legitimate large manual height should remain locked",
 );
 
 const configureExactNode = makeConfiguredSequencerNode({ count: 1, mode: "frames", id: 405 });
