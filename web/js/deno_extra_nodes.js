@@ -2051,6 +2051,45 @@ function endSequencerConfigurePhase(node, phase) {
         return;
     }
     node.__denoSequencerConfiguring = false;
+    // The host runs its computeSize/max/setSize restore pass only after the
+    // outer configure call returns. Reassert after every synchronous setup/fit
+    // so that pass cannot be mistaken for a user resize.
+    node.__denoSequencerHostRestoreSizingPending = true;
+    scheduleSequencerConfigureRestoreSettle(node, phase.generation);
+}
+
+function clearSequencerHostRestoreSizingPending(node, configureGeneration = null) {
+    if (!node || node.__denoSequencerConfiguring) {
+        return false;
+    }
+    if (
+        configureGeneration !== null &&
+        configureGeneration !== undefined &&
+        Number(configureGeneration) !== Number(node.__denoSequencerConfigureGeneration || 0)
+    ) {
+        return false;
+    }
+    node.__denoSequencerHostRestoreSizingPending = false;
+    return true;
+}
+
+function scheduleSequencerConfigureRestoreSettle(node, configureGeneration) {
+    setTimeout(() => {
+        if (
+            !node ||
+            node.__denoSequencerConfiguring ||
+            configureGeneration !== node.__denoSequencerConfigureGeneration
+        ) {
+            return;
+        }
+        try {
+            runSequencerInternalLayout(node, () => fitSequencerVisibleSize(node));
+        } finally {
+            // Collapsed nodes return before fit can clear the window. Vue nodes
+            // also need an explicit completion path independent of canvas fit.
+            clearSequencerHostRestoreSizingPending(node, configureGeneration);
+        }
+    }, 50);
 }
 
 function finalizeSequencerConfiguredNode(node, info) {
@@ -2104,15 +2143,14 @@ function applySequencerConfiguredLayoutState(node, info) {
             ? incomingWidth
             : node.size?.[0]
     );
-    const corruptThreshold = getSequencerCorruptHeightThreshold(fullSchemaStackHeight);
-    const hasCorruptManualHeight =
-        Number.isFinite(incomingManualHeight) &&
-        incomingManualHeight > 0 &&
-        incomingManualHeight >= corruptThreshold;
-    const hasCorruptFallbackHeight =
-        Number.isFinite(fallbackHeight) &&
-        fallbackHeight > 0 &&
-        fallbackHeight >= corruptThreshold;
+    const hasCorruptManualHeight = isSequencerCorruptFullStackHeight(
+        incomingManualHeight,
+        fullSchemaStackHeight
+    );
+    const hasCorruptFallbackHeight = isSequencerCorruptFullStackHeight(
+        fallbackHeight,
+        fullSchemaStackHeight
+    );
 
     if (hasCorruptManualHeight && hasCorruptFallbackHeight) {
         node.__denoSequencerHostRestoreSizingPending = true;
@@ -2761,10 +2799,13 @@ function setupSequencer(node) {
         this.setDirtyCanvas?.(true, true);
     };
 
-    node._applyWidgetCount = function (count) {
+    node._applyWidgetCount = function (count, options = {}) {
         this._hookStaticWidgets();
         const normalizedCount = Math.max(0, Math.min(Number(count) || 0, 50));
         const width = this.size?.[0] ?? 360;
+        const configureGeneration = Number.isFinite(Number(options?.configureGeneration))
+            ? Number(options.configureGeneration)
+            : null;
         catalogSequencerDynamicSurfaces(this);
 
         if (this.widgets) {
@@ -2799,6 +2840,12 @@ function setupSequencer(node) {
         this._denoReconcileInputSlots?.();
         this.setDirtyCanvas?.(true, true);
         requestAnimationFrame(() => {
+            if (
+                configureGeneration !== null &&
+                configureGeneration !== Number(this.__denoSequencerConfigureGeneration || 0)
+            ) {
+                return;
+            }
             syncSequencerInputGeometry(this);
             runSequencerInternalLayout(this, () => {
                 this.arrange?.();
@@ -2849,7 +2896,11 @@ function setupSequencer(node) {
         }
     };
 
+    const setupConfigureGeneration = Number(node.__denoSequencerConfigureGeneration || 0);
     setTimeout(() => {
+        if (setupConfigureGeneration !== Number(node.__denoSequencerConfigureGeneration || 0)) {
+            return;
+        }
         try {
             // Keep values loaded from workflow JSON intact.
             // Peer clone is only for fresh sequencer nodes with no dynamic state yet.
@@ -2863,10 +2914,13 @@ function setupSequencer(node) {
             if (typeof count === "number") {
                 node._syncImageCount?.(count);
             }
-            node._applyWidgetCount(node.properties.num_images ?? getWidget(node, "num_images")?.value ?? 0);
+            node._applyWidgetCount(
+                node.properties.num_images ?? getWidget(node, "num_images")?.value ?? 0,
+                { configureGeneration: setupConfigureGeneration }
+            );
             scheduleUpstreamCountSync(node, { propagate: false });
         } finally {
-            node.__denoSequencerHostRestoreSizingPending = false;
+            clearSequencerHostRestoreSizingPending(node, setupConfigureGeneration);
         }
     }, 50);
 
@@ -3423,12 +3477,18 @@ function getSequencerFullSchemaStackHeight(node, width = node?.size?.[0] ?? 360)
     return Math.max(140, Math.ceil(height));
 }
 
-function getSequencerCorruptHeightThreshold(fullSchemaStackHeight) {
+function isSequencerCorruptFullStackHeight(height, fullSchemaStackHeight) {
+    const candidateHeight = Number(height);
     const stackHeight = Number(fullSchemaStackHeight);
-    if (!Number.isFinite(stackHeight) || stackHeight <= 0) {
-        return Number.POSITIVE_INFINITY;
+    if (
+        !Number.isFinite(candidateHeight) ||
+        candidateHeight <= 0 ||
+        !Number.isFinite(stackHeight) ||
+        stackHeight <= 0
+    ) {
+        return false;
     }
-    return Math.max(140, stackHeight - SEQUENCER_CORRUPT_HEIGHT_TOLERANCE);
+    return Math.abs(candidateHeight - stackHeight) <= SEQUENCER_CORRUPT_HEIGHT_TOLERANCE;
 }
 
 function isSequencerVueNodesMode() {
@@ -3457,7 +3517,7 @@ function fitSequencerVisibleSize(node, width = node?.size?.[0] ?? 360) {
     }
     if (isSequencerVueNodesMode()) {
         node.__denoSequencerInitialAutoFitPending = false;
-        node.__denoSequencerHostRestoreSizingPending = false;
+        clearSequencerHostRestoreSizingPending(node);
         return;
     }
     let bottom = 0;
@@ -3481,11 +3541,12 @@ function fitSequencerVisibleSize(node, width = node?.size?.[0] ?? 360) {
             manualBaseHeight = storedManualHeight;
         } else {
             const currentHeight = Number(node.size?.[1]);
-            const corruptThreshold = getSequencerCorruptHeightThreshold(
+            const hasCorruptCurrentHeight = isSequencerCorruptFullStackHeight(
+                currentHeight,
                 getSequencerFullSchemaStackHeight(node, width)
             );
             manualBaseHeight =
-                Number.isFinite(currentHeight) && currentHeight > 0 && currentHeight < corruptThreshold
+                Number.isFinite(currentHeight) && currentHeight > 0 && !hasCorruptCurrentHeight
                     ? currentHeight
                     : requiredHeight;
         }
@@ -3497,7 +3558,7 @@ function fitSequencerVisibleSize(node, width = node?.size?.[0] ?? 360) {
     if (!Array.isArray(node.size)) {
         node.size = [width, height];
         node.__denoSequencerInitialAutoFitPending = false;
-        node.__denoSequencerHostRestoreSizingPending = false;
+        clearSequencerHostRestoreSizingPending(node);
         return;
     }
     if (Math.abs((node.size[1] ?? 0) - height) > 1 || Math.abs((node.size[0] ?? width) - width) > 1) {
@@ -3507,11 +3568,11 @@ function fitSequencerVisibleSize(node, width = node?.size?.[0] ?? 360) {
         } finally {
             node.__denoSequencerAutoSizing = false;
             node.__denoSequencerInitialAutoFitPending = false;
-            node.__denoSequencerHostRestoreSizingPending = false;
+            clearSequencerHostRestoreSizingPending(node);
         }
     } else {
         node.__denoSequencerInitialAutoFitPending = false;
-        node.__denoSequencerHostRestoreSizingPending = false;
+        clearSequencerHostRestoreSizingPending(node);
     }
 }
 

@@ -471,6 +471,13 @@ function flushDeferredTimers() {
   }
 }
 
+function flushNextDeferredTimerWithDelay(delay) {
+  const timerIndex = deferredTimers.findIndex((timer) => timer.delay === delay);
+  assert.notEqual(timerIndex, -1, `expected a deferred ${delay}ms timer`);
+  const [{ callback }] = deferredTimers.splice(timerIndex, 1);
+  callback();
+}
+
 function configureSequencerRestore({
   id,
   locked,
@@ -478,9 +485,15 @@ function configureSequencerRestore({
   savedHeight,
   count = 1,
   mode = "frames",
+  setupFirst = false,
+  collapsed = false,
 }) {
   const node = makeConfiguredSequencerNode({ count, mode, id });
+  if (setupFirst) {
+    hooks.setupSequencer(node);
+  }
   node.size = [270, savedHeight];
+  node.flags = { ...(node.flags || {}), collapsed };
   const properties = {
     num_images: count,
     insert_mode: mode,
@@ -746,6 +759,102 @@ assert.equal(
   "host restore suppression should clear after the deferred settle",
 );
 
+const readyLockedHostRestoreNode = configureSequencerRestore({
+  id: 418,
+  locked: true,
+  manualHeight: 500,
+  savedHeight: 500,
+  setupFirst: true,
+});
+assert.equal(
+  readyLockedHostRestoreNode.__denoSequencerHostRestoreSizingPending,
+  true,
+  "ready expanded configure must reassert host restore suppression after synchronous setup fits",
+);
+simulateSequencerHostRestoreSizePass(readyLockedHostRestoreNode, 500);
+assert.equal(
+  readyLockedHostRestoreNode.__denoSequencerManualHeight,
+  500,
+  "ready expanded host restore must preserve the in-memory 500px manual base before settle",
+);
+assert.equal(
+  readyLockedHostRestoreNode.properties.denoSequencerManualHeight,
+  500,
+  "ready expanded host restore must preserve the serialized 500px manual base before settle",
+);
+flushDeferredTimers();
+assert.equal(readyLockedHostRestoreNode.size[1], 500, "ready expanded host restore should settle back to 500px");
+assert.equal(
+  readyLockedHostRestoreNode.__denoSequencerManualHeight,
+  500,
+  "ready expanded settle should retain the in-memory 500px manual base",
+);
+assert.equal(
+  readyLockedHostRestoreNode.properties.denoSequencerManualHeight,
+  500,
+  "ready expanded settle should retain the serialized 500px manual base",
+);
+
+const readyCollapsedHostRestoreNode = configureSequencerRestore({
+  id: 419,
+  locked: true,
+  manualHeight: 500,
+  savedHeight: 500,
+  setupFirst: true,
+  collapsed: true,
+});
+assert.equal(
+  readyCollapsedHostRestoreNode.__denoSequencerHostRestoreSizingPending,
+  true,
+  "ready collapsed configure should hold suppression until its per-configure timer",
+);
+flushDeferredTimers();
+assert.equal(
+  readyCollapsedHostRestoreNode.__denoSequencerHostRestoreSizingPending,
+  false,
+  "ready collapsed configure must clear suppression even though fit exits while collapsed",
+);
+readyCollapsedHostRestoreNode.flags.collapsed = false;
+readyCollapsedHostRestoreNode.setSize([270, 640]);
+assert.equal(
+  readyCollapsedHostRestoreNode.__denoSequencerManualHeight,
+  640,
+  "manual resize after expanding a configured collapsed node should update the in-memory base",
+);
+assert.equal(
+  readyCollapsedHostRestoreNode.properties.denoSequencerManualHeight,
+  640,
+  "manual resize after expanding a configured collapsed node should serialize the new base",
+);
+
+const staleConfigureTimerNode = makeConfiguredSequencerNode({ count: 1, mode: "frames", id: 420 });
+staleConfigureTimerNode.size = [270, 500];
+const staleConfigureInfo = {
+  id: 420,
+  type: "DenoLTXSequencer",
+  size: [270, 500],
+  inputs: cloneSerializableInputs(staleConfigureTimerNode),
+  properties: {
+    num_images: 1,
+    insert_mode: "frames",
+    denoSequencerManualSizeLocked: true,
+    denoSequencerManualHeight: 500,
+  },
+  widgets_values: makeFullSequencerWidgetsValues({ num_images: 1, insert_mode: "frames" }),
+};
+beginDeferredTimerWindow();
+staleConfigureTimerNode.configure(staleConfigureInfo);
+staleConfigureTimerNode.configure(staleConfigureInfo);
+flushNextDeferredTimerWithDelay(50);
+assert.equal(
+  staleConfigureTimerNode.__denoSequencerHostRestoreSizingPending,
+  true,
+  "a stale first-setup timer must not clear the newer configure generation's suppression window",
+);
+simulateSequencerHostRestoreSizePass(staleConfigureTimerNode, 500);
+flushDeferredTimers();
+assert.equal(staleConfigureTimerNode.size[1], 500, "the current configure generation should still settle to 500px");
+
 const postSettleManualResizeNode = configureSequencerRestore({
   id: 417,
   locked: true,
@@ -808,6 +917,21 @@ assert.equal(
   Object.prototype.hasOwnProperty.call(missingStoredManualNode.properties, "denoSequencerManualHeight"),
   false,
   "safe fit fallback should not serialize the transient full-stack height",
+);
+
+const missingStoredVeryTallManualNode = makeSequencerNode({ count: 1, mode: "frames", id: 421 });
+hooks.setupSequencer(missingStoredVeryTallManualNode);
+missingStoredVeryTallManualNode.size = [270, 5000];
+missingStoredVeryTallManualNode.__denoSequencerManualSizeLocked = true;
+missingStoredVeryTallManualNode.__denoSequencerManualHeight = null;
+missingStoredVeryTallManualNode.__denoSequencerInitialAutoFitPending = false;
+missingStoredVeryTallManualNode.properties.denoSequencerManualSizeLocked = true;
+delete missingStoredVeryTallManualNode.properties.denoSequencerManualHeight;
+missingStoredVeryTallManualNode._denoUpdateVisibility?.();
+assert.equal(
+  missingStoredVeryTallManualNode.size[1],
+  5000,
+  "fit fallback must preserve a legitimate current height far above the full-stack fingerprint band",
 );
 
 const poisonedHostRestoreNode = configureSequencerRestore({
@@ -881,6 +1005,42 @@ assert.equal(
   legitimateLargeManualNode.properties.denoSequencerManualSizeLocked,
   true,
   "legitimate large manual height should remain locked",
+);
+
+const legitimateVeryTallManualNode = configureSequencerRestore({
+  id: 422,
+  locked: true,
+  manualHeight: 5000,
+  savedHeight: 5000,
+  setupFirst: true,
+});
+simulateSequencerHostRestoreSizePass(legitimateVeryTallManualNode, 5000);
+flushDeferredTimers();
+assert.equal(legitimateVeryTallManualNode.size[1], 5000, "legitimate 5000px manual size should survive restore exactly");
+assert.equal(
+  legitimateVeryTallManualNode.__denoSequencerManualHeight,
+  5000,
+  "legitimate 5000px manual height should remain the in-memory base",
+);
+assert.equal(
+  legitimateVeryTallManualNode.properties.denoSequencerManualHeight,
+  5000,
+  "legitimate 5000px manual height should remain serialized",
+);
+assert.equal(
+  legitimateVeryTallManualNode.properties.denoSequencerManualSizeLocked,
+  true,
+  "legitimate 5000px manual height should remain locked",
+);
+const serializedVeryTallManualNode = JSON.parse(JSON.stringify({
+  size: legitimateVeryTallManualNode.size,
+  properties: legitimateVeryTallManualNode.properties,
+}));
+assert.equal(serializedVeryTallManualNode.size[1], 5000, "serialized node size should retain 5000px");
+assert.equal(
+  serializedVeryTallManualNode.properties.denoSequencerManualHeight,
+  5000,
+  "serialized workflow properties should retain the 5000px manual base",
 );
 
 const configureExactNode = makeConfiguredSequencerNode({ count: 1, mode: "frames", id: 405 });
@@ -1004,6 +1164,34 @@ assertNoGhostGeometryAfterNativeArrange(dynamicExactNode);
 
 context.LiteGraph.vueNodesMode = true;
 assert.equal(hooks.isSequencerVueNodesMode(), true, "Vue Nodes mode should follow LiteGraph.vueNodesMode");
+const vueConfigureNode = makeConfiguredSequencerNode({ count: 1, mode: "frames", id: 423 });
+hooks.setupSequencer(vueConfigureNode);
+vueConfigureNode.size = [270, 500];
+beginDeferredTimerWindow();
+vueConfigureNode.onConfigure({
+  id: 423,
+  type: "DenoLTXSequencer",
+  size: [270, 500],
+  inputs: cloneSerializableInputs(vueConfigureNode),
+  properties: {
+    num_images: 1,
+    insert_mode: "frames",
+    denoSequencerManualSizeLocked: true,
+    denoSequencerManualHeight: 500,
+  },
+  widgets_values: makeFullSequencerWidgetsValues({ num_images: 1, insert_mode: "frames" }),
+});
+assert.equal(
+  vueConfigureNode.__denoSequencerHostRestoreSizingPending,
+  true,
+  "Vue configure should retain suppression until its post-configure settle",
+);
+flushDeferredTimers();
+assert.equal(
+  vueConfigureNode.__denoSequencerHostRestoreSizingPending,
+  false,
+  "Vue configure must explicitly clear the host restore suppression window",
+);
 context.LiteGraph.vueNodesMode = false;
 assert.equal(hooks.isSequencerVueNodesMode(), false, "Vue Nodes mode should clear when LiteGraph.vueNodesMode is false");
 

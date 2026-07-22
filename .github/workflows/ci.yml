@@ -15,6 +15,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check frontend syntax
+        run: node --check web/js/deno_extra_nodes.js
+
+      - name: Run LTX Sequencer frontend harness
+        run: node tests/js/ltx_sequencer_input_slots_harness.mjs
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
