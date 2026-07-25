@@ -27,6 +27,7 @@ sources (importing __init__.py would pull in torch / comfy).
 from pathlib import Path
 import ast
 import json
+import re
 import shutil
 import subprocess
 
@@ -41,6 +42,10 @@ BERNINI_JS_PATH = REPO_ROOT / "web" / "js" / "deno_bernini_prompt_guide.js"
 RTX_FINISHER_JS_PATH = REPO_ROOT / "web" / "js" / "deno_rtx_vfx_video_finisher.js"
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "public_workflows"
 FIXTURES = sorted(FIXTURE_DIR.glob("*.json"))
+PUBLIC_WORKFLOWS = [
+    *sorted((REPO_ROOT / "docs" / "workflows").glob("*.json")),
+    *FIXTURES,
+]
 
 
 # --------------------------------------------------------------------------
@@ -155,6 +160,56 @@ def _load(fixture):
 
 def test_fixtures_present():
     assert FIXTURES, f"no public workflow fixtures found under {FIXTURE_DIR}"
+
+
+def _walk_json(value, location="$"):
+    yield location, None, value
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield from _walk_json(item, f"{location}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _walk_json(item, f"{location}[{index}]")
+
+
+def test_public_workflows_do_not_publish_local_paths_or_workspace_state():
+    assert PUBLIC_WORKFLOWS
+
+    raw_windows_path = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]")
+    encoded_windows_path = re.compile(r"[A-Za-z]%3A%5C", re.IGNORECASE)
+    file_url = re.compile(r"file:///+[A-Za-z]:", re.IGNORECASE)
+    unix_user_home = re.compile(r"(?:^|[\s\"'=])/(?:home|Users)/[^/\s]+/")
+    local_preview_url = re.compile(
+        r"^/(?:api/)?(?:vhs/)?view(?:video)?\?",
+        re.IGNORECASE,
+    )
+    runtime_preview_query = re.compile(
+        r"(?:^|[?&])(?:timestamp|rand|force_size|deadline)=",
+        re.IGNORECASE,
+    )
+
+    violations = []
+    for workflow in PUBLIC_WORKFLOWS:
+        graph = _load(workflow)
+        for location, _key, value in _walk_json(graph):
+            key = location.rsplit(".", 1)[-1]
+            if key in {"workspace_info", "fullpath", "lastSrc"}:
+                violations.append(f"{workflow.relative_to(REPO_ROOT)}:{location}")
+                continue
+            if not isinstance(value, str):
+                continue
+            if (
+                raw_windows_path.search(value)
+                or encoded_windows_path.search(value)
+                or file_url.search(value)
+                or unix_user_home.search(value)
+                or re.search(r"(?:[?&])fullpath=", value, re.IGNORECASE)
+                or local_preview_url.search(value)
+                or runtime_preview_query.search(value)
+            ):
+                violations.append(f"{workflow.relative_to(REPO_ROOT)}:{location}")
+
+    assert violations == []
 
 
 # --------------------------------------------------------------------------

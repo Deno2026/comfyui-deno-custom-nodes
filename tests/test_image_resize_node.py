@@ -20,7 +20,7 @@ from PIL import Image
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_INIT = REPO_ROOT / "__init__.py"
 PUBLIC_LTX23_8GB_WORKFLOW = REPO_ROOT / "docs" / "workflows" / "ltx23-8gb-vram-public-baseline.json"
-PUBLIC_LTX23_8GB_WORKFLOW_CANONICAL_SHA256 = "5b58e483ebdce0e12a2363b44f9e9527e58ab90caedb66813fe7ff37633932e8"
+PUBLIC_LTX23_8GB_WORKFLOW_CANONICAL_SHA256 = "d9185b3553f0d77a60c78529e19f1e883e39bdee08f56779771233b95abc22f8"
 
 
 def install_torch_stub():
@@ -653,7 +653,7 @@ def test_preview_nodes_preserve_user_resized_node_size():
 def test_ideogram_director_compute_size_guard_allows_user_shrink():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'IDD_REV = "r2026.06.30-generate-target-a"' in script
+    assert 'IDD_REV = "r2026.07.25-director-element-controls-a"' in script
     assert "let iddUserResizing = false;" in script
     assert "const preserveCurrent = !iddUserResizing;" in script
     assert "preserveCurrent ? iddSizeValue(current, 0) : 0" in script
@@ -786,7 +786,8 @@ def test_ideogram_director_elements_list_is_front_to_back_without_reversing_outp
     assert 'grip.addEventListener("dragend", clearElementDropPreview);' in script
     assert 'elemList.querySelector(`[data-idd-box-id="${b.id}"]`)' in script
     assert 'ov.querySelector(`[data-idd-box-id="${b.id}"]`)' in script
-    assert "const els = boxes.map((b) => {" in script
+    assert "const sourceBoxes = includeDisabled ? boxes : boxes.filter((b) => b.enabled !== false);" in script
+    assert "const els = sourceBoxes.map((b) => {" in script
 
 
 def test_ideogram_director_auto_colors_stay_with_boxes_not_row_index():
@@ -804,7 +805,7 @@ def test_ideogram_director_auto_colors_stay_with_boxes_not_row_index():
     assert "uiColor: uiColorForIndex(boxes.length)" in script
     assert "ensureBoxUiColors();" in script
 
-    assemble = script.split("function assembleCaption()", 1)[1].split('copy.addEventListener("click"', 1)[0]
+    assemble = script.split("function assembleCaption(includeDisabled = false)", 1)[1].split('copy.addEventListener("click"', 1)[0]
     assert "uiColor" not in assemble
     assert "if (bpal.length) el.color_palette = bpal;" in assemble
 
@@ -1043,7 +1044,8 @@ def test_ideogram_director_external_size_inputs_sync_frontend_without_pruning_so
     assert "n._idd.onSize(sz[sz.length - 1]);" in script
     assert "function applyExternalSizePayload(payload)" in script
     assert 'onSize: (p) => { applyExternalSizePayload(p); },' in script
-    assert "const keep = { backdrop: 1, import_json: 1, input_width: 1, input_height: 1, input_megapixels: 1 };" in script
+    assert "input_width: 1, input_height: 1, input_megapixels: 1" in script
+    assert "input_summary: 1, input_background: 1" in script
     assert "setRes(w, h, label, machine);" in script
     assert "serialize();" in script
 
@@ -3171,13 +3173,20 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
             return [{"id": "vllm-model-d", "label": "vLLM Model D", "loaded": False}]
         if provider == "Custom":
             return [{"id": "custom-model-e", "label": "Custom Model E", "loaded": False}]
+        if provider == "llama-swap":
+            return [{"id": "llama-swap-model-f", "label": "llama-swap Model F", "loaded": False}]
         return [{"id": "ollama-model-a", "label": "Ollama Model A", "loaded": False}]
 
     module.list_local_llm_models = fake_list_models
+    module._cache_lm_studio_models(
+        module.LM_STUDIO_DEFAULT_SERVER,
+        [{"id": "lm-studio-model-b", "label": "LM Studio Model B", "loaded": False}],
+    )
     try:
         input_types = node_cls.INPUT_TYPES()
     finally:
         module.list_local_llm_models = original_list_models
+        module._invalidate_lm_studio_models_cache(module.LM_STUDIO_DEFAULT_SERVER)
 
     required = input_types["required"]
     optional = input_types["optional"]
@@ -3189,17 +3198,19 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert node_cls.CATEGORY == "Deno/LLM"
     assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"]) == node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"])
     assert "help rewrite or review prompt text" in node_cls.DESCRIPTION
-    assert "Ollama, LM Studio, llama.cpp, vLLM, or Custom" in node_cls.DESCRIPTION
+    assert "Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap" in node_cls.DESCRIPTION
     assert "An optional IMAGE input" in node_cls.DESCRIPTION
     assert "connect STRING into Prompt" in node_cls.DESCRIPTION
     assert "AUDIO" not in node_cls.DESCRIPTION
-    assert required["provider"][0] == ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom"]
+    assert required["provider"][0] == ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap"]
+    assert "llama-swap" in required["provider"][1]["tooltip"]
     assert "server_url" not in required
     assert "model" not in required
     assert required["ollama_model"][0] == ["ollama-model-a"]
     assert required["lm_studio_model"][0] == ["lm-studio-model-b"]
     assert required["custom_server_url"][0] == "STRING"
     assert required["custom_server_url"][1]["default"] == "http://127.0.0.1:8000/v1"
+    assert "llama-swap" in required["custom_server_url"][1]["tooltip"]
     assert required["custom_model"][0] == "STRING"
     assert required["system_prompt"][1]["default"] == ""
     assert required["system_prompt"][1]["multiline"] is True
@@ -3212,6 +3223,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert required["seed_mode"][0] == ["fixed", "increment", "decrement", "randomize"]
     assert "control_after_generate" not in required
     assert required["model_memory"][0] == ["Unload after run", "Keep for minutes", "Keep loaded"]
+    assert "server-side unload timeout" in required["keep_minutes"][1]["tooltip"]
     assert required["comfy_vram_policy"][0] == [
         "Auto: unload only before first LLM call",
         "Always unload before each LLM call",
@@ -3841,7 +3853,6 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
     stream_payloads = []
 
     original_stream = module._http_stream_sse
-    original_list_models = module.list_local_llm_models
 
     def fake_stream(url, payload, **_kwargs):
         stream_payloads.append({"url": url, "payload": dict(payload)})
@@ -3849,9 +3860,10 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
         yield "chat.end", {"type": "chat.end", "result": {"output": [{"type": "message", "content": "kept"}]}}
 
     module._http_stream_sse = fake_stream
-    module.list_local_llm_models = lambda _provider, _server_url: [
-        {"id": "google/gemma-4-12b", "reasoning_options": ["off", "on"]}
-    ]
+    module._cache_lm_studio_models(
+        "http://127.0.0.1:1234",
+        [{"id": "google/gemma-4-12b", "reasoning_options": ["off", "on"]}],
+    )
     try:
         answer, thought, raw = node._run_lm_studio(
             server_url="http://127.0.0.1:1234/v1",
@@ -3870,7 +3882,7 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
         )
     finally:
         module._http_stream_sse = original_stream
-        module.list_local_llm_models = original_list_models
+        module._invalidate_lm_studio_models_cache("http://127.0.0.1:1234")
 
     assert answer == "kept"
     assert thought == ""
@@ -4889,6 +4901,14 @@ def test_local_llm_refiner_validation_accepts_local_provider_models():
         lm_studio_model="",
         custom_server_url="http://127.0.0.1:8000/v1",
         custom_model="Qwen/Qwen2.5-VL",
+    ) is True
+
+    assert node_cls.VALIDATE_INPUTS(
+        provider="llama-swap",
+        ollama_model="",
+        lm_studio_model="",
+        custom_server_url="http://127.0.0.1:8080/v1",
+        custom_model="models/Qwen3-8B",
     ) is True
 
     shifted_result = node_cls.VALIDATE_INPUTS(

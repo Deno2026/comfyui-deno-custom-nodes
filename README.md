@@ -63,7 +63,10 @@ Visual Ideogram 4 prompt builder for structured JSON captions and bbox layout wo
 Main features:
 
 - draw and edit bbox regions directly on the ComfyUI canvas
+- temporarily disable individual bbox elements without deleting or reordering them
+- double-click a bbox to edit beside the pointer, or repeatedly `Alt`+click an overlap to cycle through the boxes underneath
 - import JSON prompts from a Local LLM Loader or other STRING source
+- optionally connect Summary and Background STRING inputs to override those two board fields for a run; disconnected inputs continue to use the saved board text
 - ask before replacing an existing board, or switch to always replace
 - reject malformed JSON clearly instead of passing broken prompt text downstream
 - style and layout preset galleries with lightweight preview thumbnails
@@ -412,10 +415,11 @@ Local LLM workflow helpers for calling models that are already running on your P
 
 Main features:
 
-- call local Ollama or LM Studio models from ComfyUI
+- call local Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible, or llama-swap models from ComfyUI
 - local-only server safety: use `127.0.0.1` or `localhost`
 - refresh provider-specific model lists from the node
 - stop a running local LLM request before unloading the model
+- use llama-swap's live running-state and management APIs for manual or post-run unload; any configured llama-swap server timeout still owns automatic unloading
 - connect prompt batches through one node run so the local model can stay loaded until the batch finishes
 - optionally attach an IMAGE to a vision-capable local model call
 - preview Thinking and Result text directly on the node
@@ -480,6 +484,9 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `audio review gate`
 - `ollama`
 - `lm studio`
+- `llama.cpp`
+- `vllm`
+- `llama-swap`
 - `bernini`
 - `bernini prompt guide`
 - `bernini conditioning`

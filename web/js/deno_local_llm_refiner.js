@@ -58,14 +58,16 @@ const PROVIDER_LM_STUDIO = "LM Studio";
 const PROVIDER_LLAMA_CPP = "llama.cpp";
 const PROVIDER_VLLM = "vLLM";
 const PROVIDER_CUSTOM = "Custom";
+const PROVIDER_LLAMA_SWAP = "llama-swap";
 const LEGACY_PROVIDER_CUSTOM = "Custom Local Server";
-const PROVIDER_VALUES = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO, PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM];
-const OPENAI_COMPATIBLE_PROVIDERS = new Set([PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM]);
+const PROVIDER_VALUES = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO, PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM, PROVIDER_LLAMA_SWAP];
+const OPENAI_COMPATIBLE_PROVIDERS = new Set([PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM, PROVIDER_LLAMA_SWAP]);
 const OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434";
 const LM_STUDIO_DEFAULT_URL = "http://127.0.0.1:1234/v1";
 const LLAMA_CPP_DEFAULT_URL = "http://127.0.0.1:8080/v1";
 const VLLM_DEFAULT_URL = "http://127.0.0.1:8000/v1";
 const CUSTOM_DEFAULT_URL = "http://127.0.0.1:8000/v1";
+const LLAMA_SWAP_DEFAULT_URL = "http://127.0.0.1:8080/v1";
 const LEGACY_CUSTOM_DEFAULT_URL = CUSTOM_DEFAULT_URL;
 const MODEL_MEMORY_VALUES = ["Unload after run", "Keep for minutes", "Keep loaded"];
 const MODEL_MEMORY_ALIASES = {
@@ -4971,6 +4973,17 @@ function activeModelWidget(node) {
     return getWidget(node, activeModelNameForProvider(currentProvider(node)));
 }
 
+function llamaSwapStatusCopy(node) {
+    const modelMemory = normalizeModelMemoryValue(getWidget(node, "model_memory")?.value);
+    if (modelMemory === "Unload after run") {
+        return "llama-swap generation uses its OpenAI-compatible /v1 endpoint. After the run, the selected model is unloaded through llama-swap's management API.";
+    }
+    if (modelMemory === "Keep loaded") {
+        return "llama-swap generation uses its OpenAI-compatible /v1 endpoint. DENO leaves the selected model loaded after the run, while llama-swap's own server-side timeout may still unload it; Unload LLM uses its management API immediately.";
+    }
+    return "llama-swap generation uses its OpenAI-compatible /v1 endpoint. How long the model stays loaded is controlled by llama-swap's server-side unload timeout; Unload LLM uses its management API immediately.";
+}
+
 function defaultServerForProvider(provider, node) {
     if (provider === PROVIDER_LM_STUDIO) {
         return LM_STUDIO_DEFAULT_URL;
@@ -4983,6 +4996,9 @@ function defaultServerForProvider(provider, node) {
     }
     if (provider === PROVIDER_CUSTOM) {
         return serverUrlForOpenAIProvider(node, CUSTOM_DEFAULT_URL);
+    }
+    if (provider === PROVIDER_LLAMA_SWAP) {
+        return serverUrlForOpenAIProvider(node, LLAMA_SWAP_DEFAULT_URL);
     }
     return OLLAMA_DEFAULT_URL;
 }
@@ -4998,6 +5014,9 @@ function defaultOpenAIProviderUrl(provider) {
     }
     if (provider === PROVIDER_VLLM) {
         return VLLM_DEFAULT_URL;
+    }
+    if (provider === PROVIDER_LLAMA_SWAP) {
+        return LLAMA_SWAP_DEFAULT_URL;
     }
     return CUSTOM_DEFAULT_URL;
 }
@@ -5174,7 +5193,10 @@ function setActiveProviderModelVisibility(node) {
     setWidgetHidden(getWidget(node, "system_prompt"), true);
     setWidgetHidden(getWidget(node, "prompt"), true);
     setWidgetHidden(getWidget(node, "model_memory"), false);
-    setWidgetHidden(getWidget(node, "keep_minutes"), modelMemory !== "Keep for minutes");
+    setWidgetHidden(
+        getWidget(node, "keep_minutes"),
+        modelMemory !== "Keep for minutes" || provider === PROVIDER_LLAMA_SWAP,
+    );
     for (const name of ["ollama_model", "lm_studio_model"]) {
         const widget = getWidget(node, name);
         repairModelWidgetValue(widget);
@@ -5218,6 +5240,12 @@ function wrapModelMemoryCallback(node) {
         const result = original?.apply(this, arguments);
         memoryWidget.value = normalizeModelMemoryValue(memoryWidget.value);
         setActiveProviderModelVisibility(node);
+        if (currentProvider(node) === PROVIDER_LLAMA_SWAP) {
+            setLocalLLMNodeState(node, {
+                status: "ready",
+                thinking: llamaSwapStatusCopy(node),
+            });
+        }
         refreshNode(node);
         return result;
     };
@@ -5288,6 +5316,7 @@ function wrapProviderCallback(node) {
             provider,
             model: String(activeModelWidget(node)?.value || ""),
             status: "ready",
+            thinking: provider === PROVIDER_LLAMA_SWAP ? llamaSwapStatusCopy(node) : "",
         });
         removeRefreshButtonWidgets(node);
         removeStopButtonWidgets(node);
@@ -5611,7 +5640,11 @@ async function unloadLocalModel(node) {
         provider,
         model,
         answer: "",
-        thinking: invalidModel ? "Refresh Models and select an installed local LLM model before unloading." : "Requesting unload from the local LLM server.",
+        thinking: invalidModel
+            ? "Refresh Models and select an installed local LLM model before unloading."
+            : provider === PROVIDER_LLAMA_SWAP
+              ? "Requesting unload through llama-swap's management API."
+              : "Requesting unload from the local LLM server.",
     });
     refreshNode(node);
     if (invalidModel) {

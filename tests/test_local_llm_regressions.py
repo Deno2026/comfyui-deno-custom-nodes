@@ -229,6 +229,307 @@ def test_local_llm_ollama_completed_terminal_request_does_not_unload_twice_on_po
     assert unload_calls == []
 
 
+def test_llama_swap_running_parser_matches_official_management_shape():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    payload = {
+        "running": [
+            {
+                "model": "models/Qwen3-8B",
+                "state": "ready",
+                "cmd": "llama-server --model qwen.gguf",
+                "proxy": "http://127.0.0.1:12001",
+                "ttl": 300,
+                "name": "Qwen 3 8B",
+                "description": "test model",
+            },
+            {
+                "model": "models/starting-model",
+                "state": "starting",
+                "cmd": "llama-server --model starting.gguf",
+                "proxy": "http://127.0.0.1:12002",
+                "ttl": 300,
+                "name": "",
+                "description": "",
+            },
+        ]
+    }
+
+    assert module._llama_swap_running_model_ids(payload) == {
+        "models/Qwen3-8B",
+        "models/starting-model",
+    }
+
+
+def test_llama_swap_model_list_marks_loaded_models_from_running_endpoint(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    calls = []
+
+    def fake_http_json(url, *args, **kwargs):
+        calls.append(url)
+        if url.endswith("/v1/models"):
+            return {
+                "object": "list",
+                "data": [
+                    {"id": "models/Qwen3-8B", "object": "model"},
+                    {
+                        "id": "qwen-default",
+                        "object": "model",
+                        "meta": {
+                            "llamaswap": {
+                                "type": "alias",
+                                "modelID": "models/Qwen3-8B",
+                            }
+                        },
+                    },
+                    {"id": "models/Gemma-4B", "object": "model"},
+                ],
+            }
+        if url.endswith("/running"):
+            return {
+                "running": [
+                    {
+                        "model": "models/Qwen3-8B",
+                        "state": "ready",
+                        "cmd": "",
+                        "proxy": "",
+                        "ttl": 300,
+                        "name": "",
+                        "description": "",
+                    }
+                ]
+            }
+        raise AssertionError(f"unexpected llama-swap URL: {url}")
+
+    monkeypatch.setattr(module, "_http_json", fake_http_json)
+
+    models = module.list_local_llm_models(
+        module.PROVIDER_LLAMA_SWAP,
+        "http://127.0.0.1:8000/v1",
+    )
+
+    assert calls == [
+        "http://127.0.0.1:8000/v1/models",
+        "http://127.0.0.1:8000/running",
+    ]
+    assert models == [
+        {
+            "id": "models/Qwen3-8B",
+            "label": "models/Qwen3-8B",
+            "loaded": True,
+        },
+        {
+            "id": "qwen-default",
+            "label": "qwen-default",
+            "loaded": True,
+        },
+        {
+            "id": "models/Gemma-4B",
+            "label": "models/Gemma-4B",
+            "loaded": False,
+        },
+    ]
+    assert module._llama_swap_is_model_loaded(
+        "http://127.0.0.1:8000",
+        "qwen-default",
+    ) is True
+    assert calls[-1] == "http://127.0.0.1:8000/running"
+
+
+def test_llama_swap_unload_accepts_plaintext_success_and_preserves_model_path(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    requests = []
+
+    class FakeResponse:
+        status = 200
+
+        @staticmethod
+        def read():
+            return b"OK"
+
+    class FakeConnection:
+        def request(self, method, path, headers=None):
+            requests.append((method, path, headers))
+
+        @staticmethod
+        def getresponse():
+            return FakeResponse()
+
+        @staticmethod
+        def close():
+            return None
+
+    monkeypatch.setattr(
+        module,
+        "_open_local_llm_http_connection",
+        lambda _parsed, timeout: FakeConnection(),
+    )
+    module._ACTIVE_LOCAL_LLM_KEYS.clear()
+    module._CANCEL_LOCAL_LLM_KEYS.clear()
+
+    result = module.unload_local_llm_model(
+        module.PROVIDER_LLAMA_SWAP,
+        "http://127.0.0.1:8000/v1",
+        "team/Qwen 3#8B",
+    )
+
+    assert result["ok"] is True
+    assert requests == [
+        (
+            "POST",
+            "/api/models/unload/team/Qwen%203%238B",
+            {"Accept": "*/*"},
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("model_memory", "stream_error", "expected_unloads"),
+    [
+        ("Unload after run", False, 1),
+        ("Unload after run", True, 1),
+        ("Keep loaded", False, 0),
+    ],
+)
+def test_llama_swap_terminal_request_cleanup_occurs_exactly_once(
+    monkeypatch,
+    model_memory,
+    stream_error,
+    expected_unloads,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    unload_calls = []
+    cleanup_state = {"provider_cleanup_attempted": False}
+
+    def fake_stream(*_args, **_kwargs):
+        if stream_error:
+            raise RuntimeError("llama-swap stream failed")
+        yield "message", {
+            "choices": [
+                {
+                    "delta": {"content": "final answer"},
+                    "finish_reason": "stop",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+    monkeypatch.setattr(
+        module,
+        "_llama_swap_unload",
+        lambda server_root, model: unload_calls.append((server_root, model)),
+    )
+
+    kwargs = {
+        "provider": module.PROVIDER_LLAMA_SWAP,
+        "server_url": "http://127.0.0.1:8000/v1",
+        "model": "models/Qwen3-8B",
+        "system_prompt": "",
+        "prompt": "hello",
+        "thinking": False,
+        "seed": 7,
+        "model_memory": model_memory,
+        "keep_minutes": 5,
+        "image_attachments": [],
+        "is_last": True,
+        "node_id": "llama-swap-cleanup",
+        "index": 1,
+        "total": 1,
+        "cleanup_state": cleanup_state,
+    }
+    if stream_error:
+        with pytest.raises(RuntimeError, match="llama-swap stream failed"):
+            node._run_openai_compatible(**kwargs)
+    else:
+        answer, _thinking, raw = node._run_openai_compatible(**kwargs)
+        assert answer == "final answer"
+        assert raw["provider"] == module.PROVIDER_LLAMA_SWAP
+
+    assert unload_calls == [
+        ("http://127.0.0.1:8000", "models/Qwen3-8B")
+    ] * expected_unloads
+    assert cleanup_state["provider_cleanup_attempted"] is bool(expected_unloads)
+
+
+def test_lm_studio_keep_loaded_runs_do_not_query_model_list_during_generation(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    model_list_calls = []
+
+    with module._LM_STUDIO_MODELS_CACHE_LOCK:
+        module._LM_STUDIO_MODELS_CACHE.clear()
+
+    def fake_http_json(url, *_args, **_kwargs):
+        if url.endswith("/api/v1/models"):
+            model_list_calls.append(url)
+            raise AssertionError("generation must not synchronously query LM Studio's model list")
+        raise AssertionError(f"unexpected non-stream request: {url}")
+
+    def fake_stream(*_args, **_kwargs):
+        yield "message.delta", {"type": "message.delta", "content": "ready"}
+        yield "chat.end", {"type": "chat.end"}
+
+    monkeypatch.setattr(module, "_http_json", fake_http_json)
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    for _ in range(2):
+        answer, _thinking, raw = node._run_lm_studio(
+            server_url="http://127.0.0.1:1234/v1",
+            model="google/gemma",
+            system_prompt="",
+            prompt="hello",
+            thinking=False,
+            seed=7,
+            model_memory="Keep loaded",
+            keep_minutes=5,
+            image_attachments=[],
+            is_last=True,
+            node_id="lm-studio-no-list-preflight",
+            index=1,
+            total=1,
+        )
+        assert answer == "ready"
+        assert raw["reasoning"] == "off"
+
+    assert model_list_calls == []
+
+
+def test_local_llm_input_types_never_queries_lm_studio_during_prompt_validation(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLocalLLMRefiner"]
+    provider_calls = []
+
+    with module._LM_STUDIO_MODELS_CACHE_LOCK:
+        module._LM_STUDIO_MODELS_CACHE.clear()
+
+    def fake_list_models(provider, _server_url):
+        provider_calls.append(provider)
+        if provider == module.PROVIDER_LM_STUDIO:
+            raise AssertionError("INPUT_TYPES must not synchronously query LM Studio")
+        return [{"id": "qwen3", "label": "qwen3", "loaded": False}]
+
+    monkeypatch.setattr(module, "list_local_llm_models", fake_list_models)
+
+    cold_input_types = node_cls.INPUT_TYPES()
+    assert cold_input_types["required"]["lm_studio_model"][0] == [""]
+    assert module.PROVIDER_LM_STUDIO not in provider_calls
+
+    module._cache_lm_studio_models(
+        module.LM_STUDIO_DEFAULT_SERVER,
+        [{"id": "google/gemma", "label": "Gemma", "loaded": True}],
+    )
+    warm_input_types = node_cls.INPUT_TYPES()
+    assert warm_input_types["required"]["lm_studio_model"][0] == ["google/gemma"]
+    assert module.PROVIDER_LM_STUDIO not in provider_calls
+
+
 @pytest.mark.parametrize(
     "review",
     [

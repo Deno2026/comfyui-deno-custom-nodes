@@ -269,6 +269,28 @@ def test_registry_package_excludes_local_authority_and_work_artifacts():
         assert path in comfyignore
 
 
+def test_registry_package_excludes_repository_only_delivery_and_contributor_files():
+    comfyignore = COMFYIGNORE_PATH.read_text(encoding="utf-8")
+
+    required_exclusions = {
+        ".comfyignore",
+        ".dockerignore",
+        ".gitignore",
+        ".github/",
+        "CODE_OF_CONDUCT.md",
+        "CONTRIBUTING.md",
+        "Dockerfile",
+        "SECURITY.md",
+        "compose.yaml",
+        "requirements-dev.txt",
+        "tests/",
+        "tools/DENO_Bernini_Preview_Backend_Update.bat",
+    }
+
+    for path in required_exclusions:
+        assert path in comfyignore
+
+
 def test_public_git_surface_excludes_local_only_internal_docs():
     gitignore = GITIGNORE_PATH.read_text(encoding="utf-8")
     tracked = subprocess.check_output(

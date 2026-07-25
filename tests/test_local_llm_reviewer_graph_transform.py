@@ -315,7 +315,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 name: "DenoLocalLLMRefiner",
                 input: {{
                     required: {{
-                        provider: [["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom"], {{ default: "Ollama" }}],
+                        provider: [["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap"], {{ default: "Ollama" }}],
                         ollama_model: [["gemma3:1b"], {{ default: "gemma3:1b" }}],
                         lm_studio_model: [["google/gemma-4-e4b"], {{ default: "google/gemma-4-e4b" }}],
                         custom_server_url: ["STRING", {{ default: "http://127.0.0.1:8000/v1" }}],
@@ -573,7 +573,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                     title: "DenoLocalLLMRefiner",
                     graph,
                     widgets: [
-                        {{ name: "provider", label: "Provider", type: "combo", value: "Ollama", options: {{ values: ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom"] }} }},
+                        {{ name: "provider", label: "Provider", type: "combo", value: "Ollama", options: {{ values: ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap"] }} }},
                         {{ name: "ollama_model", label: "Ollama Model", type: "combo", value: "gemma3:1b", options: {{ values: ["gemma3:1b"] }} }},
                         {{ name: "lm_studio_model", label: "LM Studio Model", type: "combo", value: "google/gemma-4-e4b", options: {{ values: ["google/gemma-4-e4b"] }} }},
                         {{ name: "custom_server_url", label: "Server URL", type: "text", value: "http://127.0.0.1:8000/v1" }},

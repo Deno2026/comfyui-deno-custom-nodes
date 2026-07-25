@@ -595,11 +595,15 @@ def test_ideogram_director_v0738_saved_widget_values_remain_prefix():
     assert optional["input_height"][1]["forceInput"] is True
     assert optional["input_megapixels"][0] == "FLOAT"
     assert optional["input_megapixels"][1]["forceInput"] is True
-    assert list(optional.keys())[-4:] == [
+    assert optional["input_summary"][1]["forceInput"] is True
+    assert optional["input_background"][1]["forceInput"] is True
+    assert list(optional.keys())[-6:] == [
         "import_json",
         "input_width",
         "input_height",
         "input_megapixels",
+        "input_summary",
+        "input_background",
     ]
     serialized_optional = [
         name
@@ -663,6 +667,167 @@ def test_ideogram_director_v0738_saved_widget_values_remain_prefix():
     assert restored["view_language"] == "한국어"
     assert "translation_engine" not in restored
     assert "libretranslate_url" not in restored
+
+
+def test_ideogram_director_disabled_elements_stay_saved_but_leave_prompt_and_bbox_output():
+    caption_data = json.dumps(
+        {
+            "boxes": [
+                {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2, "type": "obj", "desc": "first"},
+                {
+                    "x": 0.4,
+                    "y": 0.2,
+                    "w": 0.3,
+                    "h": 0.4,
+                    "type": "obj",
+                    "desc": "disabled",
+                    "enabled": False,
+                },
+                {
+                    "x": 0.7,
+                    "y": 0.6,
+                    "w": 0.2,
+                    "h": 0.3,
+                    "type": "text",
+                    "text": "third",
+                    "desc": "third label",
+                    "enabled": True,
+                },
+            ]
+        }
+    )
+
+    prompt, width, height, seed, bboxes = deno_ideogram_director.build_outputs(
+        width=1000,
+        height=500,
+        seed=7,
+        aspect_ratio="2:1",
+        include_aspect_ratio=False,
+        background="saved background",
+        high_level_description="saved summary",
+        style_mode="none",
+        aesthetics="",
+        lighting="",
+        medium="",
+        photo="",
+        art_style="",
+        caption_data=caption_data,
+        import_json="",
+        import_mode=deno_ideogram_director.IMPORT_REVIEW,
+    )
+
+    caption = json.loads(prompt)
+    elements = caption["compositional_deconstruction"]["elements"]
+    assert [element["desc"] for element in elements] == ["first", "third label"]
+    assert bboxes == [[
+        {"x": 100, "y": 50, "width": 200, "height": 100},
+        {"x": 700, "y": 300, "width": 200, "height": 150},
+    ]]
+    assert (width, height, seed) == (1000, 500, 7)
+
+    disabled_only = json.dumps(
+        {
+            "boxes": [
+                {
+                    "x": 0.1,
+                    "y": 0.1,
+                    "w": 0.2,
+                    "h": 0.2,
+                    "type": "obj",
+                    "desc": "saved off",
+                    "enabled": False,
+                }
+            ]
+        }
+    )
+    assert deno_ideogram_director._caption_data_has_boxes(disabled_only) is True
+    disabled_prompt, _, _, _, disabled_bboxes = deno_ideogram_director.build_outputs(
+        512,
+        512,
+        1,
+        "1:1",
+        False,
+        "",
+        "",
+        "none",
+        "",
+        "",
+        "",
+        "",
+        "",
+        disabled_only,
+        "",
+        deno_ideogram_director.IMPORT_REVIEW,
+    )
+    assert json.loads(disabled_prompt)["compositional_deconstruction"]["elements"] == []
+    assert disabled_bboxes == []
+
+
+def test_ideogram_director_connected_summary_and_background_override_final_caption_only():
+    caption_data = json.dumps(
+        {
+            "boxes": [
+                {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2, "type": "obj", "desc": "kept"}
+            ]
+        }
+    )
+    prompt, *_ = deno_ideogram_director.build_outputs(
+        width=512,
+        height=512,
+        seed=1,
+        aspect_ratio="1:1",
+        include_aspect_ratio=False,
+        background="saved background",
+        high_level_description="saved summary",
+        style_mode="none",
+        aesthetics="",
+        lighting="",
+        medium="",
+        photo="",
+        art_style="",
+        caption_data=caption_data,
+        import_json="",
+        import_mode=deno_ideogram_director.IMPORT_REVIEW,
+        input_summary="wired summary",
+        input_background="wired background",
+    )
+    caption = json.loads(prompt)
+    assert caption["high_level_description"] == "wired summary"
+    assert caption["compositional_deconstruction"]["background"] == "wired background"
+    assert json.loads(caption_data)["boxes"][0]["desc"] == "kept"
+
+    imported = json.dumps(
+        {
+            "high_level_description": "imported summary",
+            "compositional_deconstruction": {
+                "background": "imported background",
+                "elements": [],
+            },
+        }
+    )
+    prompt, *_ = deno_ideogram_director.build_outputs(
+        512,
+        512,
+        2,
+        "1:1",
+        False,
+        "",
+        "",
+        "none",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        imported,
+        deno_ideogram_director.IMPORT_AUTO,
+        "",
+        "",
+    )
+    caption = json.loads(prompt)
+    assert "high_level_description" not in caption
+    assert caption["compositional_deconstruction"]["background"] == ""
 
 
 def test_ideogram_director_external_width_height_override_snaps_to_16_and_syncs_ui():
@@ -1480,7 +1645,7 @@ def test_ideogram_director_frontend_connected_prompt_contract():
 def test_ideogram_director_frontend_preserves_node_size_during_compute_fit():
     script = (REPO_ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding="utf-8")
 
-    assert 'const IDD_REV = "r2026.06.30-generate-target-a"' in script
+    assert 'const IDD_REV = "r2026.07.25-director-element-controls-a"' in script
     assert "function installIddComputeSizeGuard()" in script
     assert "function installIddResizeIntentGuard()" in script
     assert "const fitTopBarSoon = () =>" in script

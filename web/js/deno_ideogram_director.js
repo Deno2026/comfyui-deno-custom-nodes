@@ -147,12 +147,102 @@
     if (!selected) return false;
     return eventNodeIds(detail).has(String(selected.id));
   }
+  function pointerAnchoredPanelPosition(options = {}) {
+    const finite = (value, fallback = 0) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+    const positive = (value, fallback = 0) => {
+      const parsed = finite(value, fallback);
+      return parsed > 0 ? parsed : fallback;
+    };
+    const modal = options.modalRect || {};
+    const panel = options.panelRect || {};
+    const modalLeft = finite(modal.left);
+    const modalTop = finite(modal.top);
+    const modalClientWidth = positive(modal.width, Math.max(0, finite(modal.right) - modalLeft));
+    const modalClientHeight = positive(modal.height, Math.max(0, finite(modal.bottom) - modalTop));
+    const modalRight = finite(modal.right, modalLeft + modalClientWidth);
+    const modalBottom = finite(modal.bottom, modalTop + modalClientHeight);
+    const viewportWidth = positive(options.viewportWidth, modalRight);
+    const viewportHeight = positive(options.viewportHeight, modalBottom);
+    const layoutWidth = positive(options.modalLayoutWidth, modalClientWidth);
+    const layoutHeight = positive(options.modalLayoutHeight, modalClientHeight);
+    const scaleX = modalClientWidth > 0 && layoutWidth > 0 ? modalClientWidth / layoutWidth : 1;
+    const scaleY = modalClientHeight > 0 && layoutHeight > 0 ? modalClientHeight / layoutHeight : 1;
+    const panelWidth = positive(panel.width);
+    const panelHeight = positive(panel.height);
+    const gap = Math.max(0, finite(options.gap, 12));
+    const padding = Math.max(0, finite(options.padding, 12));
+    const pointerX = finite(options.pointerX, modalLeft);
+    const pointerY = finite(options.pointerY, modalTop);
+
+    const visibleLeft = Math.max(0, modalLeft);
+    const visibleTop = Math.max(0, modalTop);
+    const visibleRight = Math.max(visibleLeft, Math.min(viewportWidth, modalRight));
+    const visibleBottom = Math.max(visibleTop, Math.min(viewportHeight, modalBottom));
+    const minLeft = visibleLeft + padding;
+    const maxLeft = visibleRight - padding - panelWidth;
+    const minTop = visibleTop + padding;
+    const maxTop = visibleBottom - padding - panelHeight;
+    const clampVisible = (value, min, max) => max >= min ? Math.min(max, Math.max(min, value)) : min;
+
+    let side = "right";
+    let clientLeft = pointerX + gap;
+    if (clientLeft + panelWidth > visibleRight - padding) {
+      side = "left";
+      clientLeft = pointerX - gap - panelWidth;
+    }
+    clientLeft = clampVisible(clientLeft, minLeft, maxLeft);
+    const clientTop = clampVisible(pointerY + gap, minTop, maxTop);
+
+    return {
+      left: (clientLeft - modalLeft) / (scaleX || 1),
+      top: (clientTop - modalTop) / (scaleY || 1),
+      clientLeft,
+      clientTop,
+      side,
+      scaleX,
+      scaleY,
+    };
+  }
+  function overlappingBoxIdsAtPoint(boxes, point) {
+    if (
+      !Array.isArray(boxes)
+      || !point
+      || typeof point.x !== "number"
+      || typeof point.y !== "number"
+    ) return [];
+    const px = point.x;
+    const py = point.y;
+    if (!Number.isFinite(px) || !Number.isFinite(py) || px < 0 || px > 1 || py < 0 || py > 1) return [];
+    const hits = [];
+    for (let i = boxes.length - 1; i >= 0; i -= 1) {
+      const box = boxes[i];
+      if (!box || box.id == null) continue;
+      const x = Number(box.x);
+      const y = Number(box.y);
+      const w = Number(box.w);
+      const h = Number(box.h);
+      if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) continue;
+      if (px >= x && px <= x + w && py >= y && py <= y + h) hits.push(box.id);
+    }
+    return hits;
+  }
+  function nextOverlappingBoxId(candidateIds, selectedId) {
+    if (!Array.isArray(candidateIds) || !candidateIds.length) return null;
+    const current = candidateIds.indexOf(selectedId);
+    return candidateIds[current >= 0 ? (current + 1) % candidateIds.length : 0];
+  }
   if (typeof window !== "undefined" && typeof window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__ === "function") {
     window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__({
       eventNodeIds,
       backdropSourceNodeForDirector,
       downstreamNodeIdsForTarget,
+      nextOverlappingBoxId,
+      overlappingBoxIdsAtPoint,
       outputTargetNodesForDirector,
+      pointerAnchoredPanelPosition,
       selectedTargetNodeForDirector,
       shouldAcceptResultForDirectorTarget,
       targetStateForDirector,
@@ -905,6 +995,8 @@
 .idd-area{background:#0c100e !important;border:1px solid rgba(255,255,255,.07) !important;border-radius:8px !important;
   color:#ced5d0 !important;font:12px/1.5 "Segoe UI Variable Text","Segoe UI",sans-serif !important;}
 .idd-area:focus{border-color:rgba(66,189,127,.55) !important;box-shadow:0 0 0 2px rgba(66,189,127,.10) !important;}
+.idd-area.overridden{border-style:dashed !important;}
+.idd-wirehint{color:var(--g) !important;}
 .idd-seg{background:#0c100e !important;border:1px solid rgba(255,255,255,.08) !important;border-radius:8px !important;}
 .idd-seg button{color:var(--dim) !important;font-weight:500;}
 .idd-seg button.on{background:rgba(66,189,127,.13) !important;color:var(--g) !important;font-weight:600;}
@@ -1302,6 +1394,8 @@
       .idd-box{position:absolute;border:1.5px solid var(--g);border-radius:2px;
         background:rgba(72,255,132,.07);box-sizing:border-box;cursor:move;}
       .idd-box.text{border-style:dashed;}
+      .idd-box.off{opacity:.42;filter:saturate(.45);}
+      .idd-box.off .tag::after{content:" OFF";font-size:8px;letter-spacing:.04em;}
       .idd-box.sel{box-shadow:0 0 0 1px #041208,0 0 10px var(--gdim);background:rgba(72,255,132,.13);}
       .idd-box .tag{position:absolute;top:0;left:0;z-index:6;background:var(--g);color:#041208;font:bold 10px monospace;
         min-width:20px;min-height:15px;padding:1px 5px;border-radius:0 0 4px 0;cursor:move;touch-action:none;user-select:none;
@@ -1437,6 +1531,8 @@
       .idd-area{background:#050a08;border:1px solid var(--gfaint);border-radius:7px;color:var(--txt);
         font:12px 'Segoe UI';padding:6px 8px;resize:vertical;min-height:40px;outline:none;}
       .idd-area:focus{border-color:var(--gdim);}
+      .idd-area.overridden{border-style:dashed;}
+      .idd-wirehint{display:none;margin:5px 1px 0;color:var(--acc);font:10px/1.35 'Segoe UI';}
       .idd-seg{display:flex;gap:0;border:1px solid var(--gfaint);border-radius:7px;overflow:hidden;}
       .idd-seg button{flex:1;background:transparent;border:none;color:var(--dim);cursor:pointer;padding:5px;font-size:11px;}
       .idd-seg button.on{background:rgba(72,255,132,.13);color:var(--g);}
@@ -1461,6 +1557,7 @@
       .idd-elem{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:6px;cursor:pointer;position:relative;}
       .idd-elem:hover{background:rgba(72,255,132,.07);}
       .idd-elem.sel{background:rgba(72,255,132,.13);}
+      .idd-elem.off{opacity:.52;}
       .idd-elem .n{font:bold 10px monospace;color:var(--dim);width:16px;}
       .idd-elem .c{width:11px;height:11px;border-radius:3px;flex:0 0 auto;}
       .idd-elem .t{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--txt);}
@@ -1474,6 +1571,9 @@
       .idd-elem .g:active{cursor:grabbing;}
       .idd-elem .dup{color:var(--dim);cursor:pointer;padding:0 2px;font-size:12px;}
       .idd-elem .dup:hover{color:var(--g);}
+      .idd-elem .en{color:var(--g);cursor:pointer;width:18px;text-align:center;font-size:13px;line-height:1;}
+      .idd-elem.off .en{color:var(--dim);}
+      .idd-elem .en:hover{color:var(--acc);}
       .idd-sechead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px 0;}
       .idd-sechead .idd-seclbl{margin:0;}
       .idd-addbbox{padding:3px 8px !important;font:bold 10px monospace !important;line-height:1 !important;}
@@ -1609,6 +1709,7 @@
             w, h,
             type: b.type === "text" ? "text" : "obj",
             text: b.text || "", desc: b.desc || "",
+            enabled: b.enabled !== false,
             palette: Array.isArray(b.palette) ? b.palette.filter((c) => HEX.test(c)).slice(0, 5) : [],
             uiColor: HEX.test(b.uiColor || "") ? b.uiColor : "",
           };
@@ -1690,6 +1791,7 @@
             boxes: boxes.map((b, i) => ({
               x: +b.x.toFixed(4), y: +b.y.toFixed(4), w: +b.w.toFixed(4), h: +b.h.toFixed(4),
               type: b.type, text: b.text || "", desc: b.desc || "", palette: (b.palette || []).slice(0, 5),
+              enabled: b.enabled !== false,
               uiColor: ensureBoxUiColor(b, i),
             })),
             stylePalette: stylePalette.slice(0, 16),
@@ -1754,7 +1856,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.30-generate-target-a";
+        const IDD_REV = "r2026.07.25-director-element-controls-a";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -2593,6 +2695,7 @@
         }
         async function ensureEnglishOutputReadyBeforeQueue(offerFallback = true) {
           if (normalizeTranslateValue(getW("translate_output", NO_TRANSLATION)) !== ENGLISH_PROMPT) return true;
+          const hasConnectedTextOverride = inputIsConnected("input_summary") || inputIsConnected("input_background");
           const oldText = translateBtn.textContent;
           translateBtn.textContent = "Checking English...";
           translateBtn.classList.add("on");
@@ -2604,8 +2707,10 @@
               "generation",
               { purpose: "queue_preflight" }
             );
-            translateBtn.textContent = "English Ready";
-            translateBtn.title = "Final English prompt conversion is ready. Exact TEXT words stay as typed.";
+            translateBtn.textContent = hasConnectedTextOverride ? "Board English Ready" : "English Ready";
+            translateBtn.title = hasConnectedTextOverride
+              ? "Saved board text is ready. Connected Summary/Background text is checked by the backend before generation."
+              : "Final English prompt conversion is ready. Exact TEXT words stay as typed.";
             setTimeout(() => { paintTranslate(); }, 1200);
             return true;
           } catch (err) {
@@ -2638,9 +2743,11 @@
           translateBtn.classList.add("on");
           translateBtn.title = "Translating the editable view to " + target + "...";
           try {
-            const translated = await translateCaptionViaRoute(assembleCaption(), target, source);
+            const enabledStates = boxes.map((b) => b.enabled !== false);
+            const translated = await translateCaptionViaRoute(assembleCaption(true), target, source);
             if (seq !== viewTranslateSeq) return false;
             applyImportedCaption(withCurrentUiColors(translated.caption));
+            boxes.forEach((b, i) => { b.enabled = enabledStates[i] !== false; });
             selectedId = null;
             renderBoxes(); renderPalette(); renderElements(); layoutStage(); serialize();
             paintTranslate();
@@ -3547,9 +3654,18 @@
         // widget sockets, so existing saved backdrop/import_json links keep their slots.
         function pruneInputs() {
           if (!node.inputs) return;
-          const keep = { backdrop: 1, import_json: 1, input_width: 1, input_height: 1, input_megapixels: 1 };
+          const keep = {
+            backdrop: 1, import_json: 1,
+            input_width: 1, input_height: 1, input_megapixels: 1,
+            input_summary: 1, input_background: 1,
+          };
           const filtered = node.inputs.filter((inp) => !inp.widget || keep[inp.name] || inp.link != null);
           if (filtered.length !== node.inputs.length) { node.inputs = filtered; node.setDirtyCanvas(true, true); }
+        }
+
+        function inputIsConnected(name) {
+          const input = (node.inputs || []).find((candidate) => candidate && candidate.name === name);
+          return !!(input && input.link != null);
         }
 
         // ── auto-migration: realign widgets_values from OLD saves where import_json was a hidden widget
@@ -3633,6 +3749,24 @@
         summary.addEventListener("input", () => setW("high_level_description", summary.value));
         const bgArea = el("textarea", "idd-area"); bgArea.placeholder = 'The setting / background — e.g. "A rain-slicked alley at night, glowing signs, wet asphalt reflections"'; stop(bgArea);
         bgArea.addEventListener("input", () => setW("background", bgArea.value));
+        const summarySec = mkSec("Summary", summary);
+        const bgSec = mkSec("Background", bgArea);
+        const summaryWireHint = el("div", "idd-wirehint");
+        const bgWireHint = el("div", "idd-wirehint");
+        summaryWireHint.textContent = "Connected input overrides this saved value during generation.";
+        bgWireHint.textContent = "Connected input overrides this saved value during generation.";
+        summarySec.append(summaryWireHint);
+        bgSec.append(bgWireHint);
+        function paintTextOverrideState() {
+          const summaryConnected = inputIsConnected("input_summary");
+          const backgroundConnected = inputIsConnected("input_background");
+          summary.classList.toggle("overridden", summaryConnected);
+          bgArea.classList.toggle("overridden", backgroundConnected);
+          summaryWireHint.style.display = summaryConnected ? "block" : "none";
+          bgWireHint.style.display = backgroundConnected ? "block" : "none";
+        }
+        chain(node, "onConnectionsChange", function () { setTimeout(paintTextOverrideState, 0); });
+        paintTextOverrideState();
 
         // Style section
         // ── preset galleries: pick a card → it applies → the gallery closes → the launcher button
@@ -4153,7 +4287,7 @@
         let lastElementClick = { id: null, time: 0 };
         let lastElementEdit = { id: null, time: 0 };
         function isElementActionTarget(e) {
-          return !!(e.target && e.target.closest && e.target.closest(".g,.ty,.dup,.x"));
+          return !!(e.target && e.target.closest && e.target.closest(".g,.ty,.en,.dup,.x"));
         }
         function openElementById(id) {
           const now = performance.now ? performance.now() : Date.now();
@@ -4180,14 +4314,14 @@
           return b.desc || "(no description)";
         }
         function elementListTitle(b, i) {
-          return String(i + 1).padStart(2, "0") + " · " + (b.type === "text" ? "TEXT" : "OBJ") + " · " + elementListText(b);
+          return String(i + 1).padStart(2, "0") + " · " + (b.enabled === false ? "OFF · " : "") + (b.type === "text" ? "TEXT" : "OBJ") + " · " + elementListText(b);
         }
 
         function renderElements() {
           ensureBoxUiColors();
           elemList.textContent = "";
           boxes.map((b, i) => ({ b, i })).reverse().forEach(({ b, i }) => {
-            const row = el("div", "idd-elem" + (b.id === selectedId ? " sel" : ""));
+            const row = el("div", "idd-elem" + (b.enabled === false ? " off" : "") + (b.id === selectedId ? " sel" : ""));
             row.dataset.iddBoxId = String(b.id);
             row.title = elementListTitle(b, i);
             const n = el("span", "n"); n.textContent = String(i + 1).padStart(2, "0");
@@ -4195,6 +4329,15 @@
             const t = el("span", "t"); t.textContent = elementListText(b); t.title = row.title;
             const ty = el("span", "ty"); ty.textContent = b.type;
             ty.onclick = (e) => { e.stopPropagation(); b.type = b.type === "text" ? "obj" : "text"; renderElements(); renderBoxes(); serialize(); };
+            const en = el("span", "en"); en.textContent = b.enabled === false ? "○" : "●";
+            en.title = b.enabled === false ? "Enable this element in prompt and BBOX output" : "Disable this element from prompt and BBOX output";
+            en.setAttribute("role", "button");
+            en.setAttribute("aria-label", en.title);
+            en.onclick = (e) => {
+              e.stopPropagation();
+              b.enabled = b.enabled === false;
+              renderElements(); renderBoxes(); serialize();
+            };
             const dup = el("span", "dup"); dup.textContent = "⧉"; dup.title = "Duplicate";
             dup.onclick = (e) => { e.stopPropagation(); const cp = Object.assign({}, b, { id: _bid++, x: Math.min(1 - b.w, b.x + 0.03), y: Math.min(1 - b.h, b.y + 0.03), palette: (b.palette || []).slice(), uiColor: uiColorForIndex(boxes.length) }); boxes.splice(i + 1, 0, cp); setSel(cp.id); renderBoxes(); renderElements(); serialize(); };
             const x = el("span", "x"); x.textContent = "✕";
@@ -4218,14 +4361,14 @@
             });
             row.addEventListener("mouseenter", () => { const bx = ov.querySelector(`[data-idd-box-id="${b.id}"]`); if (bx) bx.classList.add("hov"); });
             row.addEventListener("mouseleave", () => { const bx = ov.querySelector(`[data-idd-box-id="${b.id}"]`); if (bx) bx.classList.remove("hov"); });
-            row.append(grip, n, c, t, ty, dup, x); elemList.append(row);
+            row.append(grip, n, c, t, ty, en, dup, x); elemList.append(row);
           });
           if (!boxes.length) { const e0 = el("div", "idd-elem"); e0.style.color = "var(--dim)"; e0.textContent = "Drag on the board or use +BBOX"; elemList.append(e0); }
         }
 
         // rail order: Style is kept above Elements so Photo/Art stays visible at the compact default size.
         pad.append(
-          railTools, mkSec("Summary", summary), mkSec("Background", bgArea), styleSec, elemSec,
+          railTools, summarySec, bgSec, styleSec, elemSec,
         );
         rail.append(pad);
         body.append(board, rail, railBtn);   // railBtn = edge tab pinned to the board↔panel boundary
@@ -4405,7 +4548,7 @@
           ensureBoxUiColors();
           ov.querySelectorAll(".idd-box").forEach((n) => n.remove());
           boxes.forEach((b, i) => {
-            const d = el("div", "idd-box" + (b.type === "text" ? " text" : "") + (b.id === selectedId ? " sel" : ""));
+            const d = el("div", "idd-box" + (b.type === "text" ? " text" : "") + (b.enabled === false ? " off" : "") + (b.id === selectedId ? " sel" : ""));
             d.dataset.iddBoxId = String(b.id);
             d.style.left = b.x * 100 + "%"; d.style.top = b.y * 100 + "%";
             d.style.width = b.w * 100 + "%"; d.style.height = b.h * 100 + "%";
@@ -4423,7 +4566,11 @@
               d.append(hd);
             }
             d.addEventListener("pointerdown", (e) => { if (e.target === d || e.target === lab || e.target === tag) onBoxDown(e, i, "move"); });
-            d.addEventListener("dblclick", (e) => { e.stopPropagation(); openElementEditor(i); });
+            d.addEventListener("dblclick", (e) => {
+              e.stopPropagation();
+              if (e.altKey) { e.preventDefault(); return; }
+              openElementEditor(i, { clientX: e.clientX, clientY: e.clientY });
+            });
             d.addEventListener("mouseenter", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.add("hov"); });
             d.addEventListener("mouseleave", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.remove("hov"); });
             ov.append(d);
@@ -4469,6 +4616,7 @@
             type: "obj",
             text: "",
             desc: "",
+            enabled: true,
             palette: [],
             uiColor: uiColorForIndex(boxes.length),
           };
@@ -4520,6 +4668,13 @@
         }
         function onBoxDown(e, i, mode, dir) {
           if (e.button !== 0) return; e.stopPropagation(); e.preventDefault();
+          if (e.altKey) {
+            const candidateIds = overlappingBoxIdsAtPoint(boxes, rel(e));
+            const nextId = nextOverlappingBoxId(candidateIds, selectedId);
+            if (nextId != null) setSel(nextId);
+            try { wrap.focus({ preventScroll: true }); } catch (x) {}
+            return;
+          }
           // Ctrl(⌘)+drag on a box = drag a COPY (the original stays put)
           if (mode === "move" && (e.ctrlKey || e.metaKey)) {
             i = cloneBoxForDrag(i);
@@ -4535,7 +4690,7 @@
         ov.addEventListener("pointerdown", (e) => {
           if (e.button !== 0 || e.target !== ov) return; e.stopPropagation(); e.preventDefault();
           const p = rel(e);
-          const b = { id: _bid++, x: p.x, y: p.y, w: 0, h: 0, type: "obj", text: "", desc: "", palette: [], uiColor: uiColorForIndex(boxes.length) };
+          const b = { id: _bid++, x: p.x, y: p.y, w: 0, h: 0, type: "obj", text: "", desc: "", enabled: true, palette: [], uiColor: uiColorForIndex(boxes.length) };
           boxes.push(b); selectedId = b.id;
           drag = { i: boxes.length - 1, mode: "draw", ox: p.x, oy: p.y, sx: e.clientX, sy: e.clientY, moved: false };
           startDragListeners(e);
@@ -4594,15 +4749,63 @@
           markSel();
         }
         // ── element editor popup: pick type, enter text (text-type) + description, edit the element's
-        // color palette, then Save. Replaces the cramped inline box. Anchored to wrap so it centers on
-        // the node (and on the screen in fullscreen). Working copy → Cancel/Esc discards. ──
-        function openElementEditor(i) {
+        // color palette, then Save. BBOX double-click opens beside that pointer; the Elements list keeps
+        // the centered editor. Working copy → Cancel/Esc discards. ──
+        function openElementEditor(i, pointerAnchor = null) {
           const b = boxes[i]; if (!b) return;
           let type = b.type === "text" ? "text" : "obj";
           let pal = (b.palette || []).slice();
 
           const modal = el("div", "idd-modal"); modal.tabIndex = -1; stop(modal);
           const panel = el("div", "idd-modal-panel");
+          const hasPointerAnchor = !!(
+            pointerAnchor
+            && Number.isFinite(Number(pointerAnchor.clientX))
+            && Number.isFinite(Number(pointerAnchor.clientY))
+          );
+          let anchorResizeObserver = null;
+          let anchorRepositionTimer = null;
+          let editorClosed = false;
+          function repositionAnchoredPanel() {
+            if (!hasPointerAnchor || editorClosed || !modal.parentNode) return;
+            if ("isConnected" in modal && !modal.isConnected) return;
+            const modalRect = modal.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            // Convert client pixels through this modal's measured DOM scale. ComfyUI's canvas
+            // scale is intentionally irrelevant here, including when the board is fullscreen.
+            const anchorPosition = pointerAnchoredPanelPosition({
+              pointerX: pointerAnchor.clientX,
+              pointerY: pointerAnchor.clientY,
+              modalRect,
+              modalLayoutWidth: modal.clientWidth || modal.offsetWidth || modalRect.width,
+              modalLayoutHeight: modal.clientHeight || modal.offsetHeight || modalRect.height,
+              panelRect,
+              viewportWidth: window.innerWidth || document.documentElement?.clientWidth || modalRect.right,
+              viewportHeight: window.innerHeight || document.documentElement?.clientHeight || modalRect.bottom,
+            });
+            panel.style.position = "absolute";
+            panel.style.left = anchorPosition.left + "px";
+            panel.style.top = anchorPosition.top + "px";
+            panel.dataset.iddAnchorSide = anchorPosition.side;
+          }
+          function scheduleAnchoredPanelReposition() {
+            if (!hasPointerAnchor || editorClosed || !modal.parentNode || anchorRepositionTimer != null) return;
+            anchorRepositionTimer = setTimeout(() => {
+              anchorRepositionTimer = null;
+              repositionAnchoredPanel();
+            }, 0);
+          }
+          function stopAnchoredPanelTracking() {
+            editorClosed = true;
+            if (anchorResizeObserver) {
+              try { anchorResizeObserver.disconnect(); } catch (e) {}
+              anchorResizeObserver = null;
+            }
+            if (anchorRepositionTimer != null) {
+              clearTimeout(anchorRepositionTimer);
+              anchorRepositionTimer = null;
+            }
+          }
           const h = el("div", "idd-modal-h");
           const tag = el("span", "tag"); tag.textContent = String(i + 1).padStart(2, "0");
           const ht = el("span", "t"); ht.textContent = "Edit element";
@@ -4657,16 +4860,32 @@
           const save = el("button", "idd-mbtn save"); save.textContent = "Save";
           acts.append(del, el("span", "sp"), cancel, save);
 
-          function applyType(t) { type = t === "text" ? "text" : "obj"; bObj.classList.toggle("on", type === "obj"); bTxt.classList.toggle("on", type === "text"); txtSec.style.display = type === "text" ? "" : "none"; }
+          function applyType(t) {
+            type = t === "text" ? "text" : "obj";
+            bObj.classList.toggle("on", type === "obj");
+            bTxt.classList.toggle("on", type === "text");
+            txtSec.style.display = type === "text" ? "" : "none";
+            scheduleAnchoredPanelReposition();
+          }
           bObj.onclick = (e) => { e.stopPropagation(); applyType("obj"); };
           bTxt.onclick = (e) => { e.stopPropagation(); applyType("text"); };
           applyType(type);
 
           panel.append(h, tl, seg, txtSec, dSec, pSec, acts);
           modal.append(panel); wrap.appendChild(modal);
+          if (hasPointerAnchor) {
+            repositionAnchoredPanel();
+            if (typeof ResizeObserver === "function") {
+              anchorResizeObserver = new ResizeObserver(() => scheduleAnchoredPanelReposition());
+              anchorResizeObserver.observe(panel);
+            }
+          }
           setTimeout(() => dIn.focus(), 0);
 
-          const close = () => { try { modal.remove(); } catch (e) {} };
+          const close = () => {
+            stopAnchoredPanelTracking();
+            try { modal.remove(); } catch (e) {}
+          };
           modal.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") { e.preventDefault(); close(); } });
           modal.addEventListener("pointerdown", (e) => { if (e.target === modal) close(); });
           cancel.onclick = (e) => { e.stopPropagation(); close(); };
@@ -4838,7 +5057,7 @@
         // current board → OFFICIAL caption JSON (mirror of the backend _assemble_caption: same
         // shape and key order as the node's prompt output) — so Copy gives you exactly what ships,
         // ready to share or re-import anywhere.
-        function assembleCaption() {
+        function assembleCaption(includeDisabled = false) {
           const cap = {};
           if (getW("include_aspect_ratio", false)) cap.aspect_ratio = getW("aspect_ratio", "") || "1:1";
           if ((summary.value || "").trim()) cap.high_level_description = summary.value;
@@ -4851,7 +5070,8 @@
             cap.style_description = sd;
           }
           const grid = (v) => Math.max(0, Math.min(1000, Math.round(v * 1000)));
-          const els = boxes.map((b) => {
+          const sourceBoxes = includeDisabled ? boxes : boxes.filter((b) => b.enabled !== false);
+          const els = sourceBoxes.map((b) => {
             const t = b.type === "text" ? "text" : "obj";
             const el = { type: t, bbox: [grid(b.y), grid(b.x), grid(b.y + b.h), grid(b.x + b.w)] };
             if (t === "text") el.text = b.text || "";

@@ -384,6 +384,36 @@ def _assemble_caption(aspect_ratio, include_aspect_ratio, background, high_level
     return caption
 
 
+def _apply_caption_text_overrides(caption, input_summary=None, input_background=None):
+    """Apply connected text inputs after board/import selection without mutating saved editor state.
+
+    ``None`` means the optional socket is disconnected. A connected empty summary intentionally
+    removes the field, while a connected empty background keeps the official ``background: ""``
+    shape. This final merge also makes the override authoritative when ``import_json`` wins.
+    """
+    if not isinstance(caption, dict):
+        caption = {}
+
+    if input_summary is not None:
+        summary = input_summary if isinstance(input_summary, str) else str(input_summary)
+        if summary.strip():
+            caption["high_level_description"] = summary
+        else:
+            caption.pop("high_level_description", None)
+
+    if input_background is not None:
+        background = input_background if isinstance(input_background, str) else str(input_background)
+        current = caption.get("compositional_deconstruction")
+        compositional = dict(current) if isinstance(current, dict) else {}
+        compositional["background"] = background
+        elements = compositional.get("elements")
+        if not isinstance(elements, list):
+            compositional["elements"] = []
+        caption["compositional_deconstruction"] = compositional
+
+    return caption
+
+
 def _normalize_view_language(view_language):
     code = translate_engine.code_for_display(view_language)
     if not code or code == "auto":
@@ -707,7 +737,8 @@ def _send_pending_import(unique_id, sig, imported=None, raw_json="", invalid=Fal
 def build_outputs(width, height, seed, aspect_ratio, include_aspect_ratio,
                   background, high_level_description, style_mode,
                   aesthetics, lighting, medium, photo, art_style,
-                  caption_data, import_json, import_mode):
+                  caption_data, import_json, import_mode,
+                  input_summary=None, input_background=None):
     """Pure assembly used by the node's build(). -> (prompt, width, height, seed, bboxes).
 
     aspect_ratio POLICY (confirmed against the official repo, 2026-06-11): it is the authoring
@@ -719,6 +750,10 @@ def build_outputs(width, height, seed, aspect_ratio, include_aspect_ratio,
     """
     ar = (aspect_ratio or "").strip() or _ratio_from_dims(width, height)
     boxes, style_palette = _parse_caption_data(caption_data)
+    active_boxes = [
+        box for box in boxes
+        if isinstance(box, dict) and box.get("enabled") is not False
+    ]
 
     board_content = _board_has_content(
         caption_data, high_level_description, background, style_mode,
@@ -737,14 +772,21 @@ def build_outputs(width, height, seed, aspect_ratio, include_aspect_ratio,
         if not include_aspect_ratio:
             caption.pop("aspect_ratio", None)
         boxes = _caption_to_boxes(imported)
+        active_boxes = boxes
     else:
         caption = _assemble_caption(ar, include_aspect_ratio, background, high_level_description,
                                     style_mode, aesthetics, lighting, medium, photo, art_style,
-                                    boxes, style_palette)
+                                    active_boxes, style_palette)
+
+    caption = _apply_caption_text_overrides(
+        caption,
+        input_summary=input_summary,
+        input_background=input_background,
+    )
 
     # SINGLE-LINE MINIFIED JSON, non-ASCII preserved verbatim (minify lowers safety blocks).
     prompt = json.dumps(caption, ensure_ascii=False, separators=(",", ":"))
-    bboxes = _bbox_pixels(boxes, width, height)
+    bboxes = _bbox_pixels(active_boxes, width, height)
     return (prompt, int(width), int(height), int(seed), bboxes)
 
 
@@ -856,6 +898,14 @@ class DenoIdeogramDirector:
                     "step": 0.01,
                     "tooltip": "Optional connected megapixel budget. Used with the current aspect ratio when width and height are not both connected.",
                 }),
+                "input_summary": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Optional connected Summary override. It affects this execution only; the saved Director board value remains available when disconnected.",
+                }),
+                "input_background": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Optional connected Background override. It affects this execution only; the saved Director board value remains available when disconnected.",
+                }),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -896,6 +946,7 @@ class DenoIdeogramDirector:
               translation_engine=translate_engine.TRANSLATION_ENGINE_DEFAULT,
               libretranslate_url="",
               input_width=None, input_height=None, input_megapixels=None,
+              input_summary=None, input_background=None,
               unique_id=None):
         # `backdrop` (optional IMAGE) is shown on the board only; it never enters the caption JSON.
         import_mode = _normalize_import_mode(import_mode)
@@ -935,6 +986,7 @@ class DenoIdeogramDirector:
             effective_width, effective_height, seed, effective_aspect_ratio, include_aspect_ratio, background, high_level_description,
             style_mode, aesthetics, lighting, medium, photo, art_style,
             caption_data, import_json, import_mode,
+            input_summary, input_background,
         )
         translation_payload = None
         target_code = translate_engine.code_for_display(translate_output)
