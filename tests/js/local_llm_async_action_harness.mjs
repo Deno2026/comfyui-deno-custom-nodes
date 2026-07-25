@@ -124,7 +124,7 @@ function makeNode(id) {
         size: [560, 300],
         __denoLocalLLMRefreshing: true,
         widgets: [
-            makeWidget("provider", "Ollama", ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom"]),
+            makeWidget("provider", "Ollama", ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap"]),
             makeWidget("ollama_model", "qwen3", ["qwen3"]),
             makeWidget("lm_studio_model", "google/gemma", ["google/gemma"]),
             makeWidget("custom_server_url", "http://127.0.0.1:8000/v1"),
@@ -223,6 +223,65 @@ assert(api.getLocalLLMNodeState(providerNode).provider === "LM Studio", "A late 
 assert(
     !providerNode.properties.denoLocalLLMModelChoicesByProvider?.Ollama,
     "A late old-provider response must not update hidden old-provider choices",
+);
+
+providerWidget.value = "llama-swap";
+providerWidget.callback?.("llama-swap");
+assert(
+    providerWidget.options.values.at(-1) === "llama-swap",
+    "llama-swap must remain the last provider without changing the existing provider order",
+);
+assert(
+    api.getWidget(providerNode, "custom_server_url").value === "http://127.0.0.1:8080/v1",
+    "A first llama-swap selection must apply its OpenAI-compatible default URL",
+);
+assert(
+    api.getLocalLLMNodeState(providerNode).thinking.includes("llama-swap"),
+    "llama-swap selection must explain its management-API memory behavior",
+);
+const llamaSwapMemoryWidget = api.getWidget(providerNode, "model_memory");
+llamaSwapMemoryWidget.value = "Keep for minutes";
+providerWidget.callback?.("llama-swap");
+assert(
+    api.getWidget(providerNode, "keep_minutes").hidden === true,
+    "llama-swap must hide the local Keep Minutes value because its server-side timeout owns timed unload",
+);
+assert(
+    api.getLocalLLMNodeState(providerNode).thinking.includes("server-side unload timeout"),
+    "llama-swap Keep for minutes must not claim that DENO schedules a timed management-API unload",
+);
+llamaSwapMemoryWidget.value = "Keep loaded";
+providerWidget.callback?.("llama-swap");
+assert(
+    api.getLocalLLMNodeState(providerNode).thinking.includes("may still unload it"),
+    "llama-swap Keep loaded must not override or overpromise against the server's own timeout",
+);
+llamaSwapMemoryWidget.value = "Unload after run";
+providerWidget.callback?.("llama-swap");
+const llamaSwapRefresh = api.refreshModels(providerNode);
+const llamaSwapRefreshCall = fetchCalls.at(-1);
+const llamaSwapRefreshBody = JSON.parse(llamaSwapRefreshCall.options.body);
+assert(
+    llamaSwapRefreshBody.provider === "llama-swap" &&
+        llamaSwapRefreshBody.server_url === "http://127.0.0.1:8080/v1",
+    "llama-swap Refresh must reuse the shared provider and Server URL request contract",
+);
+llamaSwapRefreshCall.pending.resolve(response({ models: [{ id: "custom-model" }] }));
+await llamaSwapRefresh;
+const llamaSwapUnload = api.unloadLocalModel(providerNode);
+const llamaSwapUnloadCall = fetchCalls.at(-1);
+const llamaSwapUnloadBody = JSON.parse(llamaSwapUnloadCall.options.body);
+assert(
+    llamaSwapUnloadBody.provider === "llama-swap" &&
+        llamaSwapUnloadBody.server_url === "http://127.0.0.1:8080/v1" &&
+        llamaSwapUnloadBody.model === "custom-model",
+    "llama-swap Unload must reuse the selected model and management-aware backend contract",
+);
+llamaSwapUnloadCall.pending.resolve(response({ ok: true, message: "llama-swap model unloaded" }));
+await llamaSwapUnload;
+assert(
+    api.getLocalLLMNodeState(providerNode).status === "LLM unloaded",
+    "A successful llama-swap manual unload must be visible on the node",
 );
 
 const executionNode = makeNode(12);

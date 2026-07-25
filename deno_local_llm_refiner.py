@@ -50,14 +50,28 @@ PROVIDER_LM_STUDIO = "LM Studio"
 PROVIDER_LLAMA_CPP = "llama.cpp"
 PROVIDER_VLLM = "vLLM"
 PROVIDER_CUSTOM = "Custom"
+PROVIDER_LLAMA_SWAP = "llama-swap"
 LEGACY_PROVIDER_CUSTOM = "Custom Local Server"
-PROVIDERS = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO, PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM]
-OPENAI_COMPATIBLE_PROVIDERS = {PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM}
+PROVIDERS = [
+    PROVIDER_OLLAMA,
+    PROVIDER_LM_STUDIO,
+    PROVIDER_LLAMA_CPP,
+    PROVIDER_VLLM,
+    PROVIDER_CUSTOM,
+    PROVIDER_LLAMA_SWAP,
+]
+OPENAI_COMPATIBLE_PROVIDERS = {
+    PROVIDER_LLAMA_CPP,
+    PROVIDER_VLLM,
+    PROVIDER_CUSTOM,
+    PROVIDER_LLAMA_SWAP,
+}
 OLLAMA_DEFAULT_SERVER = "http://127.0.0.1:11434"
 LM_STUDIO_DEFAULT_SERVER = "http://127.0.0.1:1234/v1"
 LLAMA_CPP_DEFAULT_SERVER = "http://127.0.0.1:8080/v1"
 VLLM_DEFAULT_SERVER = "http://127.0.0.1:8000/v1"
 CUSTOM_SERVER_DEFAULT = "http://127.0.0.1:8000/v1"
+LLAMA_SWAP_DEFAULT_SERVER = "http://127.0.0.1:8080/v1"
 LEGACY_CUSTOM_SERVER_DEFAULT = CUSTOM_SERVER_DEFAULT
 LOCAL_LLM_IMAGE_MAX_SIDE = 2048
 LOCAL_LLM_IMAGE_MAX_PIXELS = 2 * 1024 * 1024
@@ -106,6 +120,7 @@ SHIFTED_MODEL_WIDGET_VALUES = {
     PROVIDER_LLAMA_CPP,
     PROVIDER_VLLM,
     PROVIDER_CUSTOM,
+    PROVIDER_LLAMA_SWAP,
     LEGACY_PROVIDER_CUSTOM,
     MEMORY_UNLOAD_AFTER_RUN,
     LEGACY_MEMORY_FREE_AFTER_BATCH,
@@ -156,6 +171,11 @@ _ACTIVE_LOCAL_LLM_KEYS: Dict[str, int] = {}
 _CANCEL_LOCAL_LLM_KEYS: Set[str] = set()
 _SLEEPING_VLLM_KEYS: Set[str] = set()
 _ACTIVE_LOCAL_LLM_LOCK = threading.Lock()
+LM_STUDIO_MODELS_CACHE_TTL_SECONDS = 5.0
+_LM_STUDIO_MODELS_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+_LM_STUDIO_MODELS_CACHE_LOCK = threading.Lock()
+_LLAMA_SWAP_MODEL_TARGETS_CACHE: Dict[str, Dict[str, str]] = {}
+_LLAMA_SWAP_MODEL_TARGETS_CACHE_LOCK = threading.Lock()
 
 
 def _json_response(payload: Dict[str, Any], status: int = 200):
@@ -379,6 +399,8 @@ def _default_openai_compatible_server(provider: str) -> str:
         return LLAMA_CPP_DEFAULT_SERVER
     if provider == PROVIDER_VLLM:
         return VLLM_DEFAULT_SERVER
+    if provider == PROVIDER_LLAMA_SWAP:
+        return LLAMA_SWAP_DEFAULT_SERVER
     return CUSTOM_SERVER_DEFAULT
 
 
@@ -548,6 +570,34 @@ def _http_json(
     if not data.strip():
         return {}
     return json.loads(data)
+
+
+def _http_expect_success(
+    url: str,
+    method: str = "GET",
+    timeout: float = 20.0,
+    error_payload: Optional[Dict[str, Any]] = None,
+) -> Tuple[int, str]:
+    """Return status/text without requiring a JSON response body."""
+    parsed = _parse_local_llm_url(url)
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    connection = _open_local_llm_http_connection(parsed, timeout=timeout)
+    try:
+        connection.request(method.upper(), path, headers={"Accept": "*/*"})
+        response = connection.getresponse()
+        data = response.read().decode("utf-8", errors="replace")
+        if not 200 <= response.status < 300:
+            raise _local_llm_http_error(response.status, data, error_payload)
+        return response.status, data
+    except (TimeoutError, OSError, http.client.HTTPException) as exc:
+        raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
 
 
 def _http_stream_json_lines(
@@ -1797,6 +1847,100 @@ def _recover_lm_native_empty_stream(
     raise RuntimeError(_lm_studio_empty_stream_error(json.dumps(diagnostic, ensure_ascii=False)[:800]))
 
 
+def _lm_studio_models_cache_key(server_url: str) -> str:
+    return _normalize_lm_native_url(server_url)
+
+
+def _copy_local_llm_models(models: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [dict(item) for item in models if isinstance(item, dict)]
+
+
+def _get_cached_lm_studio_models(server_url: str) -> Optional[List[Dict[str, Any]]]:
+    key = _lm_studio_models_cache_key(server_url)
+    now = time.monotonic()
+    with _LM_STUDIO_MODELS_CACHE_LOCK:
+        cached = _LM_STUDIO_MODELS_CACHE.get(key)
+        if cached is None:
+            return None
+        expires_at, models = cached
+        if now >= expires_at:
+            _LM_STUDIO_MODELS_CACHE.pop(key, None)
+            return None
+        return _copy_local_llm_models(models)
+
+
+def _cache_lm_studio_models(server_url: str, models: Iterable[Dict[str, Any]]) -> None:
+    key = _lm_studio_models_cache_key(server_url)
+    copied = _copy_local_llm_models(models)
+    with _LM_STUDIO_MODELS_CACHE_LOCK:
+        _LM_STUDIO_MODELS_CACHE[key] = (
+            time.monotonic() + LM_STUDIO_MODELS_CACHE_TTL_SECONDS,
+            copied,
+        )
+
+
+def _invalidate_lm_studio_models_cache(server_url: str) -> None:
+    key = _lm_studio_models_cache_key(server_url)
+    with _LM_STUDIO_MODELS_CACHE_LOCK:
+        _LM_STUDIO_MODELS_CACHE.pop(key, None)
+
+
+def _mark_lm_studio_model_unloaded(server_url: str, model: str) -> None:
+    key = _lm_studio_models_cache_key(server_url)
+    model = str(model or "").strip()
+    if not model:
+        return
+    with _LM_STUDIO_MODELS_CACHE_LOCK:
+        cached = _LM_STUDIO_MODELS_CACHE.get(key)
+        if cached is None:
+            return
+        _expires_at, models = cached
+        updated: List[Dict[str, Any]] = []
+        for item in models:
+            copied = dict(item)
+            names = {
+                str(copied.get("id") or "").strip(),
+                str(copied.get("instance_id") or "").strip(),
+                *(str(value or "").strip() for value in (copied.get("variants") or [])),
+            }
+            if model in names:
+                copied["loaded"] = False
+                copied["instance_id"] = ""
+            updated.append(copied)
+        _LM_STUDIO_MODELS_CACHE[key] = (
+            time.monotonic() + LM_STUDIO_MODELS_CACHE_TTL_SECONDS,
+            updated,
+        )
+
+
+def _llama_swap_entry_target_id(item: Dict[str, Any], model_id: str) -> str:
+    meta = item.get("meta")
+    llama_swap_meta = meta.get("llamaswap") if isinstance(meta, dict) else None
+    if isinstance(llama_swap_meta, dict):
+        target = str(llama_swap_meta.get("modelID") or "").strip()
+        if target:
+            return target
+    return model_id
+
+
+def _cache_llama_swap_model_targets(server_root: str, targets: Dict[str, str]) -> None:
+    key = _strip_trailing_slash(server_root)
+    cleaned = {
+        str(model_id).strip(): str(target).strip()
+        for model_id, target in targets.items()
+        if str(model_id).strip() and str(target).strip()
+    }
+    with _LLAMA_SWAP_MODEL_TARGETS_CACHE_LOCK:
+        _LLAMA_SWAP_MODEL_TARGETS_CACHE[key] = cleaned
+
+
+def _cached_llama_swap_model_target(server_root: str, model: str) -> str:
+    key = _strip_trailing_slash(server_root)
+    model = str(model or "").strip()
+    with _LLAMA_SWAP_MODEL_TARGETS_CACHE_LOCK:
+        return _LLAMA_SWAP_MODEL_TARGETS_CACHE.get(key, {}).get(model, model)
+
+
 def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]]:
     provider = _normalize_provider(provider)
     if provider == PROVIDER_OLLAMA:
@@ -1814,9 +1958,17 @@ def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]
         ]
 
     if provider in OPENAI_COMPATIBLE_PROVIDERS:
-        _server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
+        server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
         payload = _http_json(f"{openai_base}/models", timeout=10.0)
         models = payload.get("data") or payload.get("models") or []
+        llama_swap_running: Set[str] = set()
+        if provider == PROVIDER_LLAMA_SWAP:
+            try:
+                running_payload = _http_json(f"{server_root}/running", timeout=10.0)
+                llama_swap_running = _llama_swap_running_model_ids(running_payload)
+            except Exception:
+                pass
+        llama_swap_targets: Dict[str, str] = {}
         result = []
         for item in models:
             if not isinstance(item, dict):
@@ -1824,15 +1976,35 @@ def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]
             model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
             if not model_id:
                 continue
+            llama_swap_target = (
+                _llama_swap_entry_target_id(item, model_id)
+                if provider == PROVIDER_LLAMA_SWAP
+                else model_id
+            )
+            if provider == PROVIDER_LLAMA_SWAP:
+                llama_swap_targets[model_id] = llama_swap_target
             result.append({
                 "id": model_id,
                 "label": str(item.get("display_name") or item.get("label") or model_id),
-                "loaded": bool(item.get("loaded", False)),
+                "loaded": (
+                    (
+                        model_id in llama_swap_running
+                        or llama_swap_target in llama_swap_running
+                    )
+                    if provider == PROVIDER_LLAMA_SWAP
+                    else bool(item.get("loaded", False))
+                ),
             })
+        if provider == PROVIDER_LLAMA_SWAP:
+            _cache_llama_swap_model_targets(server_root, llama_swap_targets)
         return result
 
     base = _normalize_lm_native_url(server_url)
-    payload = _http_json(f"{base}/api/v1/models", timeout=10.0)
+    try:
+        payload = _http_json(f"{base}/api/v1/models", timeout=10.0)
+    except Exception:
+        _invalidate_lm_studio_models_cache(base)
+        raise
     models = payload.get("models") or []
     result = []
     for item in models:
@@ -1860,6 +2032,7 @@ def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]
                 "reasoning_options": reasoning_options,
             }
         )
+    _cache_lm_studio_models(base, result)
     return result
 
 
@@ -1867,9 +2040,8 @@ def _lm_studio_reasoning_options(server_url: str, model: str) -> Optional[Set[st
     model = str(model or "").strip()
     if not model:
         return None
-    try:
-        models = list_local_llm_models(PROVIDER_LM_STUDIO, server_url)
-    except Exception:
+    models = _get_cached_lm_studio_models(server_url)
+    if models is None:
         return None
     for item in models:
         item_id = str(item.get("id") or "").strip()
@@ -1892,6 +2064,19 @@ def list_detected_model_ids(provider: str, server_url: str) -> List[str]:
         models = list_local_llm_models(provider, server_url)
     except Exception:
         models = []
+    for item in models:
+        model_id = str(item.get("id") or "").strip()
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            choices.append(model_id)
+    return choices or [""]
+
+
+def _cached_lm_studio_model_ids(server_url: str) -> List[str]:
+    """Return only explicit-refresh results so INPUT_TYPES never blocks on LM Studio."""
+    seen: Set[str] = set()
+    choices: List[str] = []
+    models = _get_cached_lm_studio_models(server_url) or []
     for item in models:
         model_id = str(item.get("id") or "").strip()
         if model_id and model_id not in seen:
@@ -1933,6 +2118,118 @@ def _ollama_is_model_loaded(base: str, model: str) -> bool:
         return False
 
 
+def _llama_swap_model_path(model: str) -> str:
+    return "/".join(
+        urllib.parse.quote(segment, safe="")
+        for segment in str(model or "").strip().split("/")
+    )
+
+
+def _llama_swap_unload(server_root: str, model: str) -> None:
+    encoded_model = _llama_swap_model_path(model)
+    _http_expect_success(
+        f"{_strip_trailing_slash(server_root)}/api/models/unload/{encoded_model}",
+        method="POST",
+        timeout=20.0,
+        error_payload={"model": model},
+    )
+
+
+def _llama_swap_entry_is_running(entry: Dict[str, Any]) -> bool:
+    for key in ("running", "loaded"):
+        if key in entry and isinstance(entry[key], bool):
+            return bool(entry[key])
+    state = str(entry.get("state") or entry.get("status") or "").strip().lower()
+    return state not in {
+        "stopped",
+        "stopping",
+        "unloaded",
+        "not_loaded",
+        "not running",
+        "not_running",
+        "offline",
+        "false",
+    }
+
+
+def _llama_swap_running_model_ids(payload: Any) -> Set[str]:
+    found: Set[str] = set()
+    identifier_keys = ("model", "model_id", "id", "key")
+    envelope_keys = ("running", "models", "data", "items", "processes")
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip()
+        if text:
+            found.add(text)
+
+    def visit(value: Any, mapping_keys_are_models: bool = False) -> None:
+        if isinstance(value, str):
+            if mapping_keys_are_models:
+                add(value)
+            return
+        if isinstance(value, list):
+            for item in value:
+                visit(item, mapping_keys_are_models=True)
+            return
+        if not isinstance(value, dict):
+            return
+
+        strong_identifiers = [
+            value.get(key)
+            for key in identifier_keys
+            if str(value.get(key) or "").strip()
+        ]
+        fallback_name = value.get("name") if not strong_identifiers else None
+        has_identifier = bool(strong_identifiers or str(fallback_name or "").strip())
+        if has_identifier and _llama_swap_entry_is_running(value):
+            for identifier in strong_identifiers:
+                add(identifier)
+            if fallback_name is not None:
+                add(fallback_name)
+            aliases = value.get("aliases")
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    add(alias)
+
+        visited_envelope = False
+        for key in envelope_keys:
+            if key in value:
+                visited_envelope = True
+                visit(value[key], mapping_keys_are_models=True)
+
+        if mapping_keys_are_models and not has_identifier and not visited_envelope:
+            for key, state in value.items():
+                if isinstance(state, bool):
+                    if state:
+                        add(key)
+                    continue
+                if isinstance(state, str):
+                    if _llama_swap_entry_is_running({"state": state}):
+                        add(key)
+                    continue
+                if isinstance(state, dict) and _llama_swap_entry_is_running(state):
+                    add(key)
+                    visit(state)
+
+    if isinstance(payload, dict) and "running" in payload:
+        visit(payload["running"], mapping_keys_are_models=True)
+    else:
+        visit(payload, mapping_keys_are_models=True)
+    return found
+
+
+def _llama_swap_is_model_loaded(server_root: str, model: str) -> bool:
+    model = str(model or "").strip()
+    if not model:
+        return False
+    payload = _http_json(f"{_strip_trailing_slash(server_root)}/running", timeout=10.0)
+    running = _llama_swap_running_model_ids(payload)
+    return (
+        model in running
+        or _cached_llama_swap_model_target(server_root, model) in running
+    )
+
+
 def _is_provider_model_loaded(provider: str, server_url: str, model: str) -> bool:
     provider = _normalize_provider(provider)
     model = str(model or "").strip()
@@ -1941,10 +2238,15 @@ def _is_provider_model_loaded(provider: str, server_url: str, model: str) -> boo
     try:
         if provider == PROVIDER_OLLAMA:
             return _ollama_is_model_loaded(_normalize_ollama_url(server_url), model)
+        if provider == PROVIDER_LLAMA_SWAP:
+            server_root, _openai_base = _normalize_openai_compatible_urls(provider, server_url)
+            return _llama_swap_is_model_loaded(server_root, model)
         if provider in OPENAI_COMPATIBLE_PROVIDERS:
             models = list_local_llm_models(provider, server_url)
             return any(item.get("id") == model for item in models)
-        models = list_local_llm_models(PROVIDER_LM_STUDIO, _normalize_lm_native_url(server_url))
+        models = _get_cached_lm_studio_models(server_url)
+        if models is None:
+            return False
         return any(item.get("id") == model and item.get("loaded") for item in models)
     except Exception:
         return False
@@ -1969,6 +2271,7 @@ def _lm_unload_best_effort(native_base: str, model: str) -> None:
                 instance_id = str(item["instance_id"])
                 break
             if item.get("id") == model and not item.get("loaded"):
+                _mark_lm_studio_model_unloaded(native_base, model)
                 return
     except Exception:
         pass
@@ -1982,8 +2285,10 @@ def _lm_unload_best_effort(native_base: str, model: str) -> None:
     except RuntimeError as exc:
         message = str(exc).lower()
         if "model_not_found" in message or "not loaded" in message:
+            _mark_lm_studio_model_unloaded(native_base, model)
             return
         raise
+    _mark_lm_studio_model_unloaded(native_base, model)
 
 
 def _llama_cpp_unload(server_root: str, model: str) -> None:
@@ -2061,6 +2366,18 @@ def unload_local_llm_model(provider: str, server_url: str, model: str) -> Dict[s
         _clear_local_llm_warm(provider, openai_base, model)
         return {"ok": True, "message": f"Requested llama.cpp unload for model: {model}"}
 
+    if provider == PROVIDER_LLAMA_SWAP:
+        server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
+        if (
+            _is_local_llm_active(provider, server_root, model)
+            or _is_local_llm_active(provider, openai_base, model)
+        ):
+            return _busy_unload_response(provider, model)
+        _llama_swap_unload(server_root, model)
+        _clear_local_llm_warm(provider, server_root, model)
+        _clear_local_llm_warm(provider, openai_base, model)
+        return {"ok": True, "message": f"Unloaded llama-swap model: {model}"}
+
     if provider == PROVIDER_VLLM:
         server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
         if (
@@ -2091,7 +2408,7 @@ def unload_local_llm_model(provider: str, server_url: str, model: str) -> Dict[s
             "manual_unavailable": True,
         }
 
-    raise RuntimeError("Provider must be Ollama, LM Studio, llama.cpp, vLLM, or Custom.")
+    raise RuntimeError("Provider must be Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap.")
 
 
 def _cleanup_aborted_local_llm_batch(provider: str, server_url: str, model: str) -> Dict[str, Any]:
@@ -2165,7 +2482,8 @@ if PromptServer is not None:
 
 class DenoLocalLLMRefiner:
     DESCRIPTION = (
-        "Call a local Ollama, LM Studio, llama.cpp, vLLM, or Custom model from ComfyUI and help rewrite or review prompt text.\n\n"
+        "Call a local Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap model "
+        "from ComfyUI and help rewrite or review prompt text.\n\n"
         "An optional IMAGE input can be attached to the local model call. "
         "Use a vision-capable local model for image review.\n\n"
         "Designed for prompt-batcher workflows: use the in-node Prompt field or connect STRING into Prompt, "
@@ -2179,7 +2497,7 @@ class DenoLocalLLMRefiner:
     @classmethod
     def INPUT_TYPES(cls):
         ollama_model_choices = list_detected_model_ids(PROVIDER_OLLAMA, OLLAMA_DEFAULT_SERVER)
-        lm_studio_model_choices = list_detected_model_ids(PROVIDER_LM_STUDIO, LM_STUDIO_DEFAULT_SERVER)
+        lm_studio_model_choices = _cached_lm_studio_model_ids(LM_STUDIO_DEFAULT_SERVER)
         return {
             "required": {
                 "provider": (PROVIDERS, {"default": PROVIDER_OLLAMA}),
@@ -2246,7 +2564,7 @@ class DenoLocalLLMRefiner:
     ):
         raw_provider_value = str(_extract_scalar(provider, PROVIDER_OLLAMA) or "").strip()
         if raw_provider_value not in PROVIDERS and raw_provider_value != LEGACY_PROVIDER_CUSTOM:
-            return "Provider must be Ollama, LM Studio, llama.cpp, vLLM, or Custom."
+            return "Provider must be Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap."
         provider_value = _normalize_provider(raw_provider_value)
         for result in (
             validate_combo_choice("seed_mode", seed_mode, SEED_MODE_OPTIONS, aliases={"random": SEED_MODE_RANDOMIZE}),
@@ -2805,6 +3123,9 @@ class DenoLocalLLMRefiner:
             if provider == PROVIDER_VLLM:
                 _vllm_sleep(server_root, model)
                 return {"action": "vLLM /sleep?level=1"}
+            if provider == PROVIDER_LLAMA_SWAP:
+                _llama_swap_unload(server_root, model)
+                return {"action": "llama-swap /api/models/unload/{model}"}
             return {
                 "action": "unsupported",
                 "message": (

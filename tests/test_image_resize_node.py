@@ -3173,13 +3173,20 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
             return [{"id": "vllm-model-d", "label": "vLLM Model D", "loaded": False}]
         if provider == "Custom":
             return [{"id": "custom-model-e", "label": "Custom Model E", "loaded": False}]
+        if provider == "llama-swap":
+            return [{"id": "llama-swap-model-f", "label": "llama-swap Model F", "loaded": False}]
         return [{"id": "ollama-model-a", "label": "Ollama Model A", "loaded": False}]
 
     module.list_local_llm_models = fake_list_models
+    module._cache_lm_studio_models(
+        module.LM_STUDIO_DEFAULT_SERVER,
+        [{"id": "lm-studio-model-b", "label": "LM Studio Model B", "loaded": False}],
+    )
     try:
         input_types = node_cls.INPUT_TYPES()
     finally:
         module.list_local_llm_models = original_list_models
+        module._invalidate_lm_studio_models_cache(module.LM_STUDIO_DEFAULT_SERVER)
 
     required = input_types["required"]
     optional = input_types["optional"]
@@ -3191,17 +3198,19 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert node_cls.CATEGORY == "Deno/LLM"
     assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"]) == node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"])
     assert "help rewrite or review prompt text" in node_cls.DESCRIPTION
-    assert "Ollama, LM Studio, llama.cpp, vLLM, or Custom" in node_cls.DESCRIPTION
+    assert "Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap" in node_cls.DESCRIPTION
     assert "An optional IMAGE input" in node_cls.DESCRIPTION
     assert "connect STRING into Prompt" in node_cls.DESCRIPTION
     assert "AUDIO" not in node_cls.DESCRIPTION
-    assert required["provider"][0] == ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom"]
+    assert required["provider"][0] == ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap"]
+    assert "llama-swap" in required["provider"][1]["tooltip"]
     assert "server_url" not in required
     assert "model" not in required
     assert required["ollama_model"][0] == ["ollama-model-a"]
     assert required["lm_studio_model"][0] == ["lm-studio-model-b"]
     assert required["custom_server_url"][0] == "STRING"
     assert required["custom_server_url"][1]["default"] == "http://127.0.0.1:8000/v1"
+    assert "llama-swap" in required["custom_server_url"][1]["tooltip"]
     assert required["custom_model"][0] == "STRING"
     assert required["system_prompt"][1]["default"] == ""
     assert required["system_prompt"][1]["multiline"] is True
@@ -3214,6 +3223,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert required["seed_mode"][0] == ["fixed", "increment", "decrement", "randomize"]
     assert "control_after_generate" not in required
     assert required["model_memory"][0] == ["Unload after run", "Keep for minutes", "Keep loaded"]
+    assert "server-side unload timeout" in required["keep_minutes"][1]["tooltip"]
     assert required["comfy_vram_policy"][0] == [
         "Auto: unload only before first LLM call",
         "Always unload before each LLM call",
@@ -3843,7 +3853,6 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
     stream_payloads = []
 
     original_stream = module._http_stream_sse
-    original_list_models = module.list_local_llm_models
 
     def fake_stream(url, payload, **_kwargs):
         stream_payloads.append({"url": url, "payload": dict(payload)})
@@ -3851,9 +3860,10 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
         yield "chat.end", {"type": "chat.end", "result": {"output": [{"type": "message", "content": "kept"}]}}
 
     module._http_stream_sse = fake_stream
-    module.list_local_llm_models = lambda _provider, _server_url: [
-        {"id": "google/gemma-4-12b", "reasoning_options": ["off", "on"]}
-    ]
+    module._cache_lm_studio_models(
+        "http://127.0.0.1:1234",
+        [{"id": "google/gemma-4-12b", "reasoning_options": ["off", "on"]}],
+    )
     try:
         answer, thought, raw = node._run_lm_studio(
             server_url="http://127.0.0.1:1234/v1",
@@ -3872,7 +3882,7 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
         )
     finally:
         module._http_stream_sse = original_stream
-        module.list_local_llm_models = original_list_models
+        module._invalidate_lm_studio_models_cache("http://127.0.0.1:1234")
 
     assert answer == "kept"
     assert thought == ""
@@ -4891,6 +4901,14 @@ def test_local_llm_refiner_validation_accepts_local_provider_models():
         lm_studio_model="",
         custom_server_url="http://127.0.0.1:8000/v1",
         custom_model="Qwen/Qwen2.5-VL",
+    ) is True
+
+    assert node_cls.VALIDATE_INPUTS(
+        provider="llama-swap",
+        ollama_model="",
+        lm_studio_model="",
+        custom_server_url="http://127.0.0.1:8080/v1",
+        custom_model="models/Qwen3-8B",
     ) is True
 
     shifted_result = node_cls.VALIDATE_INPUTS(
