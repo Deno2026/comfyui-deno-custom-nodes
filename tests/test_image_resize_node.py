@@ -20,7 +20,7 @@ from PIL import Image
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_INIT = REPO_ROOT / "__init__.py"
 PUBLIC_LTX23_8GB_WORKFLOW = REPO_ROOT / "docs" / "workflows" / "ltx23-8gb-vram-public-baseline.json"
-PUBLIC_LTX23_8GB_WORKFLOW_CANONICAL_SHA256 = "5b58e483ebdce0e12a2363b44f9e9527e58ab90caedb66813fe7ff37633932e8"
+PUBLIC_LTX23_8GB_WORKFLOW_CANONICAL_SHA256 = "d9185b3553f0d77a60c78529e19f1e883e39bdee08f56779771233b95abc22f8"
 
 
 def install_torch_stub():

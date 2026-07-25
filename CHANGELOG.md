@@ -6,6 +6,14 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.72 - 2026-07-25
+
+- Added per-element enable/disable controls and optional connected Summary/Background overrides to `(Deno) Ideogram Director` while preserving saved element order, values, and disconnected board behavior.
+- Opened BBOX editing beside the clicked region, kept the editor inside the visible node or fullscreen area as its contents resize, and added repeated `Alt`+click selection for overlapping BBOX regions without moving or reordering them.
+- Added `llama-swap` as a first-class `(Deno) Local LLM Loader` provider with OpenAI-compatible generation, live running-state checks, manual and post-run unload controls, saved-workflow compatibility, and server-owned timeout guidance.
+- Removed the synchronous LM Studio model-list request that previously ran before generation, so repeated warm-model runs can start without waiting for metadata.
+- Removed machine-specific preview, workspace, and model-root state from bundled public workflows so the examples stay portable across ComfyUI installations.
+
 ## 0.7.71 - 2026-07-22
 
 - Fixed `(Deno) LTX Sequencer` growing to its full 50-slot height after a workflow reload, workflow-tab switch, or browser-tab restore when the node had been manually resized, and made already-affected saved workflows recover their compact size automatically the next time they load.

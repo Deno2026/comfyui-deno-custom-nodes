@@ -12,6 +12,18 @@ __pycache__/
 *.pyc
 tests/
 
+# Public-repository validation and contributor files are not runtime package
+# contents. Keep them on GitHub while excluding them from Manager installs.
+.comfyignore
+.dockerignore
+.gitignore
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+Dockerfile
+SECURITY.md
+compose.yaml
+requirements-dev.txt
+
 # Local authority and work artifacts never belong in the installed package.
 AGENTS.md
 CLAUDE.md
@@ -40,6 +52,7 @@ deno_random_prompt_box.py
 web/js/deno_random_prompt_box.js
 
 tools/compare_rtx_vfx_env.ps1
+tools/DENO_Bernini_Preview_Backend_Update.bat
 tools/README_RTX_VFX_EASY_INSTALL.md
 tools/install_rtx_vfx.bat
 tools/install_rtx_vfx_bat.zip
