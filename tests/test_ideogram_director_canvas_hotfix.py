@@ -26,6 +26,21 @@ def test_ideogram_director_box_drag_captures_pointer_until_release_or_cancel():
     assert "function dragPointerMatches(e)" in SCRIPT
 
 
+def test_ideogram_director_element_enabled_state_round_trips_and_filters_output_only():
+    assert "enabled: b.enabled !== false" in SCRIPT
+    assert 'const sourceBoxes = includeDisabled ? boxes : boxes.filter((b) => b.enabled !== false);' in SCRIPT
+    assert "const enabledStates = boxes.map((b) => b.enabled !== false);" in SCRIPT
+    assert "translateCaptionViaRoute(assembleCaption(true), target, source)" in SCRIPT
+    assert "boxes.forEach((b, i) => { b.enabled = enabledStates[i] !== false; });" in SCRIPT
+    assert 'e.target.closest(".g,.ty,.en,.dup,.x")' in SCRIPT
+    assert "b.enabled = b.enabled === false;" in SCRIPT
+    assert "input_summary: 1, input_background: 1" in SCRIPT
+    assert 'inputIsConnected("input_summary")' in SCRIPT
+    assert 'inputIsConnected("input_background")' in SCRIPT
+    assert "Connected input overrides this saved value during generation." in SCRIPT
+    assert 'translateBtn.textContent = hasConnectedTextOverride ? "Board English Ready" : "English Ready";' in SCRIPT
+
+
 def test_ideogram_result_descriptor_is_optional_and_transient_failures_preserve_it():
     assert "let resultImageRef = null;" in SCRIPT
     assert "if (resultImageRef) cd.resultImage = Object.assign({}, resultImageRef);" in SCRIPT

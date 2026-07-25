@@ -786,7 +786,8 @@ def test_ideogram_director_elements_list_is_front_to_back_without_reversing_outp
     assert 'grip.addEventListener("dragend", clearElementDropPreview);' in script
     assert 'elemList.querySelector(`[data-idd-box-id="${b.id}"]`)' in script
     assert 'ov.querySelector(`[data-idd-box-id="${b.id}"]`)' in script
-    assert "const els = boxes.map((b) => {" in script
+    assert "const sourceBoxes = includeDisabled ? boxes : boxes.filter((b) => b.enabled !== false);" in script
+    assert "const els = sourceBoxes.map((b) => {" in script
 
 
 def test_ideogram_director_auto_colors_stay_with_boxes_not_row_index():
@@ -804,7 +805,7 @@ def test_ideogram_director_auto_colors_stay_with_boxes_not_row_index():
     assert "uiColor: uiColorForIndex(boxes.length)" in script
     assert "ensureBoxUiColors();" in script
 
-    assemble = script.split("function assembleCaption()", 1)[1].split('copy.addEventListener("click"', 1)[0]
+    assemble = script.split("function assembleCaption(includeDisabled = false)", 1)[1].split('copy.addEventListener("click"', 1)[0]
     assert "uiColor" not in assemble
     assert "if (bpal.length) el.color_palette = bpal;" in assemble
 
@@ -1043,7 +1044,8 @@ def test_ideogram_director_external_size_inputs_sync_frontend_without_pruning_so
     assert "n._idd.onSize(sz[sz.length - 1]);" in script
     assert "function applyExternalSizePayload(payload)" in script
     assert 'onSize: (p) => { applyExternalSizePayload(p); },' in script
-    assert "const keep = { backdrop: 1, import_json: 1, input_width: 1, input_height: 1, input_megapixels: 1 };" in script
+    assert "input_width: 1, input_height: 1, input_megapixels: 1" in script
+    assert "input_summary: 1, input_background: 1" in script
     assert "setRes(w, h, label, machine);" in script
     assert "serialize();" in script
 
