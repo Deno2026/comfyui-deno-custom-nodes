@@ -12,25 +12,14 @@ __pycache__/
 *.pyc
 tests/
 
-# Internal developer / handoff / design docs: never part of an installed
-# node package. These are local-only DENO operating assets, not public
-# product docs. Keep the exclusions here as a second guard for local builds
-# and registry packaging.
-SESSION_HANDOFF.md
+# Local authority and work artifacts never belong in the installed package.
 AGENTS.md
-docs/DENO_NODE_RETROSPECTIVE.md
-docs/DENO_NODE_VISUAL_IDENTITY.md
-docs/NODE_WORK_INDEX.md
-docs/COMFYUI_RUNTIME_MATRIX.md
-docs/TRANSLATOR_REFACTOR_SPEC.md
-docs/CLAUDE_NODE_FRONTEND_GUIDE.md
-docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md
-docs/handoff_archive/
-docs/nodes/
-docs/nodes/CAPTION_TRANSLATE.md
-docs/nodes/RANDOM_PROMPT_BOX.md
-docs/nodes/VISUAL_FOLD.md
+CLAUDE.md
+RELEASE_CHECKLIST.md
 tmp/
+scratch/
+reports/
+artifacts/
 
 # Paused local/WIP node wrappers. Keep these out of the public package until
 # the user explicitly restarts and release-approves the feature.
@@ -44,7 +33,6 @@ tools/install_rtx_vfx.bat
 tools/install_rtx_vfx_bat.zip
 tools/test_portable_baseline.ps1
 tools/comfyui_cdp_probe.ps1
-tools/comfyui_runtime_matrix.ps1
 tools/install_comfy_desktop_ko_shell_patch.bat
 tools/rtx_vfx_env_report_*.json
 tools/DENO_RTX_VFX_install_log.txt

@@ -184,18 +184,14 @@ def test_public_readmes_use_current_ltx_tiled_display_name():
         assert old_name not in text
 
 
-def test_publish_workflow_waits_for_exact_main_ci_and_fails_without_registry_secret():
+def test_publish_workflow_is_manual_exact_sha_and_fails_without_registry_secret():
     workflow = PUBLISH_WORKFLOW_PATH.read_text()
 
     assert "name: Publish to Comfy registry" in workflow
     assert "workflow_dispatch:" in workflow
     assert "target_sha:" in workflow
-    assert "workflow_run:" in workflow
-    assert "- ci" in workflow
-    assert "- completed" in workflow
-    assert "github.event.workflow_run.event == 'push'" in workflow
-    assert "github.event.workflow_run.conclusion == 'success'" in workflow
-    assert "github.event.workflow_run.head_sha" in workflow
+    assert "workflow_run:" not in workflow
+    assert "TARGET_SHA: ${{ inputs.target_sha }}" in workflow
     assert "actions: read" in workflow
     assert "group: registry-publish-${{ github.repository }}" in workflow
     assert "cancel-in-progress: false" in workflow
@@ -208,11 +204,16 @@ def test_publish_workflow_waits_for_exact_main_ci_and_fails_without_registry_sec
     assert "No successful main push CI run exists" in workflow
     assert "no longer the current main head" in workflow
     assert "paths:" not in workflow
+    assert "actions/checkout@v4" not in workflow
+    assert "actions/checkout@11d5960a326750d5838078e36cf38b85af677262" in workflow
+    assert "persist-credentials: false" in workflow
     assert "REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}" in workflow
     assert "REGISTRY_ACCESS_TOKEN secret is missing" in workflow
     assert "if: ${{ env.REGISTRY_ACCESS_TOKEN != '' }}" not in workflow
-    assert "Comfy-Org/publish-node-action@main" in workflow
+    assert "Comfy-Org/publish-node-action@main" not in workflow
+    assert "Comfy-Org/publish-node-action@d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9" in workflow
     assert "personal_access_token: ${{ env.REGISTRY_ACCESS_TOKEN }}" in workflow
+    assert "skip_checkout: true" in workflow
 
 
 def test_registry_package_links_public_rtx_installer_but_excludes_flagged_files():
@@ -235,26 +236,16 @@ def test_registry_package_links_public_rtx_installer_but_excludes_flagged_files(
     assert "tools/DENO_RTX_VFX_runtime_path.txt" in comfyignore
 
 
-def test_registry_package_excludes_internal_docs_that_trip_the_scanner():
-    # Internal DENO operating notes are local-only assets and must never ship
-    # inside the installed node package.
+def test_registry_package_excludes_local_authority_and_work_artifacts():
     comfyignore = COMFYIGNORE_PATH.read_text(encoding="utf-8")
 
-    assert "SESSION_HANDOFF.md" in comfyignore
     assert "AGENTS.md" in comfyignore
-    assert "docs/NODE_WORK_INDEX.md" in comfyignore
-    assert "docs/COMFYUI_RUNTIME_MATRIX.md" in comfyignore
-    assert "docs/DENO_NODE_RETROSPECTIVE.md" in comfyignore
-    assert "docs/DENO_NODE_VISUAL_IDENTITY.md" in comfyignore
-    assert "docs/CLAUDE_NODE_FRONTEND_GUIDE.md" in comfyignore
-    assert "docs/TRANSLATOR_REFACTOR_SPEC.md" in comfyignore
-    assert "docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md" in comfyignore
-    assert "docs/nodes/" in comfyignore
-    assert "docs/nodes/RANDOM_PROMPT_BOX.md" in comfyignore
-    assert "docs/nodes/VISUAL_FOLD.md" in comfyignore
-    assert "docs/handoff_archive/" in comfyignore
+    assert "CLAUDE.md" in comfyignore
+    assert "RELEASE_CHECKLIST.md" in comfyignore
     assert "tmp/" in comfyignore
-    assert "tools/comfyui_runtime_matrix.ps1" in comfyignore
+    assert "scratch/" in comfyignore
+    assert "reports/" in comfyignore
+    assert "artifacts/" in comfyignore
 
 
 def test_public_git_surface_excludes_local_only_internal_docs():
@@ -267,28 +258,11 @@ def test_public_git_surface_excludes_local_only_internal_docs():
 
     forbidden_exact = {
         "AGENTS.md",
-        "SESSION_HANDOFF.md",
-        "docs/CLAUDE_NODE_FRONTEND_GUIDE.md",
-        "docs/COMFYUI_RUNTIME_MATRIX.md",
-        "docs/DENO_NODE_RETROSPECTIVE.md",
-        "docs/DENO_NODE_VISUAL_IDENTITY.md",
-        "docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md",
-        "docs/NODE_WORK_INDEX.md",
-        "docs/PORTABLE_TEST_BASELINE.md",
-        "tests/test_documentation_routing.py",
-        "tools/comfyui_runtime_matrix.ps1",
-        "tools/test_portable_baseline.ps1",
+        "CLAUDE.md",
+        "RELEASE_CHECKLIST.md",
     }
-    forbidden_prefixes = (
-        "docs/handoff_archive/",
-        "docs/nodes/",
-    )
 
-    leaked = [
-        path
-        for path in tracked
-        if path in forbidden_exact or any(path.startswith(prefix) for prefix in forbidden_prefixes)
-    ]
+    leaked = [path for path in tracked if path in forbidden_exact]
 
     assert leaked == []
 

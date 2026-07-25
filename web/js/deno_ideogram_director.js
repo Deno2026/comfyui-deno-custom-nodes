@@ -5,7 +5,7 @@
 //   background field       -> background                   style toggle/fields -> style_mode/...
 //   seed box / lock        -> seed / seed_lock
 // State is hydrated from those widgets on load (onConfigure) so a saved workflow restores exactly.
-// Clean-room (no KJNodes code). Palette per docs/DENO_NODE_VISUAL_IDENTITY.md (NOT mint).
+// Clean-room (no KJNodes code). DENO dark operator palette, not mint.
 
 (function () {
   "use strict";

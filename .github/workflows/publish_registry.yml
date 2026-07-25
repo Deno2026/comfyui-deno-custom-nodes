@@ -7,13 +7,6 @@ on:
         description: Exact current main commit SHA to publish after its push CI succeeds
         required: true
         type: string
-  workflow_run:
-    workflows:
-      - ci
-    types:
-      - completed
-    branches:
-      - main
 
 permissions:
   actions: read
@@ -26,11 +19,10 @@ concurrency:
 jobs:
   publish-node:
     name: Publish Custom Node to registry
-    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
       REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
-      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target_sha }}
+      TARGET_SHA: ${{ inputs.target_sha }}
     steps:
       - name: Check Registry token
         shell: bash
@@ -52,15 +44,13 @@ jobs:
             exit 1
           fi
 
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-              echo "::error::Manual Registry publish must be dispatched from main."
-              exit 1
-            fi
-            if [ "${TARGET_SHA,,}" != "${GITHUB_SHA,,}" ]; then
-              echo "::error::target_sha must match the exact main commit selected for this dispatch."
-              exit 1
-            fi
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Registry publish must be dispatched from main."
+            exit 1
+          fi
+          if [ "${TARGET_SHA,,}" != "${GITHUB_SHA,,}" ]; then
+            echo "::error::target_sha must match the exact main commit selected for this dispatch."
+            exit 1
           fi
 
           MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
@@ -84,9 +74,10 @@ jobs:
           fi
 
       - name: Check out exact tested commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
 
       - name: Check publish eligibility
         id: publish-check
@@ -128,6 +119,7 @@ jobs:
 
       - name: Publish Custom Node
         if: steps.publish-check.outputs.should_publish == 'true'
-        uses: Comfy-Org/publish-node-action@main
+        uses: Comfy-Org/publish-node-action@d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9
         with:
           personal_access_token: ${{ env.REGISTRY_ACCESS_TOKEN }}
+          skip_checkout: true
