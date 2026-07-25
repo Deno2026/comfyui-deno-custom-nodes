@@ -179,13 +179,21 @@ def test_public_workflows_do_not_publish_local_paths_or_workspace_state():
     encoded_windows_path = re.compile(r"[A-Za-z]%3A%5C", re.IGNORECASE)
     file_url = re.compile(r"file:///+[A-Za-z]:", re.IGNORECASE)
     unix_user_home = re.compile(r"(?:^|[\s\"'=])/(?:home|Users)/[^/\s]+/")
+    local_preview_url = re.compile(
+        r"^/(?:api/)?(?:vhs/)?view(?:video)?\?",
+        re.IGNORECASE,
+    )
+    runtime_preview_query = re.compile(
+        r"(?:^|[?&])(?:timestamp|rand|force_size|deadline)=",
+        re.IGNORECASE,
+    )
 
     violations = []
     for workflow in PUBLIC_WORKFLOWS:
         graph = _load(workflow)
         for location, _key, value in _walk_json(graph):
             key = location.rsplit(".", 1)[-1]
-            if key in {"workspace_info", "fullpath"}:
+            if key in {"workspace_info", "fullpath", "lastSrc"}:
                 violations.append(f"{workflow.relative_to(REPO_ROOT)}:{location}")
                 continue
             if not isinstance(value, str):
@@ -196,6 +204,8 @@ def test_public_workflows_do_not_publish_local_paths_or_workspace_state():
                 or file_url.search(value)
                 or unix_user_home.search(value)
                 or re.search(r"(?:[?&])fullpath=", value, re.IGNORECASE)
+                or local_preview_url.search(value)
+                or runtime_preview_query.search(value)
             ):
                 violations.append(f"{workflow.relative_to(REPO_ROOT)}:{location}")
 
