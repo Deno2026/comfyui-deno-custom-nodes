@@ -147,12 +147,72 @@
     if (!selected) return false;
     return eventNodeIds(detail).has(String(selected.id));
   }
+  function pointerAnchoredPanelPosition(options = {}) {
+    const finite = (value, fallback = 0) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+    const positive = (value, fallback = 0) => {
+      const parsed = finite(value, fallback);
+      return parsed > 0 ? parsed : fallback;
+    };
+    const modal = options.modalRect || {};
+    const panel = options.panelRect || {};
+    const modalLeft = finite(modal.left);
+    const modalTop = finite(modal.top);
+    const modalClientWidth = positive(modal.width, Math.max(0, finite(modal.right) - modalLeft));
+    const modalClientHeight = positive(modal.height, Math.max(0, finite(modal.bottom) - modalTop));
+    const modalRight = finite(modal.right, modalLeft + modalClientWidth);
+    const modalBottom = finite(modal.bottom, modalTop + modalClientHeight);
+    const viewportWidth = positive(options.viewportWidth, modalRight);
+    const viewportHeight = positive(options.viewportHeight, modalBottom);
+    const layoutWidth = positive(options.modalLayoutWidth, modalClientWidth);
+    const layoutHeight = positive(options.modalLayoutHeight, modalClientHeight);
+    const scaleX = modalClientWidth > 0 && layoutWidth > 0 ? modalClientWidth / layoutWidth : 1;
+    const scaleY = modalClientHeight > 0 && layoutHeight > 0 ? modalClientHeight / layoutHeight : 1;
+    const panelWidth = positive(panel.width);
+    const panelHeight = positive(panel.height);
+    const gap = Math.max(0, finite(options.gap, 12));
+    const padding = Math.max(0, finite(options.padding, 12));
+    const pointerX = finite(options.pointerX, modalLeft);
+    const pointerY = finite(options.pointerY, modalTop);
+
+    const visibleLeft = Math.max(0, modalLeft);
+    const visibleTop = Math.max(0, modalTop);
+    const visibleRight = Math.max(visibleLeft, Math.min(viewportWidth, modalRight));
+    const visibleBottom = Math.max(visibleTop, Math.min(viewportHeight, modalBottom));
+    const minLeft = visibleLeft + padding;
+    const maxLeft = visibleRight - padding - panelWidth;
+    const minTop = visibleTop + padding;
+    const maxTop = visibleBottom - padding - panelHeight;
+    const clampVisible = (value, min, max) => max >= min ? Math.min(max, Math.max(min, value)) : min;
+
+    let side = "right";
+    let clientLeft = pointerX + gap;
+    if (clientLeft + panelWidth > visibleRight - padding) {
+      side = "left";
+      clientLeft = pointerX - gap - panelWidth;
+    }
+    clientLeft = clampVisible(clientLeft, minLeft, maxLeft);
+    const clientTop = clampVisible(pointerY + gap, minTop, maxTop);
+
+    return {
+      left: (clientLeft - modalLeft) / (scaleX || 1),
+      top: (clientTop - modalTop) / (scaleY || 1),
+      clientLeft,
+      clientTop,
+      side,
+      scaleX,
+      scaleY,
+    };
+  }
   if (typeof window !== "undefined" && typeof window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__ === "function") {
     window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__({
       eventNodeIds,
       backdropSourceNodeForDirector,
       downstreamNodeIdsForTarget,
       outputTargetNodesForDirector,
+      pointerAnchoredPanelPosition,
       selectedTargetNodeForDirector,
       shouldAcceptResultForDirectorTarget,
       targetStateForDirector,
@@ -4476,7 +4536,10 @@
               d.append(hd);
             }
             d.addEventListener("pointerdown", (e) => { if (e.target === d || e.target === lab || e.target === tag) onBoxDown(e, i, "move"); });
-            d.addEventListener("dblclick", (e) => { e.stopPropagation(); openElementEditor(i); });
+            d.addEventListener("dblclick", (e) => {
+              e.stopPropagation();
+              openElementEditor(i, { clientX: e.clientX, clientY: e.clientY });
+            });
             d.addEventListener("mouseenter", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.add("hov"); });
             d.addEventListener("mouseleave", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.remove("hov"); });
             ov.append(d);
@@ -4648,15 +4711,63 @@
           markSel();
         }
         // ── element editor popup: pick type, enter text (text-type) + description, edit the element's
-        // color palette, then Save. Replaces the cramped inline box. Anchored to wrap so it centers on
-        // the node (and on the screen in fullscreen). Working copy → Cancel/Esc discards. ──
-        function openElementEditor(i) {
+        // color palette, then Save. BBOX double-click opens beside that pointer; the Elements list keeps
+        // the centered editor. Working copy → Cancel/Esc discards. ──
+        function openElementEditor(i, pointerAnchor = null) {
           const b = boxes[i]; if (!b) return;
           let type = b.type === "text" ? "text" : "obj";
           let pal = (b.palette || []).slice();
 
           const modal = el("div", "idd-modal"); modal.tabIndex = -1; stop(modal);
           const panel = el("div", "idd-modal-panel");
+          const hasPointerAnchor = !!(
+            pointerAnchor
+            && Number.isFinite(Number(pointerAnchor.clientX))
+            && Number.isFinite(Number(pointerAnchor.clientY))
+          );
+          let anchorResizeObserver = null;
+          let anchorRepositionTimer = null;
+          let editorClosed = false;
+          function repositionAnchoredPanel() {
+            if (!hasPointerAnchor || editorClosed || !modal.parentNode) return;
+            if ("isConnected" in modal && !modal.isConnected) return;
+            const modalRect = modal.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            // Convert client pixels through this modal's measured DOM scale. ComfyUI's canvas
+            // scale is intentionally irrelevant here, including when the board is fullscreen.
+            const anchorPosition = pointerAnchoredPanelPosition({
+              pointerX: pointerAnchor.clientX,
+              pointerY: pointerAnchor.clientY,
+              modalRect,
+              modalLayoutWidth: modal.clientWidth || modal.offsetWidth || modalRect.width,
+              modalLayoutHeight: modal.clientHeight || modal.offsetHeight || modalRect.height,
+              panelRect,
+              viewportWidth: window.innerWidth || document.documentElement?.clientWidth || modalRect.right,
+              viewportHeight: window.innerHeight || document.documentElement?.clientHeight || modalRect.bottom,
+            });
+            panel.style.position = "absolute";
+            panel.style.left = anchorPosition.left + "px";
+            panel.style.top = anchorPosition.top + "px";
+            panel.dataset.iddAnchorSide = anchorPosition.side;
+          }
+          function scheduleAnchoredPanelReposition() {
+            if (!hasPointerAnchor || editorClosed || !modal.parentNode || anchorRepositionTimer != null) return;
+            anchorRepositionTimer = setTimeout(() => {
+              anchorRepositionTimer = null;
+              repositionAnchoredPanel();
+            }, 0);
+          }
+          function stopAnchoredPanelTracking() {
+            editorClosed = true;
+            if (anchorResizeObserver) {
+              try { anchorResizeObserver.disconnect(); } catch (e) {}
+              anchorResizeObserver = null;
+            }
+            if (anchorRepositionTimer != null) {
+              clearTimeout(anchorRepositionTimer);
+              anchorRepositionTimer = null;
+            }
+          }
           const h = el("div", "idd-modal-h");
           const tag = el("span", "tag"); tag.textContent = String(i + 1).padStart(2, "0");
           const ht = el("span", "t"); ht.textContent = "Edit element";
@@ -4711,16 +4822,32 @@
           const save = el("button", "idd-mbtn save"); save.textContent = "Save";
           acts.append(del, el("span", "sp"), cancel, save);
 
-          function applyType(t) { type = t === "text" ? "text" : "obj"; bObj.classList.toggle("on", type === "obj"); bTxt.classList.toggle("on", type === "text"); txtSec.style.display = type === "text" ? "" : "none"; }
+          function applyType(t) {
+            type = t === "text" ? "text" : "obj";
+            bObj.classList.toggle("on", type === "obj");
+            bTxt.classList.toggle("on", type === "text");
+            txtSec.style.display = type === "text" ? "" : "none";
+            scheduleAnchoredPanelReposition();
+          }
           bObj.onclick = (e) => { e.stopPropagation(); applyType("obj"); };
           bTxt.onclick = (e) => { e.stopPropagation(); applyType("text"); };
           applyType(type);
 
           panel.append(h, tl, seg, txtSec, dSec, pSec, acts);
           modal.append(panel); wrap.appendChild(modal);
+          if (hasPointerAnchor) {
+            repositionAnchoredPanel();
+            if (typeof ResizeObserver === "function") {
+              anchorResizeObserver = new ResizeObserver(() => scheduleAnchoredPanelReposition());
+              anchorResizeObserver.observe(panel);
+            }
+          }
           setTimeout(() => dIn.focus(), 0);
 
-          const close = () => { try { modal.remove(); } catch (e) {} };
+          const close = () => {
+            stopAnchoredPanelTracking();
+            try { modal.remove(); } catch (e) {}
+          };
           modal.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape") { e.preventDefault(); close(); } });
           modal.addEventListener("pointerdown", (e) => { if (e.target === modal) close(); });
           cancel.onclick = (e) => { e.stopPropagation(); close(); };

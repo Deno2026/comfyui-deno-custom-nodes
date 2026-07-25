@@ -1,4 +1,8 @@
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +43,56 @@ def test_ideogram_director_element_enabled_state_round_trips_and_filters_output_
     assert 'inputIsConnected("input_background")' in SCRIPT
     assert "Connected input overrides this saved value during generation." in SCRIPT
     assert 'translateBtn.textContent = hasConnectedTextOverride ? "Board English Ready" : "English Ready";' in SCRIPT
+
+
+def test_ideogram_director_bbox_editor_uses_pointer_anchored_dom_coordinates():
+    assert "function pointerAnchoredPanelPosition(options = {})" in SCRIPT
+    assert "modalRect = modal.getBoundingClientRect()" in SCRIPT
+    assert "panelRect = panel.getBoundingClientRect()" in SCRIPT
+    assert "modalLayoutWidth: modal.clientWidth || modal.offsetWidth || modalRect.width" in SCRIPT
+    assert "openElementEditor(i, { clientX: e.clientX, clientY: e.clientY })" in SCRIPT
+    assert "function openElementEditor(i, pointerAnchor = null)" in SCRIPT
+    assert "openElementEditor(idx);" in SCRIPT
+    helper_source = SCRIPT.split("function pointerAnchoredPanelPosition(options = {})", 1)[1].split(
+        'if (typeof window !== "undefined"',
+        1,
+    )[0]
+    assert "app.canvas" not in helper_source
+    assert ".ds.scale" not in helper_source
+
+
+def test_ideogram_director_anchored_editor_reclamps_after_resize_and_cleans_up():
+    assert "function repositionAnchoredPanel()" in SCRIPT
+    assert "function scheduleAnchoredPanelReposition()" in SCRIPT
+    assert 'anchorResizeObserver = new ResizeObserver(() => scheduleAnchoredPanelReposition())' in SCRIPT
+    assert "anchorResizeObserver.observe(panel);" in SCRIPT
+    assert "txtSec.style.display = type === \"text\" ? \"\" : \"none\";" in SCRIPT
+    assert "scheduleAnchoredPanelReposition();" in SCRIPT
+    assert "if (!hasPointerAnchor || editorClosed || !modal.parentNode) return;" in SCRIPT
+    assert "if (anchorResizeObserver)" in SCRIPT
+    assert "anchorResizeObserver.disconnect();" in SCRIPT
+    assert "clearTimeout(anchorRepositionTimer);" in SCRIPT
+    editor_source = SCRIPT.split("function openElementEditor(i, pointerAnchor = null)", 1)[1]
+    close_source = editor_source.split("const close = () => {", 1)[1].split("modal.addEventListener", 1)[0]
+    assert "stopAnchoredPanelTracking();" in close_source
+    assert "modal.remove();" in close_source
+
+
+def test_ideogram_director_pointer_panel_normal_zoom_fullscreen_coordinates():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node runtime not available")
+    harness = ROOT / "tests" / "js" / "ideogram_director_pointer_panel_harness.mjs"
+    completed = subprocess.run(
+        [node_bin, str(harness), str(ROOT)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "ideogram director pointer panel harness passed" in completed.stdout
 
 
 def test_ideogram_result_descriptor_is_optional_and_transient_failures_preserve_it():
