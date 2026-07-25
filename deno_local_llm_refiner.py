@@ -1409,7 +1409,7 @@ def _image_attachment_from_array(
         arr = np.nan_to_num(arr, nan=0.0, posinf=255.0, neginf=0.0)
         arr = np.clip(arr, 0, 255).astype(np.uint8)
 
-    pil = Image.fromarray(arr, "RGB")
+    pil = Image.fromarray(arr)
     original_width, original_height = pil.size
     target_width, target_height = _local_llm_image_resize_size(
         original_width,
@@ -1648,7 +1648,7 @@ def _save_reviewer_preview_image(
             arr = np.nan_to_num(arr, nan=0.0, posinf=255.0, neginf=0.0)
             arr = np.clip(arr, 0, 255).astype(np.uint8)
 
-        pil = Image.fromarray(arr, "RGB")
+        pil = Image.fromarray(arr)
         original_width, original_height = pil.size
         pil.thumbnail((int(max_side), int(max_side)), Image.Resampling.LANCZOS)
         out_path, filename, subfolder = _stable_reviewer_preview_path(unique_id, extra_pnginfo)
