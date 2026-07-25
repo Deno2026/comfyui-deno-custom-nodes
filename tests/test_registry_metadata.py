@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 PUBLISH_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "publish_registry.yml"
 COMFYIGNORE_PATH = REPO_ROOT / ".comfyignore"
+GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 INIT_PATH = REPO_ROOT / "__init__.py"
 NODE_LIST_PATH = REPO_ROOT / "node_list.json"
 PRESTARTUP_PATH = REPO_ROOT / "prestartup_script.py"
@@ -239,16 +240,37 @@ def test_registry_package_links_public_rtx_installer_but_excludes_flagged_files(
 def test_registry_package_excludes_local_authority_and_work_artifacts():
     comfyignore = COMFYIGNORE_PATH.read_text(encoding="utf-8")
 
-    assert "AGENTS.md" in comfyignore
-    assert "CLAUDE.md" in comfyignore
-    assert "RELEASE_CHECKLIST.md" in comfyignore
-    assert "tmp/" in comfyignore
-    assert "scratch/" in comfyignore
-    assert "reports/" in comfyignore
-    assert "artifacts/" in comfyignore
+    required_exclusions = {
+        "AGENTS.md",
+        "CLAUDE.md",
+        "RELEASE_CHECKLIST.md",
+        "SESSION_HANDOFF.md",
+        "docs/CLAUDE_NODE_FRONTEND_GUIDE.md",
+        "docs/COMFYUI_RUNTIME_MATRIX.md",
+        "docs/DENO_NODE_RETROSPECTIVE.md",
+        "docs/DENO_NODE_VISUAL_IDENTITY.md",
+        "docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md",
+        "docs/NODE_WORK_INDEX.md",
+        "docs/TRANSLATOR_REFACTOR_SPEC.md",
+        "docs/handoff_archive/",
+        "docs/internal/",
+        "docs/private/",
+        "tools/compare_rtx_vfx_env.ps1",
+        "tools/comfyui_cdp_probe.ps1",
+        "tools/comfyui_runtime_matrix.ps1",
+        "tmp/",
+        "scratch/",
+        "reports/",
+        "artifacts/",
+        "logs/",
+    }
+
+    for path in required_exclusions:
+        assert path in comfyignore
 
 
 def test_public_git_surface_excludes_local_only_internal_docs():
+    gitignore = GITIGNORE_PATH.read_text(encoding="utf-8")
     tracked = subprocess.check_output(
         ["git", "ls-files"],
         cwd=REPO_ROOT,
@@ -260,9 +282,42 @@ def test_public_git_surface_excludes_local_only_internal_docs():
         "AGENTS.md",
         "CLAUDE.md",
         "RELEASE_CHECKLIST.md",
+        "SESSION_HANDOFF.md",
+        "docs/CLAUDE_NODE_FRONTEND_GUIDE.md",
+        "docs/COMFYUI_RUNTIME_MATRIX.md",
+        "docs/DENO_NODE_RETROSPECTIVE.md",
+        "docs/DENO_NODE_VISUAL_IDENTITY.md",
+        "docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md",
+        "docs/NODE_WORK_INDEX.md",
+        "docs/PORTABLE_TEST_BASELINE.md",
+        "docs/TRANSLATOR_REFACTOR_SPEC.md",
+        "tests/test_documentation_routing.py",
+        "tools/compare_rtx_vfx_env.ps1",
+        "tools/comfyui_cdp_probe.ps1",
+        "tools/comfyui_runtime_matrix.ps1",
+        "tools/test_portable_baseline.ps1",
     }
+    forbidden_prefixes = (
+        "docs/handoff_archive/",
+        "docs/internal/",
+        "docs/private/",
+        "tmp/",
+        "scratch/",
+        "reports/",
+        "artifacts/",
+        "logs/",
+    )
 
-    leaked = [path for path in tracked if path in forbidden_exact]
+    for path in forbidden_exact:
+        assert path in gitignore
+    for prefix in forbidden_prefixes:
+        assert prefix in gitignore
+
+    leaked = [
+        path
+        for path in tracked
+        if path in forbidden_exact or any(path.startswith(prefix) for prefix in forbidden_prefixes)
+    ]
 
     assert leaked == []
 

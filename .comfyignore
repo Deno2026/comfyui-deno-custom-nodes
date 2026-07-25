@@ -16,10 +16,22 @@ tests/
 AGENTS.md
 CLAUDE.md
 RELEASE_CHECKLIST.md
+SESSION_HANDOFF.md
+docs/CLAUDE_NODE_FRONTEND_GUIDE.md
+docs/COMFYUI_RUNTIME_MATRIX.md
+docs/DENO_NODE_RETROSPECTIVE.md
+docs/DENO_NODE_VISUAL_IDENTITY.md
+docs/IDEOGRAM_DIRECTOR_DESIGN_DNA.md
+docs/NODE_WORK_INDEX.md
+docs/TRANSLATOR_REFACTOR_SPEC.md
+docs/handoff_archive/
+docs/internal/
+docs/private/
 tmp/
 scratch/
 reports/
 artifacts/
+logs/
 
 # Paused local/WIP node wrappers. Keep these out of the public package until
 # the user explicitly restarts and release-approves the feature.
@@ -33,6 +45,7 @@ tools/install_rtx_vfx.bat
 tools/install_rtx_vfx_bat.zip
 tools/test_portable_baseline.ps1
 tools/comfyui_cdp_probe.ps1
+tools/comfyui_runtime_matrix.ps1
 tools/install_comfy_desktop_ko_shell_patch.bat
 tools/rtx_vfx_env_report_*.json
 tools/DENO_RTX_VFX_install_log.txt
