@@ -10,7 +10,7 @@ SCRIPT = (ROOT / "web" / "js" / "deno_ideogram_director.js").read_text(encoding=
 
 
 def test_ideogram_director_stage_aspect_follows_current_resolution():
-    assert 'const IDD_REV = "r2026.06.30-generate-target-a"' in SCRIPT
+    assert 'const IDD_REV = "r2026.07.25-director-element-controls-a"' in SCRIPT
     assert "function targetAspect()" in SCRIPT
     assert 'const W2 = +getW("width", 1024), H2 = +getW("height", 1024);' in SCRIPT
     assert "return targetAspect() || imageAspect() || 1;" in SCRIPT
@@ -93,6 +93,62 @@ def test_ideogram_director_pointer_panel_normal_zoom_fullscreen_coordinates():
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "ideogram director pointer panel harness passed" in completed.stdout
+
+
+def test_ideogram_director_alt_click_overlap_branch_is_selection_only_and_precedes_clone():
+    assert "function overlappingBoxIdsAtPoint(boxes, point)" in SCRIPT
+    assert "function nextOverlappingBoxId(candidateIds, selectedId)" in SCRIPT
+    on_box_down = SCRIPT.split("function onBoxDown(e, i, mode, dir)", 1)[1].split(
+        'ov.addEventListener("pointerdown"',
+        1,
+    )[0]
+    left_guard = on_box_down.index("if (e.button !== 0) return;")
+    alt_branch_start = on_box_down.index("if (e.altKey) {")
+    clone_branch_start = on_box_down.index('if (mode === "move" && (e.ctrlKey || e.metaKey))')
+    assert left_guard < alt_branch_start < clone_branch_start
+    alt_branch = on_box_down.split("if (e.altKey) {", 1)[1].split(
+        "// Ctrl(⌘)+drag",
+        1,
+    )[0]
+    assert "overlappingBoxIdsAtPoint(boxes, rel(e))" in alt_branch
+    assert "nextOverlappingBoxId(candidateIds, selectedId)" in alt_branch
+    assert "setSel(nextId)" in alt_branch
+    assert "wrap.focus({ preventScroll: true })" in alt_branch
+    assert "return;" in alt_branch
+    for forbidden in (
+        "cloneBoxForDrag",
+        "drag =",
+        "startDragListeners",
+        "setPointerCapture",
+        "renderBoxes",
+        "serialize",
+    ):
+        assert forbidden not in alt_branch
+
+    render_boxes = SCRIPT.split("function renderBoxes()", 1)[1].split("function rel(e)", 1)[0]
+    box_double_click = render_boxes.split('d.addEventListener("dblclick"', 1)[1].split(
+        'd.addEventListener("mouseenter"',
+        1,
+    )[0]
+    assert "if (e.altKey) { e.preventDefault(); return; }" in box_double_click
+    assert "openElementEditor(i, { clientX: e.clientX, clientY: e.clientY })" in box_double_click
+
+
+def test_ideogram_director_overlap_selection_helper_cases():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node runtime not available")
+    harness = ROOT / "tests" / "js" / "ideogram_director_overlap_selection_harness.mjs"
+    completed = subprocess.run(
+        [node_bin, str(harness), str(ROOT)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "ideogram director overlap selection harness passed" in completed.stdout
 
 
 def test_ideogram_result_descriptor_is_optional_and_transient_failures_preserve_it():

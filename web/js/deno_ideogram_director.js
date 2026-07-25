@@ -206,11 +206,41 @@
       scaleY,
     };
   }
+  function overlappingBoxIdsAtPoint(boxes, point) {
+    if (
+      !Array.isArray(boxes)
+      || !point
+      || typeof point.x !== "number"
+      || typeof point.y !== "number"
+    ) return [];
+    const px = point.x;
+    const py = point.y;
+    if (!Number.isFinite(px) || !Number.isFinite(py) || px < 0 || px > 1 || py < 0 || py > 1) return [];
+    const hits = [];
+    for (let i = boxes.length - 1; i >= 0; i -= 1) {
+      const box = boxes[i];
+      if (!box || box.id == null) continue;
+      const x = Number(box.x);
+      const y = Number(box.y);
+      const w = Number(box.w);
+      const h = Number(box.h);
+      if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) continue;
+      if (px >= x && px <= x + w && py >= y && py <= y + h) hits.push(box.id);
+    }
+    return hits;
+  }
+  function nextOverlappingBoxId(candidateIds, selectedId) {
+    if (!Array.isArray(candidateIds) || !candidateIds.length) return null;
+    const current = candidateIds.indexOf(selectedId);
+    return candidateIds[current >= 0 ? (current + 1) % candidateIds.length : 0];
+  }
   if (typeof window !== "undefined" && typeof window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__ === "function") {
     window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__({
       eventNodeIds,
       backdropSourceNodeForDirector,
       downstreamNodeIdsForTarget,
+      nextOverlappingBoxId,
+      overlappingBoxIdsAtPoint,
       outputTargetNodesForDirector,
       pointerAnchoredPanelPosition,
       selectedTargetNodeForDirector,
@@ -1826,7 +1856,7 @@
 
         const wrap = el("div", "idd-wrap");
         // frontend revision stamp — bump on every frontend change so served-JS cache checks are clear.
-        const IDD_REV = "r2026.06.30-generate-target-a";
+        const IDD_REV = "r2026.07.25-director-element-controls-a";
         const IDD_SIZE_REV = "size-2026.06.14-stable-a";
         const IDD_DEFAULT_W = 850;
         const IDD_DEFAULT_H = 1000;
@@ -4538,6 +4568,7 @@
             d.addEventListener("pointerdown", (e) => { if (e.target === d || e.target === lab || e.target === tag) onBoxDown(e, i, "move"); });
             d.addEventListener("dblclick", (e) => {
               e.stopPropagation();
+              if (e.altKey) { e.preventDefault(); return; }
               openElementEditor(i, { clientX: e.clientX, clientY: e.clientY });
             });
             d.addEventListener("mouseenter", () => { const r = elemList.querySelector(`[data-idd-box-id="${b.id}"]`); if (r) r.classList.add("hov"); });
@@ -4637,6 +4668,13 @@
         }
         function onBoxDown(e, i, mode, dir) {
           if (e.button !== 0) return; e.stopPropagation(); e.preventDefault();
+          if (e.altKey) {
+            const candidateIds = overlappingBoxIdsAtPoint(boxes, rel(e));
+            const nextId = nextOverlappingBoxId(candidateIds, selectedId);
+            if (nextId != null) setSel(nextId);
+            try { wrap.focus({ preventScroll: true }); } catch (x) {}
+            return;
+          }
           // Ctrl(⌘)+drag on a box = drag a COPY (the original stays put)
           if (mode === "move" && (e.ctrlKey || e.metaKey)) {
             i = cloneBoxForDrag(i);
