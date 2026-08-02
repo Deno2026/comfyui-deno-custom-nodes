@@ -1039,7 +1039,11 @@ function frameFrac(node, clientX) {
   const r = s.dom.stage.getBoundingClientRect();
   const W = r.width || 1, cx = W / 2;
   const p = cx + (((clientX - r.left) - cx - s.panX) / s.zoom);
-  return Math.max(0, Math.min(1, p / W));
+  // Clamp to the backend's declared split_position range (0.02-0.98), not
+  // the raw 0-1 pixel fraction — dragging to the stage edge could write an
+  // out-of-range value (e.g. 0.993) that the backend FLOAT widget rejects,
+  // silently dropping the queued prompt.
+  return clamp(p / W, 0.02, 0.98, 0.5);
 }
 function clampPan(node) {
   const s = getState(node);
