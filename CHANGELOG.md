@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.73 - 2026-08-03
+
+- Fixed `(Deno) Resize Box` Keep Input Ratio live preview after ComfyUI changed newly created canvas node IDs to strings, while preserving numeric-ID workflows and backend sizing behavior.
+
 ## 0.7.72 - 2026-07-25
 
 - Added per-element enable/disable controls and optional connected Summary/Background overrides to `(Deno) Ideogram Director` while preserving saved element order, values, and disconnected board behavior.
