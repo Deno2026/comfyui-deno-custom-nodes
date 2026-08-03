@@ -663,7 +663,7 @@ function getLinkedImageState(node) {
     }
 
     const linkInfo = app.graph?.links?.[imageInput.link];
-    if (!linkInfo || !Number.isFinite(linkInfo.origin_id)) {
+    if (!linkInfo || linkInfo.origin_id == null) {
         return { connected: true, size: null };
     }
 

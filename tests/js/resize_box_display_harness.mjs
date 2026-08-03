@@ -38,7 +38,7 @@ vm.runInNewContext(source, context, { filename: scriptPath });
 
 assert.ok(hooks, "Resize Box frontend did not expose test hooks");
 
-function makeNode({ connected = false, width = 1001, height = 777 } = {}) {
+function makeNode({ connected = false, linkId = 99, width = 1001, height = 777 } = {}) {
   const values = {
     mode: "Keep Input Ratio",
     width,
@@ -48,7 +48,7 @@ function makeNode({ connected = false, width = 1001, height = 777 } = {}) {
     divisible_by: 32,
   };
   return {
-    inputs: [{ name: "image", link: connected ? 99 : null }],
+    inputs: [{ name: "image", link: connected ? linkId : null }],
     widgets: Object.entries(values).map(([name, value]) => ({ name, value })),
   };
 }
@@ -86,6 +86,25 @@ assert.deepEqual([knownInfo.previewWidth, knownInfo.previewHeight], Array.from(e
 assert.match(knownInfo.text, new RegExp(`^${knownInfo.width} x ${knownInfo.height}\\b`));
 assert.doesNotMatch(knownInfo.text, /Input-dependent/);
 assert.equal(JSON.stringify(known.widgets), knownBefore);
+
+const stringSourceId = "string-source-id";
+graph.nodes.set(stringSourceId, { id: stringSourceId, imgs: [{ naturalWidth: 1080, naturalHeight: 1920 }] });
+graph.links[100] = { origin_id: stringSourceId };
+const knownStringId = makeNode({ connected: true, linkId: 100 });
+const knownStringIdBefore = JSON.stringify(knownStringId.widgets);
+const expectedKnownStringId = hooks.computeKeepInputRatioDims(1080, 1920, 1, 32);
+const knownStringIdInfo = hooks.calculateDisplayInfo(knownStringId);
+assert.deepEqual(
+  [knownStringIdInfo.width, knownStringIdInfo.height],
+  Array.from(expectedKnownStringId),
+  "ComfyUI string node IDs must resolve the linked image size",
+);
+assert.deepEqual(
+  [knownStringIdInfo.previewWidth, knownStringIdInfo.previewHeight],
+  Array.from(expectedKnownStringId),
+);
+assert.doesNotMatch(knownStringIdInfo.text, /Input-dependent/);
+assert.equal(JSON.stringify(knownStringId.widgets), knownStringIdBefore);
 
 graph.nodes.set(7, { id: 7 });
 const unknown = makeNode({ connected: true });
