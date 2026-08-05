@@ -85,9 +85,9 @@ Main features:
 - common ratio presets
 - megapixel-based size calculation
 - `divisible_by` alignment
-- `Center Crop (Fill)`, draggable `Crop Position (Fill)`, and `Fit (Letterbox/Pillarbox)` resize modes
+- `Center Crop (Fill)`, aspect-locked zoomable `Crop Position (Fill)`, and `Fit (Letterbox/Pillarbox)` resize modes
 - `lanczos` default interpolation
-- live ratio preview; `Crop Position (Fill)` shows the connected source image semi-transparently, clipped to the exact output frame, and lets you drag the image to choose the visible area
+- live ratio preview; `Crop Position (Fill)` shows the full connected source, lets you drag the crop box to reposition it, and lets you drag any corner to zoom while keeping the output ratio and megapixels fixed
 - outputs: `image`, `width`, `height`
 
 ### `(Deno) Multi Image Loader`

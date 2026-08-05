@@ -6048,14 +6048,21 @@ def test_resize_box_declares_comfyui_contract():
     assert input_types["optional"]["image"][0] == "IMAGE"
     assert input_types["optional"]["crop_x"][1]["default"] == 0.5
     assert input_types["optional"]["crop_y"][1]["default"] == 0.5
+    crop_zoom_options = input_types["optional"]["crop_zoom"][1]
+    assert crop_zoom_options["default"] == 1.0
+    assert crop_zoom_options["min"] == 1.0
+    assert crop_zoom_options["max"] == 32.0
+    assert crop_zoom_options["step"] == 0.01
     assert "crop_x" not in input_types["required"]
     assert "crop_y" not in input_types["required"]
+    assert "crop_zoom" not in input_types["required"]
     assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
     assert node_cls.RETURN_NAMES == ("image", "width", "height")
     assert node_cls.FUNCTION == "setup_resolution"
 
     signature = inspect.signature(node_cls.setup_resolution)
-    assert list(signature.parameters)[-3:] == ["image", "crop_x", "crop_y"]
+    assert list(signature.parameters)[-4:] == ["image", "crop_x", "crop_y", "crop_zoom"]
+    assert signature.parameters["crop_zoom"].default == 1.0
 
 
 class _ResizeArray:
@@ -6116,6 +6123,16 @@ def test_resize_box_position_crop_clamps_offsets_and_preserves_legacy_center(mon
     positioned_center = package._resize_with_method(
         image, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_x=0.5, crop_y=0.5
     )
+    explicit_zoom_one = package._resize_with_method(
+        image,
+        2,
+        2,
+        "Crop Position (Fill)",
+        "nearest-exact",
+        crop_x=0.5,
+        crop_y=0.5,
+        crop_zoom=1.0,
+    )
     clamped_left = package._resize_with_method(
         image, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_x=-10
     )
@@ -6124,8 +6141,111 @@ def test_resize_box_position_crop_clamps_offsets_and_preserves_legacy_center(mon
     )
 
     assert np.array_equal(legacy_center.values, positioned_center.values)
+    assert np.array_equal(positioned_center.values, explicit_zoom_one.values)
     assert clamped_left.values[..., 0].tolist() == [[[0, 1], [4, 5]]]
     assert clamped_right.values[..., 0].tolist() == [[[2, 3], [6, 7]]]
+
+
+def test_resize_box_zoom_selects_source_region_and_keeps_fixed_output_size(monkeypatch):
+    package = load_package()
+    interpolation_calls = []
+
+    def record_interpolation(image, height, width, method):
+        interpolation_calls.append(
+            {
+                "source": image.values.copy(),
+                "height": height,
+                "width": width,
+                "method": method,
+            }
+        )
+        batch, channels, _, _ = image.shape
+        return _ResizeArray(np.zeros((batch, channels, height, width), dtype=float))
+
+    monkeypatch.setattr(package, "_interpolate_image", record_interpolation)
+    image = _ResizeArray(np.arange(32).reshape(1, 4, 8, 1))
+
+    centered = package._resize_with_method(
+        image,
+        4,
+        4,
+        "Crop Position (Fill)",
+        "nearest-exact",
+        crop_x=0.5,
+        crop_y=0.5,
+        crop_zoom=2.0,
+    )
+
+    assert centered.shape == (1, 4, 4, 1)
+    assert interpolation_calls[-1]["source"][0, 0].tolist() == [[11, 12], [19, 20]]
+    assert interpolation_calls[-1]["height"] == 4
+    assert interpolation_calls[-1]["width"] == 4
+    assert interpolation_calls[-1]["method"] == "nearest-exact"
+
+    package._resize_with_method(
+        image,
+        4,
+        4,
+        "Crop Position (Fill)",
+        "nearest-exact",
+        crop_x=-20,
+        crop_y=-20,
+        crop_zoom=2.0,
+    )
+    assert interpolation_calls[-1]["source"][0, 0].tolist() == [[0, 1], [8, 9]]
+
+    package._resize_with_method(
+        image,
+        4,
+        4,
+        "Crop Position (Fill)",
+        "nearest-exact",
+        crop_x=20,
+        crop_y=20,
+        crop_zoom=2.0,
+    )
+    assert interpolation_calls[-1]["source"][0, 0].tolist() == [[22, 23], [30, 31]]
+
+
+def test_resize_box_zoom_clamps_to_public_widget_range(monkeypatch):
+    package = load_package()
+    cropped_sources = []
+
+    def record_interpolation(image, height, width, _method):
+        cropped_sources.append(image.values.copy())
+        batch, channels, _, _ = image.shape
+        return _ResizeArray(np.zeros((batch, channels, height, width), dtype=float))
+
+    monkeypatch.setattr(package, "_interpolate_image", record_interpolation)
+    image = _ResizeArray(np.arange(32).reshape(1, 4, 8, 1))
+
+    package._resize_with_method(
+        image,
+        4,
+        4,
+        "Crop Position (Fill)",
+        "nearest-exact",
+        crop_x=1,
+        crop_y=1,
+        crop_zoom=999,
+    )
+    assert cropped_sources[-1].shape == (1, 1, 1, 1)
+    assert cropped_sources[-1][0, 0, 0, 0] == 31
+
+    implicit_zoom_one = package._resize_with_method(
+        image, 4, 4, "Crop Position (Fill)", "nearest-exact", crop_x=0.5, crop_y=0.5
+    )
+    below_minimum_zoom = package._resize_with_method(
+        image,
+        4,
+        4,
+        "Crop Position (Fill)",
+        "nearest-exact",
+        crop_x=0.5,
+        crop_y=0.5,
+        crop_zoom=0,
+    )
+    assert np.array_equal(implicit_zoom_one.values, below_minimum_zoom.values)
 
 
 def test_resize_box_calculates_aligned_dimensions_for_preset_mode():

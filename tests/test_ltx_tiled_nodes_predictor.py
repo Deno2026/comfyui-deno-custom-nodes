@@ -51,6 +51,14 @@ class _FakeNestedTensor:
     def unbind(self):
         return self.tensors
 
+    def cpu(self):
+        return _FakeNestedTensor([tensor.cpu() for tensor in self.tensors])
+
+    def to(self, *args, **kwargs):
+        return _FakeNestedTensor([
+            tensor.to(*args, **kwargs) for tensor in self.tensors
+        ])
+
 
 def _fake_pack_latents(latents):
     shapes = []
@@ -1044,6 +1052,38 @@ def test_av_sampler_freezes_audio_output_and_denoised_output(monkeypatch, fake_c
     assert torch.allclose(denoised_audio, audio)
 
 
+@pytest.mark.parametrize("callback_x0_kind", ["packed_tensor", "nested_tensor"])
+def test_av_sampler_accepts_both_callback_x0_contracts(
+    monkeypatch,
+    fake_comfy_latent_utils,
+    callback_x0_kind,
+):
+    _patch_av_sampler_runtime(monkeypatch)
+    video = torch.zeros((1, 2, 3, 6, 4))
+    audio = torch.ones((1, 1, 4, 4)) * 5.0
+    x0_video = torch.ones_like(video) * 7.0
+    if callback_x0_kind == "packed_tensor":
+        callback_x0, _ = _fake_pack_latents([x0_video, audio.clone()])
+    else:
+        callback_x0 = _FakeNestedTensor([x0_video, audio.clone()])
+
+    output, denoised = DenoLTXAVStepFusedTiledSampler().sample(
+        _FakeNoise(),
+        _FakeSamplerGuider(raw_x0=callback_x0),
+        object(),
+        torch.tensor([1.0, 0.0]),
+        {"samples": _FakeNestedTensor([video, audio])},
+        overlap=2,
+    )
+
+    output_video, output_audio = output["samples"].unbind()
+    denoised_video, denoised_audio = denoised["samples"].unbind()
+    assert torch.equal(output_video, video + 1.0)
+    assert torch.equal(output_audio, audio)
+    assert torch.equal(denoised_video, x0_video)
+    assert torch.equal(denoised_audio, audio)
+
+
 def test_av_sampler_preserves_retired_video_only_one_tile_execution(monkeypatch):
     _patch_av_sampler_runtime(monkeypatch)
     monkeypatch.setattr(
@@ -1274,6 +1314,48 @@ def test_av_sampler_rejects_packed_x0_extra_elements(monkeypatch, fake_comfy_lat
         DenoLTXAVStepFusedTiledSampler().sample(
             _FakeNoise(),
             _FakeSamplerGuider(raw_x0=packed),
+            object(),
+            torch.tensor([1.0, 0.0]),
+            {"samples": _FakeNestedTensor([video, audio])},
+            overlap=2,
+        )
+
+
+@pytest.mark.parametrize(
+    ("violation", "message"),
+    [
+        ("extra_part", "AV x0 unpacked into 3 parts, expected 2"),
+        ("video_shape", "AV x0 part 0 shape mismatch"),
+        ("audio_shape", "AV x0 part 1 shape mismatch"),
+        ("audio_value", "AV x0 audio changed"),
+    ],
+)
+def test_av_sampler_strictly_validates_nested_callback_x0(
+    monkeypatch,
+    fake_comfy_latent_utils,
+    violation,
+    message,
+):
+    _patch_av_sampler_runtime(monkeypatch)
+    video = torch.zeros((1, 2, 3, 6, 4))
+    audio = torch.ones((1, 1, 4, 4))
+    x0_video = torch.ones_like(video)
+    x0_audio = audio.clone()
+    parts = [x0_video, x0_audio]
+
+    if violation == "extra_part":
+        parts.append(torch.zeros((1, 1, 1)))
+    elif violation == "video_shape":
+        parts[0] = torch.zeros((1, 2, 3, 5, 4))
+    elif violation == "audio_shape":
+        parts[1] = torch.zeros((1, 1, 4, 3))
+    elif violation == "audio_value":
+        parts[1] = torch.full_like(audio, 99.0)
+
+    with pytest.raises(RuntimeError, match=message):
+        DenoLTXAVStepFusedTiledSampler().sample(
+            _FakeNoise(),
+            _FakeSamplerGuider(raw_x0=_FakeNestedTensor(parts)),
             object(),
             torch.tensor([1.0, 0.0]),
             {"samples": _FakeNestedTensor([video, audio])},
