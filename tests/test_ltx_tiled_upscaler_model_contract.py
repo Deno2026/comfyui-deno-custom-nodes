@@ -6,10 +6,11 @@ import pytest
 import torch
 
 
-pytestmark = pytest.mark.skipif(
-    not hasattr(torch, "nn"),
-    reason="LTX tiled upscaler contract tests require real torch modules.",
-)
+if not hasattr(torch, "nn") or not hasattr(torch.nn, "Module"):
+    pytest.skip(
+        "LTX tiled upscaler contract tests require real torch modules.",
+        allow_module_level=True,
+    )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
