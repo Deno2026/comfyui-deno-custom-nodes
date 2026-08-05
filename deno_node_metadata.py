@@ -53,6 +53,7 @@ NODE_INPUT_TOOLTIPS = {
         "interpolation": "Resize filter. Lanczos is the default quality choice.",
         "crop_x": "Saved horizontal crop position. Drag inside the Resize Box preview to change it.",
         "crop_y": "Saved vertical crop position. Drag inside the Resize Box preview to change it.",
+        "crop_zoom": "Saved crop zoom. Drag any crop corner while keeping the output aspect ratio locked.",
         "image": "Optional source image. If empty, the node creates a blank image at the selected size.",
     },
     "DenoMultiImageLoader": {

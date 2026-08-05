@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.76 - 2026-08-06
+
+- Added aspect-ratio-locked zoom cropping to `(Deno) Resize Box`: drag the crop area to reposition it or drag any corner to zoom while keeping the selected output megapixels and dimensions fixed. Crop position and zoom persist with the workflow.
+- Updated `(Deno) LTX Tiled Spatial Upscaler` for ComfyUI 0.30's managed `ModelPatcher`/DynamicVRAM upscaler contract while preserving the legacy raw-module path. Fixes #56.
+- Updated `(Deno) LTX High resolution Tiled Sampler` to accept both packed and nested AV callback latents while retaining strict denoised-video shape and frozen-audio checks. Fixes #59.
+- Clamped `(Deno) Video Compare` slider writes and repaired already-saved out-of-range split positions. Thanks to @NubeBuster for PR #57.
+
 ## 0.7.75 - 2026-08-05
 
 - Added draggable crop positioning to `(Deno) Resize Box`, including an Ideogram Director-style connected-image loader and a semi-transparent preview clipped to the exact output frame, while preserving the existing center-crop default, output-size corner drag, and saved-workflow behavior.

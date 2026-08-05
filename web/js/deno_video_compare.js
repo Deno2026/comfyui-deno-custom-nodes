@@ -348,26 +348,18 @@ function applyOutputLabel(node) {
 }
 
 function setupNode(node) {
-  if (!node || node.__dvpSetup) return;
-  node.__dvpSetup = true;
+  if (!node) return;
   const st = getState(node);
+  hydrateFromWidgets(node, st);
+  if (node.__dvpSetup) return;
+
+  node.__dvpSetup = true;
   st.destroyed = false;
   st.detached = false;
   st.manualSized = isManualSized(node);
 
   for (const n of HIDDEN_WIDGETS) hideWidget(getWidget(node, n));
   applyOutputLabel(node);
-  const mw = getWidget(node, "mode");
-  if (mw && MODES.includes(String(mw.value))) st.mode = String(mw.value);
-  const sw = getWidget(node, "split_position");
-  if (sw != null) st.split = clamp(Number(sw.value), 0.02, 0.98, 0.5);
-  const tw = getWidget(node, "toggle_image");
-  if (tw && ["A", "B"].includes(String(tw.value))) st.tgl = String(tw.value);
-  const wsw = getWidget(node, "swap");
-  if (wsw != null) st.swapped = !!wsw.value;
-  const blw = getWidget(node, "burn_labels");
-  if (blw != null) st.burnLabels = !!blw.value;
-
   buildDom(node);
   if ((node.size?.[0] || 0) < NODE_MIN_W || (node.size?.[1] || 0) < NODE_DEFAULT_H) {
     setNodeSize(node, [Math.max(node.size?.[0] || 0, NODE_MIN_W),
@@ -405,6 +397,28 @@ function setupNode(node) {
   }
   queueMicrotask(() => { st.resizeTrackingArmed = true; });
   ensureAnimationLoop(node);
+}
+
+function hydrateFromWidgets(node, state) {
+  const st = state || getState(node);
+  if (!st) return;
+  const mw = getWidget(node, "mode");
+  if (mw && MODES.includes(String(mw.value))) st.mode = String(mw.value);
+
+  const sw = getWidget(node, "split_position");
+  if (sw != null) {
+    const normalized = clamp(Number(sw.value), 0.02, 0.98, 0.5);
+    const swNum = Number(sw.value);
+    st.split = normalized;
+    if (swNum !== normalized) sw.value = normalized;
+  }
+
+  const tw = getWidget(node, "toggle_image");
+  if (tw && ["A", "B"].includes(String(tw.value))) st.tgl = String(tw.value);
+  const wsw = getWidget(node, "swap");
+  if (wsw != null) st.swapped = !!wsw.value;
+  const blw = getWidget(node, "burn_labels");
+  if (blw != null) st.burnLabels = !!blw.value;
 }
 
 function buildDom(node) {
@@ -1039,7 +1053,11 @@ function frameFrac(node, clientX) {
   const r = s.dom.stage.getBoundingClientRect();
   const W = r.width || 1, cx = W / 2;
   const p = cx + (((clientX - r.left) - cx - s.panX) / s.zoom);
-  return Math.max(0, Math.min(1, p / W));
+  // Clamp to the backend's declared split_position range (0.02-0.98), not
+  // the raw 0-1 pixel fraction — dragging to the stage edge could write an
+  // out-of-range value (e.g. 0.993) that the backend FLOAT widget rejects,
+  // silently dropping the queued prompt.
+  return clamp(p / W, 0.02, 0.98, 0.5);
 }
 function clampPan(node) {
   const s = getState(node);
@@ -1319,6 +1337,9 @@ function scrubTo(node, clientX) {
 if (typeof window !== "undefined" && typeof window.__DENO_VIDEO_COMPARE_TEST_HOOK__ === "function") {
   window.__DENO_VIDEO_COMPARE_TEST_HOOK__({
     cancelPendingPlaybackBegin,
+    frameFrac,
     schedulePlaybackBegin,
+    hydrateFromWidgets,
+    setupNode,
   });
 }

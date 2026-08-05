@@ -57,6 +57,7 @@ function makeNode({ connected = false, linkId = 99, width = 1001, height = 777 }
     interpolation: "lanczos",
     crop_x: 0.5,
     crop_y: 0.5,
+    crop_zoom: 1,
   };
   return {
     inputs: [{ name: "image", link: connected ? linkId : null }],
@@ -195,6 +196,7 @@ assert.equal(wideLeft.axis, "x");
 assert.deepEqual([wideLeft.x, wideLeft.width], [0, 1080]);
 assert.deepEqual([wideCenter.x, wideCenter.width], [420, 1080]);
 assert.deepEqual([wideRight.x, wideRight.width], [840, 1080]);
+assert.equal(wideCenter.zoom, 1, "legacy workflows without crop_zoom retain the original crop");
 
 const tallTop = hooks.calculateCropWindow(1080, 1920, 1920, 1080, 0.5, 0);
 const tallBottom = hooks.calculateCropWindow(1080, 1920, 1920, 1080, 0.5, 1);
@@ -203,21 +205,21 @@ assert.equal(tallTop.y, 0);
 assert.equal(tallBottom.y, 1312.5);
 assert.equal(hooks.calculateCropWindow(1920, 1080, 1280, 720, 0.2, 0.8).axis, null);
 
-const fixedViewport = { x: 20, y: 30, width: 160, height: 90 };
-const topCropWindow = hooks.calculateCropWindow(1000, 1000, 1600, 900, 0.5, 0);
-const bottomCropWindow = hooks.calculateCropWindow(1000, 1000, 1600, 900, 0.5, 1);
-const topRenderRect = hooks.calculateCropRenderRect(1000, 1000, fixedViewport, topCropWindow);
-const bottomRenderRect = hooks.calculateCropRenderRect(1000, 1000, fixedViewport, bottomCropWindow);
+const zoomedCenter = hooks.calculateCropWindow(1920, 1080, 1080, 1080, 0.5, 0.5, 2);
 assert.deepEqual(
-  [topRenderRect.x, topRenderRect.y, topRenderRect.width, topRenderRect.height],
-  [20, 30, 160, 160],
-  "the lower panel is the fixed output viewport and shows only pixels inside the crop",
+  [zoomedCenter.x, zoomedCenter.y, zoomedCenter.width, zoomedCenter.height, zoomedCenter.axis, zoomedCenter.zoom],
+  [690, 270, 540, 540, "both", 2],
+  "zoom shrinks the fixed-aspect crop inside the full source and enables two-axis positioning",
 );
+const zoomedTopLeft = hooks.calculateCropWindow(1920, 1080, 1080, 1080, 0, 0, 2);
+const zoomedBottomRight = hooks.calculateCropWindow(1920, 1080, 1080, 1080, 1, 1, 2);
 assert.deepEqual(
-  [bottomRenderRect.x, bottomRenderRect.y, bottomRenderRect.width, bottomRenderRect.height],
-  [20, -40, 160, 160],
-  "moving the crop pans the source image behind the fixed output viewport",
+  [zoomedTopLeft.x, zoomedTopLeft.y, zoomedBottomRight.x, zoomedBottomRight.y],
+  [0, 0, 1380, 540],
+  "zoomed crop position spans both source axes",
 );
+assert.equal(hooks.calculateCropWindow(200, 100, 100, 100, 0.5, 0.5, 0).zoom, 1);
+assert.equal(hooks.calculateCropWindow(200, 100, 100, 100, 0.5, 0.5, 999).zoom, 32);
 
 assert.equal(hooks.isPrimaryPointerStart({ button: 0 }), true);
 assert.equal(hooks.isPrimaryPointerStart({ button: 1 }), false, "middle-button canvas pan must pass through");
@@ -242,6 +244,7 @@ class InteractionNode {
       { name: "interpolation", value: "lanczos", type: "combo" },
       { name: "crop_x", value: 0.5, type: "number" },
       { name: "crop_y", value: 0.5, type: "number" },
+      { name: "crop_zoom", value: 1, type: "number" },
     ];
     this.delegatedButtons = [];
   }
@@ -255,7 +258,7 @@ InteractionNode.prototype.onMouseDown = function (event) {
 await registeredExtension.beforeRegisterNodeDef(InteractionNode, { name: "DenoResolutionSetup" });
 const interactionNode = new InteractionNode();
 interactionNode.onNodeCreated();
-for (const name of ["crop_x", "crop_y"]) {
+for (const name of ["crop_x", "crop_y", "crop_zoom"]) {
   const hiddenWidget = interactionNode.widgets.find((widget) => widget.name === name);
   assert.equal(hiddenWidget.hidden, true, `${name} backend widget stays visually hidden`);
   assert.equal(hiddenWidget.type, "hidden");
@@ -282,59 +285,120 @@ interactionNode.__denoPreviewAnchors = [{ name: "nw", x: 20, y: 20, size: 5 }];
 interactionNode.__denoCropPreview = {
   interactive: true,
   sourceRect: { x: 10, y: 10, width: 100, height: 80 },
+  cropRect: { x: 20, y: 20, width: 50, height: 50 },
+  sourceSize: { width: 100, height: 80 },
+  targetSize: { width: 1, height: 1 },
 };
 assert.equal(interactionNode.onMouseDown({ button: 1 }, [20, 20]), "delegated");
 assert.deepEqual(interactionNode.delegatedButtons, [1], "middle-button pan event is forwarded over crop controls");
 assert.equal(interactionNode.onMouseDown({ button: 0 }, [20, 20]), true);
 assert.deepEqual(interactionNode.delegatedButtons, [1], "primary crop gesture is owned by Resize Box");
+assert.equal(interactionNode.onMouseUp({ button: 0 }, [20, 20]), true);
 
 const cropInteractionNode = {
   widgets: [
     { name: "crop_x", value: 0.5 },
     { name: "crop_y", value: 0.5 },
+    { name: "crop_zoom", value: 2 },
+    { name: "megapixels", value: 1.5 },
+    { name: "width", value: 1632 },
+    { name: "height", value: 928 },
   ],
   __denoCropPreview: {
     interactive: true,
-    sourceRect: { x: 10, y: 20, width: 100, height: 80 },
+    sourceRect: { x: 0, y: 0, width: 200, height: 100 },
+    cropRect: { x: 75, y: 25, width: 50, height: 50 },
   },
 };
-assert.equal(hooks.getCropPreviewHit(cropInteractionNode, 60, 50), true);
-assert.equal(hooks.getCropPreviewHit(cropInteractionNode, 120, 50), false);
+assert.equal(hooks.getCropPreviewHit(cropInteractionNode, 100, 50), true);
+assert.equal(hooks.getCropPreviewHit(cropInteractionNode, 20, 50), false);
+const fixedOutputBeforePan = cropInteractionNode.widgets
+  .filter((widget) => ["megapixels", "width", "height"].includes(widget.name))
+  .map((widget) => [widget.name, widget.value]);
 cropInteractionNode.__denoCropDrag = {
   active: true,
   preview: {
     interactive: true,
-    axis: "x",
-    sourceRect: { x: 10, y: 20, width: 100, height: 80 },
-    cropRect: { x: 35, y: 20, width: 50, height: 80 },
+    axis: "both",
+    sourceRect: { x: 0, y: 0, width: 200, height: 100 },
+    cropRect: { x: 75, y: 25, width: 50, height: 50 },
+    cropWindow: { x: 75, y: 25, width: 50, height: 50 },
+    sourceSize: { width: 200, height: 100 },
+    targetSize: { width: 100, height: 100 },
     pointMode: false,
-  },
-  pointerOffsetX: 25,
-  pointerOffsetY: 40,
-};
-hooks.updateCropDrag(cropInteractionNode, 85, 60);
-assert.equal(cropInteractionNode.widgets[0].value, 1, "horizontal crop drag reaches the right edge");
-assert.equal(cropInteractionNode.widgets[1].value, 0.5, "inactive crop axis is preserved");
-
-cropInteractionNode.__denoCropDrag = {
-  active: true,
-  preview: {
-    interactive: true,
-    axis: "y",
-    sourceRect: { x: 20, y: 30, width: 160, height: 90 },
-    viewportRect: { x: 20, y: 30, width: 160, height: 90 },
-    renderedSourceRect: { x: 20, y: -5, width: 160, height: 160 },
-    cropRect: { x: 20, y: 30, width: 160, height: 90 },
-    pointMode: false,
-    directPan: true,
   },
   startMouseX: 100,
-  startMouseY: 75,
-  startCropX: 0.5,
-  startCropY: 0.5,
+  startMouseY: 50,
+  startCropRect: { x: 75, y: 25, width: 50, height: 50 },
 };
-hooks.updateCropDrag(cropInteractionNode, 100, 40);
-assert.equal(cropInteractionNode.widgets[0].value, 1, "fixed viewport pan preserves the inactive axis");
-assert.equal(cropInteractionNode.widgets[1].value, 1, "dragging the image upward reveals the bottom crop");
+hooks.updateCropDrag(cropInteractionNode, 175, 75);
+assert.equal(cropInteractionNode.widgets.find((widget) => widget.name === "crop_x").value, 1);
+assert.equal(cropInteractionNode.widgets.find((widget) => widget.name === "crop_y").value, 1);
+assert.equal(cropInteractionNode.widgets.find((widget) => widget.name === "crop_zoom").value, 2);
+assert.deepEqual(
+  cropInteractionNode.widgets
+    .filter((widget) => ["megapixels", "width", "height"].includes(widget.name))
+    .map((widget) => [widget.name, widget.value]),
+  fixedOutputBeforePan,
+  "moving a zoomed crop never changes megapixels or output dimensions",
+);
+
+const initialCropRect = { x: 75, y: 25, width: 50, height: 50 };
+const initialCropWindow = hooks.calculateCropWindow(200, 100, 100, 100, 0.5, 0.5, 2);
+const cornerCases = {
+  nw: { opposite: { x: 125, y: 75 }, pointer: { x: 100, y: 50 }, expected: { x: 100, y: 50 } },
+  ne: { opposite: { x: 75, y: 75 }, pointer: { x: 100, y: 50 }, expected: { x: 75, y: 50 } },
+  sw: { opposite: { x: 125, y: 25 }, pointer: { x: 100, y: 50 }, expected: { x: 100, y: 25 } },
+  se: { opposite: { x: 75, y: 25 }, pointer: { x: 100, y: 50 }, expected: { x: 75, y: 25 } },
+};
+
+for (const [anchor, testCase] of Object.entries(cornerCases)) {
+  const anchorNode = {
+    widgets: [
+      { name: "crop_x", value: 0.5 },
+      { name: "crop_y", value: 0.5 },
+      { name: "crop_zoom", value: 2 },
+      { name: "megapixels", value: 1.5 },
+      { name: "width", value: 1632 },
+      { name: "height", value: 928 },
+    ],
+  };
+  const fixedOutputBeforeResize = anchorNode.widgets
+    .filter((widget) => ["megapixels", "width", "height"].includes(widget.name))
+    .map((widget) => [widget.name, widget.value]);
+  const preview = {
+    interactive: true,
+    sourceRect: { x: 0, y: 0, width: 200, height: 100 },
+    cropRect: { ...initialCropRect },
+    cropWindow: { ...initialCropWindow },
+    sourceSize: { width: 200, height: 100 },
+    targetSize: { width: 100, height: 100 },
+  };
+  anchorNode.__denoAnchorDrag = {
+    active: true,
+    anchor,
+    preview,
+    opposite: testCase.opposite,
+    aspect: 1,
+  };
+
+  hooks.updateAnchorDrag(anchorNode, testCase.pointer.x, testCase.pointer.y);
+
+  const cropZoom = anchorNode.widgets.find((widget) => widget.name === "crop_zoom").value;
+  const cropX = anchorNode.widgets.find((widget) => widget.name === "crop_x").value;
+  const cropY = anchorNode.widgets.find((widget) => widget.name === "crop_y").value;
+  const resizedWindow = hooks.calculateCropWindow(200, 100, 100, 100, cropX, cropY, cropZoom);
+  assert.equal(cropZoom, 4, `${anchor} corner updates crop zoom from 2x to 4x`);
+  assert.ok(Math.abs(resizedWindow.width / resizedWindow.height - 1) < 1e-9, `${anchor} keeps target AR`);
+  assert.ok(Math.abs(resizedWindow.x - testCase.expected.x) < 0.1, `${anchor} keeps the opposite X anchor fixed`);
+  assert.ok(Math.abs(resizedWindow.y - testCase.expected.y) < 0.1, `${anchor} keeps the opposite Y anchor fixed`);
+  assert.deepEqual(
+    anchorNode.widgets
+      .filter((widget) => ["megapixels", "width", "height"].includes(widget.name))
+      .map((widget) => [widget.name, widget.value]),
+    fixedOutputBeforeResize,
+    `${anchor} crop resize preserves fixed output settings`,
+  );
+}
 
 console.log("resize_box_display_harness passed");

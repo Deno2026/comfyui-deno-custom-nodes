@@ -10,14 +10,13 @@ const MIN_NODE_WIDTH = 320;
 const MIN_NODE_HEIGHT = 460;
 const MIN_DIMENSION = 64;
 const MAX_DIMENSION = 8192;
+const MAX_CROP_ZOOM = 32;
 const PREVIEW_INSET_X = 18;
 const PREVIEW_INSET_Y = 18;
 const PREVIEW_BOTTOM_INSET = 12;
 const ANCHOR_VISUAL_SIZE = 5;
 const ANCHOR_HIT_EXTRA = 6;
-const ANCHOR_VIRTUAL_PULL = 24;
-const DRAG_GAIN = 1.18;
-const SOURCE_PREVIEW_OPACITY = 0.52;
+const SOURCE_PREVIEW_OPACITY = 0.88;
 const THEME = {
     cardFill: "rgba(3, 10, 7, 0.96)",
     cardStroke: "rgba(56, 255, 126, 0.7)",
@@ -26,6 +25,7 @@ const THEME = {
     previewStroke: "rgba(79, 255, 142, 0.95)",
     gridStroke: "rgba(95, 255, 155, 0.22)",
     sourceFill: "rgba(33, 25, 38, 0.98)",
+    cropOutsideFill: "rgba(0, 0, 0, 0.58)",
     cropPositionFill: "rgba(242, 255, 89, 0.96)",
     cropPositionStroke: "rgba(15, 14, 18, 0.95)",
     cropLabelFill: "rgba(15, 14, 18, 0.82)",
@@ -227,6 +227,7 @@ function updateWidgetVisibility(node) {
     const divisibleByWidget = getWidget(node, "divisible_by");
     const cropXWidget = getWidget(node, "crop_x");
     const cropYWidget = getWidget(node, "crop_y");
+    const cropZoomWidget = getWidget(node, "crop_zoom");
 
     const mode = modeWidget?.value ?? PRESET_MODE;
     const presetMode = mode === PRESET_MODE;
@@ -239,6 +240,7 @@ function updateWidgetVisibility(node) {
     toggleWidget(node, heightWidget, manualMode);
     toggleWidget(node, cropXWidget, false, true);
     toggleWidget(node, cropYWidget, false, true);
+    toggleWidget(node, cropZoomWidget, false, true);
     if (divisibleByWidget) {
         divisibleByWidget.name = "divisible_by";
         divisibleByWidget.label = "divisible_by";
@@ -336,6 +338,7 @@ function drawAspectPreview(ctx, node, x, y, width, height, info) {
     const resizeMethod = getWidget(node, "resize_method")?.value ?? "Center Crop (Fill)";
     const cropX = normalizedCropValue(getWidget(node, "crop_x")?.value);
     const cropY = normalizedCropValue(getWidget(node, "crop_y")?.value);
+    const cropZoom = normalizedCropZoom(getWidget(node, "crop_zoom")?.value);
     const sourceState = info.sourceState || { connected: false, size: null, previewImage: null };
     const cropPositionEnabled = resizeMethod === POSITION_CROP_METHOD && sourceState.connected;
     const previewSize = previewSizeFromDisplayInfo(info);
@@ -355,10 +358,12 @@ function drawAspectPreview(ctx, node, x, y, width, height, info) {
     );
     let cropPreview = null;
 
+    let anchors = [];
+
     if (cropPositionEnabled && sourceState.size) {
-        const cropViewport = fitAspectRect(
-            info.width,
-            info.height,
+        const sourceRect = fitAspectRect(
+            sourceState.size.width,
+            sourceState.size.height,
             areaX + 14,
             areaY + 10,
             areaWidth - 28,
@@ -370,33 +375,37 @@ function drawAspectPreview(ctx, node, x, y, width, height, info) {
             info.width,
             info.height,
             cropX,
-            cropY
+            cropY,
+            cropZoom
         );
-        const renderedSourceRect = calculateCropRenderRect(
-            sourceState.size.width,
-            sourceState.size.height,
-            cropViewport,
-            cropWindow
-        );
+        const scaleX = sourceRect.width / Math.max(1, sourceState.size.width);
+        const scaleY = sourceRect.height / Math.max(1, sourceState.size.height);
+        const cropRect = {
+            x: sourceRect.x + cropWindow.x * scaleX,
+            y: sourceRect.y + cropWindow.y * scaleY,
+            width: cropWindow.width * scaleX,
+            height: cropWindow.height * scaleY,
+        };
 
-        drawCroppedSourcePreview(ctx, cropViewport, renderedSourceRect, sourceState.previewImage);
-        drawPreviewGrid(ctx, cropViewport);
-        drawPreviewOutline(ctx, cropViewport);
-        previewRect = cropViewport;
+        drawSourceCropPreview(ctx, sourceRect, sourceState.previewImage);
+        drawCropOutsideMask(ctx, sourceRect, cropRect);
+        drawPreviewGrid(ctx, cropRect);
+        drawPreviewOutline(ctx, cropRect);
+        drawCropPositionLabel(ctx, sourceRect, cropWindow.axis, cropX, cropY, cropZoom);
+        previewRect = cropRect;
 
-        if (cropWindow.axis) {
-            drawCropPositionLabel(ctx, cropViewport, cropWindow.axis, cropX, cropY);
-        }
+        anchors = makePreviewAnchors(cropRect);
 
         cropPreview = {
-            interactive: Boolean(cropWindow.axis),
+            interactive: true,
             axis: cropWindow.axis,
-            sourceRect: cropViewport,
-            cropRect: cropViewport,
-            viewportRect: cropViewport,
-            renderedSourceRect,
+            sourceRect,
+            cropRect,
+            cropWindow,
+            sourceSize: { ...sourceState.size },
+            targetSize: { width: info.width, height: info.height },
+            cropZoom,
             pointMode: false,
-            directPan: true,
         };
     } else {
         drawPreviewFill(ctx, previewRect);
@@ -418,15 +427,7 @@ function drawAspectPreview(ctx, node, x, y, width, height, info) {
         }
     }
 
-    const anchorSize = ANCHOR_VISUAL_SIZE;
     const activeAnchor = node.__denoAnchorDrag?.active ? node.__denoAnchorDrag.anchor : null;
-    const anchors = [
-        { name: "nw", x: previewRect.x, y: previewRect.y, size: anchorSize },
-        { name: "ne", x: previewRect.x + previewRect.width, y: previewRect.y, size: anchorSize },
-        { name: "sw", x: previewRect.x, y: previewRect.y + previewRect.height, size: anchorSize },
-        { name: "se", x: previewRect.x + previewRect.width, y: previewRect.y + previewRect.height, size: anchorSize },
-    ];
-
     for (const anchor of anchors) {
         const active = anchor.name === activeAnchor;
         ctx.fillStyle = active ? THEME.anchorActiveFill : THEME.anchorFill;
@@ -455,6 +456,16 @@ function drawAspectPreview(ctx, node, x, y, width, height, info) {
     };
 }
 
+function makePreviewAnchors(rect) {
+    const size = ANCHOR_VISUAL_SIZE;
+    return [
+        { name: "nw", x: rect.x, y: rect.y, size },
+        { name: "ne", x: rect.x + rect.width, y: rect.y, size },
+        { name: "sw", x: rect.x, y: rect.y + rect.height, size },
+        { name: "se", x: rect.x + rect.width, y: rect.y + rect.height, size },
+    ];
+}
+
 function fitAspectRect(contentWidth, contentHeight, x, y, width, height) {
     const ratio = Math.max(Number(contentWidth) / Math.max(Number(contentHeight), 1), 0.001);
     let fittedWidth = width;
@@ -471,7 +482,15 @@ function fitAspectRect(contentWidth, contentHeight, x, y, width, height) {
     };
 }
 
-function calculateCropWindow(sourceWidth, sourceHeight, targetWidth, targetHeight, cropX = 0.5, cropY = 0.5) {
+function calculateCropWindow(
+    sourceWidth,
+    sourceHeight,
+    targetWidth,
+    targetHeight,
+    cropX = 0.5,
+    cropY = 0.5,
+    cropZoom = 1
+) {
     const safeSourceWidth = Math.max(1, Number(sourceWidth) || 1);
     const safeSourceHeight = Math.max(1, Number(sourceHeight) || 1);
     const safeTargetWidth = Math.max(1, Number(targetWidth) || 1);
@@ -480,27 +499,31 @@ function calculateCropWindow(sourceWidth, sourceHeight, targetWidth, targetHeigh
     const targetAspect = safeTargetWidth / safeTargetHeight;
     const normalizedX = normalizedCropValue(cropX);
     const normalizedY = normalizedCropValue(cropY);
+    const normalizedZoom = normalizedCropZoom(cropZoom);
 
-    if (Math.abs(sourceAspect - targetAspect) / Math.max(sourceAspect, targetAspect) < 0.0001) {
-        return { x: 0, y: 0, width: safeSourceWidth, height: safeSourceHeight, axis: null };
-    }
+    let baseWidth;
+    let baseHeight;
     if (sourceAspect > targetAspect) {
-        const cropWidth = safeSourceHeight * targetAspect;
-        return {
-            x: (safeSourceWidth - cropWidth) * normalizedX,
-            y: 0,
-            width: cropWidth,
-            height: safeSourceHeight,
-            axis: "x",
-        };
+        baseWidth = safeSourceHeight * targetAspect;
+        baseHeight = safeSourceHeight;
+    } else {
+        baseWidth = safeSourceWidth;
+        baseHeight = safeSourceWidth / targetAspect;
     }
-    const cropHeight = safeSourceWidth / targetAspect;
+
+    const cropWidth = baseWidth / normalizedZoom;
+    const cropHeight = baseHeight / normalizedZoom;
+    const travelX = Math.max(0, safeSourceWidth - cropWidth);
+    const travelY = Math.max(0, safeSourceHeight - cropHeight);
+    const movesX = travelX > 0.0001;
+    const movesY = travelY > 0.0001;
     return {
-        x: 0,
-        y: (safeSourceHeight - cropHeight) * normalizedY,
-        width: safeSourceWidth,
+        x: travelX * normalizedX,
+        y: travelY * normalizedY,
+        width: cropWidth,
         height: cropHeight,
-        axis: "y",
+        axis: movesX && movesY ? "both" : movesX ? "x" : movesY ? "y" : null,
+        zoom: normalizedZoom,
     };
 }
 
@@ -518,6 +541,36 @@ function calculateCropRenderRect(sourceWidth, sourceHeight, viewportRect, cropWi
         height: Math.max(1, Number(sourceHeight) || 1) * scale,
         scale,
     };
+}
+
+function drawSourceCropPreview(ctx, sourceRect, previewImage) {
+    ctx.save();
+    roundRect(ctx, sourceRect.x, sourceRect.y, sourceRect.width, sourceRect.height, 6);
+    ctx.clip();
+    ctx.fillStyle = THEME.sourceFill;
+    ctx.fillRect(sourceRect.x, sourceRect.y, sourceRect.width, sourceRect.height);
+    if (previewImage && typeof ctx.drawImage === "function") {
+        ctx.globalAlpha = SOURCE_PREVIEW_OPACITY;
+        ctx.drawImage(previewImage, sourceRect.x, sourceRect.y, sourceRect.width, sourceRect.height);
+        ctx.globalAlpha = 1;
+    } else {
+        ctx.globalAlpha = SOURCE_PREVIEW_OPACITY;
+        ctx.fillStyle = THEME.previewFill;
+        ctx.fillRect(sourceRect.x, sourceRect.y, sourceRect.width, sourceRect.height);
+    }
+    ctx.restore();
+}
+
+function drawCropOutsideMask(ctx, sourceRect, cropRect) {
+    const sourceRight = sourceRect.x + sourceRect.width;
+    const sourceBottom = sourceRect.y + sourceRect.height;
+    const cropRight = cropRect.x + cropRect.width;
+    const cropBottom = cropRect.y + cropRect.height;
+    ctx.fillStyle = THEME.cropOutsideFill;
+    ctx.fillRect(sourceRect.x, sourceRect.y, sourceRect.width, Math.max(0, cropRect.y - sourceRect.y));
+    ctx.fillRect(sourceRect.x, cropBottom, sourceRect.width, Math.max(0, sourceBottom - cropBottom));
+    ctx.fillRect(sourceRect.x, cropRect.y, Math.max(0, cropRect.x - sourceRect.x), cropRect.height);
+    ctx.fillRect(cropRight, cropRect.y, Math.max(0, sourceRight - cropRight), cropRect.height);
 }
 
 function drawCroppedSourcePreview(ctx, viewportRect, renderedSourceRect, previewImage) {
@@ -582,12 +635,14 @@ function drawCropPositionMarker(ctx, x, y, active) {
     ctx.stroke();
 }
 
-function drawCropPositionLabel(ctx, rect, axis, cropX, cropY) {
-    const text = axis === "x"
-        ? `CROP X ${Math.round(cropX * 100)}%`
+function drawCropPositionLabel(ctx, rect, axis, cropX, cropY, cropZoom = 1) {
+    const zoomText = `ZOOM ${normalizedCropZoom(cropZoom).toFixed(2)}×`;
+    const positionText = axis === "x"
+        ? `X ${Math.round(cropX * 100)}%`
         : axis === "y"
-            ? `CROP Y ${Math.round(cropY * 100)}%`
-            : `CROP X ${Math.round(cropX * 100)}% · Y ${Math.round(cropY * 100)}%`;
+            ? `Y ${Math.round(cropY * 100)}%`
+            : `X ${Math.round(cropX * 100)}% · Y ${Math.round(cropY * 100)}%`;
+    const text = `${zoomText} · ${positionText}`;
     ctx.font = "10px sans-serif";
     const labelWidth = Math.min(rect.width - 12, ctx.measureText(text).width + 12);
     const labelX = rect.x + 6;
@@ -616,23 +671,31 @@ function getCropPreviewHit(node, x, y) {
     if (!preview?.interactive || !preview.sourceRect) {
         return false;
     }
-    const rect = preview.sourceRect;
+    const rect = preview.pointMode ? preview.sourceRect : preview.cropRect;
     return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 }
 
 function startAnchorDrag(node, anchorName) {
-    const info = calculateDisplayInfo(node);
-    const previewSize = previewSizeFromDisplayInfo(info);
-    const previewRect = node.__denoPreviewRect;
-    if (!previewRect) {
+    const preview = node.__denoCropPreview;
+    if (!preview?.interactive || preview.pointMode || !preview.cropRect || !preview.sourceSize) {
+        return;
+    }
+    const cropRect = preview.cropRect;
+    const opposite = {
+        nw: { x: cropRect.x + cropRect.width, y: cropRect.y + cropRect.height },
+        ne: { x: cropRect.x, y: cropRect.y + cropRect.height },
+        sw: { x: cropRect.x + cropRect.width, y: cropRect.y },
+        se: { x: cropRect.x, y: cropRect.y },
+    }[anchorName];
+    if (!opposite) {
         return;
     }
     node.__denoAnchorDrag = {
         active: true,
         anchor: anchorName,
-        startWidth: previewSize.width,
-        startHeight: previewSize.height,
-        startPreviewRect: { ...previewRect },
+        preview,
+        opposite,
+        aspect: cropRect.width / Math.max(1, cropRect.height),
     };
     bindGlobalDragGuards(node);
 }
@@ -649,19 +712,6 @@ function startCropDrag(node, mouseX, mouseY) {
     if (!preview?.interactive) {
         return;
     }
-    if (preview.directPan) {
-        node.__denoCropDrag = {
-            active: true,
-            preview,
-            startMouseX: mouseX,
-            startMouseY: mouseY,
-            startCropX: normalizedCropValue(getWidget(node, "crop_x")?.value),
-            startCropY: normalizedCropValue(getWidget(node, "crop_y")?.value),
-        };
-        bindGlobalDragGuards(node);
-        return;
-    }
-
     const cropRect = preview.cropRect;
     const insideCrop = !preview.pointMode
         && mouseX >= cropRect.x
@@ -671,6 +721,9 @@ function startCropDrag(node, mouseX, mouseY) {
     node.__denoCropDrag = {
         active: true,
         preview,
+        startMouseX: mouseX,
+        startMouseY: mouseY,
+        startCropRect: cropRect ? { ...cropRect } : null,
         pointerOffsetX: insideCrop ? mouseX - cropRect.x : cropRect.width / 2,
         pointerOffsetY: insideCrop ? mouseY - cropRect.y : cropRect.height / 2,
     };
@@ -686,43 +739,35 @@ function updateCropDrag(node, mouseX, mouseY) {
     const { preview } = state;
     const sourceRect = preview.sourceRect;
 
-    if (preview.directPan) {
-        const viewportRect = preview.viewportRect || sourceRect;
-        const renderedSourceRect = preview.renderedSourceRect || viewportRect;
-        const travelX = Math.max(0, renderedSourceRect.width - viewportRect.width);
-        const travelY = Math.max(0, renderedSourceRect.height - viewportRect.height);
-        if (preview.axis === "x" && travelX > 0) {
-            const deltaX = mouseX - state.startMouseX;
-            setWidgetValue(node, "crop_x", roundCropValue(state.startCropX - deltaX / travelX));
-        } else if (preview.axis === "y" && travelY > 0) {
-            const deltaY = mouseY - state.startMouseY;
-            setWidgetValue(node, "crop_y", roundCropValue(state.startCropY - deltaY / travelY));
-        }
-        return;
-    }
-
     if (preview.pointMode || preview.axis === "both") {
-        const nextX = clamp((mouseX - sourceRect.x) / Math.max(1, sourceRect.width), 0, 1);
-        const nextY = clamp((mouseY - sourceRect.y) / Math.max(1, sourceRect.height), 0, 1);
-        setWidgetValue(node, "crop_x", roundCropValue(nextX));
-        setWidgetValue(node, "crop_y", roundCropValue(nextY));
-        return;
+        if (preview.pointMode) {
+            const nextX = clamp((mouseX - sourceRect.x) / Math.max(1, sourceRect.width), 0, 1);
+            const nextY = clamp((mouseY - sourceRect.y) / Math.max(1, sourceRect.height), 0, 1);
+            setWidgetValue(node, "crop_x", roundCropValue(nextX));
+            setWidgetValue(node, "crop_y", roundCropValue(nextY));
+            return;
+        }
     }
 
-    const cropRect = preview.cropRect;
-    if (preview.axis === "x") {
-        const travel = Math.max(0, sourceRect.width - cropRect.width);
-        if (travel > 0) {
-            const left = mouseX - state.pointerOffsetX;
-            setWidgetValue(node, "crop_x", roundCropValue((left - sourceRect.x) / travel));
-        }
-    } else if (preview.axis === "y") {
-        const travel = Math.max(0, sourceRect.height - cropRect.height);
-        if (travel > 0) {
-            const top = mouseY - state.pointerOffsetY;
-            setWidgetValue(node, "crop_y", roundCropValue((top - sourceRect.y) / travel));
-        }
-    }
+    const startRect = state.startCropRect || preview.cropRect;
+    const left = clamp(
+        startRect.x + (mouseX - state.startMouseX),
+        sourceRect.x,
+        sourceRect.x + sourceRect.width - startRect.width
+    );
+    const top = clamp(
+        startRect.y + (mouseY - state.startMouseY),
+        sourceRect.y,
+        sourceRect.y + sourceRect.height - startRect.height
+    );
+    const cropState = cropStateFromPreviewRect(preview, {
+        x: left,
+        y: top,
+        width: startRect.width,
+        height: startRect.height,
+    });
+    setWidgetValue(node, "crop_x", roundCropValue(cropState.cropX));
+    setWidgetValue(node, "crop_y", roundCropValue(cropState.cropY));
 }
 
 function endCropDrag(node) {
@@ -797,69 +842,110 @@ function updateAnchorDrag(node, mouseX, mouseY) {
         return;
     }
 
-    const previewRect = state.startPreviewRect;
-    if (!previewRect || previewRect.width <= 0 || previewRect.height <= 0) {
+    const preview = state.preview;
+    const sourceRect = preview?.sourceRect;
+    const cropRect = preview?.cropRect;
+    if (!sourceRect || !cropRect || !preview.sourceSize || !preview.targetSize) {
         return;
     }
 
-    const minPreview = 20;
-    let targetPreviewWidth = previewRect.width;
-    let targetPreviewHeight = previewRect.height;
-
-    if (state.anchor === "se") {
-        targetPreviewWidth = applyDragGain(previewRect.width, withVirtualPull(mouseX - previewRect.x, previewRect.width));
-        targetPreviewHeight = applyDragGain(previewRect.height, withVirtualPull(mouseY - previewRect.y, previewRect.height));
-    } else if (state.anchor === "sw") {
-        targetPreviewWidth = applyDragGain(
-            previewRect.width,
-            withVirtualPull(previewRect.x + previewRect.width - mouseX, previewRect.width)
-        );
-        targetPreviewHeight = applyDragGain(previewRect.height, withVirtualPull(mouseY - previewRect.y, previewRect.height));
-    } else if (state.anchor === "ne") {
-        targetPreviewWidth = applyDragGain(previewRect.width, withVirtualPull(mouseX - previewRect.x, previewRect.width));
-        targetPreviewHeight = applyDragGain(
-            previewRect.height,
-            withVirtualPull(previewRect.y + previewRect.height - mouseY, previewRect.height)
-        );
-    } else if (state.anchor === "nw") {
-        targetPreviewWidth = applyDragGain(
-            previewRect.width,
-            withVirtualPull(previewRect.x + previewRect.width - mouseX, previewRect.width)
-        );
-        targetPreviewHeight = applyDragGain(
-            previewRect.height,
-            withVirtualPull(previewRect.y + previewRect.height - mouseY, previewRect.height)
-        );
+    const direction = {
+        nw: { x: -1, y: -1 },
+        ne: { x: 1, y: -1 },
+        sw: { x: -1, y: 1 },
+        se: { x: 1, y: 1 },
+    }[state.anchor];
+    if (!direction) {
+        return;
     }
 
-    targetPreviewWidth = clamp(targetPreviewWidth, minPreview, previewRect.width * 4);
-    targetPreviewHeight = clamp(targetPreviewHeight, minPreview, previewRect.height * 4);
+    const aspect = Math.max(0.001, state.aspect);
+    const horizontalDistance = (mouseX - state.opposite.x) * direction.x;
+    const verticalDistance = (mouseY - state.opposite.y) * direction.y;
+    const projectedHeight = (
+        horizontalDistance * aspect + verticalDistance
+    ) / (aspect * aspect + 1);
 
-    const divisibleBy = Number.parseInt(String(getWidget(node, "divisible_by")?.value ?? "32"), 10) || 32;
-    const mode = getWidget(node, "mode")?.value ?? PRESET_MODE;
+    const horizontalBound = direction.x < 0
+        ? state.opposite.x - sourceRect.x
+        : sourceRect.x + sourceRect.width - state.opposite.x;
+    const verticalBound = direction.y < 0
+        ? state.opposite.y - sourceRect.y
+        : sourceRect.y + sourceRect.height - state.opposite.y;
+    const baseWindow = calculateCropWindow(
+        preview.sourceSize.width,
+        preview.sourceSize.height,
+        preview.targetSize.width,
+        preview.targetSize.height,
+        0.5,
+        0.5,
+        1
+    );
+    const baseHeight = baseWindow.height * sourceRect.height / preview.sourceSize.height;
+    const minHeight = Math.max(1, baseHeight / MAX_CROP_ZOOM);
+    const maxHeight = Math.max(
+        minHeight,
+        Math.min(baseHeight, horizontalBound / aspect, verticalBound)
+    );
+    const nextHeight = clamp(projectedHeight, minHeight, maxHeight);
+    const nextWidth = nextHeight * aspect;
+    const nextRect = {
+        x: direction.x < 0 ? state.opposite.x - nextWidth : state.opposite.x,
+        y: direction.y < 0 ? state.opposite.y - nextHeight : state.opposite.y,
+        width: nextWidth,
+        height: nextHeight,
+    };
+    const cropState = cropStateFromPreviewRect(preview, nextRect);
+    setWidgetValue(node, "crop_zoom", roundCropZoom(cropState.cropZoom));
+    setWidgetValue(node, "crop_x", roundCropValue(cropState.cropX));
+    setWidgetValue(node, "crop_y", roundCropValue(cropState.cropY));
+}
 
-    if (mode === PRESET_MODE || mode === KEEP_INPUT_RATIO_MODE) {
-        const ratio = state.startWidth / Math.max(1, state.startHeight);
-        const widthScale = targetPreviewWidth / Math.max(1, previewRect.width);
-        const heightScale = targetPreviewHeight / Math.max(1, previewRect.height);
-        const scale = clamp(Math.min(widthScale, heightScale), 0.1, 10);
+function cropStateFromPreviewRect(preview, rect) {
+    const sourceRect = preview.sourceRect;
+    const sourceSize = preview.sourceSize;
+    const targetSize = preview.targetSize;
+    const scaleX = sourceSize.width / Math.max(1, sourceRect.width);
+    const scaleY = sourceSize.height / Math.max(1, sourceRect.height);
+    const sourceCrop = {
+        x: (rect.x - sourceRect.x) * scaleX,
+        y: (rect.y - sourceRect.y) * scaleY,
+        width: rect.width * scaleX,
+        height: rect.height * scaleY,
+    };
+    const baseWindow = calculateCropWindow(
+        sourceSize.width,
+        sourceSize.height,
+        targetSize.width,
+        targetSize.height,
+        0.5,
+        0.5,
+        1
+    );
+    const cropZoom = normalizedCropZoom(baseWindow.width / Math.max(sourceCrop.width, 0.0001));
+    const travelX = Math.max(0, sourceSize.width - sourceCrop.width);
+    const travelY = Math.max(0, sourceSize.height - sourceCrop.height);
+    return {
+        cropX: travelX > 0.0001
+            ? clamp(sourceCrop.x / travelX, 0, 1)
+            : normalizedCropValue(getWidgetValueFromPreview(preview, "crop_x", 0.5)),
+        cropY: travelY > 0.0001
+            ? clamp(sourceCrop.y / travelY, 0, 1)
+            : normalizedCropValue(getWidgetValueFromPreview(preview, "crop_y", 0.5)),
+        cropZoom,
+    };
+}
 
-        let nextWidth = roundUp(state.startWidth * scale, divisibleBy);
-        let nextHeight = roundUp(nextWidth / Math.max(ratio, 0.001), divisibleBy);
-        nextWidth = roundUp(nextHeight * ratio, divisibleBy);
-
-        nextWidth = clamp(nextWidth, MIN_DIMENSION, MAX_DIMENSION);
-        nextHeight = clamp(nextHeight, MIN_DIMENSION, MAX_DIMENSION);
-        const nextMegapixels = Number(((nextWidth * nextHeight) / 1_000_000).toFixed(2));
-        setWidgetValue(node, "megapixels", nextMegapixels);
-    } else {
-        const widthScale = targetPreviewWidth / Math.max(1, previewRect.width);
-        const heightScale = targetPreviewHeight / Math.max(1, previewRect.height);
-        const nextWidth = clamp(roundUp(state.startWidth * widthScale, divisibleBy), MIN_DIMENSION, MAX_DIMENSION);
-        const nextHeight = clamp(roundUp(state.startHeight * heightScale, divisibleBy), MIN_DIMENSION, MAX_DIMENSION);
-        setWidgetValue(node, "width", nextWidth);
-        setWidgetValue(node, "height", nextHeight);
+function getWidgetValueFromPreview(preview, name, fallback) {
+    if (name === "crop_x" && Number.isFinite(preview.cropWindow?.x)) {
+        const travel = Math.max(0, preview.sourceSize.width - preview.cropWindow.width);
+        return travel > 0 ? preview.cropWindow.x / travel : fallback;
     }
+    if (name === "crop_y" && Number.isFinite(preview.cropWindow?.y)) {
+        const travel = Math.max(0, preview.sourceSize.height - preview.cropWindow.height);
+        return travel > 0 ? preview.cropWindow.y / travel : fallback;
+    }
+    return fallback;
 }
 
 function setWidgetValue(node, name, value) {
@@ -1281,21 +1367,13 @@ function roundCropValue(value) {
     return Number(normalizedCropValue(value).toFixed(3));
 }
 
-function withVirtualPull(rawValue, baseValue) {
-    if (!Number.isFinite(rawValue)) {
-        return baseValue;
-    }
-    if (rawValue >= baseValue) {
-        return rawValue + ANCHOR_VIRTUAL_PULL;
-    }
-    return rawValue;
+function normalizedCropZoom(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? clamp(parsed, 1, MAX_CROP_ZOOM) : 1;
 }
 
-function applyDragGain(baseValue, rawValue) {
-    if (!Number.isFinite(baseValue) || !Number.isFinite(rawValue)) {
-        return baseValue;
-    }
-    return baseValue + (rawValue - baseValue) * DRAG_GAIN;
+function roundCropZoom(value) {
+    return Number(normalizedCropZoom(value).toFixed(3));
 }
 
 if (typeof window !== "undefined" && typeof window.__DENO_RES_HELPER_TEST_HOOK__ === "function") {
@@ -1311,6 +1389,7 @@ if (typeof window !== "undefined" && typeof window.__DENO_RES_HELPER_TEST_HOOK__
         previewSizeFromDisplayInfo,
         roundUp,
         sourcePreviewUrl,
+        updateAnchorDrag,
         updateCropDrag,
     });
 }
