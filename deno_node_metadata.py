@@ -64,6 +64,25 @@ NODE_INPUT_TOOLTIPS = {
         "interpolation": "Resize filter. Lanczos is the default quality choice.",
         "resize_method": "Choose crop-fill or fit/letterbox behavior for loaded images.",
     },
+    "DenoMiniMaxH3ReferenceImageLoader": {
+        "image_paths": "Ordered MiniMax H3 reference-image list managed by the node UI.",
+    },
+    "DenoMiniMaxH3ReferenceToVideo": {
+        # These complete the legacy object_info metadata contract. The V3
+        # define_schema path keeps upstream H3 tooltips/layout unchanged.
+        "clip": "MiniMax H3 text/image encoder used to tokenize the prompt and references.",
+        "vae": "MiniMax H3 video VAE used to encode reference images and videos.",
+        "audio_vae": "MiniMax H3 audio VAE used to encode reference audio.",
+        "prompt": "Prompt for the generated video. Refer to loaded images as <Picture 1>, <Picture 2>, and so on.",
+        "width": "Generated video width in pixels.",
+        "height": "Generated video height in pixels.",
+        "length": "Generated frame count at 24 fps.",
+        "ref_image_size": "Keep stock H3 reference sizing: match the generation area or use the larger max reference pipeline.",
+        "ref_images": "Ordered image bundle from the DENO MiniMax H3 Reference Image Loader.",
+        "ref_videos": "Stock MiniMax H3 reference-video slots, in prompt tag order.",
+        "ref_video_audios": "Stock MiniMax H3 soundtrack slots paired by number with reference videos.",
+        "ref_audios": "Stock MiniMax H3 standalone reference-audio slots, in prompt tag order.",
+    },
     "DenoAdvancedImageSourceLoader": {
         "image_paths": "Files, folders, absolute paths, or web URLs selected by the advanced source UI.",
         "mode": "Choose how images are resized for the batch output.",
@@ -281,6 +300,13 @@ NODE_OUTPUT_TOOLTIPS = {
         "Loaded images resized into one same-size IMAGE batch.",
         "Final batch width in pixels.",
         "Final batch height in pixels.",
+    ),
+    "DenoMiniMaxH3ReferenceImageLoader": (
+        "Ordered MiniMax H3 reference-image bundle with each image's decoded size and aspect ratio preserved.",
+    ),
+    "DenoMiniMaxH3ReferenceToVideo": (
+        "Positive MiniMax H3 conditioning containing the ordered image, video, and audio references.",
+        "Empty MiniMax H3 audio/video latent for sampling.",
     ),
     "DenoAdvancedImageSourceLoader": (
         "Loaded sources resized into one same-size IMAGE batch.",

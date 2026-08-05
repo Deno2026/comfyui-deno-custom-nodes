@@ -46,6 +46,7 @@ def install_torch_stub():
 def install_ltx_stub():
     comfy_extras = types.ModuleType("comfy_extras")
     nodes_lt = types.ModuleType("comfy_extras.nodes_lt")
+    nodes_minimax_h3 = types.ModuleType("comfy_extras.nodes_minimax_h3")
 
     class LTXVAddGuide:
         @classmethod
@@ -63,9 +64,93 @@ def install_ltx_stub():
             return positive, negative, latent_image, noise_mask
 
     nodes_lt.LTXVAddGuide = LTXVAddGuide
+
+    class MiniMaxInput:
+        def __init__(self, input_id, tooltip=None):
+            self.id = input_id
+            self.tooltip = tooltip
+
+    class MiniMaxOutput:
+        def __init__(self, display_name=None, tooltip=None):
+            self.id = None
+            self.display_name = display_name
+            self.tooltip = tooltip
+
+    class MiniMaxSchema:
+        def __init__(self):
+            self.node_id = "MiniMaxH3ReferenceToVideo"
+            self.display_name = "MiniMax H3 Reference to Video"
+            self.category = "model/conditioning/minimax"
+            self.description = "Stock MiniMax H3 reference conditioning."
+            self.inputs = [
+                MiniMaxInput("clip"),
+                MiniMaxInput("vae"),
+                MiniMaxInput("audio_vae"),
+                MiniMaxInput("prompt"),
+                MiniMaxInput("width"),
+                MiniMaxInput("height"),
+                MiniMaxInput("length", "Frame count at 24 fps."),
+                MiniMaxInput("ref_image_size", "Reference image sizing."),
+                MiniMaxInput("ref_images", "Stock reference image slots."),
+                MiniMaxInput("ref_videos", "Stock reference video slots."),
+                MiniMaxInput("ref_video_audios", "Stock paired soundtrack slots."),
+                MiniMaxInput("ref_audios", "Stock standalone audio slots."),
+            ]
+            self.outputs = [MiniMaxOutput("positive"), MiniMaxOutput()]
+
+    class MiniMaxH3ReferenceToVideo:
+        DESCRIPTION = "Stock MiniMax H3 reference conditioning."
+        CATEGORY = "model/conditioning/minimax"
+        FUNCTION = "EXECUTE_NORMALIZED"
+        RETURN_TYPES = ("CONDITIONING", "LATENT")
+        RETURN_NAMES = ("positive", "LATENT")
+
+        @classmethod
+        def define_schema(cls):
+            return MiniMaxSchema()
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            autogrow = lambda input_type, prefix: (
+                "COMFY_AUTOGROW_V3",
+                {
+                    "template": {
+                        "input": {"required": {prefix.rstrip("_"): (input_type, {"tooltip": "Stock input."})}},
+                        "prefix": prefix,
+                        "min": 0,
+                        "max": 3,
+                    }
+                },
+            )
+            return {
+                "required": {
+                    "clip": ("CLIP", {}),
+                    "vae": ("VAE", {}),
+                    "audio_vae": ("VAE", {}),
+                    "prompt": ("STRING", {"multiline": True, "dynamicPrompts": True}),
+                    "width": ("INT", {"default": 1344, "min": 32, "max": 16384, "step": 32}),
+                    "height": ("INT", {"default": 768, "min": 32, "max": 16384, "step": 32}),
+                    "length": ("INT", {"default": 124, "min": 5, "max": 3600, "step": 17}),
+                    "ref_image_size": (["match", "max"], {"default": "match"}),
+                },
+                "optional": {
+                    "ref_images": ("COMFY_AUTOGROW_V3", {"template": {"prefix": "ref_image_", "min": 0, "max": 9}}),
+                    "ref_videos": autogrow("IMAGE", "ref_video_"),
+                    "ref_video_audios": autogrow("AUDIO", "ref_video_audio_"),
+                    "ref_audios": autogrow("AUDIO", "ref_audio_"),
+                },
+            }
+
+        @classmethod
+        def execute(cls, **kwargs):
+            return types.SimpleNamespace(kwargs=kwargs)
+
+    nodes_minimax_h3.MiniMaxH3ReferenceToVideo = MiniMaxH3ReferenceToVideo
     comfy_extras.nodes_lt = nodes_lt
+    comfy_extras.nodes_minimax_h3 = nodes_minimax_h3
     sys.modules["comfy_extras"] = comfy_extras
     sys.modules["comfy_extras.nodes_lt"] = nodes_lt
+    sys.modules["comfy_extras.nodes_minimax_h3"] = nodes_minimax_h3
 
 
 def install_comfyui_dependency_stubs():
@@ -141,6 +226,27 @@ def install_comfyui_dependency_stubs():
     sys.modules["comfy.lora_convert"] = comfy.lora_convert
     sys.modules["comfy.utils"] = comfy.utils
     sys.modules["comfy.model_management"] = comfy.model_management
+
+    comfy_api = types.ModuleType("comfy_api")
+    comfy_api_latest = types.ModuleType("comfy_api.latest")
+
+    class ComfyNode:
+        pass
+
+    class CustomType:
+        def __init__(self, type_name):
+            self.type_name = type_name
+
+        def Input(self, input_id, optional=False, tooltip=None):
+            spec = types.SimpleNamespace(id=input_id, optional=optional, tooltip=tooltip)
+            spec.type_name = self.type_name
+            return spec
+
+    comfy_io = types.SimpleNamespace(ComfyNode=ComfyNode, Custom=CustomType)
+    comfy_api_latest.io = comfy_io
+    comfy_api.latest = comfy_api_latest
+    sys.modules["comfy_api"] = comfy_api
+    sys.modules["comfy_api.latest"] = comfy_api_latest
 
     if "aiohttp" not in sys.modules:
         aiohttp = types.ModuleType("aiohttp")
@@ -298,6 +404,8 @@ def test_node_registration_exports_expected_nodes():
     assert list(package.NODE_CLASS_MAPPINGS.keys()) == [
         "DenoResolutionSetup",
         "DenoMultiImageLoader",
+        "DenoMiniMaxH3ReferenceImageLoader",
+        "DenoMiniMaxH3ReferenceToVideo",
         "DenoAdvancedImageSourceLoader",
         "DenoLTXSequencer",
         "DenoLTX23PresetLoader",
@@ -320,6 +428,12 @@ def test_node_registration_exports_expected_nodes():
     ]
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoResolutionSetup"] == "(Deno) Resize Box"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMultiImageLoader"] == "(Deno) Multi Image Loader"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMiniMaxH3ReferenceImageLoader"] == (
+        "(Deno) MiniMax H3 Multi Reference Image Loader"
+    )
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMiniMaxH3ReferenceToVideo"] == (
+        "(Deno) MiniMax H3 Reference to Video"
+    )
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoAdvancedImageSourceLoader"] == "(Deno) Advanced Image Source Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTX23PresetLoader"] == "(Deno) LTX Model Loader"
@@ -390,6 +504,39 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoCompare"] == "(Deno) Video Compare"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoPreview"] == "(Deno) Video Preview"
     assert package.WEB_DIRECTORY == "./web/js"
+
+
+def test_minimax_h3_nodes_are_skipped_together_when_stock_h3_is_unavailable(monkeypatch, caplog):
+    for name in list(sys.modules):
+        if name == "comfyui_deno_custom_nodes" or name.startswith("comfyui_deno_custom_nodes."):
+            del sys.modules[name]
+    install_torch_stub()
+    install_ltx_stub()
+    install_comfyui_dependency_stubs()
+    sys.modules.pop("comfy_extras.nodes_minimax_h3", None)
+
+    real_import_module = importlib.import_module
+
+    def import_without_stock_h3(name, package=None):
+        if name == "comfy_extras.nodes_minimax_h3":
+            raise ModuleNotFoundError("simulated pre-0.30 ComfyUI")
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", import_without_stock_h3)
+    spec = importlib.util.spec_from_file_location(
+        "comfyui_deno_custom_nodes",
+        PACKAGE_INIT,
+        submodule_search_locations=[str(REPO_ROOT)],
+    )
+    package = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = package
+    spec.loader.exec_module(package)
+
+    assert "DenoMultiImageLoader" in package.NODE_CLASS_MAPPINGS
+    assert "DenoMiniMaxH3ReferenceImageLoader" not in package.NODE_CLASS_MAPPINGS
+    assert "DenoMiniMaxH3ReferenceToVideo" not in package.NODE_CLASS_MAPPINGS
+    assert caplog.text.count("MiniMax H3 nodes require ComfyUI >= 0.30.0") == 1
 
 
 def test_public_nodes_expose_complete_object_info_metadata():
@@ -1699,6 +1846,228 @@ def test_multi_image_loader_returns_batch_and_int_dimensions():
     assert node_cls.CATEGORY == "Deno/Image"
 
 
+def test_minimax_h3_reference_loader_preserves_individual_shapes_and_order(monkeypatch, tmp_path):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_minimax_h3_reference"]
+    loader_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceImageLoader"]
+    folder_paths = sys.modules["folder_paths"]
+
+    class FakeTensor:
+        def __init__(self, array):
+            self.array = np.asarray(array)
+            self.shape = self.array.shape
+            self.ndim = self.array.ndim
+
+        def __getitem__(self, key):
+            return FakeTensor(self.array[key])
+
+    first = tmp_path / "wide.png"
+    second = tmp_path / "tall.png"
+    Image.new("RGB", (17, 11), color=(10, 20, 30)).save(first)
+    Image.new("RGB", (9, 23), color=(40, 50, 60)).save(second)
+    monkeypatch.setattr(folder_paths, "get_input_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(module.torch, "from_numpy", lambda array: FakeTensor(array), raising=False)
+
+    result = loader_cls().load_reference_images("wide.png\ntall.png")
+
+    assert len(result) == 1
+    bundle = result[0]
+    assert isinstance(bundle, tuple)
+    assert [tensor.shape for tensor in bundle] == [(1, 11, 17, 3), (1, 23, 9, 3)]
+    assert not hasattr(loader_cls, "OUTPUT_IS_LIST")
+    assert loader_cls.RETURN_TYPES == ("DENO_MINIMAX_H3_REFERENCE_IMAGES",)
+
+
+def test_minimax_h3_reference_loader_rejects_empty_and_more_than_nine_images():
+    package = load_package()
+    loader_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceImageLoader"]
+
+    assert "No images are selected" in loader_cls.VALIDATE_INPUTS("")
+    ten_paths = "\n".join(f"image-{index}.png" for index in range(10))
+    validation = loader_cls.VALIDATE_INPUTS(ten_paths)
+    assert "at most 9" in validation
+    assert "10 are selected" in validation
+    with pytest.raises(RuntimeError, match="at most 9"):
+        loader_cls().load_reference_images(ten_paths)
+
+
+def test_minimax_h3_reference_loader_rejects_absolute_paths(monkeypatch, tmp_path):
+    package = load_package()
+    loader_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceImageLoader"]
+    folder_paths = sys.modules["folder_paths"]
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    image_file = input_dir / "reference.png"
+    Image.new("RGB", (3, 2), color=(12, 34, 56)).save(image_file)
+    monkeypatch.setattr(folder_paths, "get_input_directory", lambda: str(input_dir))
+
+    assert loader_cls.VALIDATE_INPUTS("reference.png") is True
+    absolute_validation = loader_cls.VALIDATE_INPUTS(str(image_file))
+    assert "missing or unreadable" in absolute_validation
+    with pytest.raises(RuntimeError, match="could not be loaded"):
+        loader_cls().load_reference_images(str(image_file))
+
+
+def test_minimax_h3_reference_loader_hashes_order_and_file_contents(monkeypatch, tmp_path):
+    package = load_package()
+    loader_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceImageLoader"]
+    folder_paths = sys.modules["folder_paths"]
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    Image.new("RGB", (2, 3), color=(1, 2, 3)).save(first)
+    Image.new("RGB", (2, 3), color=(4, 5, 6)).save(second)
+    monkeypatch.setattr(folder_paths, "get_input_directory", lambda: str(tmp_path))
+
+    ordered_hash = loader_cls.IS_CHANGED("first.png\nsecond.png")
+    reversed_hash = loader_cls.IS_CHANGED("second.png\nfirst.png")
+    Image.new("RGB", (2, 3), color=(7, 8, 9)).save(first)
+    changed_hash = loader_cls.IS_CHANGED("first.png\nsecond.png")
+
+    assert len(ordered_hash) == 64
+    assert ordered_hash != reversed_hash
+    assert ordered_hash != changed_hash
+
+
+def test_minimax_h3_wrapper_replaces_only_image_autogrow_with_one_bundle_socket():
+    package = load_package()
+    wrapper_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceToVideo"]
+    schema = wrapper_cls.define_schema()
+    input_types = wrapper_cls.INPUT_TYPES()
+
+    assert schema.node_id == "DenoMiniMaxH3ReferenceToVideo"
+    assert schema.display_name == "(Deno) MiniMax H3 Reference to Video"
+    assert schema.category == "model/conditioning/minimax"
+    assert schema.description.startswith("DENO Custom Nodes v")
+    assert [spec.id for spec in schema.inputs] == [
+        "clip",
+        "vae",
+        "audio_vae",
+        "prompt",
+        "width",
+        "height",
+        "length",
+        "ref_image_size",
+        "ref_images",
+        "ref_videos",
+        "ref_video_audios",
+        "ref_audios",
+    ]
+    ref_images = next(spec for spec in schema.inputs if spec.id == "ref_images")
+    assert ref_images.type_name == "DENO_MINIMAX_H3_REFERENCE_IMAGES"
+    assert input_types["optional"]["ref_images"][0] == "DENO_MINIMAX_H3_REFERENCE_IMAGES"
+    for input_name in ("ref_videos", "ref_video_audios", "ref_audios"):
+        spec = input_types["optional"][input_name]
+        assert spec[0] == "COMFY_AUTOGROW_V3"
+        assert spec[1]["template"]["max"] == 3
+    assert all(spec.tooltip for spec in schema.inputs)
+    assert [output.tooltip for output in schema.outputs] == [
+        "Positive MiniMax H3 conditioning containing the ordered image, video, and audio references.",
+        "Empty MiniMax H3 audio/video latent for sampling.",
+    ]
+    assert next(spec for spec in schema.inputs if spec.id == "length").tooltip == (
+        "Generated frame count at 24 fps."
+    )
+    assert next(spec for spec in schema.inputs if spec.id == "ref_videos").tooltip == (
+        "Stock MiniMax H3 reference-video slots, in prompt tag order."
+    )
+
+
+def test_minimax_h3_wrapper_forwards_ordered_bundle_and_stock_media_inputs_unchanged(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_minimax_h3_reference"]
+    wrapper_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceToVideo"]
+
+    class FakeTensor:
+        ndim = 4
+
+        def __init__(self, marker, shape):
+            self.marker = marker
+            self.shape = shape
+
+    monkeypatch.setattr(module.torch, "Tensor", FakeTensor)
+    images = (
+        FakeTensor("first", (1, 11, 17, 3)),
+        FakeTensor("second", (1, 23, 9, 3)),
+        FakeTensor("third", (1, 8, 8, 4)),
+    )
+    ref_videos = {"ref_video_0": object()}
+    ref_video_audios = {"ref_video_audio_0": object()}
+    ref_audios = {"ref_audio_0": object()}
+    marker = object()
+    captured = {}
+
+    def fake_execute(cls, **kwargs):
+        captured.update(kwargs)
+        return marker
+
+    monkeypatch.setattr(module.MiniMaxH3ReferenceToVideo, "execute", classmethod(fake_execute))
+    result = wrapper_cls.execute(
+        clip="clip",
+        vae="vae",
+        audio_vae="audio-vae",
+        prompt="prompt",
+        width=1344,
+        height=768,
+        length=124,
+        ref_image_size="match",
+        ref_images=images,
+        ref_videos=ref_videos,
+        ref_video_audios=ref_video_audios,
+        ref_audios=ref_audios,
+    )
+
+    assert result is marker
+    assert list(captured["ref_images"]) == ["ref_image_0", "ref_image_1", "ref_image_2"]
+    assert list(captured["ref_images"].values()) == list(images)
+    assert captured["ref_videos"] is ref_videos
+    assert captured["ref_video_audios"] is ref_video_audios
+    assert captured["ref_audios"] is ref_audios
+
+
+def test_minimax_h3_frontend_reuses_loader_ui_without_patching_h3_wrapper():
+    script = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
+
+    assert 'const H3_REFERENCE_LOADER_NODE = "DenoMiniMaxH3ReferenceImageLoader"' in script
+    assert "outputSizeHint: false" in script
+    assert "notifySequencers: false" in script
+    assert "maxImages: 9" in script
+    assert "H3_REFERENCE_LOADER_MIN_SIZE = [360, 370]" in script
+    assert "minSize: H3_REFERENCE_LOADER_MIN_SIZE" in script
+    assert "legacyDefaultHeight: LOADER_MIN_SIZE[1]" in script
+    assert "layoutVersionProperty: H3_REFERENCE_LOADER_LAYOUT_VERSION_PROPERTY" in script
+    assert "resolveLoaderNodeSize" in script
+    assert "appendPathsWithinLimit" in script
+    assert "Original size and aspect ratio are preserved" in script
+    assert "DenoMiniMaxH3ReferenceToVideo" not in script
+
+
+def test_multi_image_loader_dom_panel_forwards_native_canvas_navigation():
+    script = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
+
+    assert "installLoaderCanvasNavigation(container)" in script
+    assert 'root.addEventListener("wheel"' in script
+    assert 'canvasElement.dispatchEvent(new WheelEvent("wheel"' in script
+    assert 'root.addEventListener("pointerdown"' in script
+    assert 'window.addEventListener("pointercancel", up, true)' in script
+    assert 'window.removeEventListener("pointercancel", up, true)' in script
+    assert "const cleanupLoaderCanvasNavigation = installLoaderCanvasNavigation(container)" in script
+    assert "cleanupLoaderCanvasNavigation();" in script
+    assert "canvas.ds.offset[0]" in script
+    assert "canvas.ds.offset[1]" in script
+    assert 'root.addEventListener("auxclick"' in script
+
+
+def test_multi_image_loader_dom_panel_tracks_manual_node_resize():
+    script = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
+
+    assert 'container.dataset.denoLoaderLayout = "fluid-v1"' in script
+    assert "height: calc(100% + ${LOADER_PANEL_WRAPPER_COMPENSATION}px)" in script
+    assert "getMinHeight: () => LOADER_PANEL_MIN_HEIGHT + LOADER_PANEL_WIDGET_EXTRA_HEIGHT" in script
+    assert "LOADER_PANEL_MIN_HEIGHT + LOADER_PANEL_WIDGET_EXTRA_HEIGHT" in script
+    assert 'const widget = node.addDOMWidget("loader_panel"' not in script
+    assert "node.__denoSyncLoaderPanelGeometry" not in script
+
+
 def test_multi_image_loader_frontend_supports_copy_image_context_menu():
     script = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
 
@@ -1710,7 +2079,7 @@ def test_multi_image_loader_frontend_supports_copy_image_context_menu():
     assert "/deno/input-image-path" in script
     assert "ClipboardItem" in script
     assert '"image/png"' in script
-    assert "Full image path copied." in script
+    assert "Input-relative image path copied." in script
     assert "Copy image failed. Path copied." in script
 
 
@@ -1979,11 +2348,109 @@ def test_multi_image_loader_resolves_copy_path_inside_input_folder():
             folder_paths.get_input_directory = original_get_input_directory
 
     assert resolved_path == os.path.realpath(image_file)
-    assert absolute_path == os.path.realpath(image_file)
+    assert absolute_path is None
     assert missing_path is None
     assert traversal_path is None
     assert drive_like_path is None
     assert outside_absolute_path is None
+
+
+def test_multi_image_loader_preserves_legacy_absolute_paths_while_input_paths_stay_contained():
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_input_directory = folder_paths.get_input_directory
+
+    with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside_dir:
+        input_file = Path(temp_dir) / "inside.png"
+        outside_file = Path(outside_dir) / "outside.png"
+        input_file.write_bytes(b"inside")
+        outside_file.write_bytes(b"outside")
+        folder_paths.get_input_directory = lambda: temp_dir
+        try:
+            assert board._resolve_path("inside.png") == os.path.realpath(input_file)
+            assert board._resolve_path(str(input_file)) == os.path.realpath(input_file)
+            assert board._resolve_path("../outside.png") is None
+            assert board._resolve_path(str(outside_file)) == os.path.realpath(outside_file)
+            assert board._resolve_input_path("inside.png") == os.path.realpath(input_file)
+            assert board._resolve_input_path(str(input_file)) is None
+            assert board._resolve_input_path("../outside.png") is None
+            assert board._resolve_input_path(str(outside_file)) is None
+            assert board._resolve_external_path(str(outside_file)) == str(outside_file)
+        finally:
+            folder_paths.get_input_directory = original_get_input_directory
+
+
+def test_multi_image_loader_executes_legacy_absolute_saved_path(monkeypatch, tmp_path):
+    package = load_package()
+    board = sys.modules[f"{package.__name__}.deno_multi_image_board"]
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]
+    folder_paths = sys.modules["folder_paths"]
+    input_dir = tmp_path / "input"
+    outside_dir = tmp_path / "legacy"
+    input_dir.mkdir()
+    outside_dir.mkdir()
+    image_file = outside_dir / "saved-absolute.png"
+    Image.new("RGB", (3, 2), color=(12, 34, 56)).save(image_file)
+    monkeypatch.setattr(folder_paths, "get_input_directory", lambda: str(input_dir))
+
+    assert node_cls.VALIDATE_INPUTS(str(image_file)) is True
+
+    loaded_paths = []
+    fake_tensor = types.SimpleNamespace(shape=(1, 64, 96, 3))
+    node = node_cls()
+
+    def fake_load_single_image(**kwargs):
+        loaded_paths.append(kwargs["path"])
+        return fake_tensor
+
+    monkeypatch.setattr(node, "_load_single_image", fake_load_single_image)
+    monkeypatch.setattr(board.torch, "cat", lambda images, dim=0: (tuple(images), dim), raising=False)
+
+    result = node.load_images(
+        str(image_file),
+        "Manual Input",
+        "16:9",
+        1.0,
+        96,
+        64,
+        "32",
+        "nearest",
+        "Stretch",
+    )
+
+    assert loaded_paths == [str(image_file)]
+    assert result == (((fake_tensor,), 0), 96, 64)
+
+
+def test_multi_image_loader_copy_path_route_never_returns_absolute_filesystem_paths():
+    import asyncio
+
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    folder_paths = sys.modules["folder_paths"]
+    original_get_input_directory = folder_paths.get_input_directory
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        image_file = Path(temp_dir) / "inside.png"
+        image_file.write_bytes(b"inside")
+        folder_paths.get_input_directory = lambda: temp_dir
+        try:
+            response = asyncio.run(
+                board.deno_input_image_path(types.SimpleNamespace(query={"path": "inside.png"}))
+            )
+            absolute_response = asyncio.run(
+                board.deno_input_image_path(types.SimpleNamespace(query={"path": str(image_file)}))
+            )
+        finally:
+            folder_paths.get_input_directory = original_get_input_directory
+
+    payload = response["payload"]
+    assert response["status"] == 200
+    assert payload == {"path": "inside.png", "exists": True}
+    assert temp_dir not in json.dumps(response)
+    assert absolute_response["status"] == 400
+    assert temp_dir not in json.dumps(absolute_response)
 
 
 def test_advanced_image_source_loader_lists_and_expands_external_folders():

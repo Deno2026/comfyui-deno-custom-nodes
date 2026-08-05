@@ -46,6 +46,9 @@ PUBLIC_WORKFLOWS = [
     *sorted((REPO_ROOT / "docs" / "workflows").glob("*.json")),
     *FIXTURES,
 ]
+H3_MULTI_REFERENCE_WORKFLOW = (
+    REPO_ROOT / "docs" / "workflows" / "minimax-h3-multi-reference.json"
+)
 
 
 # --------------------------------------------------------------------------
@@ -210,6 +213,72 @@ def test_public_workflows_do_not_publish_local_paths_or_workspace_state():
                 violations.append(f"{workflow.relative_to(REPO_ROOT)}:{location}")
 
     assert violations == []
+
+
+def test_minimax_h3_multi_reference_workflow_keeps_native_media_contract():
+    assert H3_MULTI_REFERENCE_WORKFLOW.exists()
+    graph = _load(H3_MULTI_REFERENCE_WORKFLOW)
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    loader = nodes[141]
+    wrapper = nodes[136]
+
+    assert graph["last_node_id"] == 141
+    assert graph["last_link_id"] == 283
+    assert loader["type"] == "DenoMiniMaxH3ReferenceImageLoader"
+    assert loader["widgets_values"] == ["", ""]
+    assert loader["properties"]["cnr_id"] == "deno-custom-nodes"
+    assert loader["properties"]["ver"] == "0.7.74"
+    assert loader["properties"]["denoH3ReferenceLoaderLayoutVersion"] == 1
+    assert loader["outputs"] == [
+        {
+            "localized_name": "ref_images",
+            "name": "ref_images",
+            "type": "DENO_MINIMAX_H3_REFERENCE_IMAGES",
+            "links": [283],
+        }
+    ]
+
+    assert wrapper["type"] == "DenoMiniMaxH3ReferenceToVideo"
+    assert wrapper["properties"]["cnr_id"] == "deno-custom-nodes"
+    assert wrapper["properties"]["ver"] == "0.7.74"
+    assert [slot["name"] for slot in wrapper["inputs"]] == [
+        "clip",
+        "vae",
+        "audio_vae",
+        "ref_images",
+        "ref_videos.ref_video_0",
+        "ref_video_audios.ref_video_audio_0",
+        "ref_audios.ref_audio_0",
+        "prompt",
+        "width",
+        "height",
+        "length",
+        "ref_image_size",
+    ]
+    assert wrapper["widgets_values"] == ["", 1344, 768, 124, "match"]
+    assert [slot["name"] for slot in wrapper["outputs"]] == ["positive", "LATENT"]
+    assert not any(node["type"] == "LoadImage" for node in graph["nodes"])
+
+    links = {link[0]: link for link in graph["links"]}
+    assert links[283] == [
+        283,
+        141,
+        0,
+        136,
+        3,
+        "DENO_MINIMAX_H3_REFERENCE_IMAGES",
+    ]
+    assert links[279][3:5] == [136, 7]
+    assert links[276][3:5] == [136, 8]
+    assert links[277][3:5] == [136, 9]
+    assert links[275][3:5] == [136, 10]
+
+    prompt = nodes[138]["widgets_values"][0]
+    workflow_note = nodes[116]["widgets_values"][0]
+    size_note = nodes[140]["widgets_values"][0]
+    assert "<Audio 1>" not in prompt
+    assert "up to 2K" not in workflow_note
+    assert "1920 x 1088" not in size_note
 
 
 # --------------------------------------------------------------------------

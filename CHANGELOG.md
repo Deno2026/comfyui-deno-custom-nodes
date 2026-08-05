@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.74 - 2026-08-05
+
+- Added a one-cable MiniMax H3 multi-reference image loader that preserves each source image's decoded dimensions and order, plus a stock-compatible H3 Reference to Video wrapper that keeps native video and audio Autogrow inputs.
+- Added a complete portable MiniMax H3 reference-to-video example workflow and Registry discovery metadata for the new nodes.
+- Restored legacy saved-workflow image paths in the standard Multi Image Loader while keeping the H3 loader restricted to ComfyUI input files.
+- Kept canvas wheel zoom and middle-button pan available over both image-loader panels, and synchronized their inner galleries with manual node resizing and save/reopen state.
+
 ## 0.7.73 - 2026-08-03
 
 - Fixed `(Deno) Resize Box` Keep Input Ratio live preview after ComfyUI changed newly created canvas node IDs to strings, while preserving numeric-ID workflows and backend sizing behavior.

@@ -2,9 +2,16 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const LOADER_NODE = "DenoMultiImageLoader";
+const H3_REFERENCE_LOADER_NODE = "DenoMiniMaxH3ReferenceImageLoader";
 const SEQUENCER_NODE = "DenoLTXSequencer";
 const LTX_PRESET_NODE = "DenoLTX23PresetLoader";
 const LOADER_MIN_SIZE = [360, 520];
+const H3_REFERENCE_LOADER_MIN_SIZE = [360, 370];
+const LOADER_PANEL_MIN_HEIGHT = 320;
+const LOADER_PANEL_WIDGET_EXTRA_HEIGHT = 12;
+const LOADER_PANEL_WRAPPER_COMPENSATION = 4;
+const H3_REFERENCE_LOADER_LAYOUT_VERSION = 1;
+const H3_REFERENCE_LOADER_LAYOUT_VERSION_PROPERTY = "denoH3ReferenceLoaderLayoutVersion";
 const LOADER_KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
 const LOADER_PRESET_MODE = "Preset Ratio";
 const LOADER_MANUAL_MODE = "Manual Input";
@@ -50,7 +57,24 @@ app.registerExtension({
     name: "Deno.ExtraNodes",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name === LOADER_NODE) {
-            patchMultiImageLoader(nodeType, { inputFolderBrowser: true });
+            patchMultiImageLoader(nodeType, {
+                inputFolderBrowser: true,
+                outputSizeHint: true,
+                notifySequencers: true,
+            });
+        }
+        if (nodeData.name === H3_REFERENCE_LOADER_NODE) {
+            patchMultiImageLoader(nodeType, {
+                inputFolderBrowser: true,
+                outputSizeHint: false,
+                notifySequencers: false,
+                maxImages: 9,
+                minSize: H3_REFERENCE_LOADER_MIN_SIZE,
+                legacyDefaultHeight: LOADER_MIN_SIZE[1],
+                layoutVersion: H3_REFERENCE_LOADER_LAYOUT_VERSION,
+                layoutVersionProperty: H3_REFERENCE_LOADER_LAYOUT_VERSION_PROPERTY,
+                hint: "Original size and aspect ratio are preserved. Card order maps to <Picture 1>, <Picture 2>, and so on.",
+            });
         }
         if (nodeData.name === SEQUENCER_NODE) {
             patchSequencer(nodeType);
@@ -62,6 +86,20 @@ app.registerExtension({
 });
 
 function patchMultiImageLoader(nodeType, options = {}) {
+    const layoutVersionProperty = String(options.layoutVersionProperty || "").trim();
+    if (layoutVersionProperty) {
+        const configure = nodeType.prototype.configure;
+        nodeType.prototype.configure = function (info) {
+            const result = configure?.apply(this, arguments);
+            const layoutVersion = Number(options.layoutVersion) || 0;
+            const savedLayoutVersion = Number(info?.properties?.[layoutVersionProperty] || 0);
+            this.__denoApplyLoaderSize?.({
+                migrateLegacyDefault: savedLayoutVersion < layoutVersion,
+            });
+            return result;
+        };
+    }
+
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
         const result = onNodeCreated?.apply(this, arguments);
@@ -673,6 +711,133 @@ function setupLtxPresetLoader(node) {
     }, 120);
 }
 
+function normalizeLoaderMinSize(minSize) {
+    const width = Number(minSize?.[0]);
+    const height = Number(minSize?.[1]);
+    return [
+        Number.isFinite(width) && width > 0 ? width : LOADER_MIN_SIZE[0],
+        Number.isFinite(height) && height > 0 ? height : LOADER_MIN_SIZE[1],
+    ];
+}
+
+function resolveLoaderNodeSize(
+    currentSize,
+    minSize = LOADER_MIN_SIZE,
+    { migrateLegacyDefault = false, legacyDefaultHeight = null } = {},
+) {
+    const [minWidth, minHeight] = normalizeLoaderMinSize(minSize);
+    const currentWidth = Number(currentSize?.[0]);
+    const currentHeight = Number(currentSize?.[1]);
+    const width = Math.max(Number.isFinite(currentWidth) ? currentWidth : 0, minWidth);
+    const legacyHeight = Number(legacyDefaultHeight);
+    const shouldCompactLegacyDefault = Boolean(
+        migrateLegacyDefault
+        && Number.isFinite(currentHeight)
+        && Number.isFinite(legacyHeight)
+        && minHeight < legacyHeight
+        && Math.abs(currentHeight - legacyHeight) <= 1
+    );
+    const height = shouldCompactLegacyDefault
+        ? minHeight
+        : Math.max(Number.isFinite(currentHeight) ? currentHeight : 0, minHeight);
+    return [width, height];
+}
+
+function shouldApplyLoaderNodeSize(currentSize, nextSize, tolerance = 1) {
+    if (!Array.isArray(currentSize)) {
+        return true;
+    }
+    const allowedDelta = Math.max(0, Number(tolerance) || 0);
+    return nextSize.some((value, index) => {
+        const currentValue = Number(currentSize[index]);
+        return !Number.isFinite(currentValue) || Math.abs(currentValue - value) > allowedDelta;
+    });
+}
+
+function installLoaderCanvasNavigation(root) {
+    // DOM widgets sit above LiteGraph's canvas. Keep ComfyUI's global canvas
+    // gestures available over both image loaders; use the visible grid
+    // scrollbar when local card-list scrolling is needed.
+    root.addEventListener("wheel", (event) => {
+        const canvasElement = app.canvas?.canvas;
+        if (!canvasElement) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        canvasElement.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            deltaX: event.deltaX,
+            deltaY: event.deltaY,
+            deltaZ: event.deltaZ,
+            deltaMode: event.deltaMode,
+            screenX: event.screenX,
+            screenY: event.screenY,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey,
+            shiftKey: event.shiftKey,
+            metaKey: event.metaKey,
+        }));
+    }, { passive: false });
+
+    let activePanCleanup = null;
+    root.addEventListener("pointerdown", (event) => {
+        if (event.button !== 1 || event.target?.closest?.("input, textarea, [contenteditable='true']")) {
+            return;
+        }
+        const canvas = app.canvas;
+        if (!canvas?.ds?.offset) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        activePanCleanup?.();
+        let lastX = event.clientX;
+        let lastY = event.clientY;
+        const move = (moveEvent) => {
+            const scale = canvas.ds.scale || 1;
+            canvas.ds.offset[0] += (moveEvent.clientX - lastX) / scale;
+            canvas.ds.offset[1] += (moveEvent.clientY - lastY) / scale;
+            lastX = moveEvent.clientX;
+            lastY = moveEvent.clientY;
+            if (canvas.setDirty) {
+                canvas.setDirty(true, true);
+            } else {
+                app.graph?.setDirtyCanvas?.(true, true);
+            }
+        };
+        const up = () => {
+            window.removeEventListener("pointermove", move, true);
+            window.removeEventListener("pointerup", up, true);
+            window.removeEventListener("pointercancel", up, true);
+            if (activePanCleanup === up) {
+                activePanCleanup = null;
+            }
+        };
+        activePanCleanup = up;
+        window.addEventListener("pointermove", move, true);
+        window.addEventListener("pointerup", up, true);
+        window.addEventListener("pointercancel", up, true);
+    }, true);
+
+    root.addEventListener("auxclick", (event) => {
+        if (event.button !== 1 || event.target?.closest?.("input, textarea, [contenteditable='true']")) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    }, true);
+
+    return () => {
+        activePanCleanup?.();
+        activePanCleanup = null;
+    };
+}
+
 function setupMultiImageLoader(node, options = {}) {
     const pathsWidget = getWidget(node, "image_paths");
     if (!pathsWidget || node.__denoLoaderReady) {
@@ -681,6 +846,15 @@ function setupMultiImageLoader(node, options = {}) {
 
     node.__denoLoaderReady = true;
     hideWidget(pathsWidget);
+    const outputSizeHintEnabled = options.outputSizeHint !== false;
+    const sequencerNotificationsEnabled = options.notifySequencers !== false;
+    const maxImages = Number.isFinite(Number(options.maxImages))
+        ? Math.max(1, Math.floor(Number(options.maxImages)))
+        : null;
+    const loaderMinSize = normalizeLoaderMinSize(options.minSize);
+    const legacyDefaultHeight = Number(options.legacyDefaultHeight);
+    const layoutVersionProperty = String(options.layoutVersionProperty || "").trim();
+    const layoutVersion = Number(options.layoutVersion) || 0;
 
     node._denoUpdateLoaderVisibility = function () {
         const mode = getWidget(this, "mode")?.value ?? LOADER_KEEP_INPUT_RATIO_MODE;
@@ -692,9 +866,11 @@ function setupMultiImageLoader(node, options = {}) {
     };
 
     const container = document.createElement("div");
+    container.dataset.denoLoaderLayout = "fluid-v1";
     container.style.cssText = `
         width: 100%;
-        height: 320px;
+        height: calc(100% + ${LOADER_PANEL_WRAPPER_COMPENSATION}px);
+        min-height: ${LOADER_PANEL_MIN_HEIGHT}px;
         display: flex;
         flex-direction: column;
         gap: 10px;
@@ -706,6 +882,7 @@ function setupMultiImageLoader(node, options = {}) {
         pointer-events: auto;
         overflow: hidden;
     `;
+    const cleanupLoaderCanvasNavigation = installLoaderCanvasNavigation(container);
 
     const topBar = document.createElement("div");
     topBar.style.cssText = "display:flex; gap:8px; align-items:center;";
@@ -725,9 +902,9 @@ function setupMultiImageLoader(node, options = {}) {
 
     const hint = document.createElement("div");
     hint.style.cssText = "color:#7dcf92; font:11px sans-serif; opacity:0.85;";
-    hint.textContent = inputFolderBtn
+    hint.textContent = options.hint || (inputFolderBtn
         ? "Drag files, press Ctrl+V, use Upload, or add existing input-folder images."
-        : "Drag files, press Ctrl+V, or use Upload. Drag cards to reorder.";
+        : "Drag files, press Ctrl+V, or use Upload. Drag cards to reorder.");
 
     const grid = document.createElement("div");
     grid.style.cssText = `
@@ -748,13 +925,30 @@ function setupMultiImageLoader(node, options = {}) {
     fileInput.style.display = "none";
 
     container.append(topBar, hint, grid, fileInput);
-    const widget = node.addDOMWidget("loader_panel", "deno_multi_image_loader", container, { serialize: false });
-    widget.computeSize = () => [Math.max(node.size?.[0] ?? 0, LOADER_MIN_SIZE[0]), 332];
+    node.addDOMWidget("loader_panel", "deno_multi_image_loader", container, {
+        serialize: false,
+        getMinHeight: () => LOADER_PANEL_MIN_HEIGHT + LOADER_PANEL_WIDGET_EXTRA_HEIGHT,
+    });
 
-    node.size = [
-        Math.max(node.size?.[0] ?? 0, LOADER_MIN_SIZE[0]),
-        Math.max(node.size?.[1] ?? 0, LOADER_MIN_SIZE[1]),
-    ];
+    node.__denoApplyLoaderSize = function ({ migrateLegacyDefault = false } = {}) {
+        const nextSize = resolveLoaderNodeSize(this.size, loaderMinSize, {
+            migrateLegacyDefault,
+            legacyDefaultHeight,
+        });
+        if (shouldApplyLoaderNodeSize(this.size, nextSize)) {
+            if (typeof this.setSize === "function") {
+                this.setSize(nextSize);
+            } else {
+                this.size = nextSize;
+            }
+        }
+        if (layoutVersionProperty && layoutVersion > 0) {
+            this.properties ||= {};
+            this.properties[layoutVersionProperty] = layoutVersion;
+        }
+        this.setDirtyCanvas?.(true, true);
+    };
+    node.__denoApplyLoaderSize();
 
     let draggedCard = null;
     let placeholder = null;
@@ -786,7 +980,9 @@ function setupMultiImageLoader(node, options = {}) {
         pathsWidget.value = deduped.join("\n");
         pathsWidget.callback?.(pathsWidget.value);
         node._denoImageCount = deduped.length;
-        notifyConnectedSequencers(node, deduped.length);
+        if (sequencerNotificationsEnabled) {
+            notifyConnectedSequencers(node, deduped.length);
+        }
         node.setDirtyCanvas?.(true, true);
         app.graph?.setDirtyCanvas?.(true, true);
         render();
@@ -813,6 +1009,9 @@ function setupMultiImageLoader(node, options = {}) {
     }
 
     async function refreshOutputSizeHint() {
+        if (!outputSizeHintEnabled) {
+            return;
+        }
         const requestId = (node.__denoOutputSizeRequestId || 0) + 1;
         node.__denoOutputSizeRequestId = requestId;
 
@@ -935,7 +1134,9 @@ function setupMultiImageLoader(node, options = {}) {
     }
 
     async function uploadFiles(fileList) {
-        const { uploaded, failedCount } = await collectUploadedPaths(fileList, async (file) => {
+        const files = Array.from(fileList || []);
+        const remaining = maxImages === null ? files.length : Math.max(0, maxImages - getPaths().length);
+        const { uploaded, failedCount, skippedCount } = await collectUploadedPaths(files, async (file) => {
             const body = new FormData();
             body.append("image", file);
             const response = await api.fetchApi("/upload/image", { method: "POST", body });
@@ -945,18 +1146,47 @@ function setupMultiImageLoader(node, options = {}) {
             const payload = await response.json();
             const name = String(payload?.name || "").trim();
             return name ? (payload.subfolder ? `${payload.subfolder}/${name}` : name) : "";
-        });
+        }, maxImages === null ? null : remaining);
+        let limitSkippedCount = skippedCount;
         if (uploaded.length) {
-            setPaths(getPaths().concat(uploaded));
+            const appended = appendPathsWithinLimit(getPaths(), uploaded, maxImages);
+            limitSkippedCount += appended.skippedCount;
+            setPaths(appended.paths);
+        }
+        const notices = [];
+        if (limitSkippedCount > 0) {
+            notices.push(
+                `MiniMax H3 accepts up to ${maxImages} reference images. ` +
+                `${limitSkippedCount} image${limitSkippedCount === 1 ? " was" : "s were"} not added.`
+            );
         }
         if (failedCount > 0) {
-            showLoaderToast(`${failedCount} image${failedCount === 1 ? "" : "s"} could not be uploaded.`);
+            notices.push(`${failedCount} image${failedCount === 1 ? "" : "s"} could not be uploaded.`);
         }
+        if (notices.length) {
+            showLoaderToast(notices.join(" "));
+        }
+    }
+
+    function appendPaths(pathsToAdd) {
+        const appended = appendPathsWithinLimit(getPaths(), pathsToAdd, maxImages);
+        if (appended.addedCount > 0) {
+            setPaths(appended.paths);
+        }
+        if (appended.skippedCount > 0) {
+            showLoaderToast(
+                `MiniMax H3 accepts up to ${maxImages} reference images. ` +
+                `${appended.skippedCount} image${appended.skippedCount === 1 ? " was" : "s were"} not added.`
+            );
+        }
+        return appended;
     }
 
     function render() {
         const paths = getPaths();
-        countLabel.textContent = `${paths.length} image${paths.length === 1 ? "" : "s"}`;
+        countLabel.textContent = maxImages === null
+            ? `${paths.length} image${paths.length === 1 ? "" : "s"}`
+            : `${paths.length} / ${maxImages} images`;
         grid.replaceChildren(...paths.map((path, index) => buildCard(path, index)));
     }
 
@@ -965,7 +1195,9 @@ function setupMultiImageLoader(node, options = {}) {
         const visibleCardCount = Array.from(grid.children).filter((child) => child.dataset?.path).length;
         if (node._denoImageCount !== count || (!isReordering && visibleCardCount !== count)) {
             node._denoImageCount = count;
-            notifyConnectedSequencers(node, count);
+            if (sequencerNotificationsEnabled) {
+                notifyConnectedSequencers(node, count);
+            }
             render();
             refreshOutputSizeHint();
         }
@@ -1449,7 +1681,7 @@ function setupMultiImageLoader(node, options = {}) {
             if (!selected.size) {
                 return;
             }
-            setPaths(getPaths().concat(Array.from(selected)));
+            appendPaths(Array.from(selected));
             closeInputFolderBrowser();
         };
 
@@ -1502,6 +1734,7 @@ function setupMultiImageLoader(node, options = {}) {
     document.addEventListener("paste", pasteHandler, { capture: true });
     const originalRemoved = node.onRemoved;
     node.onRemoved = function () {
+        cleanupLoaderCanvasNavigation();
         this.__denoCloseInputFolderBrowser?.();
         this.__denoCloseInputFolderBrowser = null;
         document.removeEventListener("paste", pasteHandler, { capture: true });
@@ -1677,7 +1910,7 @@ function showImageCardMenu(event, path, image) {
             const selected = String(value?.content ?? value?.value ?? value);
             if (selected === "Copy Image Path") {
                 await copyTextToClipboard(await resolveInputImageCopyPath(path));
-                showLoaderToast("Full image path copied.");
+                showLoaderToast("Input-relative image path copied.");
                 return;
             }
             try {
@@ -1701,9 +1934,9 @@ async function resolveInputImageCopyPath(path) {
         const response = await api.fetchApi(`/deno/input-image-path?path=${encodeURIComponent(storedPath)}`);
         if (response?.ok) {
             const payload = await response.json();
-            const resolvedPath = String(payload?.resolved_path || "");
-            if (resolvedPath) {
-                return resolvedPath;
+            const safePath = String(payload?.path || "");
+            if (safePath) {
+                return safePath;
             }
         }
     } catch (error) {
@@ -1800,10 +2033,20 @@ function showLoaderToast(message) {
     window.setTimeout(() => toast.remove(), 1450);
 }
 
-async function collectUploadedPaths(fileList, uploadOne) {
+async function collectUploadedPaths(fileList, uploadOne, maxSuccessful = null) {
+    const files = Array.from(fileList || []);
+    const successLimit = maxSuccessful !== null && maxSuccessful !== undefined && Number.isFinite(Number(maxSuccessful))
+        ? Math.max(0, Math.floor(Number(maxSuccessful)))
+        : null;
     const uploaded = [];
     let failedCount = 0;
-    for (const file of Array.from(fileList || [])) {
+    let skippedCount = 0;
+    for (let index = 0; index < files.length; index += 1) {
+        if (successLimit !== null && uploaded.length >= successLimit) {
+            skippedCount = files.length - index;
+            break;
+        }
+        const file = files[index];
         try {
             const path = String(await uploadOne(file) || "").trim();
             if (path) {
@@ -1816,7 +2059,28 @@ async function collectUploadedPaths(fileList, uploadOne) {
             console.warn("[Deno.MultiImageLoader] Image upload failed.", error);
         }
     }
-    return { uploaded, failedCount };
+    return { uploaded, failedCount, skippedCount };
+}
+
+function appendPathsWithinLimit(currentPaths, addedPaths, maxImages = null) {
+    const current = Array.from(currentPaths || []).filter(Boolean);
+    const additions = Array.from(addedPaths || []).filter(Boolean);
+    if (maxImages === null || maxImages === undefined || !Number.isFinite(Number(maxImages))) {
+        return {
+            paths: current.concat(additions),
+            addedCount: additions.length,
+            skippedCount: 0,
+        };
+    }
+
+    const limit = Math.max(1, Math.floor(Number(maxImages)));
+    const remaining = Math.max(0, limit - current.length);
+    const accepted = additions.slice(0, remaining);
+    return {
+        paths: current.concat(accepted),
+        addedCount: accepted.length,
+        skippedCount: additions.length - accepted.length,
+    };
 }
 
 function ensureLoaderToastStyles() {
@@ -4283,6 +4547,10 @@ if (typeof window !== "undefined" && typeof window.__DENO_EXTRA_NODES_TEST_HOOK_
         shouldShowSequencerDynamicWidget,
         getSequencerInputPinReasons,
         collectUploadedPaths,
+        appendPathsWithinLimit,
+        resolveLoaderNodeSize,
+        shouldApplyLoaderNodeSize,
+        installLoaderCanvasNavigation,
         ensureSequencerDynamicWidget,
         getSequencerFullSchemaStackHeight,
         isSequencerVueNodesMode,

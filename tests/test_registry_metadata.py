@@ -81,6 +81,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert re.fullmatch(r"\d+\.\d+\.\d+", version)
     description = pyproject["project"]["description"]
     assert "DENO RTX node" in description
+    assert "MiniMax H3 multi-reference image" in description
     assert "RTX Video Super Resolution" in description
     assert "RTX Super Resolution" in description
     assert "Video SR/VSR" in description
@@ -102,6 +103,9 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "comfyui",
         "comfyui-custom-nodes",
         "deno-custom-nodes",
+        "minimax-h3",
+        "minimax-h3-reference-to-video",
+        "multi-reference-image",
         "rtx-video-super-resolution",
         "nvidia-vfx",
         "ltx-2.3",

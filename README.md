@@ -114,6 +114,23 @@ Main features:
 - outputs: `multi_output`, `width`, `height`
 - optional crop or fit resizing during export
 
+### `(Deno) MiniMax H3 Multi Reference Image Loader`
+
+One-cable reference-image loader for ComfyUI's native MiniMax H3 Reference to Video workflow.
+
+Main features:
+
+- the same upload, paste, drag-and-drop, Input Folder, card reorder, and clear workflow as `(Deno) Multi Image Loader`
+- up to 9 ordered reference images through one dedicated socket
+- keeps each decoded image's own dimensions and aspect ratio without resize, crop, pad, or letterbox processing
+- card order maps directly to `<Picture 1>`, `<Picture 2>`, and so on
+- connects to the single `ref_images` input on `(Deno) MiniMax H3 Reference to Video`
+- the H3 node keeps ComfyUI's native reference-video, paired-video-audio, and standalone-audio Autogrow inputs
+
+The dedicated socket is intentional: a normal ComfyUI `IMAGE` batch requires one shared width and height, so it cannot preserve mixed reference sizes. MiniMax H3 may still downscale references during its normal `ref_image_size` processing while preserving their aspect ratio.
+
+These two MiniMax H3 nodes require ComfyUI 0.30.0 or newer. See the portable [MiniMax H3 multi-reference workflow](docs/workflows/minimax-h3-multi-reference.json) for the complete native H3 pipeline with the two stock `Load Image` nodes replaced by the one-cable DENO loader.
+
 ### `(Deno) Advanced Image Source Loader`
 
 Advanced image source loader for workflows that need external folders, local file paths, web image URLs, and mixed-size image-list output.

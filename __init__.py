@@ -406,6 +406,16 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 # node instead of taking the whole pack out of the ComfyUI menu.
 _OPTIONAL_NODES = (
     ("deno_multi_image_board", "DenoMultiImageLoader", "(Deno) Multi Image Loader"),
+    (
+        "deno_minimax_h3_reference",
+        "DenoMiniMaxH3ReferenceImageLoader",
+        "(Deno) MiniMax H3 Multi Reference Image Loader",
+    ),
+    (
+        "deno_minimax_h3_reference",
+        "DenoMiniMaxH3ReferenceToVideo",
+        "(Deno) MiniMax H3 Reference to Video",
+    ),
     ("deno_advanced_image_source_loader", "DenoAdvancedImageSourceLoader", "(Deno) Advanced Image Source Loader"),
     ("deno_ltx_sequencer_plus", "DenoLTXSequencer", "(Deno) LTX Sequencer"),
     ("deno_ltx23_preset_loader", "DenoLTX23PresetLoader", "(Deno) LTX Model Loader"),
@@ -427,11 +437,22 @@ _OPTIONAL_NODES = (
     ("deno_video_preview", "DenoVideoPreview", "(Deno) Video Preview"),
 )
 
+_OPTIONAL_REQUIREMENT_WARNED = set()
 for _module_name, _class_name, _display_name in _OPTIONAL_NODES:
     try:
+        if _module_name.startswith("deno_minimax_h3"):
+            # H3 landed in ComfyUI 0.30.0. Gate every related DENO node on the
+            # same native module so older installs do not expose partial nodes.
+            importlib.import_module("comfy_extras.nodes_minimax_h3")
         _module = importlib.import_module(f".{_module_name}", __name__)
         _node_class = getattr(_module, _class_name)
     except Exception as _exc:
+        if _module_name.startswith("deno_minimax_h3") and _module_name not in _OPTIONAL_REQUIREMENT_WARNED:
+            logging.warning(
+                "[DENO] MiniMax H3 nodes require ComfyUI >= 0.30.0; "
+                "update ComfyUI before using these nodes."
+            )
+            _OPTIONAL_REQUIREMENT_WARNED.add(_module_name)
         logging.warning(
             "[DENO] Skipped node %s (%s): %s: %s",
             _class_name,

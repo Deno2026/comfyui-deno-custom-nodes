@@ -70,6 +70,7 @@ globalThis.__hooks = {
   loadCachedVersionStatus,
   refreshDenoVersionStatus,
   setCurrentVersionFromDescription,
+  isDenoNode,
   getVersionStatus: () => ({ ...denoVersionStatus }),
 };
 `;
@@ -83,6 +84,15 @@ globalThis.__hooks = {
     setPayload(value) { currentPayload = value; },
     setCachedStatus(value) { storage.set(VERSION_CACHE_KEY, JSON.stringify(value)); },
   };
+}
+
+{
+  const harness = makeHarness();
+  assert.equal(
+    harness.hooks.isDenoNode({ category: "model/conditioning/minimax", display_name: "(Deno) MiniMax H3 Reference to Video" }),
+    true,
+    "native-category H3 wrapper must still receive the shared DENO info button",
+  );
 }
 
 {

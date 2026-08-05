@@ -1322,5 +1322,272 @@ const uploadResult = await hooks.collectUploadedPaths(
 assert.deepEqual(uploadCalls, ["a", "bad-http", "bad-json", "b"], "one failed upload must not stop later files");
 assert.deepEqual(Array.from(uploadResult.uploaded), ["input/a.png", "input/b.png"], "successful upload paths must preserve input order");
 assert.equal(uploadResult.failedCount, 2, "HTTP and parse failures must both be counted");
+assert.equal(uploadResult.skippedCount, 0, "normal loader uploads must stay unlimited");
+
+const unlimitedAppend = hooks.appendPathsWithinLimit(["input/a.png"], ["input/b.png", "input/c.png"]);
+assert.deepEqual(
+  Array.from(unlimitedAppend.paths),
+  ["input/a.png", "input/b.png", "input/c.png"],
+  "normal loader additions must stay unlimited",
+);
+
+const limitedUploadCalls = [];
+const limitedUpload = await hooks.collectUploadedPaths(
+  [{ name: "a" }, { name: "bad" }, { name: "b" }, { name: "c" }],
+  async (file) => {
+    limitedUploadCalls.push(file.name);
+    return file.name === "bad" ? "" : `input/${file.name}.png`;
+  },
+  2,
+);
+assert.deepEqual(limitedUploadCalls, ["a", "bad", "b"], "failed uploads must not consume an H3 image slot");
+assert.deepEqual(Array.from(limitedUpload.uploaded), ["input/a.png", "input/b.png"]);
+assert.equal(limitedUpload.failedCount, 1);
+assert.equal(limitedUpload.skippedCount, 1);
+
+const limitedAppend = hooks.appendPathsWithinLimit(
+  ["input/a.png", "input/b.png"],
+  ["input/c.png", "input/d.png", "input/e.png"],
+  4,
+);
+assert.deepEqual(
+  Array.from(limitedAppend.paths),
+  ["input/a.png", "input/b.png", "input/c.png", "input/d.png"],
+  "H3 reference additions must preserve order up to the limit",
+);
+assert.equal(limitedAppend.addedCount, 2);
+assert.equal(limitedAppend.skippedCount, 1);
+
+const overLimitRestore = hooks.appendPathsWithinLimit(
+  Array.from({ length: 10 }, (_, index) => `saved-${index}.png`),
+  ["new.png"],
+  9,
+);
+assert.equal(overLimitRestore.paths.length, 10, "saved over-limit state must not be silently truncated");
+assert.equal(overLimitRestore.addedCount, 0);
+assert.equal(overLimitRestore.skippedCount, 1);
+
+assert.deepEqual(
+  Array.from(hooks.resolveLoaderNodeSize([430, 520], [360, 370], {
+    migrateLegacyDefault: true,
+    legacyDefaultHeight: 520,
+  })),
+  [430, 370],
+  "the old H3 default height must compact once to remove the lower dead space",
+);
+assert.deepEqual(
+  Array.from(hooks.resolveLoaderNodeSize([430, 520], [360, 370], {
+    migrateLegacyDefault: false,
+    legacyDefaultHeight: 520,
+  })),
+  [430, 520],
+  "a versioned workflow must preserve a user-selected 520px height",
+);
+assert.deepEqual(
+  Array.from(hooks.resolveLoaderNodeSize([430, 640], [360, 370], {
+    migrateLegacyDefault: true,
+    legacyDefaultHeight: 520,
+  })),
+  [430, 640],
+  "legacy migration must preserve clearly user-expanded H3 loader heights",
+);
+assert.deepEqual(
+  Array.from(hooks.resolveLoaderNodeSize([280, 250], [360, 370])),
+  [360, 370],
+  "fresh compact H3 loaders must still enforce their usable minimum size",
+);
+assert.deepEqual(
+  Array.from(hooks.resolveLoaderNodeSize([430, 370], [360, 520])),
+  [430, 520],
+  "the existing Multi Image Loader must retain its original 520px minimum",
+);
+assert.equal(
+  hooks.shouldApplyLoaderNodeSize([430, 520], [430, 520]),
+  false,
+  "an unchanged restored loader size must not trigger another resize",
+);
+assert.equal(
+  hooks.shouldApplyLoaderNodeSize([430.9, 519.1], [430, 520]),
+  false,
+  "sub-pixel renderer drift within one pixel must not create a resize feedback loop",
+);
+assert.equal(
+  hooks.shouldApplyLoaderNodeSize([431.1, 520], [430, 520]),
+  true,
+  "a real size change beyond the renderer tolerance must still be applied",
+);
+assert.equal(
+  hooks.shouldApplyLoaderNodeSize(null, [430, 520]),
+  true,
+  "a node without a restored size must receive the resolved loader size",
+);
+
+const loaderRootListeners = new Map();
+const loaderRootListenerOptions = new Map();
+const loaderRoot = {
+  addEventListener(type, listener, options) {
+    const listeners = loaderRootListeners.get(type) || [];
+    listeners.push(listener);
+    loaderRootListeners.set(type, listeners);
+    const registeredOptions = loaderRootListenerOptions.get(type) || [];
+    registeredOptions.push(options);
+    loaderRootListenerOptions.set(type, registeredOptions);
+  },
+};
+const loaderWindowListeners = new Map();
+context.addEventListener = (type, listener) => loaderWindowListeners.set(type, listener);
+context.removeEventListener = (type, listener) => {
+  if (loaderWindowListeners.get(type) === listener) {
+    loaderWindowListeners.delete(type);
+  }
+};
+context.WheelEvent = class HarnessWheelEvent {
+  constructor(type, init = {}) {
+    this.type = type;
+    Object.assign(this, init);
+  }
+};
+const forwardedLoaderWheels = [];
+let loaderCanvasDirtyCalls = 0;
+let loaderGraphDirtyCalls = 0;
+context.app.canvas = {
+  canvas: {
+    dispatchEvent(event) {
+      forwardedLoaderWheels.push(event);
+    },
+  },
+  ds: { offset: [10, 20], scale: 2 },
+  setDirty() {
+    loaderCanvasDirtyCalls += 1;
+  },
+};
+context.app.graph.setDirtyCanvas = () => loaderGraphDirtyCalls += 1;
+const cleanupLoaderCanvasNavigation = hooks.installLoaderCanvasNavigation(loaderRoot);
+assert.equal(
+  loaderRootListenerOptions.get("wheel")[0]?.passive,
+  false,
+  "loader wheel forwarding must remain non-passive so preventDefault is effective",
+);
+
+let originalWheelPrevented = false;
+let originalWheelStopped = false;
+loaderRootListeners.get("wheel")[0]({
+  deltaX: 2,
+  deltaY: -120,
+  deltaZ: 0,
+  deltaMode: 0,
+  screenX: 400,
+  screenY: 300,
+  clientX: 240,
+  clientY: 180,
+  ctrlKey: true,
+  altKey: false,
+  shiftKey: false,
+  metaKey: false,
+  preventDefault() {
+    originalWheelPrevented = true;
+  },
+  stopPropagation() {
+    originalWheelStopped = true;
+  },
+});
+assert.equal(originalWheelPrevented, true, "the loader grid must not consume wheel movement as local scrolling");
+assert.equal(originalWheelStopped, true, "the original DOM wheel must stop after forwarding");
+assert.equal(forwardedLoaderWheels.length, 1, "loader wheel input must reach the LiteGraph canvas exactly once");
+assert.equal(forwardedLoaderWheels[0].type, "wheel");
+assert.equal(forwardedLoaderWheels[0].deltaY, -120);
+assert.equal(forwardedLoaderWheels[0].clientX, 240);
+assert.equal(forwardedLoaderWheels[0].ctrlKey, true);
+
+let middleDownPrevented = false;
+let middleDownStopped = false;
+loaderRootListeners.get("pointerdown")[0]({
+  button: 1,
+  clientX: 100,
+  clientY: 100,
+  target: { closest: () => null },
+  preventDefault() {
+    middleDownPrevented = true;
+  },
+  stopPropagation() {
+    middleDownStopped = true;
+  },
+});
+assert.equal(middleDownPrevented, true, "middle-button drag must be claimed for canvas panning");
+assert.equal(middleDownStopped, true);
+loaderWindowListeners.get("pointermove")({ clientX: 120, clientY: 110 });
+assert.deepEqual(context.app.canvas.ds.offset, [20, 25], "middle-button drag must pan at the current canvas scale");
+assert.equal(loaderCanvasDirtyCalls, 1);
+assert.equal(loaderGraphDirtyCalls, 0);
+assert.equal(loaderWindowListeners.has("pointercancel"), true);
+loaderWindowListeners.get("pointercancel")();
+assert.equal(loaderWindowListeners.has("pointermove"), false);
+assert.equal(loaderWindowListeners.has("pointerup"), false);
+assert.equal(loaderWindowListeners.has("pointercancel"), false);
+
+loaderRootListeners.get("pointerdown")[0]({
+  button: 1,
+  clientX: 140,
+  clientY: 120,
+  target: { closest: () => null },
+  preventDefault() {},
+  stopPropagation() {},
+});
+assert.equal(loaderWindowListeners.has("pointermove"), true, "a second middle drag must install its move handler");
+cleanupLoaderCanvasNavigation();
+assert.equal(loaderWindowListeners.has("pointermove"), false, "node removal cleanup must end an active middle drag");
+assert.equal(loaderWindowListeners.has("pointerup"), false);
+assert.equal(loaderWindowListeners.has("pointercancel"), false);
+
+class HarnessRegularMultiImageLoader {}
+const regularLoaderConfigure = function (info) {
+  this.size = Array.from(info?.size || this.size || [360, 520]);
+};
+HarnessRegularMultiImageLoader.prototype.configure = regularLoaderConfigure;
+await registeredExtension.beforeRegisterNodeDef(HarnessRegularMultiImageLoader, {
+  name: "DenoMultiImageLoader",
+});
+assert.equal(
+  HarnessRegularMultiImageLoader.prototype.configure,
+  regularLoaderConfigure,
+  "the H3 height migration must not wrap or resize saved regular Multi Image Loader workflows",
+);
+const savedRegularLoader = new HarnessRegularMultiImageLoader();
+let regularLoaderResizeCalls = 0;
+savedRegularLoader.__denoApplyLoaderSize = () => regularLoaderResizeCalls += 1;
+savedRegularLoader.configure({ size: [430, 400] });
+assert.deepEqual(savedRegularLoader.size, [430, 400]);
+assert.equal(regularLoaderResizeCalls, 0);
+
+class HarnessH3ReferenceLoader {}
+HarnessH3ReferenceLoader.prototype.configure = function (info) {
+  this.size = Array.from(info?.size || this.size || [360, 370]);
+  this.properties = { ...(info?.properties || {}) };
+};
+await registeredExtension.beforeRegisterNodeDef(HarnessH3ReferenceLoader, {
+  name: "DenoMiniMaxH3ReferenceImageLoader",
+});
+
+const configuredLayoutMigrations = [];
+const legacyConfiguredH3Loader = new HarnessH3ReferenceLoader();
+legacyConfiguredH3Loader.__denoApplyLoaderSize = (options) => configuredLayoutMigrations.push(options);
+legacyConfiguredH3Loader.configure({ size: [430, 520], properties: {} });
+assert.equal(
+  configuredLayoutMigrations.at(-1)?.migrateLegacyDefault,
+  true,
+  "an unversioned saved H3 loader must request the one-time compact-height migration",
+);
+
+const versionedConfiguredH3Loader = new HarnessH3ReferenceLoader();
+versionedConfiguredH3Loader.__denoApplyLoaderSize = (options) => configuredLayoutMigrations.push(options);
+versionedConfiguredH3Loader.configure({
+  size: [430, 520],
+  properties: { denoH3ReferenceLoaderLayoutVersion: 1 },
+});
+assert.equal(
+  configuredLayoutMigrations.at(-1)?.migrateLegacyDefault,
+  false,
+  "a versioned saved H3 loader must preserve its explicit manual height",
+);
 
 console.log("ltx_sequencer_input_slots_harness passed");

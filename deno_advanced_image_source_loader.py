@@ -19,7 +19,7 @@ from .deno_multi_image_board import (
     INPUT_BROWSER_IMAGE_EXTENSIONS,
     _compute_keep_input_ratio_dims,
     _resize_tensor,
-    _resolve_path,
+    _resolve_external_path as _resolve_path,
     _split_paths,
 )
 from .deno_resolution_common import (

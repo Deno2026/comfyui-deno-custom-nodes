@@ -72,32 +72,9 @@ def _resolve_input_browser_dir(input_dir: str, relative_path: str) -> str | None
 
 def _resolve_input_image_copy_path(path: str | None) -> str | None:
     raw_path = str(path or "").strip()
-    if not raw_path:
+    if not raw_path or os.path.isabs(raw_path):
         return None
-
-    if os.path.isabs(raw_path):
-        candidate_path = os.path.realpath(raw_path)
-        return candidate_path if os.path.isfile(candidate_path) else None
-
-    folder_paths = _get_folder_paths()
-    if folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
-        return None
-
-    browser_path = _normalize_input_browser_path(raw_path)
-    if browser_path is None:
-        return None
-
-    input_dir = os.path.realpath(folder_paths.get_input_directory())
-    candidate_path = os.path.realpath(os.path.join(input_dir, browser_path))
-
-    try:
-        common_path = os.path.commonpath([os.path.normcase(input_dir), os.path.normcase(candidate_path)])
-    except ValueError:
-        return None
-
-    if common_path != os.path.normcase(input_dir):
-        return None
-    return candidate_path if os.path.isfile(candidate_path) else None
+    return _resolve_input_path(raw_path)
 
 
 def _to_input_relative_path(input_dir: str, full_path: str) -> str:
@@ -185,10 +162,14 @@ async def deno_input_folder_images(request):
 @PromptServer.instance.routes.get("/deno/input-image-path")
 async def deno_input_image_path(request):
     requested_path = request.query.get("path", "")
+    if os.path.isabs(str(requested_path or "")):
+        return web.json_response({"error": "Absolute image paths are not allowed."}, status=400)
+    browser_path = _normalize_input_browser_path(requested_path)
+    if browser_path is None:
+        return web.json_response({"error": "Invalid input image path."}, status=400)
     resolved_path = _resolve_input_image_copy_path(requested_path)
     return web.json_response({
-        "path": requested_path,
-        "resolved_path": resolved_path or "",
+        "path": browser_path if resolved_path else "",
         "exists": bool(resolved_path),
     })
 
@@ -204,8 +185,9 @@ def _format_path_preview(paths: List[str]) -> str:
     return preview
 
 
-def _image_file_error(path: str) -> str | None:
-    resolved_path = _resolve_path(path)
+def _image_file_error(path: str, path_resolver=None) -> str | None:
+    resolver = path_resolver or _resolve_path
+    resolved_path = resolver(path)
     if resolved_path is None:
         return path
     try:
@@ -217,11 +199,11 @@ def _image_file_error(path: str) -> str | None:
     return None
 
 
-def _selected_image_errors(image_paths: str) -> List[str]:
+def _selected_image_errors(image_paths: str, path_resolver=None) -> List[str]:
     return [
         path
         for path in _split_paths(image_paths)
-        if _image_file_error(path) is not None
+        if _image_file_error(path, path_resolver=path_resolver) is not None
     ]
 
 
@@ -336,15 +318,53 @@ def _read_image_size(path: str) -> tuple[int, int] | None:
         return None
 
 
-def _resolve_path(path: str) -> str | None:
-    if os.path.exists(path):
-        return path
-
-    folder_paths = _get_folder_paths()
-    if folder_paths is None:
+def _resolve_input_path(path: str | None) -> str | None:
+    raw_path = str(path or "").strip()
+    if not raw_path or os.path.isabs(raw_path):
         return None
 
-    fallback_path = os.path.join(folder_paths.get_input_directory(), path)
+    folder_paths = _get_folder_paths()
+    if folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
+        return None
+
+    browser_path = _normalize_input_browser_path(raw_path)
+    if browser_path is None or not browser_path:
+        return None
+
+    input_dir = os.path.realpath(folder_paths.get_input_directory())
+    candidate_path = os.path.realpath(os.path.join(input_dir, browser_path))
+    try:
+        common_path = os.path.commonpath([os.path.normcase(input_dir), os.path.normcase(candidate_path)])
+    except ValueError:
+        return None
+    if common_path != os.path.normcase(input_dir):
+        return None
+    return candidate_path if os.path.isfile(candidate_path) else None
+
+
+def _resolve_path(path: str | None) -> str | None:
+    """Resolve normal-loader paths while preserving legacy absolute saved values."""
+    raw_path = str(path or "").strip()
+    if not raw_path:
+        return None
+    if os.path.isabs(raw_path):
+        candidate_path = os.path.realpath(raw_path)
+        return candidate_path if os.path.isfile(candidate_path) else None
+    return _resolve_input_path(raw_path)
+
+
+def _resolve_external_path(path: str | None) -> str | None:
+    """Explicit external-path resolver reserved for Advanced Image Source Loader."""
+    raw_path = str(path or "").strip()
+    if not raw_path:
+        return None
+    if os.path.exists(raw_path):
+        return raw_path
+
+    folder_paths = _get_folder_paths()
+    if folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
+        return None
+    fallback_path = os.path.join(folder_paths.get_input_directory(), raw_path)
     return fallback_path if os.path.exists(fallback_path) else None
 
 
