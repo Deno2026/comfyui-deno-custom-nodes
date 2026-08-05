@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.75 - 2026-08-05
+
+- Added draggable crop positioning to `(Deno) Resize Box`, including an Ideogram Director-style connected-image loader and a semi-transparent preview clipped to the exact output frame, while preserving the existing center-crop default, output-size corner drag, and saved-workflow behavior.
+- Added a mixed-size `image_list` output to the MiniMax H3 reference-image loader so the same ordered references can connect directly to `(Deno) Local LLM Loader` without duplicating image-loader nodes.
+
 ## 0.7.74 - 2026-08-05
 
 - Added a one-cable MiniMax H3 multi-reference image loader that preserves each source image's decoded dimensions and order, plus a stock-compatible H3 Reference to Video wrapper that keeps native video and audio Autogrow inputs.

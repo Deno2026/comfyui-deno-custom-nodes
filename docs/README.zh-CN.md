@@ -54,7 +54,7 @@ ComfyUI 的分辨率辅助与图像缩放节点。
 
 ![Deno Resize Box](images/resize-box.jpg)
 
-主要功能：比例预设、手动输入、基于百万像素的尺寸计算、`divisible_by` 对齐、Center Crop 与 Fit 缩放、节点内比例预览、`image`、`width`、`height` 输出。
+主要功能：比例预设、手动输入、基于百万像素的尺寸计算、`divisible_by` 对齐、Center Crop、可拖动的 Crop Position 与 Fit 缩放、节点内比例预览；Crop Position 会将已连接的源图以半透明方式仅显示在实际输出框内，并可拖动图像调整可见位置；输出 `image`、`width`、`height`。
 
 ### `(Deno) Multi Image Loader`
 

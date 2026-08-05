@@ -54,7 +54,7 @@ ComfyUI 用の解像度補助と画像リサイズノードです。
 
 ![Deno Resize Box](images/resize-box.jpg)
 
-主な機能: 比率プリセット、手入力、メガピクセル計算、`divisible_by` 整列、Center Crop と Fit リサイズ、ノード内の比率プレビュー、`image`, `width`, `height` 出力。
+主な機能: 比率プリセット、手入力、メガピクセル計算、`divisible_by` 整列、Center Crop・ドラッグ可能な Crop Position・Fit リサイズ、ノード内の比率プレビュー、Crop Position では接続した元画像を半透明で実際の出力フレーム内だけに表示し、画像のドラッグで表示位置を調整、`image`, `width`, `height` 出力。
 
 ### `(Deno) Multi Image Loader`
 

@@ -54,7 +54,7 @@ Node pembantu resolusi dan resize gambar untuk ComfyUI.
 
 ![Deno Resize Box](images/resize-box.jpg)
 
-Fitur utama: preset rasio, input manual, kalkulasi megapixel, alignment `divisible_by`, mode Center Crop dan Fit, preview rasio di dalam node, output `image`, `width`, `height`.
+Fitur utama: preset rasio, input manual, kalkulasi megapixel, alignment `divisible_by`, mode Center Crop, Crop Position yang dapat diseret, dan Fit, preview rasio serta gambar sumber semi-transparan yang dipotong tepat ke frame output di Crop Position dan dapat digeser dengan menyeret gambar, output `image`, `width`, `height`.
 
 ### `(Deno) Multi Image Loader`
 

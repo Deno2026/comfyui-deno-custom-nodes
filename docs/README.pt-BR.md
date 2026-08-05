@@ -54,7 +54,7 @@ Nó de resolução e redimensionamento de imagem para ComfyUI.
 
 ![Deno Resize Box](images/resize-box.jpg)
 
-Principais recursos: presets de proporção, entrada manual, cálculo por megapixels, alinhamento `divisible_by`, modos Center Crop e Fit, preview de proporção dentro do nó, saídas `image`, `width`, `height`.
+Principais recursos: presets de proporção, entrada manual, cálculo por megapixels, alinhamento `divisible_by`, modos Center Crop, Crop Position arrastável e Fit, preview de proporção e, em Crop Position, a imagem de origem semitransparente recortada exatamente no quadro de saída e movida ao arrastar, saídas `image`, `width`, `height`.
 
 ### `(Deno) Multi Image Loader`
 

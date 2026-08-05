@@ -4,6 +4,7 @@ const NODE_NAME = "DenoResolutionSetup";
 const PRESET_MODE = "Preset Ratio";
 const MANUAL_MODE = "Manual Input";
 const KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
+const POSITION_CROP_METHOD = "Crop Position (Fill)";
 const SUMMARY_HEIGHT = 158;
 const MIN_NODE_WIDTH = 320;
 const MIN_NODE_HEIGHT = 460;
@@ -16,6 +17,7 @@ const ANCHOR_VISUAL_SIZE = 5;
 const ANCHOR_HIT_EXTRA = 6;
 const ANCHOR_VIRTUAL_PULL = 24;
 const DRAG_GAIN = 1.18;
+const SOURCE_PREVIEW_OPACITY = 0.52;
 const THEME = {
     cardFill: "rgba(3, 10, 7, 0.96)",
     cardStroke: "rgba(56, 255, 126, 0.7)",
@@ -23,6 +25,11 @@ const THEME = {
     previewFill: "rgba(10, 42, 24, 0.96)",
     previewStroke: "rgba(79, 255, 142, 0.95)",
     gridStroke: "rgba(95, 255, 155, 0.22)",
+    sourceFill: "rgba(33, 25, 38, 0.98)",
+    cropPositionFill: "rgba(242, 255, 89, 0.96)",
+    cropPositionStroke: "rgba(15, 14, 18, 0.95)",
+    cropLabelFill: "rgba(15, 14, 18, 0.82)",
+    cropLabelText: "#f0eee8",
     summaryText: "#d7ffe3",
     anchorFill: "rgba(8, 35, 18, 0.98)",
     anchorStroke: "rgba(79, 255, 142, 0.95)",
@@ -41,6 +48,7 @@ app.registerExtension({
         nodeType.prototype.onNodeCreated = function () {
             const result = onNodeCreated?.apply(this, arguments);
             enhanceResolutionNode(this);
+            queueMicrotask(() => enhanceResolutionNode(this));
             return result;
         };
 
@@ -87,11 +95,18 @@ function enhanceResolutionNode(node) {
 
         node.onMouseDown = function (event, pos) {
             const local = getNodeLocalPos(node, pos);
-            const hit = getPreviewAnchorHit(node, local.x, local.y);
-            if (hit) {
-                startAnchorDrag(node, hit.name);
-                requestNodeRedraw(node);
-                return true;
+            if (isPrimaryPointerStart(event)) {
+                const hit = getPreviewAnchorHit(node, local.x, local.y);
+                if (hit) {
+                    startAnchorDrag(node, hit.name);
+                    requestNodeRedraw(node);
+                    return true;
+                }
+                if (getCropPreviewHit(node, local.x, local.y)) {
+                    startCropDrag(node, local.x, local.y);
+                    requestNodeRedraw(node);
+                    return true;
+                }
             }
             return node.__denoOriginalMouseDown?.call(node, event, pos);
         };
@@ -108,12 +123,28 @@ function enhanceResolutionNode(node) {
                 requestNodeRedraw(node);
                 return true;
             }
+            if (node.__denoCropDrag?.active) {
+                if (!isPrimaryPointerPressed(event)) {
+                    endCropDrag(node);
+                    requestNodeRedraw(node);
+                    return true;
+                }
+                const local = getNodeLocalPos(node, pos);
+                updateCropDrag(node, local.x, local.y);
+                requestNodeRedraw(node);
+                return true;
+            }
             return node.__denoOriginalMouseMove?.call(node, event, pos);
         };
 
         node.onMouseUp = function (event, pos) {
             if (node.__denoAnchorDrag?.active) {
                 endAnchorDrag(node);
+                requestNodeRedraw(node);
+                return true;
+            }
+            if (node.__denoCropDrag?.active) {
+                endCropDrag(node);
                 requestNodeRedraw(node);
                 return true;
             }
@@ -125,6 +156,10 @@ function enhanceResolutionNode(node) {
                 endAnchorDrag(node);
                 requestNodeRedraw(node);
             }
+            if (node.__denoCropDrag?.active) {
+                endCropDrag(node);
+                requestNodeRedraw(node);
+            }
             return node.__denoOriginalMouseLeave?.call(node, event, pos);
         };
 
@@ -132,7 +167,11 @@ function enhanceResolutionNode(node) {
             if (node.__denoAnchorDrag?.active) {
                 endAnchorDrag(node);
             }
+            if (node.__denoCropDrag?.active) {
+                endCropDrag(node);
+            }
             unbindGlobalDragGuards(node);
+            clearSourcePreviewImage(node);
             return node.__denoOriginalRemoved?.apply(node, arguments);
         };
     }
@@ -186,6 +225,8 @@ function updateWidgetVisibility(node) {
     const widthWidget = getWidget(node, "width");
     const heightWidget = getWidget(node, "height");
     const divisibleByWidget = getWidget(node, "divisible_by");
+    const cropXWidget = getWidget(node, "crop_x");
+    const cropYWidget = getWidget(node, "crop_y");
 
     const mode = modeWidget?.value ?? PRESET_MODE;
     const presetMode = mode === PRESET_MODE;
@@ -196,13 +237,15 @@ function updateWidgetVisibility(node) {
     toggleWidget(node, megapixelsWidget, presetMode || autoMode);
     toggleWidget(node, widthWidget, manualMode);
     toggleWidget(node, heightWidget, manualMode);
+    toggleWidget(node, cropXWidget, false, true);
+    toggleWidget(node, cropYWidget, false, true);
     if (divisibleByWidget) {
         divisibleByWidget.name = "divisible_by";
         divisibleByWidget.label = "divisible_by";
     }
 }
 
-function toggleWidget(node, widget, show) {
+function toggleWidget(node, widget, show, hardHide = false) {
     if (!widget) {
         return;
     }
@@ -211,6 +254,14 @@ function toggleWidget(node, widget, show) {
         if (widget.__denoHidden) {
             widget.type = widget.__denoOriginalType;
             widget.computeSize = widget.__denoOriginalComputeSize;
+            if (widget.__denoHardHidden) {
+                widget.hidden = widget.__denoOriginalHidden;
+                widget.draw = widget.__denoOriginalDraw;
+                if (widget.element) {
+                    widget.element.style.display = "";
+                }
+            }
+            widget.__denoHardHidden = false;
             widget.__denoHidden = false;
         }
         return;
@@ -219,8 +270,22 @@ function toggleWidget(node, widget, show) {
     if (!widget.__denoHidden) {
         widget.__denoOriginalType = widget.type;
         widget.__denoOriginalComputeSize = widget.computeSize;
-        widget.type = "converted-widget";
         widget.computeSize = () => [0, -4];
+        widget.__denoHardHidden = Boolean(hardHide);
+        if (hardHide) {
+            widget.__denoOriginalHidden = Boolean(widget.hidden);
+            widget.__denoOriginalDraw = widget.draw;
+            widget.hidden = true;
+            widget.type = "hidden";
+            widget.draw = () => {};
+            if (widget.element) {
+                widget.element.style.display = "none";
+            }
+        } else {
+            // Preserve the original Resize Box mode-switch contract for the
+            // existing ratio/size widgets. Only crop state uses hard hiding.
+            widget.type = "converted-widget";
+        }
         widget.__denoHidden = true;
     }
 }
@@ -251,10 +316,10 @@ function drawResolutionSummary(node, ctx) {
     ctx.fill();
     ctx.stroke();
 
-    const previewSize = previewSizeFromDisplayInfo(info);
-    const previewMeta = drawAspectPreview(ctx, node, x, y, cardWidth, previewHeight, previewSize.width, previewSize.height);
+    const previewMeta = drawAspectPreview(ctx, node, x, y, cardWidth, previewHeight, info);
     node.__denoPreviewRect = previewMeta.previewRect;
     node.__denoPreviewAnchors = previewMeta.anchors;
+    node.__denoCropPreview = previewMeta.cropPreview;
 
     ctx.fillStyle = THEME.summaryText;
     ctx.font = "12px sans-serif";
@@ -263,51 +328,103 @@ function drawResolutionSummary(node, ctx) {
     ctx.restore();
 }
 
-function drawAspectPreview(ctx, node, x, y, width, height, targetWidth, targetHeight) {
+function drawAspectPreview(ctx, node, x, y, width, height, info) {
     const areaX = x + PREVIEW_INSET_X;
     const areaY = y + PREVIEW_INSET_Y;
     const areaWidth = width - PREVIEW_INSET_X * 2;
     const areaHeight = height - (PREVIEW_INSET_Y + PREVIEW_BOTTOM_INSET);
+    const resizeMethod = getWidget(node, "resize_method")?.value ?? "Center Crop (Fill)";
+    const cropX = normalizedCropValue(getWidget(node, "crop_x")?.value);
+    const cropY = normalizedCropValue(getWidget(node, "crop_y")?.value);
+    const sourceState = info.sourceState || { connected: false, size: null, previewImage: null };
+    const cropPositionEnabled = resizeMethod === POSITION_CROP_METHOD && sourceState.connected;
+    const previewSize = previewSizeFromDisplayInfo(info);
 
     ctx.save();
     ctx.fillStyle = THEME.previewBg;
     roundRect(ctx, areaX, areaY, areaWidth, areaHeight, 8);
     ctx.fill();
 
-    const ratio = Math.max(targetWidth / Math.max(targetHeight, 1), 0.001);
-    let previewWidth = areaWidth - 28;
-    let previewHeight = previewWidth / ratio;
+    let previewRect = fitAspectRect(
+        previewSize.width,
+        previewSize.height,
+        areaX + 14,
+        areaY + 10,
+        areaWidth - 28,
+        areaHeight - 20
+    );
+    let cropPreview = null;
 
-    if (previewHeight > areaHeight - 20) {
-        previewHeight = areaHeight - 20;
-        previewWidth = previewHeight * ratio;
+    if (cropPositionEnabled && sourceState.size) {
+        const cropViewport = fitAspectRect(
+            info.width,
+            info.height,
+            areaX + 14,
+            areaY + 10,
+            areaWidth - 28,
+            areaHeight - 20
+        );
+        const cropWindow = calculateCropWindow(
+            sourceState.size.width,
+            sourceState.size.height,
+            info.width,
+            info.height,
+            cropX,
+            cropY
+        );
+        const renderedSourceRect = calculateCropRenderRect(
+            sourceState.size.width,
+            sourceState.size.height,
+            cropViewport,
+            cropWindow
+        );
+
+        drawCroppedSourcePreview(ctx, cropViewport, renderedSourceRect, sourceState.previewImage);
+        drawPreviewGrid(ctx, cropViewport);
+        drawPreviewOutline(ctx, cropViewport);
+        previewRect = cropViewport;
+
+        if (cropWindow.axis) {
+            drawCropPositionLabel(ctx, cropViewport, cropWindow.axis, cropX, cropY);
+        }
+
+        cropPreview = {
+            interactive: Boolean(cropWindow.axis),
+            axis: cropWindow.axis,
+            sourceRect: cropViewport,
+            cropRect: cropViewport,
+            viewportRect: cropViewport,
+            renderedSourceRect,
+            pointMode: false,
+            directPan: true,
+        };
+    } else {
+        drawPreviewFill(ctx, previewRect);
+        drawPreviewGrid(ctx, previewRect);
+        drawPreviewOutline(ctx, previewRect);
+
+        if (cropPositionEnabled) {
+            const markerX = previewRect.x + previewRect.width * cropX;
+            const markerY = previewRect.y + previewRect.height * cropY;
+            drawCropPositionMarker(ctx, markerX, markerY, node.__denoCropDrag?.active);
+            drawCropPositionLabel(ctx, previewRect, "both", cropX, cropY);
+            cropPreview = {
+                interactive: true,
+                axis: "both",
+                sourceRect: previewRect,
+                cropRect: { x: markerX, y: markerY, width: 0, height: 0 },
+                pointMode: true,
+            };
+        }
     }
-
-    const previewX = areaX + (areaWidth - previewWidth) / 2;
-    const previewY = areaY + (areaHeight - previewHeight) / 2;
-
-    ctx.fillStyle = THEME.previewFill;
-    ctx.strokeStyle = THEME.previewStroke;
-    ctx.lineWidth = 2;
-    roundRect(ctx, previewX, previewY, previewWidth, previewHeight, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.strokeStyle = THEME.gridStroke;
-    ctx.beginPath();
-    ctx.moveTo(previewX + previewWidth / 2, previewY);
-    ctx.lineTo(previewX + previewWidth / 2, previewY + previewHeight);
-    ctx.moveTo(previewX, previewY + previewHeight / 2);
-    ctx.lineTo(previewX + previewWidth, previewY + previewHeight / 2);
-    ctx.stroke();
 
     const anchorSize = ANCHOR_VISUAL_SIZE;
     const activeAnchor = node.__denoAnchorDrag?.active ? node.__denoAnchorDrag.anchor : null;
     const anchors = [
-        { name: "nw", x: previewX, y: previewY, size: anchorSize },
-        { name: "ne", x: previewX + previewWidth, y: previewY, size: anchorSize },
-        { name: "sw", x: previewX, y: previewY + previewHeight, size: anchorSize },
-        { name: "se", x: previewX + previewWidth, y: previewY + previewHeight, size: anchorSize },
+        { name: "nw", x: previewRect.x, y: previewRect.y, size: anchorSize },
+        { name: "ne", x: previewRect.x + previewRect.width, y: previewRect.y, size: anchorSize },
+        { name: "sw", x: previewRect.x, y: previewRect.y + previewRect.height, size: anchorSize },
+        { name: "se", x: previewRect.x + previewRect.width, y: previewRect.y + previewRect.height, size: anchorSize },
     ];
 
     for (const anchor of anchors) {
@@ -331,13 +448,156 @@ function drawAspectPreview(ctx, node, x, y, width, height, targetWidth, targetHe
 
     return {
         previewRect: {
-            x: previewX,
-            y: previewY,
-            width: previewWidth,
-            height: previewHeight,
+            ...previewRect,
         },
         anchors,
+        cropPreview,
     };
+}
+
+function fitAspectRect(contentWidth, contentHeight, x, y, width, height) {
+    const ratio = Math.max(Number(contentWidth) / Math.max(Number(contentHeight), 1), 0.001);
+    let fittedWidth = width;
+    let fittedHeight = fittedWidth / ratio;
+    if (fittedHeight > height) {
+        fittedHeight = height;
+        fittedWidth = fittedHeight * ratio;
+    }
+    return {
+        x: x + (width - fittedWidth) / 2,
+        y: y + (height - fittedHeight) / 2,
+        width: fittedWidth,
+        height: fittedHeight,
+    };
+}
+
+function calculateCropWindow(sourceWidth, sourceHeight, targetWidth, targetHeight, cropX = 0.5, cropY = 0.5) {
+    const safeSourceWidth = Math.max(1, Number(sourceWidth) || 1);
+    const safeSourceHeight = Math.max(1, Number(sourceHeight) || 1);
+    const safeTargetWidth = Math.max(1, Number(targetWidth) || 1);
+    const safeTargetHeight = Math.max(1, Number(targetHeight) || 1);
+    const sourceAspect = safeSourceWidth / safeSourceHeight;
+    const targetAspect = safeTargetWidth / safeTargetHeight;
+    const normalizedX = normalizedCropValue(cropX);
+    const normalizedY = normalizedCropValue(cropY);
+
+    if (Math.abs(sourceAspect - targetAspect) / Math.max(sourceAspect, targetAspect) < 0.0001) {
+        return { x: 0, y: 0, width: safeSourceWidth, height: safeSourceHeight, axis: null };
+    }
+    if (sourceAspect > targetAspect) {
+        const cropWidth = safeSourceHeight * targetAspect;
+        return {
+            x: (safeSourceWidth - cropWidth) * normalizedX,
+            y: 0,
+            width: cropWidth,
+            height: safeSourceHeight,
+            axis: "x",
+        };
+    }
+    const cropHeight = safeSourceWidth / targetAspect;
+    return {
+        x: 0,
+        y: (safeSourceHeight - cropHeight) * normalizedY,
+        width: safeSourceWidth,
+        height: cropHeight,
+        axis: "y",
+    };
+}
+
+function calculateCropRenderRect(sourceWidth, sourceHeight, viewportRect, cropWindow) {
+    const safeCropWidth = Math.max(1, Number(cropWindow?.width) || 1);
+    const safeCropHeight = Math.max(1, Number(cropWindow?.height) || 1);
+    const scale = Math.max(
+        viewportRect.width / safeCropWidth,
+        viewportRect.height / safeCropHeight
+    );
+    return {
+        x: viewportRect.x - (Number(cropWindow?.x) || 0) * scale,
+        y: viewportRect.y - (Number(cropWindow?.y) || 0) * scale,
+        width: Math.max(1, Number(sourceWidth) || 1) * scale,
+        height: Math.max(1, Number(sourceHeight) || 1) * scale,
+        scale,
+    };
+}
+
+function drawCroppedSourcePreview(ctx, viewportRect, renderedSourceRect, previewImage) {
+    ctx.save();
+    roundRect(ctx, viewportRect.x, viewportRect.y, viewportRect.width, viewportRect.height, 6);
+    ctx.clip();
+    ctx.fillStyle = THEME.sourceFill;
+    ctx.fillRect(viewportRect.x, viewportRect.y, viewportRect.width, viewportRect.height);
+    if (previewImage && typeof ctx.drawImage === "function") {
+        ctx.globalAlpha = SOURCE_PREVIEW_OPACITY;
+        ctx.drawImage(
+            previewImage,
+            renderedSourceRect.x,
+            renderedSourceRect.y,
+            renderedSourceRect.width,
+            renderedSourceRect.height
+        );
+        ctx.globalAlpha = 1;
+    } else {
+        ctx.globalAlpha = SOURCE_PREVIEW_OPACITY;
+        ctx.fillStyle = THEME.previewFill;
+        ctx.fillRect(
+            renderedSourceRect.x,
+            renderedSourceRect.y,
+            renderedSourceRect.width,
+            renderedSourceRect.height
+        );
+    }
+    ctx.restore();
+}
+
+function drawPreviewFill(ctx, rect) {
+    ctx.fillStyle = THEME.previewFill;
+    roundRect(ctx, rect.x, rect.y, rect.width, rect.height, 6);
+    ctx.fill();
+}
+
+function drawPreviewOutline(ctx, rect) {
+    ctx.strokeStyle = THEME.previewStroke;
+    ctx.lineWidth = 2;
+    roundRect(ctx, rect.x, rect.y, rect.width, rect.height, 6);
+    ctx.stroke();
+}
+
+function drawPreviewGrid(ctx, rect) {
+    ctx.strokeStyle = THEME.gridStroke;
+    ctx.beginPath();
+    ctx.moveTo(rect.x + rect.width / 2, rect.y);
+    ctx.lineTo(rect.x + rect.width / 2, rect.y + rect.height);
+    ctx.moveTo(rect.x, rect.y + rect.height / 2);
+    ctx.lineTo(rect.x + rect.width, rect.y + rect.height / 2);
+    ctx.stroke();
+}
+
+function drawCropPositionMarker(ctx, x, y, active) {
+    ctx.fillStyle = active ? THEME.cropPositionStroke : THEME.cropPositionFill;
+    ctx.strokeStyle = active ? THEME.cropPositionFill : THEME.cropPositionStroke;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x, y, active ? 6 : 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+}
+
+function drawCropPositionLabel(ctx, rect, axis, cropX, cropY) {
+    const text = axis === "x"
+        ? `CROP X ${Math.round(cropX * 100)}%`
+        : axis === "y"
+            ? `CROP Y ${Math.round(cropY * 100)}%`
+            : `CROP X ${Math.round(cropX * 100)}% · Y ${Math.round(cropY * 100)}%`;
+    ctx.font = "10px sans-serif";
+    const labelWidth = Math.min(rect.width - 12, ctx.measureText(text).width + 12);
+    const labelX = rect.x + 6;
+    const labelY = rect.y + 6;
+    ctx.fillStyle = THEME.cropLabelFill;
+    roundRect(ctx, labelX, labelY, labelWidth, 18, 5);
+    ctx.fill();
+    ctx.fillStyle = THEME.cropLabelText;
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, labelX + 6, labelY + 9, Math.max(0, labelWidth - 12));
 }
 
 function getPreviewAnchorHit(node, x, y) {
@@ -349,6 +609,15 @@ function getPreviewAnchorHit(node, x, y) {
         }
     }
     return null;
+}
+
+function getCropPreviewHit(node, x, y) {
+    const preview = node.__denoCropPreview;
+    if (!preview?.interactive || !preview.sourceRect) {
+        return false;
+    }
+    const rect = preview.sourceRect;
+    return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 }
 
 function startAnchorDrag(node, anchorName) {
@@ -375,6 +644,94 @@ function endAnchorDrag(node) {
     unbindGlobalDragGuards(node);
 }
 
+function startCropDrag(node, mouseX, mouseY) {
+    const preview = node.__denoCropPreview;
+    if (!preview?.interactive) {
+        return;
+    }
+    if (preview.directPan) {
+        node.__denoCropDrag = {
+            active: true,
+            preview,
+            startMouseX: mouseX,
+            startMouseY: mouseY,
+            startCropX: normalizedCropValue(getWidget(node, "crop_x")?.value),
+            startCropY: normalizedCropValue(getWidget(node, "crop_y")?.value),
+        };
+        bindGlobalDragGuards(node);
+        return;
+    }
+
+    const cropRect = preview.cropRect;
+    const insideCrop = !preview.pointMode
+        && mouseX >= cropRect.x
+        && mouseX <= cropRect.x + cropRect.width
+        && mouseY >= cropRect.y
+        && mouseY <= cropRect.y + cropRect.height;
+    node.__denoCropDrag = {
+        active: true,
+        preview,
+        pointerOffsetX: insideCrop ? mouseX - cropRect.x : cropRect.width / 2,
+        pointerOffsetY: insideCrop ? mouseY - cropRect.y : cropRect.height / 2,
+    };
+    bindGlobalDragGuards(node);
+    updateCropDrag(node, mouseX, mouseY);
+}
+
+function updateCropDrag(node, mouseX, mouseY) {
+    const state = node.__denoCropDrag;
+    if (!state?.active) {
+        return;
+    }
+    const { preview } = state;
+    const sourceRect = preview.sourceRect;
+
+    if (preview.directPan) {
+        const viewportRect = preview.viewportRect || sourceRect;
+        const renderedSourceRect = preview.renderedSourceRect || viewportRect;
+        const travelX = Math.max(0, renderedSourceRect.width - viewportRect.width);
+        const travelY = Math.max(0, renderedSourceRect.height - viewportRect.height);
+        if (preview.axis === "x" && travelX > 0) {
+            const deltaX = mouseX - state.startMouseX;
+            setWidgetValue(node, "crop_x", roundCropValue(state.startCropX - deltaX / travelX));
+        } else if (preview.axis === "y" && travelY > 0) {
+            const deltaY = mouseY - state.startMouseY;
+            setWidgetValue(node, "crop_y", roundCropValue(state.startCropY - deltaY / travelY));
+        }
+        return;
+    }
+
+    if (preview.pointMode || preview.axis === "both") {
+        const nextX = clamp((mouseX - sourceRect.x) / Math.max(1, sourceRect.width), 0, 1);
+        const nextY = clamp((mouseY - sourceRect.y) / Math.max(1, sourceRect.height), 0, 1);
+        setWidgetValue(node, "crop_x", roundCropValue(nextX));
+        setWidgetValue(node, "crop_y", roundCropValue(nextY));
+        return;
+    }
+
+    const cropRect = preview.cropRect;
+    if (preview.axis === "x") {
+        const travel = Math.max(0, sourceRect.width - cropRect.width);
+        if (travel > 0) {
+            const left = mouseX - state.pointerOffsetX;
+            setWidgetValue(node, "crop_x", roundCropValue((left - sourceRect.x) / travel));
+        }
+    } else if (preview.axis === "y") {
+        const travel = Math.max(0, sourceRect.height - cropRect.height);
+        if (travel > 0) {
+            const top = mouseY - state.pointerOffsetY;
+            setWidgetValue(node, "crop_y", roundCropValue((top - sourceRect.y) / travel));
+        }
+    }
+}
+
+function endCropDrag(node) {
+    if (node.__denoCropDrag) {
+        node.__denoCropDrag.active = false;
+    }
+    unbindGlobalDragGuards(node);
+}
+
 function bindGlobalDragGuards(node) {
     if (node.__denoGlobalDragGuardBound) {
         return;
@@ -383,6 +740,10 @@ function bindGlobalDragGuards(node) {
     node.__denoGlobalDragGuard = () => {
         if (node.__denoAnchorDrag?.active) {
             endAnchorDrag(node);
+            requestNodeRedraw(node);
+        }
+        if (node.__denoCropDrag?.active) {
+            endCropDrag(node);
             requestNodeRedraw(node);
         }
     };
@@ -407,6 +768,22 @@ function isPrimaryPointerPressed(event) {
     }
     if (typeof event.buttons === "number") {
         return (event.buttons & 1) === 1;
+    }
+    if (typeof event.which === "number") {
+        return event.which === 1;
+    }
+    return true;
+}
+
+function isPrimaryPointerStart(event) {
+    if (!event) {
+        return true;
+    }
+    if (typeof event.buttons === "number" && event.buttons !== 0) {
+        return (event.buttons & 1) === 1;
+    }
+    if (typeof event.button === "number") {
+        return event.button === 0;
     }
     if (typeof event.which === "number") {
         return event.which === 1;
@@ -506,6 +883,7 @@ function calculateDisplayInfo(node) {
     const ratioPreset = getWidget(node, "ratio_preset")?.value ?? "16:9";
     const megapixels = Number.parseFloat(getWidget(node, "megapixels")?.value ?? 1.0);
     const divisibleBy = Number.parseInt(String(getWidget(node, "divisible_by")?.value ?? "32"), 10);
+    const sourceState = getLinkedImageState(node);
 
     let targetWidth = width;
     let targetHeight = height;
@@ -517,7 +895,6 @@ function calculateDisplayInfo(node) {
         const [ratioX, ratioY] = ratioPreset.split(":").map(Number);
         [targetWidth, targetHeight] = computePresetDims(ratioX, ratioY, megapixels, divisibleBy);
     } else if (mode === KEEP_INPUT_RATIO_MODE) {
-        const sourceState = getLinkedImageState(node);
         if (!sourceState.connected) {
             [previewWidth, previewHeight] = computeKeepInputRatioDims(
                 width,
@@ -554,6 +931,7 @@ function calculateDisplayInfo(node) {
         previewHeight: previewHeight ?? targetHeight,
         ratioLabel: finalRatio,
         text: summaryText || `${targetWidth} x ${targetHeight}  |  ${finalRatio}  |  ${finalMegapixels} MP  |  divisible by ${divisibleBy}`,
+        sourceState,
     };
 }
 
@@ -656,35 +1034,103 @@ function computeKeepInputRatioDims(sourceWidth, sourceHeight, megapixels, divisi
     });
 }
 
+function targetGraphForNode(node) {
+    return node?.graph || app?.graph || app?.rootGraph || null;
+}
+
+function graphLinkByIdForNode(node, linkId) {
+    const links = targetGraphForNode(node)?.links || {};
+    if (links && links[linkId]) {
+        return links[linkId];
+    }
+    if (Array.isArray(links)) {
+        return links.find((link) => String(link?.id ?? link?.[0]) === String(linkId)) || null;
+    }
+    return null;
+}
+
+function graphNodeByIdForNode(node, nodeId) {
+    const graph = targetGraphForNode(node);
+    const direct = graph?.getNodeById?.(nodeId) || graph?.getNodeById?.(+nodeId);
+    if (direct) {
+        return direct;
+    }
+    return (graph?._nodes || []).find((candidate) => String(candidate?.id) === String(nodeId)) || null;
+}
+
+function linkOriginId(link) {
+    return link?.origin_id ?? link?.originId ?? link?.origin ?? link?.[1] ?? null;
+}
+
+function isRerouteNode(node) {
+    return String(node?.type || node?.comfyClass || node?.constructor?.nodeData?.name || "").trim() === "Reroute";
+}
+
+function linkedImageSourceNode(node, imageInput) {
+    const seenLinks = new Set();
+    const seenNodes = new Set();
+    let linkId = imageInput?.link;
+    while (linkId != null && !seenLinks.has(String(linkId))) {
+        seenLinks.add(String(linkId));
+        const linkInfo = graphLinkByIdForNode(node, linkId);
+        const originId = linkOriginId(linkInfo);
+        if (originId == null) {
+            return null;
+        }
+        const sourceNode = graphNodeByIdForNode(node, originId);
+        if (!sourceNode) {
+            return null;
+        }
+        if (!isRerouteNode(sourceNode)) {
+            return sourceNode;
+        }
+        if (seenNodes.has(String(sourceNode.id))) {
+            return null;
+        }
+        seenNodes.add(String(sourceNode.id));
+        const upstreamInput = (sourceNode.inputs || []).find((candidate) => candidate?.link != null);
+        if (!upstreamInput) {
+            return null;
+        }
+        linkId = upstreamInput.link;
+    }
+    return null;
+}
+
 function getLinkedImageState(node) {
     const imageInput = (node.inputs || []).find((input) => input.name === "image");
     if (!imageInput || imageInput.link == null) {
-        return { connected: false, size: null };
+        clearSourcePreviewImage(node);
+        return { connected: false, size: null, previewImage: null, previewUrl: null };
     }
 
-    const linkInfo = app.graph?.links?.[imageInput.link];
-    if (!linkInfo || linkInfo.origin_id == null) {
-        return { connected: true, size: null };
-    }
-
-    const sourceNode = app.graph?.getNodeById?.(linkInfo.origin_id);
+    const sourceNode = linkedImageSourceNode(node, imageInput);
     if (!sourceNode) {
-        return { connected: true, size: null };
+        clearSourcePreviewImage(node);
+        return { connected: true, size: null, previewImage: null, previewUrl: null };
     }
+
+    const previewUrl = sourcePreviewUrl(sourceNode);
+    const upstreamPreviewImage = Array.isArray(sourceNode.imgs) && sourceNode.imgs.length > 0
+        ? sourceNode.imgs[0]
+        : null;
+    if (upstreamPreviewImage) {
+        clearSourcePreviewImage(node);
+    }
+    const previewImage = upstreamPreviewImage || ensureSourcePreviewImage(node, previewUrl);
 
     const hintedSize = sourceNode.__denoOutputImageSize ?? sourceNode.properties?.__denoOutputImageSize;
     const hintedWidth = Number(hintedSize?.width);
     const hintedHeight = Number(hintedSize?.height);
     if (hintedWidth > 0 && hintedHeight > 0) {
-        return { connected: true, size: { width: hintedWidth, height: hintedHeight } };
+        return { connected: true, size: { width: hintedWidth, height: hintedHeight }, previewImage, previewUrl };
     }
 
-    if (Array.isArray(sourceNode.imgs) && sourceNode.imgs.length > 0) {
-        const firstImage = sourceNode.imgs[0];
-        const imgWidth = Number(firstImage?.naturalWidth ?? firstImage?.width ?? 0);
-        const imgHeight = Number(firstImage?.naturalHeight ?? firstImage?.height ?? 0);
+    if (previewImage) {
+        const imgWidth = Number(previewImage?.naturalWidth ?? previewImage?.width ?? 0);
+        const imgHeight = Number(previewImage?.naturalHeight ?? previewImage?.height ?? 0);
         if (imgWidth > 0 && imgHeight > 0) {
-            return { connected: true, size: { width: imgWidth, height: imgHeight } };
+            return { connected: true, size: { width: imgWidth, height: imgHeight }, previewImage, previewUrl };
         }
     }
 
@@ -693,10 +1139,72 @@ function getLinkedImageState(node) {
     const widthValue = Number(widthWidget?.value);
     const heightValue = Number(heightWidget?.value);
     if (widthValue > 0 && heightValue > 0) {
-        return { connected: true, size: { width: widthValue, height: heightValue } };
+        return { connected: true, size: { width: widthValue, height: heightValue }, previewImage, previewUrl };
     }
 
-    return { connected: true, size: null };
+    return { connected: true, size: null, previewImage, previewUrl };
+}
+
+function sourcePreviewUrl(sourceNode) {
+    const widgets = sourceNode?.widgets || [];
+    const imageWidget = widgets.find((widget) => widget.name === "image" && typeof widget.value === "string")
+        || widgets.find((widget) => typeof widget.value === "string" && /\.(png|jpe?g|webp|gif|bmp)$/i.test(widget.value));
+    const rawValue = String(imageWidget?.value || "").trim().replaceAll("\\", "/");
+    if (!rawValue) {
+        return null;
+    }
+    const parts = rawValue.split("/").filter(Boolean);
+    const filename = parts.pop();
+    if (!filename) {
+        return null;
+    }
+    const subfolder = parts.join("/");
+    return "/view?" + new URLSearchParams({ filename, subfolder, type: "input" }).toString();
+}
+
+function ensureSourcePreviewImage(node, previewUrl) {
+    if (!previewUrl || typeof Image !== "function") {
+        if (!previewUrl) {
+            clearSourcePreviewImage(node);
+        }
+        return null;
+    }
+    const current = node.__denoSourcePreviewImage;
+    if (current?.url === previewUrl) {
+        return current.loaded ? current.image : null;
+    }
+
+    clearSourcePreviewImage(node);
+    const image = new Image();
+    const state = { url: previewUrl, image, loaded: false };
+    node.__denoSourcePreviewImage = state;
+    image.onload = () => {
+        if (node.__denoSourcePreviewImage !== state) {
+            return;
+        }
+        state.loaded = true;
+        requestNodeRedraw(node);
+    };
+    image.onerror = () => {
+        if (node.__denoSourcePreviewImage === state) {
+            state.loaded = false;
+            requestNodeRedraw(node);
+        }
+    };
+    image.src = previewUrl;
+    return null;
+}
+
+function clearSourcePreviewImage(node) {
+    const state = node?.__denoSourcePreviewImage;
+    if (!state) {
+        return;
+    }
+    if (state.image) {
+        state.image.onload = null;
+        state.image.onerror = null;
+    }
+    delete node.__denoSourcePreviewImage;
 }
 
 function getLinkedImageSize(node) {
@@ -764,6 +1272,15 @@ function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
 }
 
+function normalizedCropValue(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? clamp(parsed, 0, 1) : 0.5;
+}
+
+function roundCropValue(value) {
+    return Number(normalizedCropValue(value).toFixed(3));
+}
+
 function withVirtualPull(rawValue, baseValue) {
     if (!Number.isFinite(rawValue)) {
         return baseValue;
@@ -784,10 +1301,16 @@ function applyDragGain(baseValue, rawValue) {
 if (typeof window !== "undefined" && typeof window.__DENO_RES_HELPER_TEST_HOOK__ === "function") {
     window.__DENO_RES_HELPER_TEST_HOOK__({
         calculateDisplayInfo,
+        calculateCropRenderRect,
+        calculateCropWindow,
         computeKeepInputRatioDims,
+        getCropPreviewHit,
         getLinkedImageSize,
         getLinkedImageState,
+        isPrimaryPointerStart,
         previewSizeFromDisplayInfo,
         roundUp,
+        sourcePreviewUrl,
+        updateCropDrag,
     });
 }

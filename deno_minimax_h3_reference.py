@@ -71,7 +71,8 @@ class DenoMiniMaxH3ReferenceImageLoader:
     DESCRIPTION = (
         "Load up to 9 ordered MiniMax H3 reference images through one cable. "
         "Each image keeps its own decoded size and aspect ratio; card order maps to "
-        "<Picture 1>, <Picture 2>, and so on."
+        "<Picture 1>, <Picture 2>, and so on. The optional IMAGE list output can "
+        "reuse the same ordered sources in nodes such as DENO Local LLM Loader."
     )
 
     @classmethod
@@ -82,8 +83,9 @@ class DenoMiniMaxH3ReferenceImageLoader:
             }
         }
 
-    RETURN_TYPES = (MINIMAX_H3_REFERENCE_IMAGES_TYPE,)
-    RETURN_NAMES = ("ref_images",)
+    RETURN_TYPES = (MINIMAX_H3_REFERENCE_IMAGES_TYPE, "IMAGE")
+    RETURN_NAMES = ("ref_images", "image_list")
+    OUTPUT_IS_LIST = (False, True)
     FUNCTION = "load_reference_images"
     CATEGORY = "Deno/Image"
 
@@ -144,9 +146,9 @@ class DenoMiniMaxH3ReferenceImageLoader:
                 "button, then run the workflow again."
             )
 
-        # The outer tuple is ComfyUI's single-output contract. The inner tuple
-        # is one opaque, ordered bundle and must not be marked OUTPUT_IS_LIST.
-        return (tuple(images),)
+        # Slot 0 remains one opaque ordered H3 bundle. Slot 1 exposes the same
+        # tensor objects as an IMAGE list so mixed source sizes stay separate.
+        return (tuple(images), images)
 
 
 def _bundle_to_stock_ref_images(ref_images):

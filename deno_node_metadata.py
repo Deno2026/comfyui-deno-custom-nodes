@@ -49,8 +49,10 @@ NODE_INPUT_TOOLTIPS = {
         "width": "Manual or fallback output width in pixels.",
         "height": "Manual or fallback output height in pixels.",
         "divisible_by": "Round the final size to a model-safe multiple such as 16 or 32.",
-        "resize_method": "Choose crop-fill or fit/letterbox behavior when resizing an input image.",
+        "resize_method": "Choose center crop, draggable crop-position, or fit/letterbox behavior when resizing an input image.",
         "interpolation": "Resize filter. Lanczos is the default quality choice.",
+        "crop_x": "Saved horizontal crop position. Drag inside the Resize Box preview to change it.",
+        "crop_y": "Saved vertical crop position. Drag inside the Resize Box preview to change it.",
         "image": "Optional source image. If empty, the node creates a blank image at the selected size.",
     },
     "DenoMultiImageLoader": {
@@ -303,6 +305,7 @@ NODE_OUTPUT_TOOLTIPS = {
     ),
     "DenoMiniMaxH3ReferenceImageLoader": (
         "Ordered MiniMax H3 reference-image bundle with each image's decoded size and aspect ratio preserved.",
+        "The same ordered sources as a mixed-size IMAGE list for nodes such as DENO Local LLM Loader.",
     ),
     "DenoMiniMaxH3ReferenceToVideo": (
         "Positive MiniMax H3 conditioning containing the ordered image, video, and audio references.",

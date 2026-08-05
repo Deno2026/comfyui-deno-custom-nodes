@@ -1861,6 +1861,9 @@ def test_minimax_h3_reference_loader_preserves_individual_shapes_and_order(monke
         def __getitem__(self, key):
             return FakeTensor(self.array[key])
 
+        def __array__(self, dtype=None):
+            return np.asarray(self.array, dtype=dtype)
+
     first = tmp_path / "wide.png"
     second = tmp_path / "tall.png"
     Image.new("RGB", (17, 11), color=(10, 20, 30)).save(first)
@@ -1870,12 +1873,21 @@ def test_minimax_h3_reference_loader_preserves_individual_shapes_and_order(monke
 
     result = loader_cls().load_reference_images("wide.png\ntall.png")
 
-    assert len(result) == 1
+    assert len(result) == 2
     bundle = result[0]
+    image_list = result[1]
     assert isinstance(bundle, tuple)
+    assert isinstance(image_list, list)
     assert [tensor.shape for tensor in bundle] == [(1, 11, 17, 3), (1, 23, 9, 3)]
-    assert not hasattr(loader_cls, "OUTPUT_IS_LIST")
-    assert loader_cls.RETURN_TYPES == ("DENO_MINIMAX_H3_REFERENCE_IMAGES",)
+    assert [tensor.shape for tensor in image_list] == [(1, 11, 17, 3), (1, 23, 9, 3)]
+    assert all(bundle[index] is image_list[index] for index in range(2))
+    assert loader_cls.OUTPUT_IS_LIST == (False, True)
+    assert loader_cls.RETURN_TYPES == ("DENO_MINIMAX_H3_REFERENCE_IMAGES", "IMAGE")
+    assert loader_cls.RETURN_NAMES == ("ref_images", "image_list")
+
+    llm_module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    attachments = llm_module._prepare_image_attachments(image_list, max_side=64)
+    assert [(item["width"], item["height"]) for item in attachments] == [(17, 11), (9, 23)]
 
 
 def test_minimax_h3_reference_loader_rejects_empty_and_more_than_nine_images():
@@ -6027,10 +6039,93 @@ def test_resize_box_declares_comfyui_contract():
     assert input_types["required"]["megapixels"][0] == "FLOAT"
     assert input_types["required"]["divisible_by"][0] == ["1", "8", "16", "32", "64", "128"]
     assert input_types["required"]["divisible_by"][1]["default"] == "32"
+    assert input_types["required"]["resize_method"][0] == [
+        "Center Crop (Fill)",
+        "Crop Position (Fill)",
+        "Fit (Letterbox/Pillarbox)",
+    ]
+    assert list(input_types["required"])[-2:] == ["resize_method", "interpolation"]
     assert input_types["optional"]["image"][0] == "IMAGE"
+    assert input_types["optional"]["crop_x"][1]["default"] == 0.5
+    assert input_types["optional"]["crop_y"][1]["default"] == 0.5
+    assert "crop_x" not in input_types["required"]
+    assert "crop_y" not in input_types["required"]
     assert node_cls.RETURN_TYPES == ("IMAGE", "INT", "INT")
     assert node_cls.RETURN_NAMES == ("image", "width", "height")
     assert node_cls.FUNCTION == "setup_resolution"
+
+    signature = inspect.signature(node_cls.setup_resolution)
+    assert list(signature.parameters)[-3:] == ["image", "crop_x", "crop_y"]
+
+
+class _ResizeArray:
+    def __init__(self, values):
+        self.values = np.asarray(values)
+
+    @property
+    def shape(self):
+        return self.values.shape
+
+    def movedim(self, source, destination):
+        return _ResizeArray(np.moveaxis(self.values, source, destination))
+
+    def __getitem__(self, key):
+        return _ResizeArray(self.values[key])
+
+    def clamp(self, _minimum, _maximum):
+        return self
+
+
+def test_resize_box_position_crop_moves_only_the_overflow_axis(monkeypatch):
+    package = load_package()
+    monkeypatch.setattr(package, "_interpolate_image", lambda image, _height, _width, _method: image)
+
+    wide = _ResizeArray(np.arange(8).reshape(1, 2, 4, 1))
+    wide_left = package._resize_with_method(
+        wide, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_x=0.0
+    )
+    wide_center = package._resize_with_method(
+        wide, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_x=0.5
+    )
+    wide_right = package._resize_with_method(
+        wide, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_x=1.0
+    )
+
+    assert wide_left.values[..., 0].tolist() == [[[0, 1], [4, 5]]]
+    assert wide_center.values[..., 0].tolist() == [[[1, 2], [5, 6]]]
+    assert wide_right.values[..., 0].tolist() == [[[2, 3], [6, 7]]]
+
+    tall = _ResizeArray(np.arange(8).reshape(1, 4, 2, 1))
+    tall_top = package._resize_with_method(
+        tall, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_y=0.0
+    )
+    tall_bottom = package._resize_with_method(
+        tall, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_y=1.0
+    )
+
+    assert tall_top.values[..., 0].tolist() == [[[0, 1], [2, 3]]]
+    assert tall_bottom.values[..., 0].tolist() == [[[4, 5], [6, 7]]]
+
+
+def test_resize_box_position_crop_clamps_offsets_and_preserves_legacy_center(monkeypatch):
+    package = load_package()
+    monkeypatch.setattr(package, "_interpolate_image", lambda image, _height, _width, _method: image)
+    image = _ResizeArray(np.arange(8).reshape(1, 2, 4, 1))
+
+    legacy_center = package._resize_with_method(image, 2, 2, "Center Crop (Fill)", "nearest-exact")
+    positioned_center = package._resize_with_method(
+        image, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_x=0.5, crop_y=0.5
+    )
+    clamped_left = package._resize_with_method(
+        image, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_x=-10
+    )
+    clamped_right = package._resize_with_method(
+        image, 2, 2, "Crop Position (Fill)", "nearest-exact", crop_x=10
+    )
+
+    assert np.array_equal(legacy_center.values, positioned_center.values)
+    assert clamped_left.values[..., 0].tolist() == [[[0, 1], [4, 5]]]
+    assert clamped_right.values[..., 0].tolist() == [[[2, 3], [6, 7]]]
 
 
 def test_resize_box_calculates_aligned_dimensions_for_preset_mode():
