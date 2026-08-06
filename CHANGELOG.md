@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.79 - 2026-08-06
+
+- Changed `(Deno) MiniMax H3 Multi Reference Image Loader` preview cards to follow each source image's aspect ratio, keeping mixed landscape and portrait references fully visible without preview cropping.
+
 ## 0.7.78 - 2026-08-06
 
 - Improved `(Deno) Local LLM Loader` with applied System Prompt preset status, an optional `video seconds` FLOAT socket, and workflow-tab model restoration that waits for a successful model-list refresh before declaring a saved model missing.

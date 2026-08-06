@@ -1411,6 +1411,27 @@ assert.equal(
   false,
   "sub-pixel renderer drift within one pixel must not create a resize feedback loop",
 );
+
+const landscapeAspectCard = hooks.resolveLoaderAspectCardLayout(1920, 1080, 96);
+assert.equal(landscapeAspectCard.validSourceSize, true);
+assert.equal(landscapeAspectCard.width, 170.667);
+assert.equal(landscapeAspectCard.height, 96);
+assert.equal(landscapeAspectCard.aspectRatio, "1920 / 1080");
+
+const portraitAspectCard = hooks.resolveLoaderAspectCardLayout(1080, 1920, 96);
+assert.equal(portraitAspectCard.width, 54);
+assert.equal(portraitAspectCard.height, 96);
+assert.equal(portraitAspectCard.aspectRatio, "1080 / 1920");
+assert.ok(
+  landscapeAspectCard.width * 2 + portraitAspectCard.width + 20 <= 420,
+  "two 16:9 cards and one 9:16 card should fit a 420px H3 gallery content area with two gaps",
+);
+
+const fallbackAspectCard = hooks.resolveLoaderAspectCardLayout(0, Number.NaN, -1);
+assert.equal(fallbackAspectCard.validSourceSize, false);
+assert.equal(fallbackAspectCard.width, 96);
+assert.equal(fallbackAspectCard.height, 96);
+assert.equal(fallbackAspectCard.aspectRatio, "1 / 1");
 assert.equal(
   hooks.shouldApplyLoaderNodeSize([431.1, 520], [430, 520]),
   true,

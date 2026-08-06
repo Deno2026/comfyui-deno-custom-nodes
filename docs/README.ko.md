@@ -79,7 +79,7 @@ ComfyUI용 해상도 도우미와 이미지 리사이즈 노드입니다.
 
 ComfyUI 순정 MiniMax H3 Reference to Video용 한 줄 연결 다중 참조 이미지 로더입니다.
 
-기존 `(Deno) Multi Image Loader`와 동일한 업로드, 붙여넣기, 드래그 앤 드롭, Input Folder, 카드 정렬, 삭제 사용감을 유지합니다. 최대 9장을 전용 `ref_images` 소켓 하나로 전달하며, 각 이미지의 디코딩된 원본 크기와 비율을 리사이즈·크롭·패딩 없이 개별 보존합니다. 카드 순서는 `<Picture 1>`, `<Picture 2>` 순서로 대응합니다. 같은 이미지들은 별도의 `image_list` 출력으로도 제공되어 `(Deno) Local LLM Loader`의 `image` 입력에 바로 연결할 수 있습니다.
+기존 `(Deno) Multi Image Loader`와 동일한 업로드, 붙여넣기, 드래그 앤 드롭, Input Folder, 카드 정렬, 삭제 사용감을 유지합니다. 최대 9장을 전용 `ref_images` 소켓 하나로 전달하며, 각 이미지의 디코딩된 원본 크기와 비율을 리사이즈·크롭·패딩 없이 개별 보존합니다. 미리보기 카드도 각 원본 비율을 그대로 사용하므로 가로·세로 이미지가 섞여 있어도 잘림 없이 표시됩니다. 카드 순서는 `<Picture 1>`, `<Picture 2>` 순서로 대응합니다. 같은 이미지들은 별도의 `image_list` 출력으로도 제공되어 `(Deno) Local LLM Loader`의 `image` 입력에 바로 연결할 수 있습니다.
 
 함께 제공되는 `(Deno) MiniMax H3 Reference to Video`는 이미지 입력만 한 단자로 바꾸고, 참조 비디오·비디오 오디오·단독 오디오의 순정 Autogrow 입력은 그대로 유지합니다. 일반 `IMAGE` 배치는 모든 이미지가 같은 가로·세로 크기여야 하므로 혼합 원본 크기 보존에는 사용할 수 없습니다. 추가된 `image_list`는 동일 크기 배치가 아니라 각 원본을 분리해 유지하는 리스트 출력입니다. H3 내부의 `ref_image_size` 처리는 실행 시 비율을 유지한 채 참조 이미지를 축소할 수 있습니다.
 

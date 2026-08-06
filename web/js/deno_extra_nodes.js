@@ -7,6 +7,7 @@ const SEQUENCER_NODE = "DenoLTXSequencer";
 const LTX_PRESET_NODE = "DenoLTX23PresetLoader";
 const LOADER_MIN_SIZE = [360, 520];
 const H3_REFERENCE_LOADER_MIN_SIZE = [360, 370];
+const H3_REFERENCE_CARD_PREVIEW_HEIGHT = 96;
 const LOADER_PANEL_MIN_HEIGHT = 320;
 const LOADER_PANEL_WIDGET_EXTRA_HEIGHT = 12;
 const LOADER_PANEL_WRAPPER_COMPENSATION = 4;
@@ -70,10 +71,12 @@ app.registerExtension({
                 notifySequencers: false,
                 maxImages: 9,
                 minSize: H3_REFERENCE_LOADER_MIN_SIZE,
+                preserveCardAspectRatio: true,
+                cardPreviewHeight: H3_REFERENCE_CARD_PREVIEW_HEIGHT,
                 legacyDefaultHeight: LOADER_MIN_SIZE[1],
                 layoutVersion: H3_REFERENCE_LOADER_LAYOUT_VERSION,
                 layoutVersionProperty: H3_REFERENCE_LOADER_LAYOUT_VERSION_PROPERTY,
-                hint: "Original size and aspect ratio are preserved. Card order maps to <Picture 1>, <Picture 2>, and so on.",
+                hint: "Original size and aspect ratio are preserved and shown without preview cropping. Card order maps to <Picture 1>, <Picture 2>, and so on.",
             });
         }
         if (nodeData.name === SEQUENCER_NODE) {
@@ -720,6 +723,26 @@ function normalizeLoaderMinSize(minSize) {
     ];
 }
 
+function resolveLoaderAspectCardLayout(width, height, previewHeight = H3_REFERENCE_CARD_PREVIEW_HEIGHT) {
+    const sourceWidth = Number(width);
+    const sourceHeight = Number(height);
+    const requestedHeight = Number(previewHeight);
+    const displayHeight = Number.isFinite(requestedHeight) && requestedHeight > 0
+        ? requestedHeight
+        : H3_REFERENCE_CARD_PREVIEW_HEIGHT;
+    const validSourceSize = Number.isFinite(sourceWidth)
+        && sourceWidth > 0
+        && Number.isFinite(sourceHeight)
+        && sourceHeight > 0;
+    const aspectRatio = validSourceSize ? sourceWidth / sourceHeight : 1;
+    return {
+        validSourceSize,
+        width: Math.round(displayHeight * aspectRatio * 1000) / 1000,
+        height: displayHeight,
+        aspectRatio: validSourceSize ? `${sourceWidth} / ${sourceHeight}` : "1 / 1",
+    };
+}
+
 function resolveLoaderNodeSize(
     currentSize,
     minSize = LOADER_MIN_SIZE,
@@ -852,6 +875,8 @@ function setupMultiImageLoader(node, options = {}) {
         ? Math.max(1, Math.floor(Number(options.maxImages)))
         : null;
     const loaderMinSize = normalizeLoaderMinSize(options.minSize);
+    const preserveCardAspectRatio = options.preserveCardAspectRatio === true;
+    const cardPreviewHeight = resolveLoaderAspectCardLayout(1, 1, options.cardPreviewHeight).height;
     const legacyDefaultHeight = Number(options.legacyDefaultHeight);
     const layoutVersionProperty = String(options.layoutVersionProperty || "").trim();
     const layoutVersion = Number(options.layoutVersion) || 0;
@@ -907,12 +932,22 @@ function setupMultiImageLoader(node, options = {}) {
         : "Drag files, press Ctrl+V, or use Upload. Drag cards to reorder.");
 
     const grid = document.createElement("div");
+    grid.dataset.denoLoaderGalleryLayout = preserveCardAspectRatio ? "source-aspect-v1" : "uniform-grid-v1";
+    const galleryLayoutCss = preserveCardAspectRatio
+        ? `
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-start;
+        `
+        : `
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+        `;
     grid.style.cssText = `
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+        ${galleryLayoutCss}
         gap: 10px;
         align-content: start;
         padding-right: 4px;
@@ -1023,13 +1058,22 @@ function setupMultiImageLoader(node, options = {}) {
         setOutputSizeHint(size);
     }
 
-    function createPlaceholder() {
+    function createPlaceholder(referenceCard = null) {
         const el = document.createElement("div");
+        const sourceAspectPlaceholderCss = preserveCardAspectRatio
+            ? `
+                width: ${referenceCard?.style?.width || `${cardPreviewHeight}px`};
+                max-width: 100%;
+                aspect-ratio: ${referenceCard?.style?.aspectRatio || "1 / 1"};
+                flex: 0 0 auto;
+                box-sizing: border-box;
+            `
+            : "min-height: 92px;";
         el.style.cssText = `
             border: 1px dashed rgba(72,255,132,0.55);
             border-radius: 10px;
             background: rgba(28,68,42,0.35);
-            min-height: 92px;
+            ${sourceAspectPlaceholderCss}
         `;
         return el;
     }
@@ -1038,9 +1082,21 @@ function setupMultiImageLoader(node, options = {}) {
         const card = document.createElement("div");
         card.draggable = true;
         card.dataset.path = path;
+        card.dataset.denoLoaderCardLayout = preserveCardAspectRatio ? "source-aspect-v1" : "uniform-grid-v1";
+        const initialCardLayout = resolveLoaderAspectCardLayout(1, 1, cardPreviewHeight);
+        const sourceAspectCardCss = preserveCardAspectRatio
+            ? `
+                width: ${initialCardLayout.width}px;
+                max-width: 100%;
+                aspect-ratio: ${initialCardLayout.aspectRatio};
+                flex: 0 0 auto;
+                min-height: 0;
+                box-sizing: border-box;
+            `
+            : "min-height: 92px;";
         card.style.cssText = `
             position: relative;
-            min-height: 92px;
+            ${sourceAspectCardCss}
             border-radius: 10px;
             overflow: hidden;
             background: #050707;
@@ -1050,8 +1106,26 @@ function setupMultiImageLoader(node, options = {}) {
         `;
 
         const image = document.createElement("img");
-        setInputImageSource(image, path);
-        image.style.cssText = "display:block; width:100%; height:100%; object-fit:cover; pointer-events:none;";
+        if (preserveCardAspectRatio) {
+            const applySourceAspectRatio = () => {
+                const layout = resolveLoaderAspectCardLayout(image.naturalWidth, image.naturalHeight, cardPreviewHeight);
+                if (!layout.validSourceSize) {
+                    return;
+                }
+                card.style.width = `${layout.width}px`;
+                card.style.aspectRatio = layout.aspectRatio;
+                card.dataset.denoSourceAspectRatio = layout.aspectRatio;
+            };
+            image.addEventListener("load", applySourceAspectRatio);
+            image.decoding = "async";
+            setInputImageSource(image, path);
+            if (image.complete) {
+                applySourceAspectRatio();
+            }
+        } else {
+            setInputImageSource(image, path);
+        }
+        image.style.cssText = `display:block; width:100%; height:100%; object-fit:${preserveCardAspectRatio ? "contain" : "cover"}; pointer-events:none;`;
 
         const badge = document.createElement("div");
         badge.textContent = String(index + 1);
@@ -1086,7 +1160,7 @@ function setupMultiImageLoader(node, options = {}) {
 
         card.addEventListener("dragstart", () => {
             draggedCard = card;
-            placeholder = createPlaceholder();
+            placeholder = createPlaceholder(card);
             isReordering = true;
             card.style.opacity = "0.35";
             setTimeout(() => {
@@ -4548,6 +4622,7 @@ if (typeof window !== "undefined" && typeof window.__DENO_EXTRA_NODES_TEST_HOOK_
         getSequencerInputPinReasons,
         collectUploadedPaths,
         appendPathsWithinLimit,
+        resolveLoaderAspectCardLayout,
         resolveLoaderNodeSize,
         shouldApplyLoaderNodeSize,
         installLoaderCanvasNavigation,
