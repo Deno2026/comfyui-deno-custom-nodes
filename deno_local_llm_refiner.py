@@ -8,6 +8,7 @@ import itertools
 from io import BytesIO
 import json
 import logging
+import math
 import os
 import queue
 import random
@@ -830,6 +831,37 @@ def _flatten_prompts(value: Any) -> List[str]:
             prompts.extend(_flatten_prompts(item))
         return prompts or [""]
     return [str(value)]
+
+
+def _video_duration_prompt_sentence(value: Any) -> str:
+    raw_value = _extract_scalar(value, None)
+    if raw_value is None or isinstance(raw_value, bool):
+        return ""
+    try:
+        seconds = float(raw_value)
+    except (TypeError, ValueError):
+        return ""
+    if not math.isfinite(seconds) or seconds <= 0:
+        return ""
+    seconds_text = str(int(seconds)) if seconds.is_integer() else format(seconds, ".15g")
+    article = "an" if (
+        seconds_text.startswith("8")
+        or seconds_text == "11"
+        or seconds_text.startswith("11.")
+        or seconds_text == "18"
+        or seconds_text.startswith("18.")
+    ) else "a"
+    return f"This is {article} {seconds_text}-second video."
+
+
+def _append_video_duration_to_prompt(prompt: Any, video_seconds: Any) -> str:
+    prompt_text = str(prompt or "")
+    sentence = _video_duration_prompt_sentence(video_seconds)
+    if not sentence:
+        return prompt_text
+    if not prompt_text.strip():
+        return sentence
+    return f"{prompt_text.rstrip()}\n\n{sentence}"
 
 
 def _seed_for_index(seed: int, mode: str = "fixed", index: int = 0) -> int:
@@ -2485,7 +2517,8 @@ class DenoLocalLLMRefiner:
         "Call a local Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap model "
         "from ComfyUI and help rewrite or review prompt text.\n\n"
         "An optional IMAGE input can be attached to the local model call. "
-        "Use a vision-capable local model for image review.\n\n"
+        "Use a vision-capable local model for image review. An optional Video Seconds FLOAT input "
+        "adds a short English duration sentence to each user prompt.\n\n"
         "Designed for prompt-batcher workflows: use the in-node Prompt field or connect STRING into Prompt, "
         "and this node processes the whole prompt batch in one execution so the local LLM can stay "
         "loaded until the batch is complete.\n\n"
@@ -2533,6 +2566,17 @@ class DenoLocalLLMRefiner:
             },
             "optional": {
                 "image": ("IMAGE",),
+                "video_seconds": (
+                    "FLOAT",
+                    {
+                        "default": 0.0,
+                        "min": 0.0,
+                        "max": 86400.0,
+                        "step": 0.1,
+                        "forceInput": True,
+                        "tooltip": "When connected with a positive value, adds an English video-duration sentence to each LLM user prompt.",
+                    },
+                ),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -2616,6 +2660,7 @@ class DenoLocalLLMRefiner:
         comfy_vram_policy=COMFY_VRAM_AUTO,
         prompt="",
         image=None,
+        video_seconds=None,
         unique_id=None,
     ):
         provider_value = _normalize_provider(str(_extract_scalar(provider, PROVIDER_OLLAMA)))
@@ -2703,6 +2748,7 @@ class DenoLocalLLMRefiner:
             for index, prompt in enumerate(prompts):
                 current_seed = _seed_for_index(seed_value, seed_mode_value, index)
                 is_last = index == total - 1
+                effective_prompt = _append_video_duration_to_prompt(prompt, video_seconds)
                 active_key = _mark_local_llm_active(provider_value, server_value, model_value)
                 batch_request_started = True
                 batch_cleanup_state = {"provider_cleanup_attempted": False}
@@ -2712,7 +2758,7 @@ class DenoLocalLLMRefiner:
                         server_url=server_value,
                         model=model_value,
                         system_prompt=system_value,
-                        prompt=prompt,
+                        prompt=effective_prompt,
                         thinking=thinking_value,
                         seed=current_seed,
                         model_memory=memory_value,

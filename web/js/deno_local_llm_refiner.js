@@ -236,6 +236,13 @@ const BUILTIN_SYSTEM_PROMPT_PRESETS = Object.freeze([
         text: REVIEWER_JSON_SYSTEM_PROMPT,
     },
 ]);
+const systemPromptPresetPageCache = {
+    status: "idle",
+    presets: [],
+    promise: null,
+    readStatus: "idle",
+    error: "",
+};
 const REVIEWER_HOW_TO_USE_SECTIONS = Object.freeze([
     {
         title: "What this node does",
@@ -1160,7 +1167,13 @@ function normalizeLocalLLMLoaderSerializedValues(values) {
         generatedButtonStart = findLocalLLMGeneratedButtonRunStart(normalized);
     }
     normalized = normalizeLocalLLMLoaderGeneratedPickerValues(normalized);
-    return normalized.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
+    normalized = normalized.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
+    for (const modelIndex of [1, 2]) {
+        if (modelIndex < normalized.length) {
+            normalized[modelIndex] = originalModelValueFromDisplay(normalized[modelIndex]);
+        }
+    }
+    return normalized;
 }
 
 function normalizeLocalLLMLoaderGeneratedPickerValues(values) {
@@ -1199,7 +1212,9 @@ function localLLMLoaderSerializedValuesFromWidgets(node, fallbackValues) {
         const widget = getWidget(node, name);
         if (widget) {
             foundNamedWidget = true;
-            return widget.value;
+            return name === "ollama_model" || name === "lm_studio_model"
+                ? originalModelValueFromDisplay(widget.value)
+                : widget.value;
         }
         return index < fallback.length ? fallback[index] : "";
     });
@@ -1330,6 +1345,10 @@ function displayModelValueForCurrentChoices(widget, value) {
     const original = originalModelValueFromDisplay(value);
     if (!hasUsableSavedModelValue(original)) {
         return "";
+    }
+    if (widget?.__denoLocalLLMModelChoicesAuthoritative !== true) {
+        preserveWidgetOption(widget, original);
+        return original;
     }
     if (currentModelChoiceIds(widget).includes(original)) {
         return original;
@@ -2128,7 +2147,10 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         setLocalLLMNodeState,
         setupNode,
         applyLocalLLMLoaderSavedWidgetValues,
+        displayModelValueForCurrentChoices,
         getWidget,
+        ensureLoaderVideoSecondsInputSocket,
+        localLLMLoaderSerializedValuesFromWidgets,
         preserveLocalLLMLoaderSavedComboOptions,
         preserveWidgetOption,
         migrateLocalLLMPromptInputNames,
@@ -2170,6 +2192,8 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         setReviewerSeedTarget,
         splitPreviewLinesForWidth,
         durableSystemPromptPresetApiAvailable,
+        describeSystemPromptPreset,
+        loadSystemPromptPresetPageCache,
         makeSystemPromptPresetEnvelope,
         mergeSystemPromptPresetLists,
         normalizeSystemPromptPresetEnvelope,
@@ -2177,10 +2201,14 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         readDurableSystemPromptUserPresets,
         readLegacySystemPromptUserPresetState,
         readSystemPromptUserPresets,
+        setSystemPromptPresetPageCache,
+        systemPromptPresetPageCache,
         writeDurableSystemPromptUserPresets,
+        updateModelChoices,
         refreshModels,
         stopLocalModel,
         unloadLocalModel,
+        BUILTIN_SYSTEM_PROMPT_PRESETS,
         SYSTEM_PROMPT_PRESET_STORAGE_KEY,
         SYSTEM_PROMPT_PRESET_USERDATA_FILE,
         SYSTEM_PROMPT_PRESET_MAX_FILE_BYTES,
@@ -2784,6 +2812,7 @@ function setupNode(node) {
         ensurePromptWidget(node);
         removePromptWidgets(node);
         normalizeLoaderPromptInputSocket(node);
+        ensureLoaderVideoSecondsInputSocket(node);
         removeLoaderWidgetInputSockets(node);
         ensureSeedModeWidget(node);
         migrateLegacyModelWidgets(node);
@@ -4077,6 +4106,7 @@ function schedulePostSetupCleanup(node) {
         ensurePromptWidget(node);
         removePromptWidgets(node);
         normalizeLoaderPromptInputSocket(node);
+        ensureLoaderVideoSecondsInputSocket(node);
         removeLoaderWidgetInputSockets(node);
         ensureProviderWidgets(node);
         migrateLegacyModelWidgets(node);
@@ -4297,6 +4327,33 @@ function setPromptInputSocketFields(input) {
     input.type = "STRING";
 }
 
+function ensureLoaderVideoSecondsInputSocket(node) {
+    if (!Array.isArray(node?.inputs)) {
+        return false;
+    }
+    let input = node.inputs.find((candidate) =>
+        loaderSocketIdentifiers(candidate).some((identifier) => identifier === "video_seconds" || identifier === "video seconds"),
+    );
+    if (input) {
+        input.name = "video_seconds";
+        input.localized_name = "video seconds";
+        input.label = "video seconds";
+        input.type = "FLOAT";
+        return false;
+    }
+    input = {
+        name: "video_seconds",
+        localized_name: "video seconds",
+        label: "video seconds",
+        type: "FLOAT",
+        link: null,
+    };
+    node.inputs.push(input);
+    node.inputs.forEach((candidate, index) => updateInputLinkSlots(node, asInputLinkList(candidate), index));
+    markGraphDirty(node);
+    return true;
+}
+
 function removeLoaderWidgetInputSockets(node) {
     if (!Array.isArray(node?.inputs)) {
         return false;
@@ -4480,6 +4537,9 @@ function addSystemPromptButton(node) {
     if (!systemWidget) {
         return;
     }
+    void loadSystemPromptPresetPageCache().catch(() => {
+        // Preset storage errors never block prompt editing or execution.
+    });
     ensureSingleSystemPromptButton(node);
     if (getWidget(node, `${GENERATED_PREFIX}system_prompt_button`)) {
         return;
@@ -4492,8 +4552,9 @@ function addSystemPromptButton(node) {
         callback: () => openSystemPromptDialog(node),
         computeSize: (width) => [width, LiteGraph.NODE_WIDGET_HEIGHT],
         draw: (ctx, nodeRef, width, y, height) => {
-            const prompt = String(getWidget(nodeRef, "system_prompt")?.value || "").trim();
-            drawWideButtonWithStatus(ctx, 15, y, width - 30, height, "System Prompt", prompt ? "set" : "empty", false);
+            const prompt = String(getWidget(nodeRef, "system_prompt")?.value || "");
+            const status = describeSystemPromptPreset(prompt);
+            drawWideButtonWithStatus(ctx, 15, y, width - 30, height, "System Prompt", status.label, status.kind, false);
         },
         mouse: (event, pos, nodeRef) => {
             if (event.type === "pointerdown") {
@@ -4965,6 +5026,7 @@ function polishWidgetLabels(node) {
 function polishInputLabels(node) {
     const labels = {
         image: "image",
+        video_seconds: "video seconds",
     };
     for (const input of node.inputs || []) {
         if (labels[input.name]) {
@@ -5760,7 +5822,6 @@ async function refreshModels(node) {
         }
         const savedModelMissing =
             hasUsableSavedModelValue(savedModel) &&
-            choices.length > 0 &&
             !savedModelStillExists &&
             isMissingSavedModelDisplayValue(modelWidget?.value);
         setLocalLLMNodeState(node, {
@@ -5778,18 +5839,12 @@ async function refreshModels(node) {
         if (!isLocalLLMAsyncActionCurrent(node, action)) {
             return;
         }
-        updateModelChoices(node, provider, []);
-        if (!OPENAI_COMPATIBLE_PROVIDERS.has(provider) && modelWidget && hasUsableSavedModelValue(savedModel)) {
-            modelWidget.value = missingSavedModelDisplayValue(savedModel);
-        }
         setLocalLLMNodeState(node, {
-            status: !OPENAI_COMPATIBLE_PROVIDERS.has(provider) && hasUsableSavedModelValue(savedModel) ? "saved model not found" : "model refresh failed",
+            status: "model refresh failed",
             provider,
             model: String(modelWidget?.value || ""),
             answer: "",
-            thinking: !OPENAI_COMPATIBLE_PROVIDERS.has(provider) && hasUsableSavedModelValue(savedModel)
-                ? `Saved ${provider} model "${savedModel}" could not be verified on this PC. ${String(error?.message || error)}`
-                : String(error?.message || error),
+            thinking: `The current model selection was kept because the ${provider} model list could not be verified. ${String(error?.message || error)}`,
         });
     } finally {
         if (finishLocalLLMAsyncAction(node, action)) {
@@ -5826,6 +5881,7 @@ function updateModelChoices(node, provider, choices) {
     const widget = getWidget(node, activeModelNameForProvider(providerKey));
     if (widget) {
         widget.__denoLocalLLMPreservedSavedModels = new Set();
+        widget.__denoLocalLLMModelChoicesAuthoritative = true;
     }
     if (OPENAI_COMPATIBLE_PROVIDERS.has(providerKey)) {
         if (widget && Array.isArray(choices) && choices.length && !hasUsableSavedModelValue(widget.value)) {
@@ -5840,9 +5896,9 @@ function updateModelChoices(node, provider, choices) {
         widget.options = widget.options || {};
         widget.options.values = values;
         widget.options.list = values;
-        if (!hasUsableSavedModelValue(widget.value)) {
-            widget.value = firstValidWidgetChoice(widget);
-        }
+        widget.value = hasUsableSavedModelValue(savedValue)
+            ? values[0]
+            : firstValidWidgetChoice(widget);
     } else if (widget && hasUsableSavedModelValue(widget.value)) {
         const display = missingSavedModelDisplayValue(widget.value);
         widget.options = widget.options || {};
@@ -5941,6 +5997,7 @@ function refreshNode(node) {
         ensurePromptWidget(node);
         removePromptWidgets(node);
         normalizeLoaderPromptInputSocket(node);
+        ensureLoaderVideoSecondsInputSocket(node);
         removeLoaderWidgetInputSockets(node);
         ensureSeedModeWidget(node);
         setActiveProviderModelVisibility(node);
@@ -6351,14 +6408,19 @@ function drawWideButton(ctx, x, y, width, height, label, pressed) {
     ctx.restore();
 }
 
-function drawWideButtonWithStatus(ctx, x, y, width, height, label, status, pressed) {
+function drawWideButtonWithStatus(ctx, x, y, width, height, label, status, statusKind, pressed) {
     drawWideButton(ctx, x, y, width, height, label, pressed);
     ctx.save();
-    ctx.fillStyle = status === "set" ? "#9dffba" : "#9aa0a6";
+    ctx.fillStyle = statusKind === "preset"
+        ? "#9dffba"
+        : statusKind === "custom" || statusKind === "multiple"
+          ? "#f2c879"
+          : "#9aa0a6";
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     ctx.font = "700 10px sans-serif";
-    ctx.fillText(status, x + width - 12, y + height / 2 + (pressed ? 1 : 0));
+    const availableWidth = Math.max(36, Math.min(150, width * 0.36));
+    ctx.fillText(fitString(ctx, status, availableWidth), x + width - 12, y + height / 2 + (pressed ? 1 : 0));
     ctx.restore();
 }
 
@@ -6590,6 +6652,105 @@ function systemPromptPresetEntries(userPresets) {
     ];
 }
 
+function normalizeSystemPromptComparisonText(value) {
+    return String(value ?? "").replace(/\r\n?/g, "\n");
+}
+
+function describeSystemPromptPreset(value, userPresets = systemPromptPresetPageCache.presets, cacheStatus = systemPromptPresetPageCache.status) {
+    const text = normalizeSystemPromptComparisonText(value);
+    if (!text.trim()) {
+        return { kind: "empty", label: "Empty", matches: [] };
+    }
+    const matches = systemPromptPresetEntries(userPresets).filter(
+        (preset) => normalizeSystemPromptComparisonText(preset.text) === text,
+    );
+    if (matches.length === 1) {
+        return { kind: "preset", label: matches[0].label, matches };
+    }
+    if (matches.length > 1) {
+        return { kind: "multiple", label: `${matches.length} matches`, matches };
+    }
+    if (cacheStatus === "idle" || cacheStatus === "loading") {
+        return { kind: "loading", label: "Checking...", matches: [] };
+    }
+    return { kind: "custom", label: "Custom", matches: [] };
+}
+
+function refreshSystemPromptPresetStatusNodes() {
+    const seen = new Set();
+    for (const graph of localLLMCandidateGraphs()) {
+        for (const node of localLLMGraphNodes(graph)) {
+            if (node?.type !== NODE_NAME || seen.has(node)) {
+                continue;
+            }
+            seen.add(node);
+            markGraphDirty(node);
+        }
+    }
+}
+
+function setSystemPromptPresetPageCache(presets, options = {}) {
+    const normalized = normalizeSystemPromptPresetList(Array.isArray(presets) ? presets : []).presets;
+    systemPromptPresetPageCache.presets = normalized;
+    systemPromptPresetPageCache.status = String(options.status || "ready");
+    systemPromptPresetPageCache.readStatus = String(options.readStatus || "loaded");
+    systemPromptPresetPageCache.error = String(options.error || "");
+    refreshSystemPromptPresetStatusNodes();
+    return normalized;
+}
+
+async function loadSystemPromptPresetPageCache(options = {}) {
+    const force = options?.force === true;
+    if (!force && systemPromptPresetPageCache.status === "ready") {
+        return {
+            status: systemPromptPresetPageCache.readStatus,
+            presets: systemPromptPresetPageCache.presets,
+        };
+    }
+    if (!force && systemPromptPresetPageCache.status === "error") {
+        if (systemPromptPresetPageCache.readStatus === "unavailable") {
+            return { status: "unavailable", presets: [] };
+        }
+        throw new Error(systemPromptPresetPageCache.error || "Could not load ComfyUI user presets.");
+    }
+    if (!force && systemPromptPresetPageCache.promise) {
+        return systemPromptPresetPageCache.promise;
+    }
+    if (!durableSystemPromptPresetApiAvailable()) {
+        setSystemPromptPresetPageCache([], { status: "error", readStatus: "unavailable" });
+        return { status: "unavailable", presets: [] };
+    }
+    systemPromptPresetPageCache.status = "loading";
+    systemPromptPresetPageCache.error = "";
+    refreshSystemPromptPresetStatusNodes();
+    const request = (async () => {
+        try {
+            const result = await readDurableSystemPromptUserPresets();
+            setSystemPromptPresetPageCache(result.presets, {
+                status: "ready",
+                readStatus: result.status,
+            });
+            return {
+                status: result.status,
+                presets: systemPromptPresetPageCache.presets,
+            };
+        } catch (error) {
+            setSystemPromptPresetPageCache([], {
+                status: "error",
+                readStatus: "error",
+                error: String(error?.message || error),
+            });
+            throw error;
+        } finally {
+            if (systemPromptPresetPageCache.promise === request) {
+                systemPromptPresetPageCache.promise = null;
+            }
+        }
+    })();
+    systemPromptPresetPageCache.promise = request;
+    return request;
+}
+
 function populateSystemPromptPresetSelect(select, userPresets, selectedValue) {
     if (!select) {
         return null;
@@ -6668,19 +6829,32 @@ function openSystemPromptDialog(node) {
 
     const header = document.createElement("div");
     header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:16px;";
+    const titleBlock = document.createElement("div");
+    titleBlock.style.cssText = "display:flex;min-width:0;flex-direction:column;gap:5px;";
     const title = document.createElement("div");
     title.textContent = "System Prompt";
     title.style.cssText = "font-size:18px;font-weight:750;color:#c8f1d2;";
+    const promptStatusRow = document.createElement("div");
+    promptStatusRow.style.cssText = "display:flex;flex-wrap:wrap;gap:8px 16px;font-size:11px;line-height:1.35;color:#aebdb3;";
+    const appliedPromptStatus = document.createElement("span");
+    appliedPromptStatus.textContent = "Applied to node: Checking...";
+    const editorPromptStatus = document.createElement("span");
+    editorPromptStatus.textContent = "Editor: Checking...";
+    promptStatusRow.append(appliedPromptStatus, editorPromptStatus);
+    titleBlock.append(title, promptStatusRow);
     const closeButton = document.createElement("button");
     closeButton.textContent = "Close";
     closeButton.style.cssText = buttonStyle(false);
-    header.append(title, closeButton);
+    header.append(titleBlock, closeButton);
 
     const legacyPresetState = readLegacySystemPromptUserPresetState();
     const legacyPresets = legacyPresetState.presets;
-    let userPresets = [];
+    let userPresets = systemPromptPresetPageCache.status === "ready"
+        ? systemPromptPresetPageCache.presets.map((preset) => ({ ...preset }))
+        : [];
     let durablePresetStoreReady = false;
     let presetStoreBusy = true;
+    let updatePromptStatusLabels = () => {};
     const presetPanel = document.createElement("div");
     presetPanel.style.cssText = [
         "display:flex",
@@ -6757,6 +6931,7 @@ function openSystemPromptDialog(node) {
         if (updateHint) {
             presetHint.textContent = selected?.description || "Load a preset into the editor, then save it to the node.";
         }
+        updatePromptStatusLabels();
     };
     populateSystemPromptPresetSelect(presetSelect, userPresets);
     updatePresetControls(false);
@@ -6781,6 +6956,19 @@ function openSystemPromptDialog(node) {
         "white-space:pre-wrap",
         "overscroll-behavior:contain",
     ].join(";");
+    updatePromptStatusLabels = () => {
+        const cacheStatus = presetStoreBusy ? "loading" : "ready";
+        const applied = describeSystemPromptPreset(systemWidget.value, userPresets, cacheStatus);
+        const editor = describeSystemPromptPreset(textarea.value, userPresets, cacheStatus);
+        const editorIsApplied =
+            normalizeSystemPromptComparisonText(textarea.value) ===
+            normalizeSystemPromptComparisonText(systemWidget.value);
+        appliedPromptStatus.textContent = `Applied to node: ${applied.label}`;
+        editorPromptStatus.textContent = `Editor: ${editor.label}${editorIsApplied ? "" : " — not applied"}`;
+        appliedPromptStatus.style.color = applied.kind === "preset" ? "#9dffba" : "#cbd5ce";
+        editorPromptStatus.style.color = editorIsApplied ? "#cbd5ce" : "#f2c879";
+    };
+    updatePromptStatusLabels();
 
     const footer = document.createElement("div");
     footer.style.cssText = "display:flex;justify-content:flex-end;gap:10px;";
@@ -6797,6 +6985,7 @@ function openSystemPromptDialog(node) {
         systemWidget.value = textarea.value;
         node.properties = node.properties || {};
         node.properties.denoLocalLLMSystemPromptUpdatedAt = Date.now();
+        updatePromptStatusLabels();
         refreshNode(node);
         close();
     };
@@ -6815,7 +7004,10 @@ function openSystemPromptDialog(node) {
         setPresetStoreBusy(true);
         try {
             const savedPresets = await writeDurableSystemPromptUserPresets(candidatePresets);
-            userPresets = savedPresets;
+            userPresets = setSystemPromptPresetPageCache(savedPresets, {
+                status: "ready",
+                readStatus: "loaded",
+            }).map((preset) => ({ ...preset }));
             populateSystemPromptPresetSelect(presetSelect, userPresets, selectedValue);
             updatePresetControls(false, true);
             presetHint.textContent = successMessage;
@@ -6840,8 +7032,8 @@ function openSystemPromptDialog(node) {
             return;
         }
         try {
-            const result = await readDurableSystemPromptUserPresets();
-            userPresets = result.presets;
+            const result = await loadSystemPromptPresetPageCache();
+            userPresets = result.presets.map((preset) => ({ ...preset }));
             durablePresetStoreReady = true;
             populateSystemPromptPresetSelect(presetSelect, userPresets);
             setPresetStoreBusy(false);
@@ -6880,6 +7072,7 @@ function openSystemPromptDialog(node) {
         if (selected.kind === "user") {
             presetName.value = selected.label;
         }
+        updatePromptStatusLabels();
         textarea.focus();
     });
     savePresetButton.addEventListener("click", async () => {
@@ -6934,6 +7127,7 @@ function openSystemPromptDialog(node) {
     });
     clearButton.addEventListener("click", () => {
         textarea.value = "";
+        updatePromptStatusLabels();
         textarea.focus();
     });
     saveButton.addEventListener("click", save);
@@ -6945,6 +7139,7 @@ function openSystemPromptDialog(node) {
     panel.addEventListener("pointerdown", (event) => event.stopPropagation());
     panel.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
     textarea.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+    textarea.addEventListener("input", updatePromptStatusLabels);
     textarea.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
             event.preventDefault();

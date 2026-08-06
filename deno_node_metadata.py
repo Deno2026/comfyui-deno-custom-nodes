@@ -225,6 +225,7 @@ NODE_INPUT_TOOLTIPS = {
         "comfy_vram_policy": "Choose whether ComfyUI models should be unloaded before local LLM work.",
         "prompt": "Main prompt text. The in-node textarea and STRING socket feed this same backend input.",
         "image": "Optional image sent to a vision-capable local model.",
+        "video_seconds": "Optional video length. A positive FLOAT adds an English duration sentence to every user prompt sent to the local LLM.",
     },
     "DenoAIReviewGate": {
         "review": "Text or JSON verdict from a reviewer LLM or text node.",

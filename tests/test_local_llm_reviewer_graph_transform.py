@@ -366,6 +366,19 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(configuredLoader.onSerialize(serializedInfo) === "serialized", "Loader serialize wrapper must preserve the original serialize result");
             assert(serializedInfo.widgets_values.length === 13, "Loader serialize must remove generated buttons and keep canonical widget count");
             assert(serializedInfo.properties.deno_local_llm_state.answer === "workflow answer", "Loader serialize must include saved result state in properties");
+            const legacyInputNode = {{
+                inputs: [
+                    {{ name: "image", label: "image", type: "IMAGE", link: 501 }},
+                    {{ name: "prompt", label: "prompt", type: "STRING", link: 502 }},
+                ],
+                graph,
+                setDirtyCanvas() {{}},
+            }};
+            assert(api.ensureLoaderVideoSecondsInputSocket(legacyInputNode) === true, "Old Loader workflows must gain the new video seconds socket");
+            assert(legacyInputNode.inputs.length === 3, "Adding video seconds must not replace an existing image or prompt socket");
+            assert(legacyInputNode.inputs[0].link === 501 && legacyInputNode.inputs[1].link === 502, "Adding video seconds must preserve existing socket links and order");
+            assert(legacyInputNode.inputs[2].name === "video_seconds" && legacyInputNode.inputs[2].type === "FLOAT", "Video seconds must be appended as a FLOAT socket on old workflows");
+            assert(api.ensureLoaderVideoSecondsInputSocket(legacyInputNode) === false, "Video seconds migration must be idempotent");
             const modelChoices = api.modelChoiceValuesWithSavedValue(
                 [{{ id: "google/gemma-4-e4b" }}, {{ id: "google/gemma-4-12b" }}],
                 "codex/missing-saved-lm-studio-model"
@@ -382,12 +395,12 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             api.preserveLocalLLMLoaderSavedComboOptions(comboNode, normalizedLoaderValues);
             assert(
                 comboNode.widgets[2].options.values[0] === "codex/missing-saved-lm-studio-model",
-                "Loader configure must add saved missing LM Studio model before combo restore can replace it"
+                "Loader configure must add an unknown saved LM Studio model before the cold combo restore runs"
             );
             api.applyLocalLLMLoaderSavedWidgetValues(comboNode, normalizedLoaderValues);
             assert(
-                comboNode.widgets[2].value === "Missing saved model: codex/missing-saved-lm-studio-model",
-                "After configure, the visible combo value must clearly say the saved model is missing on this PC"
+                comboNode.widgets[2].value === "codex/missing-saved-lm-studio-model",
+                "Configure must preserve an unknown saved LM Studio model without treating cold combo options as proof that it is missing"
             );
             const savedExistingComboNode = {{
                 widgets: [

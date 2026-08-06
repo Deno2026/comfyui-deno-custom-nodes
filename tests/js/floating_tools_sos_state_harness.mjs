@@ -11,6 +11,9 @@ function makeHarness(options = {}) {
   let now = 0;
   const queueSnapshots = options.queueSnapshots || null;
   let registeredExtension = null;
+  let mutationObserverCallback = null;
+  let globalAlertScanCount = 0;
+  const eventListeners = new Map();
 
   class FakeDate extends Date {
     constructor(...args) {
@@ -26,6 +29,11 @@ function makeHarness(options = {}) {
     console,
     Date: FakeDate,
     URL,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    queueMicrotask,
     localStorage: {
       getItem() {
         return null;
@@ -54,6 +62,10 @@ function makeHarness(options = {}) {
       querySelector() {
         return null;
       },
+      querySelectorAll() {
+        globalAlertScanCount += 1;
+        return options.existingAlerts || [];
+      },
     },
     window: {
       location: { origin: "http://127.0.0.1:8188" },
@@ -65,7 +77,10 @@ function makeHarness(options = {}) {
       },
     },
     api: {
-      addEventListener() {},
+      addEventListener(name, callback) {
+        if (!eventListeners.has(name)) eventListeners.set(name, []);
+        eventListeners.get(name).push(callback);
+      },
       async fetchApi(path) {
         if (!queueSnapshots) {
           throw new Error("fetchApi should not be called by SOS state harness");
@@ -81,6 +96,14 @@ function makeHarness(options = {}) {
         };
       },
     },
+    MutationObserver: class FakeMutationObserver {
+      constructor(callback) {
+        mutationObserverCallback = callback;
+      }
+
+      observe() {}
+      disconnect() {}
+    },
   };
   context.window = { ...context.window, ...context };
   context.globalThis = context;
@@ -95,10 +118,17 @@ globalThis.__sosHooks = {
   noteSosRunStartedAfterError,
   noteSosQueueStateAfterError,
   handleSosStatusEvent,
+  handleSosExecutionSuccess,
+  handleSosExecutionInterrupted,
+  installSosEventListeners,
+  installSosValidationObserver,
   state: () => ({
     hasError: Boolean(lastExecutionError),
     sosRunClearCandidate,
     sosQueueWasBusyAfterError,
+    sosRunClearGeneration,
+    sosRunClearPromptId,
+    sosErrorGeneration,
     sosErrorStickyUntil,
     sosLastErrorAt,
     lastExecutionError,
@@ -113,7 +143,35 @@ globalThis.__sosHooks = {
     setNow(value) {
       now = value;
     },
+    dispatch(name, detail = {}) {
+      for (const callback of eventListeners.get(name) || []) callback({ detail });
+    },
+    dispatchMutation(mutations) {
+      assert.equal(typeof mutationObserverCallback, "function", "validation observer must be installed first");
+      mutationObserverCallback(mutations);
+    },
+    globalAlertScanCount() {
+      return globalAlertScanCount;
+    },
   };
+}
+
+function makeElement({ text = "", matchesAlert = false } = {}) {
+  const element = {
+    nodeType: 1,
+    textContent: text,
+    parentElement: null,
+    matches() {
+      return matchesAlert;
+    },
+    closest() {
+      return matchesAlert ? element : null;
+    },
+    querySelector() {
+      return null;
+    },
+  };
+  return element;
 }
 
 async function flushMicrotasks() {
@@ -148,6 +206,93 @@ async function flushMicrotasks() {
   assert.equal(state.lastExecutionError.traceback.length, 40);
   assert.equal(state.lastExecutionError.traceback[0], "trace 80");
   assert.equal(state.lastExecutionError.traceback[39], "trace 119");
+}
+
+{
+  const harness = makeHarness();
+  harness.hooks.installSosEventListeners();
+  harness.setNow(45_000);
+
+  harness.dispatch("execution_error", { prompt_id: "failed-event", exception_message: "boom" });
+  harness.dispatch("execution_success", { prompt_id: "unrelated-success" });
+  assert.equal(
+    harness.hooks.state().hasError,
+    true,
+    "a success without a post-error execution_start candidate must preserve the error",
+  );
+
+  harness.dispatch("execution_start", { prompt_id: "retry-event" });
+  harness.dispatch("execution_success", { prompt_id: "unrelated-success" });
+  assert.equal(
+    harness.hooks.state().hasError,
+    true,
+    "a concurrent success with another prompt id must not clear the retry candidate's error",
+  );
+  harness.dispatch("execution_success", { prompt_id: "retry-event" });
+  assert.equal(harness.hooks.state().hasError, false, "the matching successful retry restores the normal icon");
+}
+
+{
+  const harness = makeHarness();
+  harness.hooks.installSosEventListeners();
+  harness.setNow(50_000);
+
+  harness.dispatch("execution_error", { prompt_id: "failed-old", exception_message: "old boom" });
+  harness.dispatch("execution_start", { prompt_id: "retry-old" });
+  const oldGeneration = harness.hooks.state().sosRunClearGeneration;
+  harness.dispatch("execution_error", { prompt_id: "failed-new", exception_message: "new boom" });
+  assert.ok(harness.hooks.state().sosErrorGeneration > oldGeneration);
+  harness.dispatch("execution_success", { prompt_id: "retry-old" });
+  assert.equal(
+    harness.hooks.state().lastExecutionError.prompt_id,
+    "failed-new",
+    "a late success from an older generation must not clear a newer error",
+  );
+}
+
+{
+  const harness = makeHarness();
+  harness.hooks.installSosEventListeners();
+  harness.setNow(55_000);
+
+  harness.dispatch("execution_error", { prompt_id: "failed-interrupt", exception_message: "boom" });
+  harness.dispatch("execution_start", { prompt_id: "retry-interrupt" });
+  harness.dispatch("execution_interrupted", { prompt_id: "retry-interrupt" });
+  assert.equal(harness.hooks.state().sosRunClearCandidate, false, "interruption cancels the retry clear candidate");
+  harness.dispatch("execution_success", { prompt_id: "retry-interrupt" });
+  assert.equal(harness.hooks.state().hasError, true, "an interrupted retry must keep the error icon active");
+}
+
+{
+  const staleAlert = makeElement({
+    text: "",
+    matchesAlert: true,
+  });
+  const harness = makeHarness({ existingAlerts: [staleAlert] });
+  harness.hooks.installSosEventListeners();
+  harness.hooks.installSosValidationObserver();
+  harness.setNow(60_000);
+
+  harness.dispatch("execution_error", { prompt_id: "failed-stale-dom", exception_message: "boom" });
+  harness.dispatch("execution_start", { prompt_id: "retry-stale-dom" });
+  harness.dispatchMutation([{ addedNodes: [staleAlert] }]);
+  staleAlert.textContent = "1 ERROR Required input is missing See Errors";
+  harness.dispatch("execution_success", { prompt_id: "retry-stale-dom" });
+  await flushMicrotasks();
+  assert.equal(harness.hooks.state().hasError, false, "a pre-success deferred alert scan must be retired with that run");
+
+  harness.dispatchMutation([{ addedNodes: [makeElement()] }]);
+  await flushMicrotasks();
+  assert.equal(harness.globalAlertScanCount(), 0, "unrelated DOM mutations must not trigger a global stale-alert rescan");
+  assert.equal(harness.hooks.state().hasError, false, "a stale validation dialog must not re-arm after success");
+
+  const newAlert = makeElement({
+    text: "1 ERROR Required input is missing See Errors",
+    matchesAlert: true,
+  });
+  harness.setNow(64_000);
+  harness.dispatchMutation([{ addedNodes: [newAlert] }]);
+  assert.equal(harness.hooks.state().hasError, true, "a newly added validation error must still activate SOS state");
 }
 
 {

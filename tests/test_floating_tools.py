@@ -133,7 +133,9 @@ def test_floating_tools_sos_surface_is_simple_and_read_only():
     assert "let sosQueueIdleConfirmBusy = false;" in script
     assert "let sosErrorGeneration = 0;" in script
     assert "function markSosErrorSticky()" in script
-    assert "function noteSosRunStartedAfterError()" in script
+    assert "function noteSosRunStartedAfterError(detail = {})" in script
+    assert "function handleSosExecutionSuccess(detail = {})" in script
+    assert "function handleSosExecutionInterrupted(detail = {})" in script
     assert "function noteSosQueueStateAfterError(isBusy, options = {})" in script
     assert "async function confirmSosQueueIdleForClear()" in script
     assert "hasSosQueueIdleClearCandidate()" in script
@@ -149,6 +151,7 @@ def test_floating_tools_sos_surface_is_simple_and_read_only():
     assert "if (!force && lastExecutionError && Date.now() < sosErrorStickyUntil)" in script
     assert "clearExecutionErrorState({ force: true });" in script
     assert 'api?.addEventListener?.("execution_success"' in script
+    assert 'api?.addEventListener?.("execution_interrupted"' in script
     assert 'api?.addEventListener?.("status"' in script
     assert "if (!lastExecutionError) {" in script
     assert "function safeEventScalar(value, maxLength = 900)" in script
@@ -171,7 +174,8 @@ def test_floating_tools_sos_surface_is_simple_and_read_only():
     assert "See Errors" in script
     assert "function limitedSosText(value, maxLength = SOS_TEXT_SCAN_LIMIT)" in script
     assert "function promptFailureElementFromNode(node)" in script
-    assert "function schedulePromptFailureAlertInspection()" in script
+    assert "function schedulePromptFailureAlertInspection(elements = [])" in script
+    assert "document.querySelectorAll(PROMPT_FAILURE_ALERT_SELECTOR)" not in script
     assert "node.innerText" not in script
     assert "characterData: true" not in script
     assert "history_errors: compactHistoryErrors(history)" in script

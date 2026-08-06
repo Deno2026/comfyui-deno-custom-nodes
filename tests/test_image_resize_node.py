@@ -3676,6 +3676,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert node_cls.RETURN_NAMES == ("result",)
     assert node_cls.CATEGORY == "Deno/LLM"
     assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"]) == node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"])
+    assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"], video_seconds=[8.0]) != node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"], video_seconds=[9.0])
     assert "help rewrite or review prompt text" in node_cls.DESCRIPTION
     assert "Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap" in node_cls.DESCRIPTION
     assert "An optional IMAGE input" in node_cls.DESCRIPTION
@@ -3710,6 +3711,11 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     ]
     assert required["comfy_vram_policy"][1]["default"] == "Auto: unload only before first LLM call"
     assert optional["image"][0] == "IMAGE"
+    assert list(optional) == ["image", "video_seconds"]
+    assert optional["video_seconds"][0] == "FLOAT"
+    assert optional["video_seconds"][1]["forceInput"] is True
+    assert optional["video_seconds"][1]["default"] == 0.0
+    assert "duration sentence" in optional["video_seconds"][1]["tooltip"]
     assert "user_prompt" not in optional
     assert "audio" not in optional
     assert list(hidden) == ["unique_id"]
@@ -3844,7 +3850,9 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert '"lm_studio_model",' in script
     assert '"prompt"' not in loader_socket_block
     assert '"Prompt"' not in loader_socket_block
+    assert '"video_seconds"' not in loader_socket_block
     assert "normalizeLoaderPromptInputSocket" in script
+    assert "ensureLoaderVideoSecondsInputSocket" in script
     assert "setPromptInputSocketFields" in script
     assert "const PROMPT_WIDGET_SIDE_INSET = 0;" in script
     assert "removeLoaderWidgetInputSockets" in script
@@ -3872,6 +3880,11 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "PROMPT_ONLY_SYSTEM_PROMPT" in script
     assert "DENO_FINAL_PROMPT:" in script
     assert "Reviewer JSON" in script
+    assert "describeSystemPromptPreset" in script
+    assert "Applied to node:" in script
+    assert "Editor:" in script
+    assert 'label: "Checking..."' in script
+    assert 'label: "Custom"' in script
     assert "Return only valid JSON. Do not write markdown." in script
     assert "SYSTEM_PROMPT_PRESET_USERDATA_FILE" in script
     assert "apiClient.getUserData" in script
@@ -4094,6 +4107,7 @@ def test_local_llm_refiner_processes_prompt_batch_in_one_node_call():
 
     node._run_single = fake_run_single
 
+    original_prompts = ["first prompt", "second prompt", "third prompt"]
     output = node.refine(
         provider=["Ollama"],
         ollama_model=["qwen3"],
@@ -4101,7 +4115,8 @@ def test_local_llm_refiner_processes_prompt_batch_in_one_node_call():
         custom_server_url=["http://127.0.0.1:8000/v1"],
         custom_model=["custom-model"],
         system_prompt=["make a prompt"],
-        prompt=["first prompt", "second prompt", "third prompt"],
+        prompt=original_prompts,
+        video_seconds=[8.0],
         thinking=[True],
         seed=[10],
         seed_mode=["fixed"],
@@ -4118,6 +4133,32 @@ def test_local_llm_refiner_processes_prompt_batch_in_one_node_call():
     assert all(call["provider"] == "Ollama" for call in calls)
     assert all(call["server_url"] == "http://127.0.0.1:11434" for call in calls)
     assert all(call["model"] == "qwen3" for call in calls)
+    assert [call["prompt"] for call in calls] == [
+        "first prompt\n\nThis is an 8-second video.",
+        "second prompt\n\nThis is an 8-second video.",
+        "third prompt\n\nThis is an 8-second video.",
+    ]
+    assert original_prompts == ["first prompt", "second prompt", "third prompt"]
+
+
+@pytest.mark.parametrize("video_seconds", [None, [], 0, -1, float("nan"), float("inf"), "bad"])
+def test_local_llm_video_seconds_invalid_or_inactive_values_leave_prompt_unchanged(video_seconds):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    assert module._append_video_duration_to_prompt("keep this exact", video_seconds) == "keep this exact"
+
+
+def test_local_llm_video_seconds_formats_fractional_duration_without_mutating_prompt():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    prompt = "A slow camera move.  "
+    assert module._append_video_duration_to_prompt(prompt, [8.5]) == (
+        "A slow camera move.\n\nThis is an 8.5-second video."
+    )
+    assert prompt == "A slow camera move.  "
+    assert module._append_video_duration_to_prompt("", [1.0]) == "This is a 1-second video."
 
 
 def test_local_llm_refiner_passes_image_attachments_to_reviewer_call():
