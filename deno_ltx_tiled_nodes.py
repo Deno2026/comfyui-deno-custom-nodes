@@ -676,25 +676,9 @@ def _validate_unpacked_shapes(
             )
 
 
-def _assert_same_tensor(
-    actual: torch.Tensor,
-    expected: torch.Tensor,
-    label: str,
-    *,
-    rtol: float = 1e-5,
-    atol: float = 1e-6,
-) -> None:
-    comparable = actual.to(device=expected.device, dtype=expected.dtype)
-    if tuple(comparable.shape) != tuple(expected.shape) or not torch.allclose(
-        comparable,
-        expected,
-        rtol=rtol,
-        atol=atol,
-    ):
-        raise RuntimeError(
-            f"{label} changed even though audio_mode='freeze'. An incompatible "
-            "wrapper or sampler path may have bypassed the audio denoise mask."
-        )
+def _require_finite_tensor(value: torch.Tensor, label: str) -> None:
+    if not bool(torch.isfinite(value).all().item()):
+        raise RuntimeError(f"{label} contains non-finite values.")
 
 
 def _wrapper_key_name(key: Any) -> str:
@@ -1741,6 +1725,7 @@ class DenoLTXAVStepFusedTiledSampler:
 
         latent = latent_image.copy()
         video, audio = self._validate_av_samples(latent["samples"])
+        _require_finite_tensor(audio, "AV input audio")
         video = self._fix_video_channels(guider, latent, video)
         source = _make_nested_latent([video, audio])
         latent["samples"] = source
@@ -1801,9 +1786,7 @@ class DenoLTXAVStepFusedTiledSampler:
             expected_video_shape=video.shape,
             expected_audio_shape=audio.shape,
         )
-        terminal_sigma = float(sigmas[-1].detach().flatten()[0].cpu())
-        if math.isclose(terminal_sigma, 0.0, abs_tol=1e-8):
-            _assert_same_tensor(audio_out, audio, "AV sampler output audio")
+        _require_finite_tensor(audio_out, "AV sampler output audio")
 
         if predictor.call_count == 0:
             raise RuntimeError(
@@ -1842,7 +1825,7 @@ class DenoLTXAVStepFusedTiledSampler:
             _validate_packed_latent_shape(processed_x0, latent_shapes, "AV x0")
             x0_parts = _unpack_latents(processed_x0, latent_shapes)
         _validate_unpacked_shapes(x0_parts, latent_shapes, "AV x0")
-        _assert_same_tensor(x0_parts[1], audio, "AV x0 audio")
+        _require_finite_tensor(x0_parts[1], "AV x0 audio")
 
         denoised = latent.copy()
         denoised.pop("downscale_ratio_spacial", None)

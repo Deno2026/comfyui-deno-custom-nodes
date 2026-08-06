@@ -1052,6 +1052,38 @@ def test_av_sampler_freezes_audio_output_and_denoised_output(monkeypatch, fake_c
     assert torch.allclose(denoised_audio, audio)
 
 
+def test_av_sampler_restores_audio_after_terminal_sampler_output_drift(
+    monkeypatch,
+    fake_comfy_latent_utils,
+):
+    _patch_av_sampler_runtime(monkeypatch)
+    video = torch.zeros((1, 2, 3, 6, 4))
+    audio = torch.ones((1, 1, 4, 4)) * 5.0
+    raw_output_audio = torch.ones_like(audio) * 6.25
+    x0_video = torch.ones_like(video) * 7.0
+
+    output, denoised = DenoLTXAVStepFusedTiledSampler().sample(
+        _FakeNoise(),
+        _FakeSamplerGuider(
+            x0_video=x0_video,
+            x0_audio=audio.clone(),
+            output_audio=raw_output_audio,
+        ),
+        object(),
+        torch.tensor([1.0, 0.0]),
+        {"samples": _FakeNestedTensor([video, audio])},
+        overlap=2,
+    )
+
+    output_video, output_audio = output["samples"].unbind()
+    denoised_video, denoised_audio = denoised["samples"].unbind()
+    assert torch.equal(output_video, video + 1.0)
+    assert torch.equal(denoised_video, x0_video)
+    assert torch.equal(output_audio, audio)
+    assert torch.equal(denoised_audio, audio)
+    assert not torch.equal(raw_output_audio, audio)
+
+
 @pytest.mark.parametrize("callback_x0_kind", ["packed_tensor", "nested_tensor"])
 def test_av_sampler_accepts_both_callback_x0_contracts(
     monkeypatch,
@@ -1327,7 +1359,7 @@ def test_av_sampler_rejects_packed_x0_extra_elements(monkeypatch, fake_comfy_lat
         ("extra_part", "AV x0 unpacked into 3 parts, expected 2"),
         ("video_shape", "AV x0 part 0 shape mismatch"),
         ("audio_shape", "AV x0 part 1 shape mismatch"),
-        ("audio_value", "AV x0 audio changed"),
+        ("audio_nonfinite", "AV x0 audio contains non-finite values"),
     ],
 )
 def test_av_sampler_strictly_validates_nested_callback_x0(
@@ -1349,8 +1381,8 @@ def test_av_sampler_strictly_validates_nested_callback_x0(
         parts[0] = torch.zeros((1, 2, 3, 5, 4))
     elif violation == "audio_shape":
         parts[1] = torch.zeros((1, 1, 4, 3))
-    elif violation == "audio_value":
-        parts[1] = torch.full_like(audio, 99.0)
+    elif violation == "audio_nonfinite":
+        parts[1] = torch.full_like(audio, float("nan"))
 
     with pytest.raises(RuntimeError, match=message):
         DenoLTXAVStepFusedTiledSampler().sample(
@@ -1363,21 +1395,32 @@ def test_av_sampler_strictly_validates_nested_callback_x0(
         )
 
 
-def test_av_sampler_rejects_changed_x0_audio(monkeypatch, fake_comfy_latent_utils):
+def test_av_sampler_restores_audio_after_callback_x0_drift(
+    monkeypatch,
+    fake_comfy_latent_utils,
+):
     _patch_av_sampler_runtime(monkeypatch)
     video = torch.zeros((1, 2, 3, 6, 4))
     audio = torch.ones((1, 1, 4, 4))
-    x0_audio = torch.ones_like(audio) * 99.0
+    raw_x0_audio = torch.ones_like(audio) * 99.0
+    x0_video = torch.ones_like(video) * 7.0
 
-    with pytest.raises(RuntimeError, match="AV x0 audio changed"):
-        DenoLTXAVStepFusedTiledSampler().sample(
-            _FakeNoise(),
-            _FakeSamplerGuider(x0_video=torch.ones_like(video), x0_audio=x0_audio),
-            object(),
-            torch.tensor([1.0, 0.0]),
-            {"samples": _FakeNestedTensor([video, audio])},
-            overlap=2,
-        )
+    output, denoised = DenoLTXAVStepFusedTiledSampler().sample(
+        _FakeNoise(),
+        _FakeSamplerGuider(x0_video=x0_video, x0_audio=raw_x0_audio),
+        object(),
+        torch.tensor([1.0, 0.0]),
+        {"samples": _FakeNestedTensor([video, audio])},
+        overlap=2,
+    )
+
+    output_video, output_audio = output["samples"].unbind()
+    denoised_video, denoised_audio = denoised["samples"].unbind()
+    assert torch.equal(output_video, video + 1.0)
+    assert torch.equal(denoised_video, x0_video)
+    assert torch.equal(output_audio, audio)
+    assert torch.equal(denoised_audio, audio)
+    assert not torch.equal(raw_x0_audio, audio)
 
 
 def test_av_sampler_rejects_output_shape_changes(monkeypatch, fake_comfy_latent_utils):
@@ -1406,6 +1449,29 @@ def test_av_sampler_rejects_output_shape_changes(monkeypatch, fake_comfy_latent_
                 x0_video=torch.ones_like(video),
                 x0_audio=audio.clone(),
                 output_audio=torch.zeros((1, 1, 4, 3)),
+            ),
+            object(),
+            torch.tensor([1.0, 0.0]),
+            {"samples": _FakeNestedTensor([video, audio])},
+            overlap=2,
+        )
+
+
+def test_av_sampler_rejects_non_finite_raw_output_audio(
+    monkeypatch,
+    fake_comfy_latent_utils,
+):
+    _patch_av_sampler_runtime(monkeypatch)
+    video = torch.zeros((1, 2, 3, 6, 4))
+    audio = torch.ones((1, 1, 4, 4))
+
+    with pytest.raises(RuntimeError, match="AV sampler output audio contains non-finite values"):
+        DenoLTXAVStepFusedTiledSampler().sample(
+            _FakeNoise(),
+            _FakeSamplerGuider(
+                x0_video=torch.ones_like(video),
+                x0_audio=audio.clone(),
+                output_audio=torch.full_like(audio, float("inf")),
             ),
             object(),
             torch.tensor([1.0, 0.0]),

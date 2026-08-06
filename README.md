@@ -441,6 +441,7 @@ Main features:
 - connect prompt batches through one node run so the local model can stay loaded until the batch finishes
 - optionally attach an IMAGE to a vision-capable local model call
 - preview Thinking and Result text directly on the node
+- keep named System Prompt presets in ComfyUI user data so they survive browser-profile cleanup; existing browser presets can be imported once while the browser copy stays untouched as a backup
 - use `(Deno) Local LLM Reviewer` as a gate before Save nodes
 - pass or block IMAGE and AUDIO outputs from a review text result
 - approve the current reviewed result once, or rerun the path before the reviewer
