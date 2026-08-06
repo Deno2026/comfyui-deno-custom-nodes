@@ -2044,12 +2044,18 @@ def test_minimax_h3_frontend_reuses_loader_ui_without_patching_h3_wrapper():
     assert "notifySequencers: false" in script
     assert "maxImages: 9" in script
     assert "H3_REFERENCE_LOADER_MIN_SIZE = [360, 370]" in script
+    assert "H3_REFERENCE_CARD_PREVIEW_HEIGHT = 96" in script
     assert "minSize: H3_REFERENCE_LOADER_MIN_SIZE" in script
+    assert "preserveCardAspectRatio: true" in script
+    assert "cardPreviewHeight: H3_REFERENCE_CARD_PREVIEW_HEIGHT" in script
     assert "legacyDefaultHeight: LOADER_MIN_SIZE[1]" in script
     assert "layoutVersionProperty: H3_REFERENCE_LOADER_LAYOUT_VERSION_PROPERTY" in script
     assert "resolveLoaderNodeSize" in script
+    assert "resolveLoaderAspectCardLayout" in script
     assert "appendPathsWithinLimit" in script
     assert "Original size and aspect ratio are preserved" in script
+    assert '"source-aspect-v1"' in script
+    assert 'object-fit:${preserveCardAspectRatio ? "contain" : "cover"}' in script
     assert "DenoMiniMaxH3ReferenceToVideo" not in script
 
 

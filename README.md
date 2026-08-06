@@ -123,6 +123,7 @@ Main features:
 - the same upload, paste, drag-and-drop, Input Folder, card reorder, and clear workflow as `(Deno) Multi Image Loader`
 - up to 9 ordered reference images through one dedicated socket
 - keeps each decoded image's own dimensions and aspect ratio without resize, crop, pad, or letterbox processing
+- displays each preview card at the source image's own aspect ratio, so mixed landscape and portrait references stay fully visible without preview cropping
 - card order maps directly to `<Picture 1>`, `<Picture 2>`, and so on
 - connects to the single `ref_images` input on `(Deno) MiniMax H3 Reference to Video`
 - also exposes the same ordered sources as an `image_list` output that connects directly to `(Deno) Local LLM Loader`'s `image` input
