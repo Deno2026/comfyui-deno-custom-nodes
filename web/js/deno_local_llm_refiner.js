@@ -183,6 +183,13 @@ const REVIEWER_PROP_AUTO_RETRY = "deno_auto_retry_on_fail";
 const REVIEWER_PROP_SEED_TARGET = "deno_auto_retry_seed_target";
 const REVIEWER_FALLBACK_MAX_SEED = 1125899906842624;
 const SYSTEM_PROMPT_PRESET_STORAGE_KEY = "deno.localLLM.systemPromptPresets.v1";
+const SYSTEM_PROMPT_PRESET_USERDATA_FILE = "deno/local_llm/system_prompt_presets.v1.json";
+const SYSTEM_PROMPT_PRESET_SCHEMA_VERSION = 1;
+const SYSTEM_PROMPT_PRESET_MAX_COUNT = 128;
+const SYSTEM_PROMPT_PRESET_MAX_ID_LENGTH = 96;
+const SYSTEM_PROMPT_PRESET_MAX_LABEL_LENGTH = 128;
+const SYSTEM_PROMPT_PRESET_MAX_TEXT_BYTES = 64 * 1024;
+const SYSTEM_PROMPT_PRESET_MAX_FILE_BYTES = 1024 * 1024;
 const REVIEWER_JSON_SYSTEM_PROMPT = [
     "You are an image review judge for a ComfyUI workflow.",
     "",
@@ -2162,9 +2169,21 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         setReviewerAutoRetryEnabled,
         setReviewerSeedTarget,
         splitPreviewLinesForWidth,
+        durableSystemPromptPresetApiAvailable,
+        makeSystemPromptPresetEnvelope,
+        mergeSystemPromptPresetLists,
+        normalizeSystemPromptPresetEnvelope,
+        normalizeSystemPromptPresetList,
+        readDurableSystemPromptUserPresets,
+        readLegacySystemPromptUserPresetState,
+        readSystemPromptUserPresets,
+        writeDurableSystemPromptUserPresets,
         refreshModels,
         stopLocalModel,
         unloadLocalModel,
+        SYSTEM_PROMPT_PRESET_STORAGE_KEY,
+        SYSTEM_PROMPT_PRESET_USERDATA_FILE,
+        SYSTEM_PROMPT_PRESET_MAX_FILE_BYTES,
         wrapModelCallback,
         wrapProviderCallback,
     });
@@ -6343,35 +6362,210 @@ function drawWideButtonWithStatus(ctx, x, y, width, height, label, status, press
     ctx.restore();
 }
 
-function readSystemPromptUserPresets() {
+function systemPromptPresetUtf8Bytes(value) {
+    const text = String(value ?? "");
     try {
-        const raw = localStorage?.getItem?.(SYSTEM_PROMPT_PRESET_STORAGE_KEY);
-        const parsed = JSON.parse(raw || "[]");
-        if (!Array.isArray(parsed)) {
-            return [];
+        if (typeof TextEncoder !== "undefined") {
+            return new TextEncoder().encode(text).byteLength;
         }
-        return parsed
-            .map((preset) => ({
-                id: String(preset?.id || "").trim(),
-                label: String(preset?.label || "").trim(),
-                text: String(preset?.text || ""),
-            }))
-            .filter((preset) => preset.id && preset.label);
     } catch {
-        return [];
+        // Fall back to a conservative bound in old browser runtimes.
+    }
+    return text.length * 4;
+}
+
+function normalizeSystemPromptPresetList(value, options = {}) {
+    const legacy = options?.legacy === true;
+    if (!Array.isArray(value)) {
+        throw new Error("Preset data must contain a presets array.");
+    }
+    if (!legacy && value.length > SYSTEM_PROMPT_PRESET_MAX_COUNT) {
+        throw new Error(`Preset data exceeds the ${SYSTEM_PROMPT_PRESET_MAX_COUNT}-preset limit.`);
+    }
+
+    const presets = [];
+    const seenIds = new Set();
+    const seenLabels = new Set();
+    let rejectedCount = legacy ? Math.max(0, value.length - SYSTEM_PROMPT_PRESET_MAX_COUNT) : 0;
+    const valueLimit = legacy ? Math.min(value.length, SYSTEM_PROMPT_PRESET_MAX_COUNT) : value.length;
+    for (let index = 0; index < valueLimit; index += 1) {
+        try {
+            const entry = value[index];
+            if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+                throw new Error("entry must be an object");
+            }
+            if (!legacy && (
+                typeof entry.id !== "string"
+                || typeof entry.label !== "string"
+                || typeof entry.text !== "string"
+            )) {
+                throw new Error("id, label, and text must be strings");
+            }
+            const id = String(entry.id ?? "").trim();
+            const label = String(entry.label ?? "").trim();
+            const text = String(entry.text ?? "");
+            if (!id || !label) {
+                throw new Error("id and label cannot be empty");
+            }
+            if (id.length > SYSTEM_PROMPT_PRESET_MAX_ID_LENGTH || !/^[A-Za-z0-9._-]+$/.test(id)) {
+                throw new Error("id contains unsupported characters or is too long");
+            }
+            if (label.length > SYSTEM_PROMPT_PRESET_MAX_LABEL_LENGTH) {
+                throw new Error(`label exceeds ${SYSTEM_PROMPT_PRESET_MAX_LABEL_LENGTH} characters`);
+            }
+            if (systemPromptPresetUtf8Bytes(text) > SYSTEM_PROMPT_PRESET_MAX_TEXT_BYTES) {
+                throw new Error(`text exceeds ${SYSTEM_PROMPT_PRESET_MAX_TEXT_BYTES} UTF-8 bytes`);
+            }
+            const labelKey = label.toLowerCase();
+            if (seenIds.has(id) || seenLabels.has(labelKey)) {
+                throw new Error("duplicate id or label");
+            }
+            seenIds.add(id);
+            seenLabels.add(labelKey);
+            presets.push({ id, label, text });
+        } catch (error) {
+            if (!legacy) {
+                throw new Error(`Preset ${index + 1} is invalid: ${error?.message || error}`);
+            }
+            rejectedCount += 1;
+        }
+    }
+    return { presets, rejectedCount };
+}
+
+function normalizeSystemPromptPresetEnvelope(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("Preset file must be a versioned JSON object.");
+    }
+    if (value.version !== SYSTEM_PROMPT_PRESET_SCHEMA_VERSION) {
+        throw new Error(`Unsupported preset file version: ${String(value.version ?? "missing")}.`);
+    }
+    const normalized = normalizeSystemPromptPresetList(value.presets);
+    return {
+        version: SYSTEM_PROMPT_PRESET_SCHEMA_VERSION,
+        presets: normalized.presets,
+    };
+}
+
+function makeSystemPromptPresetEnvelope(presets) {
+    const normalized = normalizeSystemPromptPresetList(presets);
+    const envelope = {
+        version: SYSTEM_PROMPT_PRESET_SCHEMA_VERSION,
+        presets: normalized.presets,
+    };
+    const serialized = JSON.stringify(envelope);
+    if (systemPromptPresetUtf8Bytes(serialized) > SYSTEM_PROMPT_PRESET_MAX_FILE_BYTES) {
+        throw new Error(`Preset file exceeds ${SYSTEM_PROMPT_PRESET_MAX_FILE_BYTES} UTF-8 bytes.`);
+    }
+    return envelope;
+}
+
+function readLegacySystemPromptUserPresetState(storage) {
+    try {
+        const targetStorage = storage ?? (typeof localStorage !== "undefined" ? localStorage : null);
+        const raw = targetStorage?.getItem?.(SYSTEM_PROMPT_PRESET_STORAGE_KEY);
+        if (!raw) {
+            return { presets: [], rejectedCount: 0, available: Boolean(targetStorage) };
+        }
+        const parsed = JSON.parse(raw);
+        const normalized = normalizeSystemPromptPresetList(parsed, { legacy: true });
+        return { ...normalized, available: true };
+    } catch {
+        return { presets: [], rejectedCount: 1, available: false };
     }
 }
 
-function writeSystemPromptUserPresets(presets) {
-    try {
-        localStorage?.setItem?.(
-            SYSTEM_PROMPT_PRESET_STORAGE_KEY,
-            JSON.stringify(Array.isArray(presets) ? presets : [])
-        );
-        return true;
-    } catch {
-        return false;
+function readSystemPromptUserPresets(storage) {
+    return readLegacySystemPromptUserPresetState(storage).presets;
+}
+
+function durableSystemPromptPresetApiAvailable(apiClient = api) {
+    return Boolean(
+        apiClient
+        && typeof apiClient.getUserData === "function"
+        && typeof apiClient.storeUserData === "function"
+    );
+}
+
+async function readDurableSystemPromptUserPresets(apiClient = api) {
+    if (!durableSystemPromptPresetApiAvailable(apiClient)) {
+        return { status: "unavailable", presets: [] };
     }
+    let response;
+    try {
+        response = await apiClient.getUserData(SYSTEM_PROMPT_PRESET_USERDATA_FILE, { cache: "no-store" });
+    } catch (error) {
+        throw new Error(`Could not load ComfyUI user presets: ${error?.message || error}`);
+    }
+    if (response?.status === 404) {
+        return { status: "missing", presets: [] };
+    }
+    if (!response || response.ok === false || (Number(response.status) && Number(response.status) !== 200)) {
+        throw new Error(`Could not load ComfyUI user presets (HTTP ${response?.status || "unknown"}).`);
+    }
+    const raw = await response.text();
+    if (systemPromptPresetUtf8Bytes(raw) > SYSTEM_PROMPT_PRESET_MAX_FILE_BYTES) {
+        throw new Error(`Preset file exceeds ${SYSTEM_PROMPT_PRESET_MAX_FILE_BYTES} UTF-8 bytes.`);
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        throw new Error("ComfyUI user preset file contains malformed JSON.");
+    }
+    const envelope = normalizeSystemPromptPresetEnvelope(parsed);
+    return { status: "loaded", presets: envelope.presets };
+}
+
+async function writeDurableSystemPromptUserPresets(presets, apiClient = api) {
+    if (!durableSystemPromptPresetApiAvailable(apiClient)) {
+        throw new Error("ComfyUI user data API is unavailable; presets were not saved.");
+    }
+    const envelope = makeSystemPromptPresetEnvelope(presets);
+    const serialized = JSON.stringify(envelope);
+    let response;
+    try {
+        response = await apiClient.storeUserData(
+            SYSTEM_PROMPT_PRESET_USERDATA_FILE,
+            serialized,
+            { overwrite: true, stringify: false, throwOnError: false }
+        );
+    } catch (error) {
+        throw new Error(`Preset save failed: ${error?.message || error}`);
+    }
+    if (!response || response.ok === false || (Number(response.status) && Number(response.status) !== 200)) {
+        throw new Error(`Preset save failed (HTTP ${response?.status || "unknown"}).`);
+    }
+    const readBack = await readDurableSystemPromptUserPresets(apiClient);
+    if (readBack.status !== "loaded" || JSON.stringify(readBack.presets) !== JSON.stringify(envelope.presets)) {
+        throw new Error("Preset save could not be verified; the previous in-memory list was kept.");
+    }
+    return readBack.presets;
+}
+
+function mergeSystemPromptPresetLists(durablePresets, legacyPresets) {
+    const durable = normalizeSystemPromptPresetList(durablePresets).presets;
+    const legacy = normalizeSystemPromptPresetList(legacyPresets).presets;
+    const merged = durable.map((preset) => ({ ...preset }));
+    const seenIds = new Set(merged.map((preset) => preset.id));
+    const seenLabels = new Set(merged.map((preset) => preset.label.toLowerCase()));
+    let importedCount = 0;
+    let skippedCount = 0;
+    for (const preset of legacy) {
+        const labelKey = preset.label.toLowerCase();
+        if (seenIds.has(preset.id) || seenLabels.has(labelKey)) {
+            skippedCount += 1;
+            continue;
+        }
+        if (merged.length >= SYSTEM_PROMPT_PRESET_MAX_COUNT) {
+            throw new Error(`Import would exceed the ${SYSTEM_PROMPT_PRESET_MAX_COUNT}-preset limit.`);
+        }
+        merged.push({ ...preset });
+        seenIds.add(preset.id);
+        seenLabels.add(labelKey);
+        importedCount += 1;
+    }
+    return { presets: merged, importedCount, skippedCount };
 }
 
 function makeSystemPromptPresetId(label) {
@@ -6391,7 +6585,7 @@ function systemPromptPresetEntries(userPresets) {
             ...preset,
             kind: "user",
             value: `user:${preset.id}`,
-            description: "Saved in this browser.",
+            description: "Saved in ComfyUI user data.",
         })),
     ];
 }
@@ -6482,7 +6676,11 @@ function openSystemPromptDialog(node) {
     closeButton.style.cssText = buttonStyle(false);
     header.append(title, closeButton);
 
-    let userPresets = readSystemPromptUserPresets();
+    const legacyPresetState = readLegacySystemPromptUserPresetState();
+    const legacyPresets = legacyPresetState.presets;
+    let userPresets = [];
+    let durablePresetStoreReady = false;
+    let presetStoreBusy = true;
     const presetPanel = document.createElement("div");
     presetPanel.style.cssText = [
         "display:flex",
@@ -6510,25 +6708,58 @@ function openSystemPromptDialog(node) {
     const deletePresetButton = document.createElement("button");
     deletePresetButton.textContent = "Delete";
     deletePresetButton.style.cssText = buttonStyle(false);
+    const importBrowserPresetsButton = legacyPresets.length ? document.createElement("button") : null;
+    if (importBrowserPresetsButton) {
+        importBrowserPresetsButton.textContent = "Import Browser Presets";
+        importBrowserPresetsButton.style.cssText = `${buttonStyle(false)};align-self:flex-start;display:none;`;
+    }
     const presetHint = document.createElement("div");
-    presetHint.textContent = "Load a preset into the editor, then save it to the node.";
+    presetHint.textContent = "Loading presets from ComfyUI user data...";
     presetHint.style.cssText = "font-size:11px;line-height:1.35;color:#aebdb3;";
     presetRow.append(presetSelect, presetName, loadPresetButton, savePresetButton, deletePresetButton);
-    presetPanel.append(presetRow, presetHint);
+    presetPanel.append(presetRow);
+    if (importBrowserPresetsButton) {
+        presetPanel.append(importBrowserPresetsButton);
+    }
+    presetPanel.append(presetHint);
 
-    const updatePresetControls = () => {
-        const selected = selectedSystemPromptPreset(presetSelect, userPresets);
-        deletePresetButton.disabled = selected?.kind !== "user";
-        deletePresetButton.style.opacity = selected?.kind === "user" ? "1" : "0.45";
-        if (selected?.kind === "user") {
-            presetName.value = selected.label;
-        } else if (selected?.kind === "builtin") {
-            presetName.value = "";
+    const importableBrowserPresetCount = () => {
+        if (!legacyPresets.length) {
+            return 0;
         }
-        presetHint.textContent = selected?.description || "Load a preset into the editor, then save it to the node.";
+        try {
+            return mergeSystemPromptPresetLists(userPresets, legacyPresets).importedCount;
+        } catch {
+            return 0;
+        }
+    };
+    const updatePresetControls = (updateHint = true, syncPresetName = true) => {
+        const selected = selectedSystemPromptPreset(presetSelect, userPresets);
+        loadPresetButton.disabled = presetStoreBusy || !selected;
+        savePresetButton.disabled = presetStoreBusy || !durablePresetStoreReady;
+        deletePresetButton.disabled = presetStoreBusy || !durablePresetStoreReady || selected?.kind !== "user";
+        loadPresetButton.style.opacity = loadPresetButton.disabled ? "0.45" : "1";
+        savePresetButton.style.opacity = savePresetButton.disabled ? "0.45" : "1";
+        deletePresetButton.style.opacity = deletePresetButton.disabled ? "0.45" : "1";
+        if (syncPresetName) {
+            if (selected?.kind === "user") {
+                presetName.value = selected.label;
+            } else if (selected?.kind === "builtin") {
+                presetName.value = "";
+            }
+        }
+        if (importBrowserPresetsButton) {
+            const showImport = durablePresetStoreReady && importableBrowserPresetCount() > 0;
+            importBrowserPresetsButton.style.display = showImport ? "block" : "none";
+            importBrowserPresetsButton.disabled = presetStoreBusy || !showImport;
+            importBrowserPresetsButton.style.opacity = importBrowserPresetsButton.disabled ? "0.45" : "1";
+        }
+        if (updateHint) {
+            presetHint.textContent = selected?.description || "Load a preset into the editor, then save it to the node.";
+        }
     };
     populateSystemPromptPresetSelect(presetSelect, userPresets);
-    updatePresetControls();
+    updatePresetControls(false);
 
     const textarea = document.createElement("textarea");
     textarea.value = String(systemWidget.value || "");
@@ -6570,8 +6801,74 @@ function openSystemPromptDialog(node) {
         close();
     };
 
+    const setPresetStoreBusy = (busy) => {
+        presetStoreBusy = Boolean(busy);
+        presetSelect.disabled = presetStoreBusy;
+        presetName.disabled = presetStoreBusy;
+        updatePresetControls(false, false);
+    };
+    const persistPresetList = async (candidatePresets, selectedValue, successMessage) => {
+        if (!durablePresetStoreReady) {
+            presetHint.textContent = "ComfyUI user data is unavailable; presets were not changed.";
+            return false;
+        }
+        setPresetStoreBusy(true);
+        try {
+            const savedPresets = await writeDurableSystemPromptUserPresets(candidatePresets);
+            userPresets = savedPresets;
+            populateSystemPromptPresetSelect(presetSelect, userPresets, selectedValue);
+            updatePresetControls(false, true);
+            presetHint.textContent = successMessage;
+            return true;
+        } catch (error) {
+            presetHint.textContent = `${error?.message || error} No save was confirmed; the displayed preset list was kept unchanged.`;
+            return false;
+        } finally {
+            setPresetStoreBusy(false);
+        }
+    };
+    const initializePresetStore = async () => {
+        setPresetStoreBusy(true);
+        if (!durableSystemPromptPresetApiAvailable()) {
+            userPresets = legacyPresets;
+            durablePresetStoreReady = false;
+            populateSystemPromptPresetSelect(presetSelect, userPresets);
+            setPresetStoreBusy(false);
+            presetHint.textContent = legacyPresets.length
+                ? "ComfyUI user data is unavailable. Browser presets are available read-only; Save and Delete are disabled."
+                : "ComfyUI user data is unavailable. Durable preset Save and Delete are disabled.";
+            return;
+        }
+        try {
+            const result = await readDurableSystemPromptUserPresets();
+            userPresets = result.presets;
+            durablePresetStoreReady = true;
+            populateSystemPromptPresetSelect(presetSelect, userPresets);
+            setPresetStoreBusy(false);
+            const importCount = importableBrowserPresetCount();
+            if (result.status === "missing") {
+                presetHint.textContent = importCount
+                    ? `${importCount} browser preset${importCount === 1 ? " is" : "s are"} ready to import. No ComfyUI preset file exists yet.`
+                    : "No durable presets yet. Save Preset will create the ComfyUI user-data file.";
+            } else {
+                presetHint.textContent = importCount
+                    ? `${userPresets.length} durable preset${userPresets.length === 1 ? "" : "s"} loaded. ${importCount} browser preset${importCount === 1 ? " is" : "s are"} available to import.`
+                    : `${userPresets.length} durable preset${userPresets.length === 1 ? "" : "s"} loaded from ComfyUI user data.`;
+            }
+            if (legacyPresetState.rejectedCount) {
+                presetHint.textContent += ` ${legacyPresetState.rejectedCount} invalid browser preset entr${legacyPresetState.rejectedCount === 1 ? "y was" : "ies were"} ignored.`;
+            }
+        } catch (error) {
+            userPresets = legacyPresets;
+            durablePresetStoreReady = false;
+            populateSystemPromptPresetSelect(presetSelect, userPresets);
+            setPresetStoreBusy(false);
+            presetHint.textContent = `${error?.message || error} Browser presets are available read-only; nothing was overwritten.`;
+        }
+    };
+
     closeButton.addEventListener("click", close);
-    presetSelect.addEventListener("change", updatePresetControls);
+    presetSelect.addEventListener("change", () => updatePresetControls(true));
     loadPresetButton.addEventListener("click", () => {
         const selected = selectedSystemPromptPreset(presetSelect, userPresets);
         if (!selected) {
@@ -6585,7 +6882,7 @@ function openSystemPromptDialog(node) {
         }
         textarea.focus();
     });
-    savePresetButton.addEventListener("click", () => {
+    savePresetButton.addEventListener("click", async () => {
         const name = String(presetName.value || "").trim() || "My System Prompt";
         const existing = userPresets.find((preset) => preset.label.toLowerCase() === name.toLowerCase());
         const nextPreset = {
@@ -6593,30 +6890,46 @@ function openSystemPromptDialog(node) {
             label: name,
             text: textarea.value,
         };
-        userPresets = existing
+        const candidatePresets = existing
             ? userPresets.map((preset) => (preset.id === existing.id ? nextPreset : preset))
             : [...userPresets, nextPreset];
-        if (writeSystemPromptUserPresets(userPresets)) {
-            populateSystemPromptPresetSelect(presetSelect, userPresets, `user:${nextPreset.id}`);
-            updatePresetControls();
-            presetHint.textContent = `${name} saved in this browser.`;
-        } else {
-            presetHint.textContent = "Preset save failed. Browser storage is unavailable.";
-        }
+        await persistPresetList(
+            candidatePresets,
+            `user:${nextPreset.id}`,
+            `${name} saved in ComfyUI user data.`
+        );
     });
-    deletePresetButton.addEventListener("click", () => {
+    deletePresetButton.addEventListener("click", async () => {
         const selected = selectedSystemPromptPreset(presetSelect, userPresets);
         if (selected?.kind !== "user") {
             presetHint.textContent = "Built-in presets cannot be deleted.";
             return;
         }
-        userPresets = userPresets.filter((preset) => preset.id !== selected.id);
-        if (writeSystemPromptUserPresets(userPresets)) {
-            populateSystemPromptPresetSelect(presetSelect, userPresets, "builtin:reviewer_json");
-            updatePresetControls();
-            presetHint.textContent = `${selected.label} deleted.`;
-        } else {
-            presetHint.textContent = "Preset delete failed. Browser storage is unavailable.";
+        const candidatePresets = userPresets.filter((preset) => preset.id !== selected.id);
+        await persistPresetList(
+            candidatePresets,
+            "builtin:reviewer_json",
+            `${selected.label} deleted from ComfyUI user data.`
+        );
+    });
+    importBrowserPresetsButton?.addEventListener("click", async () => {
+        try {
+            const merged = mergeSystemPromptPresetLists(userPresets, legacyPresets);
+            if (!merged.importedCount) {
+                updatePresetControls(false);
+                presetHint.textContent = "All browser presets are already represented in ComfyUI user data.";
+                return;
+            }
+            const imported = await persistPresetList(
+                merged.presets,
+                `user:${legacyPresets.find((preset) => merged.presets.some((entry) => entry.id === preset.id))?.id || merged.presets.at(-1)?.id}`,
+                `${merged.importedCount} browser preset${merged.importedCount === 1 ? "" : "s"} imported. Browser storage was kept unchanged as a backup.${merged.skippedCount ? ` ${merged.skippedCount} conflicting preset${merged.skippedCount === 1 ? " was" : "s were"} kept from the durable file.` : ""}`
+            );
+            if (imported) {
+                updatePresetControls(false);
+            }
+        } catch (error) {
+            presetHint.textContent = `Browser preset import failed: ${error?.message || error} No import was confirmed; the displayed list and browser backup were kept unchanged.`;
         }
     });
     clearButton.addEventListener("click", () => {
@@ -6647,6 +6960,7 @@ function openSystemPromptDialog(node) {
     overlay.append(panel);
     document.body.append(overlay);
     textarea.focus();
+    void initializePresetStore();
 }
 
 function openPreviewTextDialog(node, kind, titleText, textValue) {

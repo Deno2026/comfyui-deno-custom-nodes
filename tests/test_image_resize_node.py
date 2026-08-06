@@ -3873,7 +3873,13 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "DENO_FINAL_PROMPT:" in script
     assert "Reviewer JSON" in script
     assert "Return only valid JSON. Do not write markdown." in script
-    assert "writeSystemPromptUserPresets" in script
+    assert "SYSTEM_PROMPT_PRESET_USERDATA_FILE" in script
+    assert "apiClient.getUserData" in script
+    assert "apiClient.storeUserData" in script
+    assert "writeDurableSystemPromptUserPresets" in script
+    assert "writeSystemPromptUserPresets" not in script
+    assert 'importBrowserPresetsButton.textContent = "Import Browser Presets";' in script
+    assert "Browser storage was kept unchanged as a backup." in script
     assert 'loadPresetButton.textContent = "Load";' in script
     assert 'savePresetButton.textContent = "Save Preset";' in script
     assert 'saveButton.textContent = "Save to Node";' in script

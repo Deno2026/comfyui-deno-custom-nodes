@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.77 - 2026-08-06
+
+- Added durable per-user system-prompt presets to `(Deno) Local LLM Loader`, including a one-time browser-preset import when legacy presets are detected. Fixes #54.
+- Kept frozen audio exact in both outputs of `(Deno) LTX High resolution Tiled Sampler` when external samplers such as RES4LYF `res_2s` introduce finite internal audio drift, while retaining structural and non-finite-value validation. Fixes #55.
+
 ## 0.7.76 - 2026-08-06
 
 - Added aspect-ratio-locked zoom cropping to `(Deno) Resize Box`: drag the crop area to reposition it or drag any corner to zoom while keeping the selected output megapixels and dimensions fixed. Crop position and zoom persist with the workflow.
