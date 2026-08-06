@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.78 - 2026-08-06
+
+- Improved `(Deno) Local LLM Loader` with applied System Prompt preset status, an optional `video seconds` FLOAT socket, and workflow-tab model restoration that waits for a successful model-list refresh before declaring a saved model missing.
+- Fixed DENO Floating Tools so the first-aid error icon returns to normal after the matching retry succeeds without being reactivated by an old ComfyUI error toast.
+
 ## 0.7.77 - 2026-08-06
 
 - Added durable per-user system-prompt presets to `(Deno) Local LLM Loader`, including a one-time browser-preset import when legacy presets are detected. Fixes #54.

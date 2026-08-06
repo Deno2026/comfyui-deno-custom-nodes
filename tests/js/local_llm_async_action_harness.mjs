@@ -175,7 +175,7 @@ const staleStopCall = fetchCalls.at(-1);
 const newerStopRefresh = api.refreshModels(stopNode);
 const newerStopRefreshCall = fetchCalls.at(-1);
 assert(staleStopCall.options.signal?.aborted === false, "Superseding a Stop must not cancel its backend side effect");
-newerStopRefreshCall.pending.resolve(response({ models: [{ id: "fresh-after-stop" }] }));
+newerStopRefreshCall.pending.resolve(response({ models: [{ id: "qwen3" }] }));
 await newerStopRefresh;
 assert(api.getLocalLLMNodeState(stopNode).status === "1 models found", "The newer Refresh must own state after Stop");
 staleStopCall.pending.resolve(response({ ok: true, message: "late stop response" }));
@@ -189,7 +189,7 @@ const staleUnloadCall = fetchCalls.at(-1);
 const newerUnloadRefresh = api.refreshModels(unloadNode);
 const newerUnloadRefreshCall = fetchCalls.at(-1);
 assert(staleUnloadCall.options.signal?.aborted === false, "Superseding Unload must not cancel its backend side effect");
-newerUnloadRefreshCall.pending.resolve(response({ models: [{ id: "fresh-after-unload" }] }));
+newerUnloadRefreshCall.pending.resolve(response({ models: [{ id: "qwen3" }] }));
 await newerUnloadRefresh;
 assert(api.getLocalLLMNodeState(unloadNode).status === "1 models found", "The newer Refresh must own state after Unload");
 staleUnloadCall.pending.resolve(response({ ok: true, message: "late unload response" }));
@@ -365,5 +365,129 @@ assert(
 queueStopCall.pending.resolve(response({ ok: true, message: "stop completed" }));
 appQueueRequests.at(-1).resolve(true);
 await Promise.all([queueStop, queuedSuccess]);
+
+function configureLMStudioNode(node, model, choices = [model]) {
+    const providerWidget = api.getWidget(node, "provider");
+    const modelWidget = api.getWidget(node, "lm_studio_model");
+    providerWidget.value = "LM Studio";
+    modelWidget.value = model;
+    modelWidget.options = {
+        ...(modelWidget.options || {}),
+        values: [...choices],
+        list: [...choices],
+    };
+    return modelWidget;
+}
+
+const savedLMStudioModel = "google/gemma-4-12b-qat";
+const canonicalSavedValues = [
+    "LM Studio",
+    "qwen3",
+    savedLMStudioModel,
+    "http://127.0.0.1:8000/v1",
+    "custom-model",
+    "",
+    false,
+    1,
+    "fixed",
+    "Unload after run",
+    5,
+    "Auto: unload only before first LLM call",
+    "",
+];
+
+const tabRestoreNode = makeNode(19);
+const tabRestoreModelWidget = configureLMStudioNode(tabRestoreNode, "", [""]);
+api.preserveLocalLLMLoaderSavedComboOptions(tabRestoreNode, canonicalSavedValues);
+api.applyLocalLLMLoaderSavedWidgetValues(tabRestoreNode, canonicalSavedValues);
+assert(
+    tabRestoreModelWidget.value === savedLMStudioModel,
+    "A tab-like configure with cold LM Studio options must preserve the raw saved model id",
+);
+assert(
+    tabRestoreModelWidget.options.values.includes(savedLMStudioModel),
+    "A tab-like configure must keep the raw saved model selectable until a model refresh proves otherwise",
+);
+
+const presentRefreshNode = makeNode(20);
+const presentRefreshWidget = configureLMStudioNode(presentRefreshNode, savedLMStudioModel);
+graph._nodes = [presentRefreshNode];
+const presentRefresh = api.refreshModels(presentRefreshNode);
+fetchCalls.at(-1).pending.resolve(response({
+    models: [
+        { id: savedLMStudioModel },
+        { id: "google/gemma-4-27b-qat" },
+    ],
+}));
+await presentRefresh;
+assert(
+    presentRefreshWidget.value === savedLMStudioModel,
+    "A successful authoritative refresh containing the saved model must keep its raw id selected",
+);
+
+const missingRefreshNode = makeNode(21);
+const missingRefreshWidget = configureLMStudioNode(missingRefreshNode, savedLMStudioModel);
+graph._nodes = [missingRefreshNode];
+const missingRefresh = api.refreshModels(missingRefreshNode);
+fetchCalls.at(-1).pending.resolve(response({ models: [{ id: "google/gemma-4-27b-qat" }] }));
+await missingRefresh;
+assert(
+    missingRefreshWidget.value === `Missing saved model: ${savedLMStudioModel}`,
+    "A successful authoritative refresh omitting the saved model must mark it missing",
+);
+assert(
+    api.getLocalLLMNodeState(missingRefreshNode).status === "saved model not found",
+    "An authoritative missing-model refresh must expose the saved-model-not-found state",
+);
+
+const emptyRefreshNode = makeNode(22);
+const emptyRefreshWidget = configureLMStudioNode(emptyRefreshNode, savedLMStudioModel);
+graph._nodes = [emptyRefreshNode];
+const emptyRefresh = api.refreshModels(emptyRefreshNode);
+fetchCalls.at(-1).pending.resolve(response({ models: [] }));
+await emptyRefresh;
+assert(
+    emptyRefreshWidget.value === `Missing saved model: ${savedLMStudioModel}`,
+    "A successful authoritative empty model list must mark the saved model missing",
+);
+assert(
+    api.getLocalLLMNodeState(emptyRefreshNode).status === "saved model not found",
+    "An authoritative empty model list must expose the saved-model-not-found state",
+);
+
+const failedRefreshNode = makeNode(23);
+const failedRefreshChoices = [savedLMStudioModel, "google/gemma-4-27b-qat"];
+const failedRefreshWidget = configureLMStudioNode(
+    failedRefreshNode,
+    savedLMStudioModel,
+    failedRefreshChoices,
+);
+graph._nodes = [failedRefreshNode];
+const failedRefresh = api.refreshModels(failedRefreshNode);
+fetchCalls.at(-1).pending.reject(new Error("LM Studio temporarily unavailable"));
+await failedRefresh;
+assert(
+    failedRefreshWidget.value === savedLMStudioModel,
+    "A failed refresh must preserve the raw saved model instead of treating failure as proof of absence",
+);
+assert(
+    JSON.stringify(failedRefreshWidget.options.values) === JSON.stringify(failedRefreshChoices) &&
+        JSON.stringify(failedRefreshWidget.options.list) === JSON.stringify(failedRefreshChoices),
+    "A failed refresh must preserve the previous model choices",
+);
+assert(
+    api.getLocalLLMNodeState(failedRefreshNode).status === "model refresh failed",
+    "A failed refresh must report model refresh failed rather than saved model not found",
+);
+
+failedRefreshWidget.value = `Missing saved model: ${savedLMStudioModel}`;
+const serializedMissingModel = api.localLLMLoaderSerializedValuesFromWidgets(
+    failedRefreshNode,
+    canonicalSavedValues,
+);
+assert(
+    serializedMissingModel[2] === savedLMStudioModel,
+    "Workflow serialization must store the raw model id instead of the Missing display prefix",
+);
 
 console.log("local_llm_async_action_harness: ok");

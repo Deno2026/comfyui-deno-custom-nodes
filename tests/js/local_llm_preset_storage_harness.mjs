@@ -194,4 +194,51 @@ const secondMerge = hooks.mergeSystemPromptPresetLists(JSON.parse(importApi.file
 assert.equal(secondMerge.importedCount, 0, "the unchanged browser backup must not be imported twice");
 assert.equal(localStorageWrites, 0, "durable save/delete/import must leave browser storage untouched");
 
+const describe = (text, presets = [], status = "ready") =>
+    JSON.parse(JSON.stringify(hooks.describeSystemPromptPreset(text, presets, status)));
+assert.equal(describe("   \n\t").label, "Empty", "whitespace-only prompts are execution-equivalent to Empty");
+const promptOnly = JSON.parse(JSON.stringify(hooks.BUILTIN_SYSTEM_PROMPT_PRESETS)).find(
+    (preset) => preset.id === "prompt_only",
+);
+assert.equal(describe(promptOnly.text).label, "Prompt Only", "built-in presets must be identified without durable data");
+const testPreset = { id: "user_test", label: "Test", text: "line one\nline two" };
+assert.equal(describe("line one\r\nline two", [testPreset]).label, "Test", "CRLF and LF must compare equally");
+assert.equal(describe(" line one\nline two", [testPreset]).label, "Custom", "meaningful surrounding whitespace must not be normalized away");
+assert.equal(describe("unmatched", [], "loading").label, "Checking...", "unknown text must not be called Custom before durable presets load");
+assert.equal(
+    describe(testPreset.text, [testPreset, { id: "user_test_copy", label: "Test Copy", text: testPreset.text }]).label,
+    "2 matches",
+    "duplicate exact preset bodies must not claim one arbitrary active name",
+);
+assert.equal(describe("unmatched", [], "error").label, "Custom", "preset-read failure must leave prompt use available as Custom");
+
+hooks.systemPromptPresetPageCache.status = "idle";
+hooks.systemPromptPresetPageCache.presets = [];
+hooks.systemPromptPresetPageCache.promise = null;
+hooks.systemPromptPresetPageCache.readStatus = "idle";
+hooks.systemPromptPresetPageCache.error = "";
+let pageCacheReads = 0;
+let resolvePageCacheRead;
+context.api.getUserData = async () => {
+    pageCacheReads += 1;
+    return await new Promise((resolve) => {
+        resolvePageCacheRead = resolve;
+    });
+};
+context.api.storeUserData = async () => jsonResponse({}, 200);
+const firstPageCacheLoad = hooks.loadSystemPromptPresetPageCache();
+const secondPageCacheLoad = hooks.loadSystemPromptPresetPageCache();
+assert.equal(pageCacheReads, 1, "concurrent Local LLM nodes must share one durable preset read");
+resolvePageCacheRead(jsonResponse({ version: 1, presets: [testPreset] }, 200));
+const [firstPageCacheResult, secondPageCacheResult] = await Promise.all([firstPageCacheLoad, secondPageCacheLoad]);
+assert.deepEqual(JSON.parse(JSON.stringify(firstPageCacheResult.presets)), [testPreset]);
+assert.deepEqual(JSON.parse(JSON.stringify(secondPageCacheResult.presets)), [testPreset]);
+assert.equal(hooks.systemPromptPresetPageCache.status, "ready");
+assert.equal(hooks.describeSystemPromptPreset(testPreset.text).label, "Test", "canvas status must use the loaded page cache");
+
+hooks.setSystemPromptPresetPageCache([{ ...testPreset, label: "Renamed Test" }]);
+assert.equal(hooks.describeSystemPromptPreset(testPreset.text).label, "Renamed Test", "verified preset renames must update applied status immediately");
+hooks.setSystemPromptPresetPageCache([]);
+assert.equal(hooks.describeSystemPromptPreset(testPreset.text).label, "Custom", "deleting a preset must preserve node text and reclassify it as Custom");
+
 console.log("local_llm_preset_storage_harness: ok");

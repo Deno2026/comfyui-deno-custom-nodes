@@ -62,6 +62,11 @@ let sosToastHookTimer = null;
 let sosValidationScanScheduled = false;
 let sosQueueIdleConfirmBusy = false;
 let sosErrorGeneration = 0;
+let sosRunClearGeneration = 0;
+let sosRunClearPromptId = "";
+let sosQueueBusyGeneration = 0;
+let sosStateRevision = 0;
+const sosPendingValidationElements = new Map();
 
 const PROMPT_FAILURE_ALERT_SELECTORS = [
     "[role='alert']",
@@ -786,15 +791,50 @@ function markSosErrorSticky() {
 function resetSosClearCandidate() {
     sosRunClearCandidate = false;
     sosQueueWasBusyAfterError = false;
+    sosRunClearGeneration = 0;
+    sosRunClearPromptId = "";
+    sosQueueBusyGeneration = 0;
 }
 
-function noteSosRunStartedAfterError() {
+function sosPromptIdFromEventDetail(detail) {
+    return safeEventScalar(detail?.prompt_id ?? detail?.promptId);
+}
+
+function noteSosRunStartedAfterError(detail = {}) {
     if (!lastExecutionError) return;
     sosRunClearCandidate = true;
+    sosRunClearGeneration = sosErrorGeneration;
+    sosRunClearPromptId = sosPromptIdFromEventDetail(detail);
 }
 
 function hasSosQueueIdleClearCandidate() {
-    return Boolean(lastExecutionError && (sosRunClearCandidate || sosQueueWasBusyAfterError));
+    if (!lastExecutionError) return false;
+    const startedRunMatches = sosRunClearCandidate && sosRunClearGeneration === sosErrorGeneration;
+    const busyRunMatches = sosQueueWasBusyAfterError && sosQueueBusyGeneration === sosErrorGeneration;
+    return Boolean(startedRunMatches || busyRunMatches);
+}
+
+function sosCompletionMatchesClearCandidate(detail = {}) {
+    if (!lastExecutionError || !sosRunClearCandidate || sosRunClearGeneration !== sosErrorGeneration) return false;
+    const completedPromptId = sosPromptIdFromEventDetail(detail);
+    if (sosRunClearPromptId || completedPromptId) {
+        return Boolean(sosRunClearPromptId && completedPromptId && sosRunClearPromptId === completedPromptId);
+    }
+    return true;
+}
+
+function handleSosExecutionSuccess(detail = {}) {
+    if (!sosCompletionMatchesClearCandidate(detail)) return false;
+    return clearExecutionErrorState({ force: true, expectedGeneration: sosRunClearGeneration });
+}
+
+function handleSosExecutionInterrupted(detail = {}) {
+    if (!sosRunClearCandidate || sosRunClearGeneration !== sosErrorGeneration) return false;
+    const interruptedPromptId = sosPromptIdFromEventDetail(detail);
+    if (sosRunClearPromptId && interruptedPromptId && sosRunClearPromptId !== interruptedPromptId) return false;
+    resetSosClearCandidate();
+    applySosIconState();
+    return true;
 }
 
 async function confirmSosQueueIdleForClear() {
@@ -821,12 +861,13 @@ function noteSosQueueStateAfterError(isBusy, options = {}) {
     if (isBusy) {
         if (Date.now() - sosLastErrorAt >= SOS_QUEUE_BUSY_RETRY_GRACE_MS) {
             sosQueueWasBusyAfterError = true;
+            sosQueueBusyGeneration = sosErrorGeneration;
         }
         return;
     }
     if (!hasSosQueueIdleClearCandidate()) return;
     if (options?.confirmedIdle === true) {
-        clearExecutionErrorState({ force: true });
+        clearExecutionErrorState({ force: true, expectedGeneration: sosErrorGeneration });
         return;
     }
     void confirmSosQueueIdleForClear();
@@ -846,6 +887,7 @@ function handleSosStatusEvent(detail) {
 }
 
 function rememberExecutionError(detail) {
+    sosStateRevision += 1;
     sosErrorGeneration += 1;
     lastExecutionError = compactExecutionError(detail);
     lastExecutionError.received_at = new Date().toISOString();
@@ -856,6 +898,7 @@ function rememberExecutionError(detail) {
 }
 
 function rememberPromptFailure(error) {
+    sosStateRevision += 1;
     sosErrorGeneration += 1;
     lastExecutionError = compactPromptFailure(error);
     resetSosClearCandidate();
@@ -968,10 +1011,13 @@ function scheduleSosToastHooks() {
 
 function clearExecutionErrorState(options = {}) {
     const force = options === true || options?.force === true;
+    const expectedGeneration = Number(options?.expectedGeneration);
+    if (Number.isFinite(expectedGeneration) && expectedGeneration !== sosErrorGeneration) return false;
     if (!force && lastExecutionError && Date.now() < sosErrorStickyUntil) {
         applySosIconState();
         return false;
     }
+    sosStateRevision += 1;
     lastExecutionError = null;
     sosErrorStickyUntil = 0;
     sosLastErrorAt = 0;
@@ -1055,20 +1101,29 @@ function promptFailureTextFromNode(node) {
     return element ? limitedSosText(element.textContent) : "";
 }
 
-function inspectPromptFailureAlerts() {
-    const elements = Array.from(document.querySelectorAll(PROMPT_FAILURE_ALERT_SELECTOR)).slice(-20);
+function inspectPromptFailureAlerts(elements = []) {
     for (const element of elements) {
         if (rememberFrontendPromptFailure(promptFailureTextFromNode(element))) return true;
     }
     return false;
 }
 
-function schedulePromptFailureAlertInspection() {
+function schedulePromptFailureAlertInspection(elements = []) {
+    for (const element of elements) {
+        const candidate = promptFailureElementFromNode(element);
+        if (candidate) sosPendingValidationElements.set(candidate, sosStateRevision);
+    }
+    if (!sosPendingValidationElements.size) return;
     if (sosValidationScanScheduled) return;
     sosValidationScanScheduled = true;
     const inspect = () => {
         sosValidationScanScheduled = false;
-        inspectPromptFailureAlerts();
+        const candidates = Array.from(sosPendingValidationElements.entries())
+            .filter(([, revision]) => revision === sosStateRevision)
+            .map(([element]) => element)
+            .slice(-20);
+        sosPendingValidationElements.clear();
+        inspectPromptFailureAlerts(candidates);
     };
     if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(inspect);
     else window.setTimeout(inspect, 0);
@@ -1077,12 +1132,16 @@ function schedulePromptFailureAlertInspection() {
 function installSosValidationObserver() {
     if (sosValidationObserver || typeof MutationObserver !== "function" || !document?.body) return;
     sosValidationObserver = new MutationObserver((mutations) => {
+        const pendingCandidates = [];
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes || []) {
-                if (rememberFrontendPromptFailure(promptFailureTextFromNode(node))) return;
+                const candidate = promptFailureElementFromNode(node);
+                if (!candidate) continue;
+                if (rememberFrontendPromptFailure(promptFailureTextFromNode(candidate))) return;
+                pendingCandidates.push(candidate);
             }
         }
-        schedulePromptFailureAlertInspection();
+        schedulePromptFailureAlertInspection(pendingCandidates);
     });
     sosValidationObserver.observe(document.body, {
         childList: true,
@@ -1815,12 +1874,14 @@ function installSosEventListeners() {
     api?.addEventListener?.("execution_error", (event) => {
         rememberExecutionError(event?.detail || {});
     });
-    api?.addEventListener?.("execution_start", () => {
-        noteSosRunStartedAfterError();
+    api?.addEventListener?.("execution_start", (event) => {
+        noteSosRunStartedAfterError(event?.detail || {});
     });
-    api?.addEventListener?.("execution_success", () => {
-        noteSosRunStartedAfterError();
-        clearExecutionErrorState({ force: true });
+    api?.addEventListener?.("execution_success", (event) => {
+        handleSosExecutionSuccess(event?.detail || {});
+    });
+    api?.addEventListener?.("execution_interrupted", (event) => {
+        handleSosExecutionInterrupted(event?.detail || {});
     });
     api?.addEventListener?.("status", (event) => {
         handleSosStatusEvent(event?.detail || {});
