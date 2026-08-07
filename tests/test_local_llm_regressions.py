@@ -461,6 +461,7 @@ def test_lm_studio_keep_loaded_runs_do_not_query_model_list_during_generation(mo
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
     model_list_calls = []
+    stream_payloads = []
 
     with module._LM_STUDIO_MODELS_CACHE_LOCK:
         module._LM_STUDIO_MODELS_CACHE.clear()
@@ -471,7 +472,8 @@ def test_lm_studio_keep_loaded_runs_do_not_query_model_list_during_generation(mo
             raise AssertionError("generation must not synchronously query LM Studio's model list")
         raise AssertionError(f"unexpected non-stream request: {url}")
 
-    def fake_stream(*_args, **_kwargs):
+    def fake_stream(_url, payload, **_kwargs):
+        stream_payloads.append(dict(payload))
         yield "message.delta", {"type": "message.delta", "content": "ready"}
         yield "chat.end", {"type": "chat.end"}
 
@@ -496,8 +498,103 @@ def test_lm_studio_keep_loaded_runs_do_not_query_model_list_during_generation(mo
         )
         assert answer == "ready"
         assert raw["reasoning"] == "off"
+        assert raw["reasoning_requested"] == "off"
+        assert raw["reasoning_compat_fallback"] is False
 
     assert model_list_calls == []
+    assert [payload["reasoning"] for payload in stream_payloads] == ["off", "off"]
+
+
+def test_lm_studio_retries_once_without_reasoning_only_when_off_is_explicitly_unsupported(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+
+    with module._LM_STUDIO_MODELS_CACHE_LOCK:
+        module._LM_STUDIO_MODELS_CACHE.clear()
+
+    def fake_stream(_url, payload, **_kwargs):
+        stream_payloads.append(dict(payload))
+        if len(stream_payloads) == 1:
+            raise RuntimeError("This model does not support the reasoning setting 'off'.")
+        yield "message.delta", {"type": "message.delta", "content": "ready"}
+        yield "chat.end", {"type": "chat.end"}
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    answer, thought, raw = node._run_lm_studio(
+        server_url="http://127.0.0.1:1234/v1",
+        model="local/non-reasoning-model",
+        system_prompt="",
+        prompt="hello",
+        thinking=False,
+        seed=7,
+        model_memory="Keep loaded",
+        keep_minutes=5,
+        image_attachments=[],
+        is_last=True,
+        node_id="lm-studio-reasoning-compat",
+        index=1,
+        total=1,
+    )
+
+    assert answer == "ready"
+    assert thought == ""
+    assert stream_payloads[0]["reasoning"] == "off"
+    assert "reasoning" not in stream_payloads[1]
+    assert raw["reasoning"] is None
+    assert raw["reasoning_requested"] == "off"
+    assert raw["reasoning_compat_fallback"] is True
+
+
+@pytest.mark.parametrize(
+    ("partial_output", "error_message"),
+    [
+        (False, "LM Studio connection failed"),
+        (True, "This model does not support the reasoning setting 'off'."),
+    ],
+)
+def test_lm_studio_does_not_retry_unrelated_or_partial_output_failures(
+    monkeypatch,
+    partial_output,
+    error_message,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+
+    with module._LM_STUDIO_MODELS_CACHE_LOCK:
+        module._LM_STUDIO_MODELS_CACHE.clear()
+
+    def fake_stream(_url, payload, **_kwargs):
+        stream_payloads.append(dict(payload))
+        if partial_output:
+            yield "message.delta", {"type": "message.delta", "content": "partial"}
+        raise RuntimeError(error_message)
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    with pytest.raises(RuntimeError, match="reasoning setting|connection failed"):
+        node._run_lm_studio(
+            server_url="http://127.0.0.1:1234/v1",
+            model="google/gemma",
+            system_prompt="",
+            prompt="hello",
+            thinking=False,
+            seed=7,
+            model_memory="Keep loaded",
+            keep_minutes=5,
+            image_attachments=[],
+            is_last=True,
+            node_id="lm-studio-no-retry",
+            index=1,
+            total=1,
+        )
+
+    assert len(stream_payloads) == 1
+    assert stream_payloads[0]["reasoning"] == "off"
 
 
 def test_local_llm_input_types_never_queries_lm_studio_during_prompt_validation(monkeypatch):

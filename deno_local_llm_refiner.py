@@ -1856,27 +1856,39 @@ def _lm_studio_empty_stream_error(message: str) -> str:
     )
 
 
-def _recover_lm_native_empty_stream(
-    native_base: str,
-    payload: Dict[str, Any],
-    include_reasoning: bool,
-) -> Tuple[str, str, Dict[str, Any]]:
-    diagnostic_payload = dict(payload)
-    diagnostic_payload["stream"] = False
-    try:
-        diagnostic = _http_json(
-            f"{native_base}/api/v1/chat",
-            diagnostic_payload,
-            method="POST",
-            timeout=120.0,
-        )
-    except RuntimeError as exc:
-        raise RuntimeError(_lm_studio_empty_stream_error(str(exc))) from exc
+def _looks_like_unsupported_lm_studio_reasoning_error(detail: Any) -> bool:
+    if isinstance(detail, dict):
+        message = str(detail.get("message") or detail)
+        param = str(detail.get("param") or "").strip().lower()
+        code = str(detail.get("code") or "").strip().lower()
+    else:
+        message = str(detail or "")
+        param = ""
+        code = ""
 
-    answer, thought = _extract_lm_native_final(diagnostic, include_reasoning)
-    if answer or thought:
-        return answer, thought, diagnostic
-    raise RuntimeError(_lm_studio_empty_stream_error(json.dumps(diagnostic, ensure_ascii=False)[:800]))
+    lowered = message.lower()
+    if "reasoning" not in lowered and param != "reasoning":
+        return False
+    markers = (
+        "does not support",
+        "doesn't support",
+        "not support",
+        "unsupported",
+        "unknown field",
+        "unknown parameter",
+        "unrecognized field",
+        "unrecognized parameter",
+        "unexpected field",
+        "unexpected parameter",
+        "invalid reasoning",
+        "invalid value",
+    )
+    return any(marker in lowered for marker in markers) or code in {
+        "invalid_parameter",
+        "invalid_request",
+        "unsupported_parameter",
+        "unsupported_value",
+    }
 
 
 def _lm_studio_models_cache_key(server_url: str) -> str:
@@ -3209,68 +3221,110 @@ class DenoLocalLLMRefiner:
             "input": _lm_native_input(prompt, image_attachments),
             "store": False,
         }
+        reasoning_requested = "on" if thinking else "off"
         if thinking:
             payload["reasoning"] = "on"
         else:
             reasoning_options = _lm_studio_reasoning_options(native_base, model)
-            if reasoning_options and "off" in reasoning_options:
+            # A missing or expired capability cache must not silently restore
+            # the model's default reasoning mode. Only a cached model that
+            # explicitly lacks `off` skips the field for compatibility.
+            if reasoning_options is None or "off" in reasoning_options:
                 payload["reasoning"] = "off"
         if system_prompt.strip():
             payload["system_prompt"] = system_prompt
 
-        answer_parts: List[str] = []
-        thinking_parts: List[str] = []
-        final_meta: Dict[str, Any] = {}
-        last_emit = 0.0
         # The active key still uses the OpenAI-style base saved in workflows,
         # while the real request uses LM Studio's native chat endpoint.
         cancel_key = _llm_state_key(PROVIDER_LM_STUDIO, openai_base, model)
 
-        diagnostic_meta: Optional[Dict[str, Any]] = None
+        reasoning_compat_fallback = False
+        reasoning_observed = False
         try:
-            for event_name, chunk in _http_stream_sse(f"{native_base}/api/v1/chat", payload, cancel_key=cancel_key):
-                if chunk.get("error"):
-                    error = chunk.get("error")
-                    if isinstance(error, dict):
-                        detail = str(error.get("message") or error)
-                    else:
-                        detail = str(error)
-                    if _looks_like_model_unavailable_error(detail):
-                        raise RuntimeError(_model_unavailable_message(model, detail))
-                    raise RuntimeError(detail)
-                event_type = str(chunk.get("type") or event_name or "")
-                content = str(chunk.get("content") or "") if event_type == "message.delta" else ""
-                thought = str(chunk.get("content") or "") if event_type == "reasoning.delta" else ""
-                if content:
-                    answer_parts.append(content)
-                if thought and thinking:
-                    thinking_parts.append(thought)
-                if event_type == "chat.end":
-                    final_meta = chunk
-                now = time.monotonic()
-                if now - last_emit > 0.12 or content or thought:
-                    last_emit = now
-                    _send_progress({
-                        "node_id": node_id,
-                        "status": "running",
-                        "provider": PROVIDER_LM_STUDIO,
-                        "model": model,
-                        "index": index,
-                        "total": total,
-                        "answer": "".join(answer_parts),
-                        "thinking": "".join(thinking_parts),
-                    })
+            while True:
+                answer_parts: List[str] = []
+                thinking_parts: List[str] = []
+                final_meta: Dict[str, Any] = {}
+                last_emit = 0.0
+                received_generation_output = False
+                try:
+                    for event_name, chunk in _http_stream_sse(
+                        f"{native_base}/api/v1/chat",
+                        payload,
+                        cancel_key=cancel_key,
+                    ):
+                        if chunk.get("error"):
+                            error = chunk.get("error")
+                            if isinstance(error, dict):
+                                detail = str(error.get("message") or error)
+                                error_param = str(error.get("param") or "").strip()
+                                if error_param:
+                                    detail = f"{detail} (param: {error_param})"
+                            else:
+                                detail = str(error)
+                            if _looks_like_model_unavailable_error(detail):
+                                raise RuntimeError(_model_unavailable_message(model, detail))
+                            raise RuntimeError(detail)
+                        event_type = str(chunk.get("type") or event_name or "")
+                        content = str(chunk.get("content") or "") if event_type == "message.delta" else ""
+                        thought = str(chunk.get("content") or "") if event_type == "reasoning.delta" else ""
+                        if content:
+                            received_generation_output = True
+                            answer_parts.append(content)
+                        if thought:
+                            received_generation_output = True
+                            reasoning_observed = True
+                            if thinking:
+                                thinking_parts.append(thought)
+                        if event_type == "chat.end":
+                            final_meta = chunk
+                        now = time.monotonic()
+                        if now - last_emit > 0.12 or content or thought:
+                            last_emit = now
+                            _send_progress({
+                                "node_id": node_id,
+                                "status": "running",
+                                "provider": PROVIDER_LM_STUDIO,
+                                "model": model,
+                                "index": index,
+                                "total": total,
+                                "answer": "".join(answer_parts),
+                                "thinking": "".join(thinking_parts),
+                            })
+                    break
+                except RuntimeError as exc:
+                    can_retry_without_reasoning = (
+                        not thinking
+                        and payload.get("reasoning") == "off"
+                        and not reasoning_compat_fallback
+                        and not received_generation_output
+                        and not final_meta
+                        and _looks_like_unsupported_lm_studio_reasoning_error(str(exc))
+                    )
+                    if not can_retry_without_reasoning:
+                        raise
+                    payload = dict(payload)
+                    payload.pop("reasoning", None)
+                    reasoning_compat_fallback = True
 
             answer = "".join(answer_parts).strip()
             thought = "".join(thinking_parts).strip()
             if not answer and not thought and final_meta:
                 answer, thought = _extract_lm_native_final(final_meta, thinking)
             if not answer and not thought:
-                answer, thought, diagnostic_meta = _recover_lm_native_empty_stream(
-                    native_base,
-                    payload,
-                    thinking,
+                _unused_answer, hidden_thought = _extract_lm_native_final(final_meta, True)
+                if not thinking and (reasoning_observed or hidden_thought):
+                    raise RuntimeError(
+                        "LM Studio returned reasoning without final text after Thinking was turned off. "
+                        "The model or server may have ignored reasoning='off'. Update LM Studio or choose "
+                        "a model that supports disabling reasoning."
+                    )
+                detail = (
+                    json.dumps(final_meta, ensure_ascii=False)[:800]
+                    if final_meta
+                    else "No final message was returned."
                 )
+                raise RuntimeError(_lm_studio_empty_stream_error(detail))
         finally:
             if _should_unload_after_run(memory_value, is_last):
                 if cleanup_state is not None:
@@ -3283,12 +3337,12 @@ class DenoLocalLLMRefiner:
             "seed": seed,
             "model_memory": memory_value,
             "keep_minutes": keep_minutes_value,
-            "reasoning": payload.get("reasoning", "off"),
+            "reasoning": payload.get("reasoning"),
+            "reasoning_requested": reasoning_requested,
+            "reasoning_compat_fallback": reasoning_compat_fallback,
             "api": "LM Studio /api/v1/chat",
             "meta": final_meta,
         }
-        if diagnostic_meta is not None:
-            raw["diagnostic"] = diagnostic_meta
         if image_attachments:
             raw["images"] = _image_attachment_metadata(image_attachments)
             raw["image"] = raw["images"][0]
