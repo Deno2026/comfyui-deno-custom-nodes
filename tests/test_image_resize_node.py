@@ -4366,12 +4366,14 @@ def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
     assert answer == "kept"
     assert thought == ""
     assert stream_payloads[0]["url"] == "http://127.0.0.1:1234/api/v1/chat"
-    assert "reasoning" not in stream_payloads[0]["payload"]
+    assert stream_payloads[0]["payload"]["reasoning"] == "off"
     assert stream_payloads[0]["payload"]["input"] == "hello"
     assert stream_payloads[0]["payload"]["store"] is False
     assert "ttl" not in stream_payloads[0]["payload"]
     assert "seed" not in stream_payloads[0]["payload"]
     assert raw["reasoning"] == "off"
+    assert raw["reasoning_requested"] == "off"
+    assert raw["reasoning_compat_fallback"] is False
     assert raw["model_memory"] == "Keep for minutes"
     assert raw["keep_minutes"] == 3
     assert raw["api"] == "LM Studio /api/v1/chat"
@@ -4420,6 +4422,54 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
     assert thought == ""
     assert stream_payloads[0]["payload"]["reasoning"] == "off"
     assert raw["reasoning"] == "off"
+    assert raw["reasoning_requested"] == "off"
+    assert raw["reasoning_compat_fallback"] is False
+
+
+def test_local_llm_refiner_lm_studio_omits_reasoning_when_cached_model_does_not_support_it():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+
+    original_stream = module._http_stream_sse
+
+    def fake_stream(url, payload, **_kwargs):
+        stream_payloads.append({"url": url, "payload": dict(payload)})
+        yield "message.delta", {"type": "message.delta", "content": "kept"}
+        yield "chat.end", {"type": "chat.end", "result": {"output": [{"type": "message", "content": "kept"}]}}
+
+    module._http_stream_sse = fake_stream
+    module._cache_lm_studio_models(
+        "http://127.0.0.1:1234",
+        [{"id": "local/non-reasoning-model", "reasoning_options": []}],
+    )
+    try:
+        answer, thought, raw = node._run_lm_studio(
+            server_url="http://127.0.0.1:1234/v1",
+            model="local/non-reasoning-model",
+            system_prompt="",
+            prompt="hello",
+            thinking=False,
+            seed=7,
+            model_memory="Keep for minutes",
+            keep_minutes=3,
+            image_attachments=[],
+            is_last=True,
+            node_id="99",
+            index=1,
+            total=1,
+        )
+    finally:
+        module._http_stream_sse = original_stream
+        module._invalidate_lm_studio_models_cache("http://127.0.0.1:1234")
+
+    assert answer == "kept"
+    assert thought == ""
+    assert "reasoning" not in stream_payloads[0]["payload"]
+    assert raw["reasoning"] is None
+    assert raw["reasoning_requested"] == "off"
+    assert raw["reasoning_compat_fallback"] is False
 
 
 def test_local_llm_refiner_lm_studio_sends_reasoning_only_when_thinking_enabled():
@@ -4460,6 +4510,8 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_only_when_thinking_enabled(
     assert thought == "visible thought"
     assert stream_payloads[0]["payload"]["reasoning"] == "on"
     assert raw["reasoning"] == "on"
+    assert raw["reasoning_requested"] == "on"
+    assert raw["reasoning_compat_fallback"] is False
 
 
 def test_local_llm_refiner_lm_studio_native_extracts_top_level_output():
@@ -4481,7 +4533,7 @@ def test_local_llm_refiner_lm_studio_native_extracts_top_level_output():
     assert thought == "internal"
 
 
-def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
+def test_local_llm_refiner_lm_studio_empty_stream_fails_without_duplicate_generation():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
@@ -4491,25 +4543,24 @@ def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
     original_http_json = module._http_json
     original_list_models = module.list_local_llm_models
     original_unload = node._lm_unload_best_effort
-    diagnostic_payloads = []
+    stream_payloads = []
+    nonstream_calls = []
 
-    def fake_stream(_url, _payload, **_kwargs):
+    def fake_stream(_url, payload, **_kwargs):
+        stream_payloads.append(dict(payload))
         yield "chat.start", {"type": "chat.start", "model_instance_id": "google/gemma-4-12b"}
+        yield "chat.end", {"type": "chat.end", "result": {"output": []}}
 
-    def fake_http_json(_url, _payload=None, method="GET", timeout=20.0):
-        diagnostic_payloads.append(dict(_payload or {}))
-        raise RuntimeError(
-            "Local LLM server returned HTTP 500: "
-            "The number of tokens to keep from the initial prompt is greater than the context length "
-            "(n_keep: 6667>= n_ctx: 4096)."
-        )
+    def fake_http_json(url, _payload=None, method="GET", timeout=20.0):
+        nonstream_calls.append((url, dict(_payload or {}), method, timeout))
+        raise AssertionError("empty streams must not start a second generation request")
 
     module._http_stream_sse = fake_stream
     module._http_json = fake_http_json
     module.list_local_llm_models = lambda _provider, _server_url: []
     node._lm_unload_best_effort = lambda native_base, model: unload_calls.append((native_base, model))
     try:
-        with pytest.raises(RuntimeError, match="longer than the loaded model context"):
+        with pytest.raises(RuntimeError, match="ended the response stream without final text"):
             node._run_lm_studio(
                 server_url="http://127.0.0.1:1234/v1",
                 model="google/gemma-4-12b",
@@ -4531,10 +4582,54 @@ def test_local_llm_refiner_lm_studio_empty_stream_reports_context_error():
         module.list_local_llm_models = original_list_models
         node._lm_unload_best_effort = original_unload
 
-    assert diagnostic_payloads
-    assert diagnostic_payloads[0]["stream"] is False
-    assert "reasoning" not in diagnostic_payloads[0]
+    assert len(stream_payloads) == 1
+    assert stream_payloads[0]["reasoning"] == "off"
+    assert nonstream_calls == []
     assert unload_calls == [("http://127.0.0.1:1234", "google/gemma-4-12b")]
+
+
+def test_local_llm_refiner_lm_studio_reasoning_only_fails_fast_when_thinking_is_off(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        stream_payloads.append(dict(payload))
+        yield "reasoning.delta", {"type": "reasoning.delta", "content": "hidden only"}
+        yield "chat.end", {
+            "type": "chat.end",
+            "result": {"output": [{"type": "reasoning", "content": "hidden only"}]},
+        }
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+    monkeypatch.setattr(
+        module,
+        "_http_json",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("reasoning-only output must not start a second generation request")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="reasoning without final text"):
+        node._run_lm_studio(
+            server_url="http://127.0.0.1:1234/v1",
+            model="google/gemma-4-12b",
+            system_prompt="",
+            prompt="hello",
+            thinking=False,
+            seed=7,
+            model_memory="Keep for minutes",
+            keep_minutes=3,
+            image_attachments=[],
+            is_last=True,
+            node_id="99",
+            index=1,
+            total=1,
+        )
+
+    assert len(stream_payloads) == 1
+    assert stream_payloads[0]["reasoning"] == "off"
 
 
 def test_local_llm_refiner_sends_progress_error_before_raising(monkeypatch):
