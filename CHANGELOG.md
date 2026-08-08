@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.81 - 2026-08-08
+
+- Fixed `(Deno) Local LLM Loader` so a vertically enlarged prompt area can shrink again, follows ComfyUI's native DOM layout, and keeps its compact size after saving and reopening a workflow.
+
 ## 0.7.80 - 2026-08-07
 
 - Fixed `(Deno) Local LLM Loader` so LM Studio reasoning-capable models receive an explicit `reasoning: off` request whenever Thinking is disabled, including after the model-list cache expires.

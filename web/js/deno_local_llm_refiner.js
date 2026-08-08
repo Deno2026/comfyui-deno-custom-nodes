@@ -14,8 +14,7 @@ const OPENAI_MODEL_PICKER_NAME = `${GENERATED_PREFIX}model_picker`;
 const DEFAULT_WIDTH = 560;
 const GATE_DEFAULT_WIDTH = 420;
 const PREVIEW_HEIGHT = 150;
-const PROMPT_WIDGET_MIN_HEIGHT = 118;
-const PROMPT_WIDGET_DEFAULT_HEIGHT = 156;
+const PROMPT_WIDGET_MIN_HEIGHT = 90;
 const PROMPT_WIDGET_MAX_HEIGHT = 460;
 const PROMPT_WIDGET_SIDE_INSET = 0;
 const PREVIEW_TEXT_FONT = "10px monospace";
@@ -4486,15 +4485,21 @@ function configurePromptWidget(node, widget) {
     }
     widget.options = widget.options || {};
     widget.options.multiline = true;
+    if (typeof widget.computeLayoutSize === "function") {
+        delete widget.computeSize;
+        widget.options.getMinHeight = () => PROMPT_WIDGET_MIN_HEIGHT;
+        widget.options.getMaxHeight = () => PROMPT_WIDGET_MAX_HEIGHT;
+        stylePromptWidgetElement(widget);
+        return;
+    }
     widget.computeSize = (width) => {
-        const promptHeight = loaderPromptWidgetHeight(node);
-        stylePromptWidgetElement(widget, promptHeight);
-        return [Math.max(width || DEFAULT_WIDTH, DEFAULT_WIDTH), promptHeight];
+        stylePromptWidgetElement(widget);
+        return [Math.max(width || DEFAULT_WIDTH, DEFAULT_WIDTH), PROMPT_WIDGET_MIN_HEIGHT];
     };
-    stylePromptWidgetElement(widget, loaderPromptWidgetHeight(node));
+    stylePromptWidgetElement(widget);
 }
 
-function stylePromptWidgetElement(widget, height) {
+function stylePromptWidgetElement(widget) {
     const element = widget?.element || widget?.inputEl || null;
     if (!element?.style) {
         return;
@@ -4505,8 +4510,8 @@ function stylePromptWidgetElement(widget, height) {
     element.style.marginRight = `${PROMPT_WIDGET_SIDE_INSET}px`;
     element.style.width = `calc(100% - ${PROMPT_WIDGET_SIDE_INSET * 2}px)`;
     element.style.maxWidth = `calc(100% - ${PROMPT_WIDGET_SIDE_INSET * 2}px)`;
-    element.style.minHeight = `${Math.max(80, height - 8)}px`;
-    element.style.height = `${Math.max(80, height - 8)}px`;
+    element.style.minHeight = "";
+    element.style.height = "100%";
     element.style.resize = "none";
     element.style.overflow = "auto";
 }
@@ -5944,47 +5949,6 @@ function moveWidgetAfter(node, widget, anchor) {
     }
     const anchorIndex = node.widgets.indexOf(anchor);
     node.widgets.splice(anchorIndex >= 0 ? anchorIndex + 1 : node.widgets.length, 0, widget);
-}
-
-function loaderPromptWidgetHeight(node) {
-    const nodeHeight = Number(node?.size?.[1]) || 0;
-    if (!nodeHeight) {
-        return PROMPT_WIDGET_DEFAULT_HEIGHT;
-    }
-    const reserved = loaderNonPromptWidgetHeight(node);
-    return clampNumber(nodeHeight - reserved, PROMPT_WIDGET_MIN_HEIGHT, PROMPT_WIDGET_MAX_HEIGHT);
-}
-
-function loaderNonPromptWidgetHeight(node) {
-    const width = Number(node?.size?.[0]) || DEFAULT_WIDTH;
-    let total = 86;
-    for (const widget of node?.widgets || []) {
-        const name = String(widget?.name || "");
-        if (name === "prompt" || widget?.hidden) {
-            continue;
-        }
-        let height = LiteGraph.NODE_WIDGET_HEIGHT || 20;
-        if (typeof widget?.computeSize === "function") {
-            try {
-                const size = widget.computeSize(width);
-                if (Array.isArray(size)) {
-                    height = Number(size[1]) || height;
-                }
-            } catch {
-                // Keep the default row height for brittle third-party widget methods.
-            }
-        }
-        total += Math.max(0, height);
-    }
-    return total + 20;
-}
-
-function clampNumber(value, minimum, maximum) {
-    const number = Number(value);
-    if (!Number.isFinite(number)) {
-        return minimum;
-    }
-    return Math.min(maximum, Math.max(minimum, number));
 }
 
 function refreshNode(node) {
