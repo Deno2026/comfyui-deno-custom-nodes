@@ -3871,7 +3871,11 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "ensurePromptWidget" in script
     assert "addPromptTextBox" not in script
     assert "positionPromptWidget" in script
-    assert "loaderPromptWidgetHeight" in script
+    assert "loaderPromptWidgetHeight" not in script
+    assert 'delete widget.computeSize;' in script
+    assert "widget.options.getMinHeight = () => PROMPT_WIDGET_MIN_HEIGHT;" in script
+    assert "widget.options.getMaxHeight = () => PROMPT_WIDGET_MAX_HEIGHT;" in script
+    assert 'element.style.height = "100%";' in script
     assert "PROMPT_WIDGET_SIDE_INSET" in script
     assert "element.style.marginLeft" in script
     assert "removeLegacyPromptBoxDomElements" in script

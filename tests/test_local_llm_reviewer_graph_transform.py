@@ -580,6 +580,23 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(api.getWidget(clonedClipboardShiftNode, "deno_local_llm_unload_llm").value === "Unload LLM", "Loader reload cleanup must reset Unload LLM button value after ComfyUI shifts saved model text into it");
             assert(api.getWidget(clonedClipboardShiftNode, "deno_local_llm_system_prompt_button").value === "System Prompt", "Loader reload cleanup must reset System Prompt button value after ComfyUI restore");
             function makeCopiedLoaderNode(id) {{
+                const promptElement = {{ style: {{ minHeight: "460px", height: "460px" }} }};
+                const promptWidget = {{
+                    name: "prompt",
+                    label: "Prompt",
+                    type: "text",
+                    value: "",
+                    options: {{}},
+                    element: promptElement,
+                    computeSize() {{ return [560, 460]; }},
+                    computeLayoutSize() {{
+                        return {{
+                            minHeight: this.options.getMinHeight?.() ?? 50,
+                            maxHeight: this.options.getMaxHeight?.(),
+                            minWidth: 0,
+                        }};
+                    }},
+                }};
                 const node = {{
                     id,
                     type: "DenoLocalLLMRefiner",
@@ -596,7 +613,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                         {{ name: "model_memory", label: "Model After Run", type: "combo", value: "Unload after run", options: {{ values: ["Unload after run", "Keep loaded"] }} }},
                         {{ name: "keep_minutes", label: "Keep Minutes", type: "number", value: 5 }},
                         {{ name: "comfy_vram_policy", label: "Unload ComfyUI Models Setting", type: "combo", value: "Auto: unload only before first LLM call", options: {{ values: ["Auto: unload only before first LLM call", "Always unload before each LLM call", "Never unload before LLM call"] }} }},
-                        {{ name: "prompt", label: "Prompt", type: "text", value: "" }},
+                        promptWidget,
                     ],
                     inputs: [],
                     outputs: [{{ name: "result", type: "STRING", links: [] }}],
@@ -639,6 +656,26 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(api.getWidget(copiedLoaderNode, "seed").value === 42, "Loader copy/paste setup must restore the saved seed");
             assert(api.getWidget(copiedLoaderNode, "prompt").value === "Prompt text", "Loader copy/paste setup must restore the saved prompt text");
             assert(api.getLocalLLMNodeState(copiedLoaderNode).thinking === "copied thinking", "Loader copy/paste setup must restore saved Thinking preview state");
+            const copiedPromptWidget = api.getWidget(copiedLoaderNode, "prompt");
+            assert(typeof copiedPromptWidget.computeSize === "undefined", "Modern ComfyUI prompt layout must not keep the current node height as a fixed computeSize minimum");
+            const compactPromptLayout = copiedPromptWidget.computeLayoutSize(copiedLoaderNode);
+            assert(compactPromptLayout.minHeight === 90 && compactPromptLayout.maxHeight === 460, "Prompt layout must keep a compact fixed minimum and remain growable");
+            assert(copiedPromptWidget.element.style.minHeight === "" && copiedPromptWidget.element.style.height === "100%", "Prompt textarea must follow the native allocated widget height");
+            copiedLoaderNode.size = [590, 760];
+            const grownPromptLayout = copiedPromptWidget.computeLayoutSize(copiedLoaderNode);
+            copiedLoaderNode.size = [590, 630];
+            const restoredPromptLayout = copiedPromptWidget.computeLayoutSize(copiedLoaderNode);
+            assert(grownPromptLayout.minHeight === 90 && restoredPromptLayout.minHeight === 90, "Growing a Loader must not ratchet its Prompt minimum and block shrinking back to the saved height");
+            api.setupNode(copiedLoaderNode);
+            assert(typeof copiedPromptWidget.computeSize === "undefined" && copiedPromptWidget.computeLayoutSize(copiedLoaderNode).minHeight === 90, "Repeated setup must preserve the non-ratcheting native Prompt layout");
+            const legacyPromptNode = makeCopiedLoaderNode(149);
+            const legacyPromptWidget = api.getWidget(legacyPromptNode, "prompt");
+            delete legacyPromptWidget.computeLayoutSize;
+            legacyPromptNode.size = [590, 900];
+            api.setupNode(legacyPromptNode);
+            assert(api.getWidget(legacyPromptNode, "prompt").computeSize(590)[1] === 90, "Legacy ComfyUI fallback must use a fixed compact Prompt minimum even when the saved node is tall");
+            legacyPromptNode.size = [590, 630];
+            assert(api.getWidget(legacyPromptNode, "prompt").computeSize(590)[1] === 90, "Legacy Prompt fallback must allow a grown Loader to shrink back to the saved height");
             const staleFirstRunNode = {{
                 widgets: [
                     {{ name: "provider", value: "Ollama", options: {{ values: ["Ollama", "LM Studio"] }} }},
