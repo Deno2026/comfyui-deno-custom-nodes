@@ -229,6 +229,145 @@ def test_local_llm_ollama_completed_terminal_request_does_not_unload_twice_on_po
     assert unload_calls == []
 
 
+def test_local_llm_ollama_continuation_failure_before_response_runs_explicit_cleanup_once(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    unload_calls = []
+    stream_calls = 0
+    original_error = RuntimeError("continuation connection failed")
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        nonlocal stream_calls
+        stream_calls += 1
+        if stream_calls == 1:
+            yield {"message": {"thinking": "unfinished reasoning"}, "done": False}
+            yield {"done": True, "done_reason": "length", "prompt_eval_count": 10, "eval_count": 20}
+            return
+        raise original_error
+        yield  # pragma: no cover - keep this function a generator
+
+    monkeypatch.setattr(module, "_send_progress", lambda _payload: None)
+    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(
+        module,
+        "unload_local_llm_model",
+        lambda *args: unload_calls.append(args) or {"ok": True},
+    )
+
+    kwargs = _refine_kwargs(["only prompt"])
+    kwargs["thinking"] = True
+    with pytest.raises(RuntimeError) as raised:
+        node.refine(**kwargs)
+
+    assert raised.value is original_error
+    assert stream_calls == 2
+    assert unload_calls == [("Ollama", "http://127.0.0.1:11434", "qwen3")]
+
+
+def test_local_llm_ollama_stop_between_thinking_and_continuation_does_not_start_retry(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    unload_calls = []
+    stream_calls = 0
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        nonlocal stream_calls
+        stream_calls += 1
+        yield {"message": {"thinking": "unfinished reasoning"}, "done": False}
+        yield {"done": True, "done_reason": "length", "prompt_eval_count": 10, "eval_count": 20}
+        module._CANCEL_LOCAL_LLM_KEYS.add(cancel_key)
+
+    monkeypatch.setattr(module, "_send_progress", lambda _payload: None)
+    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(
+        module,
+        "unload_local_llm_model",
+        lambda *args: unload_calls.append(args) or {"ok": True},
+    )
+
+    kwargs = _refine_kwargs(["only prompt"])
+    kwargs["thinking"] = True
+    with pytest.raises(Exception, match="Local LLM generation stopped"):
+        node.refine(**kwargs)
+
+    assert stream_calls == 1
+    assert unload_calls == [("Ollama", "http://127.0.0.1:11434", "qwen3")]
+
+
+@pytest.mark.parametrize("recover_prompt_index", [0, 1])
+def test_local_llm_ollama_continuation_preserves_batch_order_and_one_terminal_unload(
+    monkeypatch,
+    recover_prompt_index,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+    explicit_unload_calls = []
+    fallback_unload_calls = []
+    prompt_attempts = {"first prompt": 0, "second prompt": 0}
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        stream_payloads.append(payload)
+        original_prompt = next(
+            message["content"]
+            for message in payload["messages"]
+            if message.get("role") == "user"
+        )
+        prompt_attempts[original_prompt] += 1
+        prompt_index = 0 if original_prompt == "first prompt" else 1
+        if prompt_index == recover_prompt_index and payload["think"] is True:
+            yield {"message": {"thinking": f"reasoning {prompt_index}"}, "done": False}
+            yield {"done": True, "done_reason": "length", "prompt_eval_count": 10, "eval_count": 20}
+            return
+        yield {
+            "message": {
+                "thinking": "" if payload["think"] is False else f"reasoning {prompt_index}",
+                "content": f"final {prompt_index}",
+            },
+            "done": False,
+        }
+        yield {"done": True, "done_reason": "stop", "prompt_eval_count": 11, "eval_count": 12}
+
+    monkeypatch.setattr(module, "_send_progress", lambda _payload: None)
+    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+    monkeypatch.setattr(
+        module,
+        "_ollama_unload_best_effort",
+        lambda base, model: explicit_unload_calls.append((base, model)),
+    )
+    monkeypatch.setattr(
+        module,
+        "unload_local_llm_model",
+        lambda *args: fallback_unload_calls.append(args) or {"ok": True},
+    )
+
+    kwargs = _refine_kwargs(["first prompt", "second prompt"])
+    kwargs["thinking"] = True
+    result = node.refine(**kwargs)
+
+    assert result["result"][0] == ["final 0", "final 1"]
+    assert prompt_attempts == {
+        "first prompt": 2 if recover_prompt_index == 0 else 1,
+        "second prompt": 2 if recover_prompt_index == 1 else 1,
+    }
+    terminal_keep_alive_count = sum(
+        payload["keep_alive"] in (0, "0", "0m", "0s")
+        for payload in stream_payloads
+    )
+    assert terminal_keep_alive_count + len(explicit_unload_calls) == 1
+    assert fallback_unload_calls == []
+
+
 def test_llama_swap_running_parser_matches_official_management_shape():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]

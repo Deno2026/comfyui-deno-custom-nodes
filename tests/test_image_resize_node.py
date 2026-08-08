@@ -4782,6 +4782,210 @@ def test_local_llm_refiner_ollama_sends_every_image_as_images_array():
     assert raw["image"]["width"] == 8
 
 
+@pytest.mark.parametrize("initial_done_reason", ["length", "stop"])
+def test_local_llm_refiner_ollama_recovers_completed_thinking_only_response_once(initial_done_reason):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+    progress_events = []
+    cleanup_state = {"provider_cleanup_attempted": False}
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        stream_payloads.append({"url": url, "payload": payload, "cancel_key": cancel_key})
+        if len(stream_payloads) == 1:
+            yield {"message": {"thinking": "careful reasoning"}, "done": False}
+            yield {
+                "done": True,
+                "done_reason": initial_done_reason,
+                "prompt_eval_count": 44,
+                "eval_count": 64,
+            }
+            return
+        yield {"message": {"content": "complete final answer"}, "done": False}
+        yield {
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 93,
+            "eval_count": 12,
+        }
+
+    original_stream = module._http_stream_json_lines
+    original_progress = module._send_progress
+    module._http_stream_json_lines = fake_stream
+    module._send_progress = lambda payload: progress_events.append(payload)
+    try:
+        answer, thought, raw = node._run_ollama(
+            server_url="http://127.0.0.1:11434",
+            model="qwen3.6",
+            system_prompt="Return a polished final prompt.",
+            prompt="direct the supplied image",
+            thinking=True,
+            seed=7,
+            model_memory="Unload after run",
+            keep_minutes=5,
+            image_attachments=[
+                {
+                    "base64": "img-a",
+                    "data_url": "data:image/jpeg;base64,img-a",
+                    "width": 8,
+                    "height": 8,
+                    "sent_width": 8,
+                    "sent_height": 8,
+                }
+            ],
+            is_last=True,
+            node_id="node",
+            index=1,
+            total=1,
+            cleanup_state=cleanup_state,
+        )
+    finally:
+        module._http_stream_json_lines = original_stream
+        module._send_progress = original_progress
+
+    assert answer == "complete final answer"
+    assert thought == "careful reasoning"
+    assert len(stream_payloads) == 2
+    first_payload = stream_payloads[0]["payload"]
+    continuation_payload = stream_payloads[1]["payload"]
+    assert first_payload["think"] is True
+    assert continuation_payload["think"] is False
+    assert [payload["payload"]["keep_alive"] for payload in stream_payloads] == ["5m", "0m"]
+    assert sum(
+        payload["payload"]["keep_alive"] in (0, "0", "0m", "0s")
+        for payload in stream_payloads
+    ) == 1
+    assert continuation_payload["options"] == first_payload["options"] == {"seed": 7}
+    assert continuation_payload["messages"][:2] == first_payload["messages"]
+    assert continuation_payload["messages"][-1] == {
+        "role": "assistant",
+        "content": "",
+        "thinking": "careful reasoning",
+    }
+    assert continuation_payload["messages"][1]["images"] == ["img-a"]
+    assert raw["meta"]["done_reason"] == "stop"
+    assert raw["thinking_only_recovery"] == {
+        "attempted": True,
+        "succeeded": True,
+        "initial_meta": {
+            "done": True,
+            "done_reason": initial_done_reason,
+            "prompt_eval_count": 44,
+            "eval_count": 64,
+        },
+        "continuation_meta": {
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 93,
+            "eval_count": 12,
+        },
+    }
+    assert cleanup_state["provider_cleanup_attempted"] is True
+    assert any(event["status"] == "finishing final answer" for event in progress_events)
+
+
+def test_local_llm_refiner_ollama_normal_thinking_and_final_does_not_retry():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    stream_payloads = []
+    unload_calls = []
+    cleanup_state = {"provider_cleanup_attempted": False}
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        stream_payloads.append(payload)
+        yield {"message": {"thinking": "reasoning", "content": "final answer"}, "done": False}
+        yield {"done": True, "done_reason": "stop", "prompt_eval_count": 10, "eval_count": 20}
+
+    original_stream = module._http_stream_json_lines
+    original_unload = module._ollama_unload_best_effort
+    module._http_stream_json_lines = fake_stream
+    module._ollama_unload_best_effort = lambda base, model: unload_calls.append((base, model))
+    try:
+        answer, thought, raw = node._run_ollama(
+            server_url="http://127.0.0.1:11434",
+            model="gemma4",
+            system_prompt="",
+            prompt="hello",
+            thinking=True,
+            seed=1,
+            model_memory="Unload after run",
+            keep_minutes=5,
+            image_attachments=[],
+            is_last=True,
+            node_id="node",
+            index=1,
+            total=1,
+            cleanup_state=cleanup_state,
+        )
+    finally:
+        module._http_stream_json_lines = original_stream
+        module._ollama_unload_best_effort = original_unload
+
+    assert answer == "final answer"
+    assert thought == "reasoning"
+    assert len(stream_payloads) == 1
+    assert stream_payloads[0]["think"] is True
+    assert stream_payloads[0]["keep_alive"] == "5m"
+    assert raw["keep_alive"] == "0m"
+    assert raw["initial_keep_alive"] == "5m"
+    assert raw["post_run_unload"] == {"action": "unloaded"}
+    assert unload_calls == [("http://127.0.0.1:11434", "gemma4")]
+    assert cleanup_state["provider_cleanup_attempted"] is True
+    assert sum(
+        payload["keep_alive"] in (0, "0", "0m", "0s")
+        for payload in stream_payloads
+    ) + len(unload_calls) == 1
+    assert "thinking_only_recovery" not in raw
+
+
+def test_local_llm_refiner_ollama_failed_final_continuation_reports_both_terminal_reasons():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    call_count = 0
+
+    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
+        nonlocal call_count
+        call_count += 1
+        yield {"message": {"thinking": f"reasoning {call_count}"}, "done": False}
+        yield {
+            "done": True,
+            "done_reason": "length" if call_count == 1 else "stop",
+            "prompt_eval_count": 100 + call_count,
+            "eval_count": 200 + call_count,
+        }
+
+    original_stream = module._http_stream_json_lines
+    module._http_stream_json_lines = fake_stream
+    try:
+        with pytest.raises(RuntimeError) as raised:
+            node._run_ollama(
+                server_url="http://127.0.0.1:11434",
+                model="qwen3.6",
+                system_prompt="",
+                prompt="hello",
+                thinking=True,
+                seed=1,
+                model_memory="Unload after run",
+                keep_minutes=5,
+                image_attachments=[],
+                is_last=True,
+                node_id="node",
+                index=1,
+                total=1,
+            )
+    finally:
+        module._http_stream_json_lines = original_stream
+
+    message = str(raised.value)
+    assert call_count == 2
+    assert "after one automatic final-answer continuation" in message
+    assert "Initial: done_reason=length, prompt_eval_count=101, eval_count=201" in message
+    assert "Continuation: done_reason=stop, prompt_eval_count=102, eval_count=202" in message
+
+
 def test_local_llm_refiner_ollama_keep_alive_matches_ollama_node_duration_style():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]

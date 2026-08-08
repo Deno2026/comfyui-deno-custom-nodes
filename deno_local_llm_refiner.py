@@ -2950,83 +2950,165 @@ class DenoLocalLLMRefiner:
             user_message["images"] = [attachment["base64"] for attachment in image_attachments]
         messages.append(user_message)
 
+        logical_keep_alive = _ollama_keep_alive(memory_value, keep_minutes_value, is_last)
+        hold_for_possible_continuation = bool(
+            thinking and _should_unload_after_run(memory_value, is_last)
+        )
+        initial_keep_alive = (
+            _ollama_keep_alive(memory_value, keep_minutes_value, False)
+            if hold_for_possible_continuation
+            else logical_keep_alive
+        )
         payload = {
             "model": model,
             "messages": messages,
             "stream": True,
             "think": thinking,
             "options": {"seed": int(seed)},
-            "keep_alive": _ollama_keep_alive(memory_value, keep_minutes_value, is_last),
+            "keep_alive": initial_keep_alive,
         }
         answer_parts: List[str] = []
         thinking_parts: List[str] = []
-        final_meta: Dict[str, Any] = {}
         last_emit = 0.0
         cancel_key = _llm_state_key(PROVIDER_OLLAMA, base, model)
 
-        request_observed = False
-        for chunk in _http_stream_json_lines(f"{base}/api/chat", payload, cancel_key=cancel_key):
-            if not request_observed:
-                request_observed = True
-                if _should_unload_after_run(memory_value, is_last) and cleanup_state is not None:
-                    # A provider response proves that the terminal Ollama request carrying
-                    # keep_alive=0m was accepted. Post-processing must not issue a second
-                    # unload request for that same completed provider-owned cleanup.
-                    cleanup_state["provider_cleanup_attempted"] = True
-            if chunk.get("error"):
-                detail = str(chunk.get("error"))
-                if _looks_like_model_unavailable_error(detail):
-                    raise RuntimeError(_model_unavailable_message(model, detail))
-                raise RuntimeError(detail)
-            message = chunk.get("message") or {}
-            content = str(message.get("content") or "")
-            thought = str(message.get("thinking") or "")
-            if content:
-                answer_parts.append(content)
-            if thought:
-                thinking_parts.append(thought)
-            if chunk.get("done"):
-                final_meta = {
-                    key: chunk.get(key)
-                    for key in (
-                        "model",
-                        "done_reason",
-                        "total_duration",
-                        "load_duration",
-                        "prompt_eval_count",
-                        "eval_count",
-                    )
-                    if key in chunk
-                }
-            now = time.monotonic()
-            if now - last_emit > 0.12 or content or thought:
-                last_emit = now
-                _send_progress({
-                    "node_id": node_id,
-                    "status": "running",
-                    "provider": PROVIDER_OLLAMA,
-                    "model": model,
-                    "index": index,
-                    "total": total,
-                    "answer": "".join(answer_parts),
-                    "thinking": "".join(thinking_parts),
-                })
+        def stream_request(request_payload: Dict[str, Any], status: str) -> Dict[str, Any]:
+            nonlocal last_emit
+            request_observed = False
+            request_meta: Dict[str, Any] = {}
+            for chunk in _http_stream_json_lines(f"{base}/api/chat", request_payload, cancel_key=cancel_key):
+                if not request_observed:
+                    request_observed = True
+                    unload_requested = str(request_payload.get("keep_alive", "")).strip().lower() in {
+                        "0",
+                        "0m",
+                        "0s",
+                    }
+                    if unload_requested and cleanup_state is not None:
+                        # A provider response proves that the terminal Ollama request carrying
+                        # keep_alive=0m was accepted. Post-processing must not issue a second
+                        # unload request for that same completed provider-owned cleanup.
+                        cleanup_state["provider_cleanup_attempted"] = True
+                if chunk.get("error"):
+                    detail = str(chunk.get("error"))
+                    if _looks_like_model_unavailable_error(detail):
+                        raise RuntimeError(_model_unavailable_message(model, detail))
+                    raise RuntimeError(detail)
+                message = chunk.get("message") or {}
+                content = str(message.get("content") or "")
+                thought = str(
+                    message.get("thinking")
+                    or message.get("reasoning")
+                    or message.get("reasoning_content")
+                    or ""
+                )
+                if content:
+                    answer_parts.append(content)
+                if thought:
+                    thinking_parts.append(thought)
+                if chunk.get("done"):
+                    request_meta = {
+                        key: chunk.get(key)
+                        for key in (
+                            "done",
+                            "model",
+                            "done_reason",
+                            "total_duration",
+                            "load_duration",
+                            "prompt_eval_count",
+                            "eval_count",
+                        )
+                        if key in chunk
+                    }
+                now = time.monotonic()
+                if now - last_emit > 0.12 or content or thought:
+                    last_emit = now
+                    _send_progress({
+                        "node_id": node_id,
+                        "status": status,
+                        "provider": PROVIDER_OLLAMA,
+                        "model": model,
+                        "index": index,
+                        "total": total,
+                        "answer": "".join(answer_parts),
+                        "thinking": "".join(thinking_parts),
+                    })
+            return request_meta
+
+        final_meta = stream_request(payload, "running")
 
         answer = "".join(answer_parts).strip()
         thought = "".join(thinking_parts).strip()
+        recovery_meta: Optional[Dict[str, Any]] = None
+        if thinking and not answer and thought and final_meta.get("done") is True:
+            _raise_if_local_llm_stopped(cancel_key)
+            initial_meta = dict(final_meta)
+            continuation_payload = dict(payload)
+            continuation_payload["messages"] = list(messages) + [
+                {"role": "assistant", "content": "", "thinking": thought},
+            ]
+            continuation_payload["think"] = False
+            continuation_payload["keep_alive"] = logical_keep_alive
+            _send_progress({
+                "node_id": node_id,
+                "status": "finishing final answer",
+                "provider": PROVIDER_OLLAMA,
+                "model": model,
+                "index": index,
+                "total": total,
+                "answer": "",
+                "thinking": thought,
+            })
+            final_meta = stream_request(continuation_payload, "finishing final answer")
+            answer = "".join(answer_parts).strip()
+            thought = "".join(thinking_parts).strip()
+            recovery_meta = {
+                "attempted": True,
+                "succeeded": bool(answer),
+                "initial_meta": initial_meta,
+                "continuation_meta": dict(final_meta),
+            }
+            if not answer:
+                def meta_summary(meta: Dict[str, Any]) -> str:
+                    values = [
+                        f"done_reason={meta.get('done_reason', 'unknown')}",
+                        f"prompt_eval_count={meta.get('prompt_eval_count', 'unknown')}",
+                        f"eval_count={meta.get('eval_count', 'unknown')}",
+                    ]
+                    return ", ".join(values)
+
+                raise RuntimeError(
+                    "Ollama returned thinking text but no final result after one automatic final-answer continuation. "
+                    f"Initial: {meta_summary(initial_meta)}. Continuation: {meta_summary(final_meta)}. "
+                    "Shorten the prompt or turn Thinking off."
+                )
+        post_run_unload: Dict[str, Any] = {"action": "none"}
+        if hold_for_possible_continuation and recovery_meta is None and answer:
+            if cleanup_state is not None:
+                cleanup_state["provider_cleanup_attempted"] = True
+            try:
+                _ollama_unload_best_effort(base, model)
+                post_run_unload = {"action": "unloaded"}
+            except Exception as exc:
+                post_run_unload = {"action": "failed", "message": str(exc)}
         raw = {
             "provider": PROVIDER_OLLAMA,
             "model": model,
             "seed": seed,
             "model_memory": memory_value,
             "keep_minutes": keep_minutes_value,
-            "keep_alive": payload["keep_alive"],
+            "keep_alive": logical_keep_alive,
             "meta": final_meta,
+            "post_run_unload": post_run_unload,
         }
+        if initial_keep_alive != logical_keep_alive:
+            raw["initial_keep_alive"] = initial_keep_alive
+        if recovery_meta is not None:
+            raw["thinking_only_recovery"] = recovery_meta
         raw["post_keepalive"] = _ensure_ollama_model_stays_loaded(
             base=base,
             model=model,
-            keep_alive=payload["keep_alive"],
+            keep_alive=logical_keep_alive,
             node_id=node_id,
             index=index,
             total=total,

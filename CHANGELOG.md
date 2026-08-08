@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.82 - 2026-08-09
+
+- Fixed `(Deno) Local LLM Loader` with Ollama Thinking enabled so a completed reasoning-only response automatically continues once to produce the final answer, while preserving the original prompt, images, seed, cancellation, and unload behavior.
+
 ## 0.7.81 - 2026-08-08
 
 - Fixed `(Deno) Local LLM Loader` so a vertically enlarged prompt area can shrink again, follows ComfyUI's native DOM layout, and keeps its compact size after saving and reopening a workflow.
