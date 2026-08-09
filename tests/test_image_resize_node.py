@@ -4332,16 +4332,8 @@ def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
 
     def fake_stream(url, payload, **_kwargs):
         stream_payloads.append({"url": url, "payload": dict(payload)})
-        yield "reasoning.delta", {"type": "reasoning.delta", "content": "hidden thought"}
-        yield "message.delta", {"type": "message.delta", "content": "kept"}
-        yield "chat.end", {
-            "type": "chat.end",
-            "result": {
-                "model_instance_id": payload["model"],
-                "output": [{"type": "message", "content": "kept"}],
-                "stats": {"reasoning_output_tokens": 0},
-            },
-        }
+        yield "message", {"choices": [{"delta": {"content": json.dumps({"deno_final_answer": "kept"})}}]}
+        yield "message", {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 
     node._lm_unload_best_effort = lambda native_base, model: unload_calls.append((native_base, model))
     module._http_stream_sse = fake_stream
@@ -4369,22 +4361,20 @@ def test_local_llm_refiner_lm_studio_keep_minutes_does_not_unload():
 
     assert answer == "kept"
     assert thought == ""
-    assert stream_payloads[0]["url"] == "http://127.0.0.1:1234/api/v1/chat"
-    assert stream_payloads[0]["payload"]["reasoning"] == "off"
-    assert stream_payloads[0]["payload"]["input"] == "hello"
-    assert stream_payloads[0]["payload"]["store"] is False
-    assert "ttl" not in stream_payloads[0]["payload"]
-    assert "seed" not in stream_payloads[0]["payload"]
-    assert raw["reasoning"] == "off"
-    assert raw["reasoning_requested"] == "off"
-    assert raw["reasoning_compat_fallback"] is False
+    assert stream_payloads[0]["url"] == "http://127.0.0.1:1234/v1/chat/completions"
+    assert stream_payloads[0]["payload"]["reasoning_effort"] == "none"
+    assert stream_payloads[0]["payload"]["messages"][1] == {"role": "user", "content": "hello"}
+    assert stream_payloads[0]["payload"]["seed"] == 7
+    assert stream_payloads[0]["payload"]["response_format"]["type"] == "json_schema"
+    assert raw["reasoning_effort"] == "none"
+    assert raw["reasoning_requested"] == "none"
     assert raw["model_memory"] == "Keep for minutes"
     assert raw["keep_minutes"] == 3
-    assert raw["api"] == "LM Studio /api/v1/chat"
+    assert raw["api"] == "LM Studio /v1/chat/completions"
     assert unload_calls == []
 
 
-def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it():
+def test_local_llm_refiner_lm_studio_sends_reasoning_none_regardless_of_cached_capability():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
@@ -4394,8 +4384,8 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
 
     def fake_stream(url, payload, **_kwargs):
         stream_payloads.append({"url": url, "payload": dict(payload)})
-        yield "message.delta", {"type": "message.delta", "content": "kept"}
-        yield "chat.end", {"type": "chat.end", "result": {"output": [{"type": "message", "content": "kept"}]}}
+        yield "message", {"choices": [{"delta": {"content": json.dumps({"deno_final_answer": "kept"})}}]}
+        yield "message", {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 
     module._http_stream_sse = fake_stream
     module._cache_lm_studio_models(
@@ -4424,13 +4414,12 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_off_when_model_supports_it(
 
     assert answer == "kept"
     assert thought == ""
-    assert stream_payloads[0]["payload"]["reasoning"] == "off"
-    assert raw["reasoning"] == "off"
-    assert raw["reasoning_requested"] == "off"
-    assert raw["reasoning_compat_fallback"] is False
+    assert stream_payloads[0]["payload"]["reasoning_effort"] == "none"
+    assert raw["reasoning_effort"] == "none"
+    assert raw["reasoning_requested"] == "none"
 
 
-def test_local_llm_refiner_lm_studio_omits_reasoning_when_cached_model_does_not_support_it():
+def test_local_llm_refiner_lm_studio_sends_reasoning_none_when_cache_has_no_native_options():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
@@ -4440,8 +4429,8 @@ def test_local_llm_refiner_lm_studio_omits_reasoning_when_cached_model_does_not_
 
     def fake_stream(url, payload, **_kwargs):
         stream_payloads.append({"url": url, "payload": dict(payload)})
-        yield "message.delta", {"type": "message.delta", "content": "kept"}
-        yield "chat.end", {"type": "chat.end", "result": {"output": [{"type": "message", "content": "kept"}]}}
+        yield "message", {"choices": [{"delta": {"content": json.dumps({"deno_final_answer": "kept"})}}]}
+        yield "message", {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 
     module._http_stream_sse = fake_stream
     module._cache_lm_studio_models(
@@ -4470,10 +4459,9 @@ def test_local_llm_refiner_lm_studio_omits_reasoning_when_cached_model_does_not_
 
     assert answer == "kept"
     assert thought == ""
-    assert "reasoning" not in stream_payloads[0]["payload"]
-    assert raw["reasoning"] is None
-    assert raw["reasoning_requested"] == "off"
-    assert raw["reasoning_compat_fallback"] is False
+    assert stream_payloads[0]["payload"]["reasoning_effort"] == "none"
+    assert raw["reasoning_effort"] == "none"
+    assert raw["reasoning_requested"] == "none"
 
 
 def test_local_llm_refiner_lm_studio_sends_reasoning_only_when_thinking_enabled():
@@ -4486,9 +4474,9 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_only_when_thinking_enabled(
 
     def fake_stream(url, payload, **_kwargs):
         stream_payloads.append({"url": url, "payload": dict(payload)})
-        yield "reasoning.delta", {"type": "reasoning.delta", "content": "visible thought"}
-        yield "message.delta", {"type": "message.delta", "content": "answer"}
-        yield "chat.end", {"type": "chat.end", "result": {"output": [{"type": "message", "content": "answer"}]}}
+        yield "message", {"choices": [{"delta": {"reasoning_content": "visible thought"}}]}
+        yield "message", {"choices": [{"delta": {"content": json.dumps({"deno_final_answer": "answer"})}}]}
+        yield "message", {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 
     module._http_stream_sse = fake_stream
     try:
@@ -4512,10 +4500,9 @@ def test_local_llm_refiner_lm_studio_sends_reasoning_only_when_thinking_enabled(
 
     assert answer == "answer"
     assert thought == "visible thought"
-    assert stream_payloads[0]["payload"]["reasoning"] == "on"
-    assert raw["reasoning"] == "on"
-    assert raw["reasoning_requested"] == "on"
-    assert raw["reasoning_compat_fallback"] is False
+    assert stream_payloads[0]["payload"]["reasoning_effort"] == "high"
+    assert raw["reasoning_effort"] == "high"
+    assert raw["reasoning_requested"] == "high"
 
 
 def test_local_llm_refiner_lm_studio_native_extracts_top_level_output():
@@ -4552,8 +4539,7 @@ def test_local_llm_refiner_lm_studio_empty_stream_fails_without_duplicate_genera
 
     def fake_stream(_url, payload, **_kwargs):
         stream_payloads.append(dict(payload))
-        yield "chat.start", {"type": "chat.start", "model_instance_id": "google/gemma-4-12b"}
-        yield "chat.end", {"type": "chat.end", "result": {"output": []}}
+        yield "message", {"choices": [{"delta": {"content": "partial"}}]}
 
     def fake_http_json(url, _payload=None, method="GET", timeout=20.0):
         nonstream_calls.append((url, dict(_payload or {}), method, timeout))
@@ -4564,7 +4550,7 @@ def test_local_llm_refiner_lm_studio_empty_stream_fails_without_duplicate_genera
     module.list_local_llm_models = lambda _provider, _server_url: []
     node._lm_unload_best_effort = lambda native_base, model: unload_calls.append((native_base, model))
     try:
-        with pytest.raises(RuntimeError, match="ended the response stream without final text"):
+        with pytest.raises(RuntimeError, match="before confirming completion"):
             node._run_lm_studio(
                 server_url="http://127.0.0.1:1234/v1",
                 model="google/gemma-4-12b",
@@ -4587,53 +4573,53 @@ def test_local_llm_refiner_lm_studio_empty_stream_fails_without_duplicate_genera
         node._lm_unload_best_effort = original_unload
 
     assert len(stream_payloads) == 1
-    assert stream_payloads[0]["reasoning"] == "off"
+    assert stream_payloads[0]["reasoning_effort"] == "none"
     assert nonstream_calls == []
     assert unload_calls == [("http://127.0.0.1:1234", "google/gemma-4-12b")]
 
 
-def test_local_llm_refiner_lm_studio_reasoning_only_fails_fast_when_thinking_is_off(monkeypatch):
+def test_local_llm_refiner_lm_studio_reasoning_only_gets_one_finalization_when_thinking_is_off(monkeypatch):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
     stream_payloads = []
+    progress = []
 
     def fake_stream(_url, payload, **_kwargs):
         stream_payloads.append(dict(payload))
-        yield "reasoning.delta", {"type": "reasoning.delta", "content": "hidden only"}
-        yield "chat.end", {
-            "type": "chat.end",
-            "result": {"output": [{"type": "reasoning", "content": "hidden only"}]},
-        }
+        if len(stream_payloads) == 1:
+            yield "message", {"choices": [{"delta": {"reasoning_content": "hidden only"}}]}
+            yield "message", {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+            return
+        yield "message", {"choices": [{"delta": {"reasoning_content": "hidden finalization"}}]}
+        yield "message", {"choices": [{"delta": {"content": json.dumps({"deno_final_answer": "answer"})}}]}
+        yield "message", {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 
     monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
-    monkeypatch.setattr(
-        module,
-        "_http_json",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("reasoning-only output must not start a second generation request")
-        ),
+    monkeypatch.setattr(module, "_send_progress", lambda event: progress.append(dict(event)))
+    answer, thought, raw = node._run_lm_studio(
+        server_url="http://127.0.0.1:1234/v1",
+        model="google/gemma-4-12b",
+        system_prompt="",
+        prompt="hello",
+        thinking=False,
+        seed=7,
+        model_memory="Keep for minutes",
+        keep_minutes=3,
+        image_attachments=[],
+        is_last=True,
+        node_id="99",
+        index=1,
+        total=1,
     )
 
-    with pytest.raises(RuntimeError, match="reasoning without final text"):
-        node._run_lm_studio(
-            server_url="http://127.0.0.1:1234/v1",
-            model="google/gemma-4-12b",
-            system_prompt="",
-            prompt="hello",
-            thinking=False,
-            seed=7,
-            model_memory="Keep for minutes",
-            keep_minutes=3,
-            image_attachments=[],
-            is_last=True,
-            node_id="99",
-            index=1,
-            total=1,
-        )
-
-    assert len(stream_payloads) == 1
-    assert stream_payloads[0]["reasoning"] == "off"
+    assert answer == "answer"
+    assert thought == ""
+    assert len(stream_payloads) == 2
+    assert stream_payloads[0]["reasoning_effort"] == "none"
+    assert stream_payloads[1]["reasoning_effort"] == "none"
+    assert all(event["thinking"] == "" for event in progress)
+    assert raw["final_answer_recovery"]["succeeded"] is True
 
 
 def test_local_llm_refiner_sends_progress_error_before_raising(monkeypatch):
@@ -4678,7 +4664,7 @@ def test_local_llm_refiner_sends_progress_error_before_raising(monkeypatch):
     assert events[-1]["answer"] == ""
 
 
-def test_local_llm_refiner_lm_studio_native_image_input_uses_text_and_image_parts():
+def test_local_llm_refiner_lm_studio_chat_completions_uses_text_and_image_parts():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
@@ -4688,8 +4674,8 @@ def test_local_llm_refiner_lm_studio_native_image_input_uses_text_and_image_part
 
     def fake_stream(url, payload, **_kwargs):
         stream_payloads.append({"url": url, "payload": dict(payload)})
-        yield "message.delta", {"type": "message.delta", "content": "image answer"}
-        yield "chat.end", {"type": "chat.end", "output": [{"type": "message", "content": "image answer"}]}
+        yield "message", {"choices": [{"delta": {"content": json.dumps({"deno_final_answer": "image answer"})}}]}
+        yield "message", {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 
     module._http_stream_sse = fake_stream
     try:
@@ -4726,14 +4712,15 @@ def test_local_llm_refiner_lm_studio_native_image_input_uses_text_and_image_part
     finally:
         module._http_stream_sse = original_stream
 
-    input_parts = stream_payloads[0]["payload"]["input"]
+    input_parts = stream_payloads[0]["payload"]["messages"][1]["content"]
     assert answer == "image answer"
     assert thought == ""
     assert input_parts == [
-        {"type": "text", "content": "what is this image?"},
-        {"type": "image", "data_url": "data:image/jpeg;base64,abc"},
-        {"type": "image", "data_url": "data:image/jpeg;base64,def"},
+        {"type": "text", "text": "what is this image?"},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,abc"}},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,def"}},
     ]
+    assert stream_payloads[0]["url"] == "http://127.0.0.1:1234/v1/chat/completions"
     assert len(raw["images"]) == 2
     assert raw["image"]["width"] == 16
     assert raw["image"]["sent_height"] == 8
@@ -4749,7 +4736,7 @@ def test_local_llm_refiner_ollama_sends_every_image_as_images_array():
 
     def fake_stream(url, payload, timeout=600.0, cancel_key=None):
         stream_payloads.append({"url": url, "payload": dict(payload)})
-        yield {"message": {"content": "image answer"}, "done": False}
+        yield {"message": {"content": json.dumps({"deno_final_answer": "image answer"})}, "done": False}
         yield {"done": True, "done_reason": "stop"}
 
     module._http_stream_json_lines = fake_stream
@@ -4802,7 +4789,7 @@ def test_local_llm_refiner_ollama_recovers_completed_thinking_only_response_once
                 "eval_count": 64,
             }
             return
-        yield {"message": {"content": "complete final answer"}, "done": False}
+        yield {"message": {"content": json.dumps({"deno_final_answer": "complete final answer"})}, "done": False}
         yield {
             "done": True,
             "done_reason": "stop",
@@ -4858,23 +4845,26 @@ def test_local_llm_refiner_ollama_recovers_completed_thinking_only_response_once
     ) == 1
     assert continuation_payload["options"] == first_payload["options"] == {"seed": 7}
     assert continuation_payload["messages"][:2] == first_payload["messages"]
-    assert continuation_payload["messages"][-1] == {
+    assert continuation_payload["messages"][-2] == {
         "role": "assistant",
         "content": "",
         "thinking": "careful reasoning",
     }
+    assert continuation_payload["messages"][-1]["role"] == "user"
+    assert "deno_final_answer" in continuation_payload["messages"][-1]["content"]
     assert continuation_payload["messages"][1]["images"] == ["img-a"]
     assert raw["meta"]["done_reason"] == "stop"
-    assert raw["thinking_only_recovery"] == {
+    assert raw["final_answer_recovery"] == {
         "attempted": True,
         "succeeded": True,
+        "initial_error": "Ollama returned no structured final-answer envelope.",
         "initial_meta": {
             "done": True,
             "done_reason": initial_done_reason,
             "prompt_eval_count": 44,
             "eval_count": 64,
         },
-        "continuation_meta": {
+        "finalization_meta": {
             "done": True,
             "done_reason": "stop",
             "prompt_eval_count": 93,
@@ -4895,7 +4885,13 @@ def test_local_llm_refiner_ollama_normal_thinking_and_final_does_not_retry():
 
     def fake_stream(url, payload, timeout=600.0, cancel_key=None):
         stream_payloads.append(payload)
-        yield {"message": {"thinking": "reasoning", "content": "final answer"}, "done": False}
+        yield {
+            "message": {
+                "thinking": "reasoning",
+                "content": json.dumps({"deno_final_answer": "final answer"}),
+            },
+            "done": False,
+        }
         yield {"done": True, "done_reason": "stop", "prompt_eval_count": 10, "eval_count": 20}
 
     original_stream = module._http_stream_json_lines
@@ -4937,7 +4933,7 @@ def test_local_llm_refiner_ollama_normal_thinking_and_final_does_not_retry():
         payload["keep_alive"] in (0, "0", "0m", "0s")
         for payload in stream_payloads
     ) + len(unload_calls) == 1
-    assert "thinking_only_recovery" not in raw
+    assert "final_answer_recovery" not in raw
 
 
 def test_local_llm_refiner_ollama_failed_final_continuation_reports_both_terminal_reasons():
@@ -4981,9 +4977,9 @@ def test_local_llm_refiner_ollama_failed_final_continuation_reports_both_termina
 
     message = str(raised.value)
     assert call_count == 2
-    assert "after one automatic final-answer continuation" in message
+    assert "after one automatic finalization attempt" in message
     assert "Initial: done_reason=length, prompt_eval_count=101, eval_count=201" in message
-    assert "Continuation: done_reason=stop, prompt_eval_count=102, eval_count=202" in message
+    assert "Finalization: done_reason=stop, prompt_eval_count=102, eval_count=202" in message
 
 
 def test_local_llm_refiner_ollama_keep_alive_matches_ollama_node_duration_style():
@@ -5006,7 +5002,7 @@ def test_local_llm_refiner_ollama_keep_loaded_reloads_after_provider_eviction():
 
     def fake_stream(url, payload, timeout=600.0, cancel_key=None):
         calls.append(("stream", url, payload))
-        yield {"message": {"content": "done"}, "done": False}
+        yield {"message": {"content": json.dumps({"deno_final_answer": "done"})}, "done": False}
         yield {"done": True, "done_reason": "stop"}
 
     def fake_http_json(url, payload=None, method="GET", timeout=20.0):
@@ -5062,7 +5058,7 @@ def test_local_llm_refiner_ollama_keep_loaded_refreshes_even_when_provider_repor
 
     def fake_stream(url, payload, timeout=600.0, cancel_key=None):
         calls.append(("stream", url, payload))
-        yield {"message": {"content": "done"}, "done": False}
+        yield {"message": {"content": json.dumps({"deno_final_answer": "done"})}, "done": False}
         yield {"done": True, "done_reason": "stop"}
 
     def fake_http_json(url, payload=None, method="GET", timeout=20.0):

@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.83 - 2026-08-09
+
+- Hardened `(Deno) Local LLM Loader` so Ollama and LM Studio return only the validated final answer while keeping reasoning and provider-added preambles out of the Result, without changing saved prompts, images, seed controls, or arbitrary multiline and Reviewer JSON outputs; LM Studio now applies the selected seed to generation requests.
+- Added one bounded finalization attempt for completed malformed or thinking-only replies, then fail closed instead of forwarding unvalidated model text; LM Studio generation now uses its official JSON Schema chat-completions path while retaining native model discovery and unload.
+
 ## 0.7.82 - 2026-08-09
 
 - Fixed `(Deno) Local LLM Loader` with Ollama Thinking enabled so a completed reasoning-only response automatically continues once to produce the final answer, while preserving the original prompt, images, seed, cancellation, and unload behavior.

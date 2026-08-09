@@ -32,6 +32,341 @@ def _refine_kwargs(prompts):
     }
 
 
+def _run_ollama_kwargs(**overrides):
+    kwargs = {
+        "server_url": "http://127.0.0.1:11434",
+        "model": "qwen3",
+        "system_prompt": "Keep the user's requested format.",
+        "prompt": "Write the final answer.",
+        "thinking": False,
+        "seed": 7,
+        "model_memory": "Keep loaded",
+        "keep_minutes": 5,
+        "image_attachments": [],
+        "is_last": True,
+        "node_id": "ollama-contract-node",
+        "index": 1,
+        "total": 1,
+        "cleanup_state": {"provider_cleanup_attempted": False},
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+def _ollama_envelope(answer):
+    return json.dumps({"deno_final_answer": answer}, ensure_ascii=False)
+
+
+def _run_lm_studio_kwargs(**overrides):
+    kwargs = {
+        "server_url": "http://127.0.0.1:1234/v1",
+        "model": "google/gemma",
+        "system_prompt": "Keep the user's requested format.",
+        "prompt": "Write the final answer.",
+        "thinking": False,
+        "seed": 7,
+        "model_memory": "Keep loaded",
+        "keep_minutes": 5,
+        "image_attachments": [],
+        "is_last": True,
+        "node_id": "lm-studio-contract-node",
+        "index": 1,
+        "total": 1,
+        "cleanup_state": {"provider_cleanup_attempted": False},
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+def _lm_studio_content_chunk(content="", reasoning="", finish_reason=None):
+    delta = {}
+    if content:
+        delta["content"] = content
+    if reasoning:
+        delta["reasoning_content"] = reasoning
+    return "message", {
+        "choices": [{"delta": delta, "finish_reason": finish_reason}],
+    }
+
+
+@pytest.mark.parametrize("thinking", [False, True])
+def test_local_llm_ollama_uses_structured_final_answer_contract(monkeypatch, thinking):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    progress = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        message = {"content": _ollama_envelope("clean final answer")}
+        if thinking:
+            message["thinking"] = "private reasoning"
+        yield {"message": message, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda event: progress.append(dict(event)))
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, thought, _raw = node._run_ollama(**_run_ollama_kwargs(thinking=thinking))
+
+    assert answer == "clean final answer"
+    assert thought == ("private reasoning" if thinking else "")
+    assert len(payloads) == 1
+    assert payloads[0]["think"] is thinking
+    assert payloads[0]["format"] == {
+        "type": "object",
+        "properties": {
+            "deno_final_answer": {
+                "type": "string",
+                "description": (
+                    "Only the complete final answer requested by the original system and user "
+                    "messages. Never include private chain-of-thought, hidden reasoning, scratch "
+                    "work, or internal deliberation. Include an answer-facing explanation or "
+                    "requested visible formatting only when the original request requires it; "
+                    "exclude provider preambles, transport labels, and process commentary."
+                ),
+            }
+        },
+        "required": ["deno_final_answer"],
+        "additionalProperties": False,
+    }
+    assert payloads[0]["messages"][0]["content"].startswith("Keep the user's requested format.")
+    contract = payloads[0]["messages"][0]["content"]
+    assert "only the completed answer requested by the user" in contract
+    assert "Never include private chain-of-thought" in contract
+    assert "even if requested" in contract
+    assert "answer-facing explanation" in contract
+    assert all(event["answer"] == "" for event in progress)
+
+
+@pytest.mark.parametrize(
+    "invalid_content",
+    [
+        'preamble {"deno_final_answer":"answer"}',
+        '{"wrong_field":"answer"}',
+        '{"deno_final_answer":"answer","extra":"not allowed"}',
+        '{"deno_final_answer":"   "}',
+        '{"deno_final_answer":7}',
+    ],
+)
+def test_local_llm_ollama_discards_invalid_envelopes_after_one_finalization(
+    monkeypatch,
+    invalid_content,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        yield {"message": {"content": invalid_content}, "done": False}
+        yield {"done": True, "done_reason": "stop", "eval_count": 3}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    with pytest.raises(RuntimeError, match="one automatic finalization attempt|Raw model text was discarded"):
+        node._run_ollama(**_run_ollama_kwargs())
+
+    assert len(payloads) == 2
+    assert payloads[0]["think"] is False
+    assert payloads[1]["think"] is False
+    assert payloads[0]["options"] == payloads[1]["options"] == {"seed": 7}
+
+
+@pytest.mark.parametrize(
+    "final_answer",
+    [
+        "first line\nsecond line\n\nlast line",
+        '{"verdict":"PASS","reason":"정확한 JSON 리뷰"}',
+    ],
+)
+def test_local_llm_ollama_preserves_multiline_and_reviewer_json_strings(monkeypatch, final_answer):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    def fake_stream(_url, _payload, **_kwargs):
+        encoded = _ollama_envelope(final_answer)
+        split = max(1, len(encoded) // 2)
+        yield {"message": {"content": encoded[:split]}, "done": False}
+        yield {"message": {"content": encoded[split:]}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, thought, _raw = node._run_ollama(**_run_ollama_kwargs())
+
+    assert answer == final_answer
+    assert thought == ""
+
+
+def test_local_llm_ollama_envelope_is_unwrapped_before_prompt_only_extraction():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    wrapped = _ollama_envelope(
+        "This preamble must not reach downstream.\n"
+        "DENO_FINAL_PROMPT: a clean cinematic final prompt"
+    )
+
+    answer = module._unwrap_final_answer_envelope(wrapped, module.PROVIDER_OLLAMA)
+
+    assert module._extract_final_prompt_block(answer, require=True) == (
+        "a clean cinematic final prompt"
+    )
+
+
+def test_local_llm_ollama_malformed_first_response_uses_isolated_bounded_finalization(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    image_attachments = [{
+        "base64": "image-data",
+        "width": 1,
+        "height": 1,
+        "sent_width": 1,
+        "sent_height": 1,
+    }]
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        if len(payloads) == 1:
+            yield {"message": {"content": "unwanted preamble"}, "done": False}
+        else:
+            yield {"message": {"content": _ollama_envelope("corrected final")}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, thought, raw = node._run_ollama(
+        **_run_ollama_kwargs(
+            thinking=True,
+            image_attachments=image_attachments,
+        )
+    )
+
+    assert answer == "corrected final"
+    assert thought == ""
+    assert len(payloads) == 2
+    assert payloads[1]["think"] is False
+    assert payloads[1]["options"] == payloads[0]["options"] == {"seed": 7}
+    assert payloads[0]["messages"][1]["images"] == ["image-data"]
+    assert payloads[1]["messages"][:2] == payloads[0]["messages"]
+    assert payloads[1]["messages"][-2]["content"] == "unwanted preamble"
+    assert raw["final_answer_recovery"]["attempted"] is True
+
+
+def test_local_llm_ollama_thinking_only_finalization_keeps_reasoning_separate(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        if len(payloads) == 1:
+            yield {"message": {"thinking": "private chain"}, "done": False}
+            yield {"done": True, "done_reason": "length"}
+            return
+        yield {"message": {"content": _ollama_envelope("final after thought")}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, thought, _raw = node._run_ollama(**_run_ollama_kwargs(thinking=True))
+
+    assert answer == "final after thought"
+    assert thought == "private chain"
+    assert [payload["think"] for payload in payloads] == [True, False]
+
+
+def test_local_llm_ollama_thinking_off_hides_unexpected_reasoning_during_recovery(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    progress = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        if len(payloads) == 1:
+            yield {"message": {"thinking": "unexpected initial reasoning"}, "done": False}
+            yield {"done": True, "done_reason": "stop"}
+            return
+        yield {
+            "message": {
+                "thinking": "unexpected finalization reasoning",
+                "content": _ollama_envelope("recovered final"),
+            },
+            "done": False,
+        }
+        yield {"done": True, "done_reason": "stop"}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda event: progress.append(dict(event)))
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, thought, raw = node._run_ollama(**_run_ollama_kwargs(thinking=False))
+
+    assert answer == "recovered final"
+    assert thought == ""
+    assert [payload["think"] for payload in payloads] == [False, False]
+    assert all(event["thinking"] == "" for event in progress)
+    assert raw["final_answer_recovery"]["succeeded"] is True
+
+
+def test_local_llm_ollama_reports_structured_output_compatibility_error(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    def fake_stream(_url, _payload, **_kwargs):
+        raise RuntimeError("invalid format: JSON schema is not supported")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+
+    with pytest.raises(RuntimeError, match="does not support the structured output"):
+        node._run_ollama(**_run_ollama_kwargs())
+
+
+def test_local_llm_ollama_does_not_finalize_an_unconfirmed_partial_stream(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        yield {
+            "message": {
+                "thinking": "unfinished private reasoning",
+                "content": '{"deno_final_answer":"partial answer',
+            },
+            "done": False,
+        }
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+
+    with pytest.raises(RuntimeError, match="before confirming completion"):
+        node._run_ollama(**_run_ollama_kwargs(thinking=True))
+
+    assert len(payloads) == 1
+
+
 @pytest.mark.parametrize(
     "error_message",
     [
@@ -329,7 +664,7 @@ def test_local_llm_ollama_continuation_preserves_batch_order_and_one_terminal_un
         yield {
             "message": {
                 "thinking": "" if payload["think"] is False else f"reasoning {prompt_index}",
-                "content": f"final {prompt_index}",
+                "content": _ollama_envelope(f"final {prompt_index}"),
             },
             "done": False,
         }
@@ -595,145 +930,203 @@ def test_llama_swap_terminal_request_cleanup_occurs_exactly_once(
     assert cleanup_state["provider_cleanup_attempted"] is bool(expected_unloads)
 
 
-def test_lm_studio_keep_loaded_runs_do_not_query_model_list_during_generation(monkeypatch):
+@pytest.mark.parametrize(("thinking", "effort"), [(False, "none"), (True, "high")])
+def test_lm_studio_uses_chat_completions_structured_contract(monkeypatch, thinking, effort):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
-    model_list_calls = []
-    stream_payloads = []
+    calls = []
+    progress = []
 
-    with module._LM_STUDIO_MODELS_CACHE_LOCK:
-        module._LM_STUDIO_MODELS_CACHE.clear()
-
-    def fake_http_json(url, *_args, **_kwargs):
-        if url.endswith("/api/v1/models"):
-            model_list_calls.append(url)
-            raise AssertionError("generation must not synchronously query LM Studio's model list")
-        raise AssertionError(f"unexpected non-stream request: {url}")
-
-    def fake_stream(_url, payload, **_kwargs):
-        stream_payloads.append(dict(payload))
-        yield "message.delta", {"type": "message.delta", "content": "ready"}
-        yield "chat.end", {"type": "chat.end"}
-
-    monkeypatch.setattr(module, "_http_json", fake_http_json)
-    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
-
-    for _ in range(2):
-        answer, _thinking, raw = node._run_lm_studio(
-            server_url="http://127.0.0.1:1234/v1",
-            model="google/gemma",
-            system_prompt="",
-            prompt="hello",
-            thinking=False,
-            seed=7,
-            model_memory="Keep loaded",
-            keep_minutes=5,
-            image_attachments=[],
-            is_last=True,
-            node_id="lm-studio-no-list-preflight",
-            index=1,
-            total=1,
-        )
-        assert answer == "ready"
-        assert raw["reasoning"] == "off"
-        assert raw["reasoning_requested"] == "off"
-        assert raw["reasoning_compat_fallback"] is False
-
-    assert model_list_calls == []
-    assert [payload["reasoning"] for payload in stream_payloads] == ["off", "off"]
-
-
-def test_lm_studio_retries_once_without_reasoning_only_when_off_is_explicitly_unsupported(monkeypatch):
-    package = load_package()
-    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
-    node = package.DenoLocalLLMRefiner()
-    stream_payloads = []
-
-    with module._LM_STUDIO_MODELS_CACHE_LOCK:
-        module._LM_STUDIO_MODELS_CACHE.clear()
-
-    def fake_stream(_url, payload, **_kwargs):
-        stream_payloads.append(dict(payload))
-        if len(stream_payloads) == 1:
-            raise RuntimeError("This model does not support the reasoning setting 'off'.")
-        yield "message.delta", {"type": "message.delta", "content": "ready"}
-        yield "chat.end", {"type": "chat.end"}
+    def fake_stream(url, payload, **kwargs):
+        calls.append((url, payload, kwargs))
+        if thinking:
+            yield _lm_studio_content_chunk(reasoning="private reasoning")
+        yield _lm_studio_content_chunk(content=_ollama_envelope("clean final answer"))
+        yield _lm_studio_content_chunk(finish_reason="stop")
 
     monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda event: progress.append(dict(event)))
 
     answer, thought, raw = node._run_lm_studio(
-        server_url="http://127.0.0.1:1234/v1",
-        model="local/non-reasoning-model",
-        system_prompt="",
-        prompt="hello",
-        thinking=False,
-        seed=7,
-        model_memory="Keep loaded",
-        keep_minutes=5,
-        image_attachments=[],
-        is_last=True,
-        node_id="lm-studio-reasoning-compat",
-        index=1,
-        total=1,
+        **_run_lm_studio_kwargs(thinking=thinking)
     )
 
-    assert answer == "ready"
-    assert thought == ""
-    assert stream_payloads[0]["reasoning"] == "off"
-    assert "reasoning" not in stream_payloads[1]
-    assert raw["reasoning"] is None
-    assert raw["reasoning_requested"] == "off"
-    assert raw["reasoning_compat_fallback"] is True
+    assert answer == "clean final answer"
+    assert thought == ("private reasoning" if thinking else "")
+    assert len(calls) == 1
+    url, payload, kwargs = calls[0]
+    assert url == "http://127.0.0.1:1234/v1/chat/completions"
+    assert kwargs["cancel_key"].startswith("LM Studio|")
+    assert payload["reasoning_effort"] == effort
+    assert payload["seed"] == 7
+    assert payload["response_format"] == module._openai_final_answer_response_format()
+    assert payload["messages"][0]["content"].startswith("Keep the user's requested format.")
+    assert raw["reasoning_effort"] == effort
+    assert raw["api"] == "LM Studio /v1/chat/completions"
+    assert all(event["answer"] == "" for event in progress)
 
 
 @pytest.mark.parametrize(
-    ("partial_output", "error_message"),
+    "final_answer",
     [
-        (False, "LM Studio connection failed"),
-        (True, "This model does not support the reasoning setting 'off'."),
+        "first line\nsecond line\n\nlast line",
+        '{"verdict":"PASS","reason":"exact reviewer JSON"}',
+        "DENO_FINAL_PROMPT: exact prompt-only result",
     ],
 )
-def test_lm_studio_does_not_retry_unrelated_or_partial_output_failures(
+def test_lm_studio_preserves_final_answer_strings_after_unwrap(monkeypatch, final_answer):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    def fake_stream(_url, _payload, **_kwargs):
+        yield _lm_studio_content_chunk(content=_ollama_envelope(final_answer))
+        yield _lm_studio_content_chunk(finish_reason="stop")
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+    answer, thought, _raw = node._run_lm_studio(**_run_lm_studio_kwargs())
+
+    assert answer == final_answer
+    assert thought == ""
+    if final_answer.startswith("DENO_FINAL_PROMPT:"):
+        assert module._extract_final_prompt_block(answer, require=True) == "exact prompt-only result"
+
+
+@pytest.mark.parametrize(
+    "invalid_content",
+    [
+        'preamble {"deno_final_answer":"answer"}',
+        '{"wrong_field":"answer"}',
+        '{"deno_final_answer":"answer","extra":"not allowed"}',
+        '{"deno_final_answer":"   "}',
+    ],
+)
+def test_lm_studio_invalid_envelope_gets_one_bounded_finalization_then_fails(
     monkeypatch,
-    partial_output,
-    error_message,
+    invalid_content,
 ):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
-    stream_payloads = []
-
-    with module._LM_STUDIO_MODELS_CACHE_LOCK:
-        module._LM_STUDIO_MODELS_CACHE.clear()
+    payloads = []
 
     def fake_stream(_url, payload, **_kwargs):
-        stream_payloads.append(dict(payload))
-        if partial_output:
-            yield "message.delta", {"type": "message.delta", "content": "partial"}
-        raise RuntimeError(error_message)
+        payloads.append(payload)
+        yield _lm_studio_content_chunk(content=invalid_content)
+        yield _lm_studio_content_chunk(finish_reason="stop")
 
     monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
 
-    with pytest.raises(RuntimeError, match="reasoning setting|connection failed"):
-        node._run_lm_studio(
-            server_url="http://127.0.0.1:1234/v1",
-            model="google/gemma",
-            system_prompt="",
-            prompt="hello",
-            thinking=False,
-            seed=7,
-            model_memory="Keep loaded",
-            keep_minutes=5,
-            image_attachments=[],
-            is_last=True,
-            node_id="lm-studio-no-retry",
-            index=1,
-            total=1,
-        )
+    with pytest.raises(RuntimeError, match="one automatic finalization attempt|Raw model text was discarded"):
+        node._run_lm_studio(**_run_lm_studio_kwargs())
 
-    assert len(stream_payloads) == 1
-    assert stream_payloads[0]["reasoning"] == "off"
+    assert len(payloads) == 2
+    assert [payload["reasoning_effort"] for payload in payloads] == ["none", "none"]
+
+
+def test_lm_studio_malformed_first_response_retries_once_with_same_context_and_unloads(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    unloads = []
+    cleanup_state = {"provider_cleanup_attempted": False}
+    images = [{
+        "data_url": "data:image/jpeg;base64,image-data",
+        "base64": "image-data",
+        "width": 1,
+        "height": 1,
+        "sent_width": 1,
+        "sent_height": 1,
+    }]
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        if len(payloads) == 1:
+            yield _lm_studio_content_chunk(content="unwanted preamble", reasoning="private chain")
+        else:
+            yield _lm_studio_content_chunk(content=_ollama_envelope("corrected final"))
+        yield _lm_studio_content_chunk(finish_reason="stop")
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+    monkeypatch.setattr(node, "_lm_unload_best_effort", lambda base, model: unloads.append((base, model)))
+
+    answer, thought, raw = node._run_lm_studio(
+        **_run_lm_studio_kwargs(
+            thinking=True,
+            model_memory="Unload after run",
+            image_attachments=images,
+            cleanup_state=cleanup_state,
+        )
+    )
+
+    assert answer == "corrected final"
+    assert thought == "private chain"
+    assert len(payloads) == 2
+    assert [payload["reasoning_effort"] for payload in payloads] == ["high", "none"]
+    assert payloads[0]["seed"] == payloads[1]["seed"] == 7
+    assert payloads[1]["messages"][:2] == payloads[0]["messages"]
+    assert payloads[0]["messages"][1]["content"][1]["image_url"]["url"].endswith("image-data")
+    assert raw["final_answer_recovery"]["attempted"] is True
+    assert unloads == [("http://127.0.0.1:1234", "google/gemma")]
+    assert cleanup_state["provider_cleanup_attempted"] is True
+
+
+def test_lm_studio_does_not_retry_unconfirmed_partial_stream(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        yield _lm_studio_content_chunk(content='{"deno_final_answer":"partial')
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    with pytest.raises(RuntimeError, match="before confirming completion"):
+        node._run_lm_studio(**_run_lm_studio_kwargs(thinking=True))
+
+    assert len(payloads) == 1
+
+
+def test_lm_studio_reports_unsupported_schema_without_plaintext_fallback(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        raise RuntimeError("response_format json_schema is not supported")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    with pytest.raises(RuntimeError, match="does not support the structured output"):
+        node._run_lm_studio(**_run_lm_studio_kwargs())
+
+    assert len(payloads) == 1
+
+
+def test_lm_studio_generation_does_not_query_native_model_list(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+
+    def fake_http_json(url, *_args, **_kwargs):
+        raise AssertionError(f"generation must not query native model API: {url}")
+
+    def fake_stream(_url, _payload, **_kwargs):
+        yield _lm_studio_content_chunk(content=_ollama_envelope("ready"))
+        yield _lm_studio_content_chunk(finish_reason="stop")
+
+    monkeypatch.setattr(module, "_http_json", fake_http_json)
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    answer, _thought, _raw = node._run_lm_studio(**_run_lm_studio_kwargs())
+    assert answer == "ready"
 
 
 def test_local_llm_input_types_never_queries_lm_studio_during_prompt_validation(monkeypatch):
