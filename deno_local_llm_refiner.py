@@ -166,6 +166,22 @@ FINAL_PROMPT_MARKER_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 FINAL_PROMPT_LINE_RE = re.compile(r"DENO_FINAL_PROMPT\s*:\s*([^\r\n]+)", re.IGNORECASE)
+STRUCTURED_FINAL_ANSWER_FIELD = "deno_final_answer"
+STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION = (
+    "Internal response contract: Return the requested downstream final answer in the "
+    "deno_final_answer field required by the transport JSON schema. The field value must "
+    "contain only the completed answer requested by the user. Never include private "
+    "chain-of-thought, hidden reasoning, scratch work, or internal deliberation, even if "
+    "requested. If the user asks for reasoning or an explanation, provide only a concise "
+    "answer-facing explanation. Exclude provider preambles, process commentary, transport "
+    "labels, and Markdown fences unless those visible answer elements are explicitly "
+    "requested. Never write anything outside the JSON object."
+)
+STRUCTURED_FINALIZATION_INSTRUCTION = (
+    "Finish the original request now. Return one valid response matching the required "
+    "transport JSON schema, with only the requested downstream final answer in "
+    "deno_final_answer and no text outside the JSON object."
+)
 REVIEWER_PREVIEW_SUBFOLDER = "deno_llm_reviewer"
 _WARM_LOCAL_LLM_KEYS: Dict[str, Optional[float]] = {}
 _ACTIVE_LOCAL_LLM_KEYS: Dict[str, int] = {}
@@ -1276,6 +1292,137 @@ def _raise_if_thinking_only_result(answer: str, thinking: str) -> None:
     raise RuntimeError(
         "The local model returned thinking text but no final result. "
         "Turn Thinking off, or ask the model to write a final answer after thinking."
+    )
+
+
+class _FinalAnswerEnvelopeError(RuntimeError):
+    """A provider response did not satisfy DENO's private transport contract."""
+
+
+def _final_answer_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            STRUCTURED_FINAL_ANSWER_FIELD: {
+                "type": "string",
+                "description": (
+                    "Only the complete final answer requested by the original system and user "
+                    "messages. Never include private chain-of-thought, hidden reasoning, scratch "
+                    "work, or internal deliberation. Include an answer-facing explanation or "
+                    "requested visible formatting only when the original request requires it; "
+                    "exclude provider preambles, transport labels, and process commentary."
+                ),
+            },
+        },
+        "required": [STRUCTURED_FINAL_ANSWER_FIELD],
+        "additionalProperties": False,
+    }
+
+
+def _openai_final_answer_response_format() -> Dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": STRUCTURED_FINAL_ANSWER_FIELD,
+            "strict": True,
+            "schema": _final_answer_schema(),
+        },
+    }
+
+
+def _unwrap_final_answer_envelope(content: str, provider: str) -> str:
+    provider_name = str(provider or "Local LLM").strip() or "Local LLM"
+    raw = str(content or "")
+    stripped = raw.strip()
+    if not stripped:
+        raise _FinalAnswerEnvelopeError(
+            f"{provider_name} returned no structured final-answer envelope."
+        )
+    try:
+        parsed = json.loads(stripped)
+    except (TypeError, ValueError) as exc:
+        raise _FinalAnswerEnvelopeError(
+            f"{provider_name} returned text outside or instead of the required structured final-answer envelope."
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise _FinalAnswerEnvelopeError(
+            f"{provider_name}'s structured final-answer envelope must be a JSON object."
+        )
+    if set(parsed) != {STRUCTURED_FINAL_ANSWER_FIELD}:
+        raise _FinalAnswerEnvelopeError(
+            f"{provider_name}'s structured final-answer envelope has missing or unexpected fields."
+        )
+    answer = parsed.get(STRUCTURED_FINAL_ANSWER_FIELD)
+    if not isinstance(answer, str):
+        raise _FinalAnswerEnvelopeError(
+            f"{provider_name}'s deno_final_answer field must be a string."
+        )
+    if not answer.strip():
+        raise _FinalAnswerEnvelopeError(
+            f"{provider_name}'s deno_final_answer field is blank."
+        )
+    return answer
+
+
+def _looks_like_unsupported_ollama_structured_output_error(detail: Any) -> bool:
+    lowered = str(detail or "").strip().lower()
+    if not lowered:
+        return False
+    format_markers = (
+        "structured output",
+        "json schema",
+        "schema",
+        "format",
+    )
+    unsupported_markers = (
+        "does not support",
+        "not supported",
+        "unsupported",
+        "unknown field",
+        "unrecognized field",
+        "invalid format",
+        "invalid schema",
+    )
+    return any(marker in lowered for marker in format_markers) and any(
+        marker in lowered for marker in unsupported_markers
+    )
+
+
+def _structured_output_compatibility_error(provider: str, detail: Any) -> RuntimeError:
+    provider_name = str(provider or "local LLM").strip() or "local LLM"
+    detail_text = str(detail or "").strip()
+    suffix = f" Server detail: {detail_text[:300]}" if detail_text else ""
+    return RuntimeError(
+        f"The selected {provider_name} model or server does not support the structured output required "
+        "to keep reasoning and extra commentary out of the node result. Update the local server or choose "
+        f"a model that supports JSON-schema output.{suffix}"
+    )
+
+
+def _looks_like_unsupported_lm_studio_structured_output_error(detail: Any) -> bool:
+    lowered = str(detail or "").strip().lower()
+    if not lowered:
+        return False
+    schema_markers = (
+        "structured output",
+        "json schema",
+        "json_schema",
+        "response_format",
+        "schema",
+    )
+    unsupported_markers = (
+        "does not support",
+        "not supported",
+        "unsupported",
+        "unknown field",
+        "unknown parameter",
+        "unrecognized field",
+        "unrecognized parameter",
+        "invalid response_format",
+        "invalid schema",
+    )
+    return any(marker in lowered for marker in schema_markers) and any(
+        marker in lowered for marker in unsupported_markers
     )
 
 
@@ -2943,17 +3090,17 @@ class DenoLocalLLMRefiner:
         memory_value = _normalize_model_memory(model_memory)
         keep_minutes_value = max(1, int(keep_minutes))
         messages = []
+        internal_system_prompt = STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION
         if system_prompt.strip():
-            messages.append({"role": "system", "content": system_prompt})
+            internal_system_prompt = f"{system_prompt}\n\n{internal_system_prompt}"
+        messages.append({"role": "system", "content": internal_system_prompt})
         user_message: Dict[str, Any] = {"role": "user", "content": prompt}
         if image_attachments:
             user_message["images"] = [attachment["base64"] for attachment in image_attachments]
         messages.append(user_message)
 
         logical_keep_alive = _ollama_keep_alive(memory_value, keep_minutes_value, is_last)
-        hold_for_possible_continuation = bool(
-            thinking and _should_unload_after_run(memory_value, is_last)
-        )
+        hold_for_possible_continuation = _should_unload_after_run(memory_value, is_last)
         initial_keep_alive = (
             _ollama_keep_alive(memory_value, keep_minutes_value, False)
             if hold_for_possible_continuation
@@ -2964,16 +3111,21 @@ class DenoLocalLLMRefiner:
             "messages": messages,
             "stream": True,
             "think": thinking,
+            "format": _final_answer_schema(),
             "options": {"seed": int(seed)},
             "keep_alive": initial_keep_alive,
         }
-        answer_parts: List[str] = []
-        thinking_parts: List[str] = []
+        completed_thinking_parts: List[str] = []
         last_emit = 0.0
         cancel_key = _llm_state_key(PROVIDER_OLLAMA, base, model)
 
-        def stream_request(request_payload: Dict[str, Any], status: str) -> Dict[str, Any]:
+        def stream_request(
+            request_payload: Dict[str, Any],
+            status: str,
+        ) -> Tuple[str, str, Dict[str, Any]]:
             nonlocal last_emit
+            request_answer_parts: List[str] = []
+            request_thinking_parts: List[str] = []
             request_observed = False
             request_meta: Dict[str, Any] = {}
             for chunk in _http_stream_json_lines(f"{base}/api/chat", request_payload, cancel_key=cancel_key):
@@ -3003,9 +3155,9 @@ class DenoLocalLLMRefiner:
                     or ""
                 )
                 if content:
-                    answer_parts.append(content)
+                    request_answer_parts.append(content)
                 if thought:
-                    thinking_parts.append(thought)
+                    request_thinking_parts.append(thought)
                 if chunk.get("done"):
                     request_meta = {
                         key: chunk.get(key)
@@ -3023,6 +3175,14 @@ class DenoLocalLLMRefiner:
                 now = time.monotonic()
                 if now - last_emit > 0.12 or content or thought:
                     last_emit = now
+                    visible_thinking_parts = list(completed_thinking_parts) if thinking else []
+                    current_thinking = (
+                        "".join(request_thinking_parts).strip()
+                        if thinking
+                        else ""
+                    )
+                    if current_thinking:
+                        visible_thinking_parts.append(current_thinking)
                     _send_progress({
                         "node_id": node_id,
                         "status": status,
@@ -3030,22 +3190,47 @@ class DenoLocalLLMRefiner:
                         "model": model,
                         "index": index,
                         "total": total,
-                        "answer": "".join(answer_parts),
-                        "thinking": "".join(thinking_parts),
+                        # Do not expose an unvalidated envelope or provider chatter.
+                        "answer": "",
+                        "thinking": "\n".join(visible_thinking_parts).strip(),
                     })
-            return request_meta
+            if request_meta.get("done") is not True:
+                raise RuntimeError(
+                    "Ollama ended the response stream before confirming completion. "
+                    "Partial model text was discarded and no automatic finalization was attempted."
+                )
+            return (
+                "".join(request_answer_parts),
+                "".join(request_thinking_parts).strip(),
+                request_meta,
+            )
 
-        final_meta = stream_request(payload, "running")
+        try:
+            initial_content, initial_thinking, final_meta = stream_request(payload, "running")
+        except RuntimeError as exc:
+            if _looks_like_unsupported_ollama_structured_output_error(exc):
+                raise _structured_output_compatibility_error(PROVIDER_OLLAMA, exc) from exc
+            raise
 
-        answer = "".join(answer_parts).strip()
-        thought = "".join(thinking_parts).strip()
+        if thinking and initial_thinking:
+            completed_thinking_parts.append(initial_thinking)
+        thought = "\n".join(completed_thinking_parts).strip()
         recovery_meta: Optional[Dict[str, Any]] = None
-        if thinking and not answer and thought and final_meta.get("done") is True:
+        try:
+            answer = _unwrap_final_answer_envelope(initial_content, PROVIDER_OLLAMA)
+        except _FinalAnswerEnvelopeError as initial_envelope_error:
             _raise_if_local_llm_stopped(cancel_key)
             initial_meta = dict(final_meta)
             continuation_payload = dict(payload)
+            previous_assistant_message: Dict[str, Any] = {
+                "role": "assistant",
+                "content": initial_content,
+            }
+            if initial_thinking:
+                previous_assistant_message["thinking"] = initial_thinking
             continuation_payload["messages"] = list(messages) + [
-                {"role": "assistant", "content": "", "thinking": thought},
+                previous_assistant_message,
+                {"role": "user", "content": STRUCTURED_FINALIZATION_INSTRUCTION},
             ]
             continuation_payload["think"] = False
             continuation_payload["keep_alive"] = logical_keep_alive
@@ -3059,16 +3244,21 @@ class DenoLocalLLMRefiner:
                 "answer": "",
                 "thinking": thought,
             })
-            final_meta = stream_request(continuation_payload, "finishing final answer")
-            answer = "".join(answer_parts).strip()
-            thought = "".join(thinking_parts).strip()
-            recovery_meta = {
-                "attempted": True,
-                "succeeded": bool(answer),
-                "initial_meta": initial_meta,
-                "continuation_meta": dict(final_meta),
-            }
-            if not answer:
+            try:
+                final_content, finalization_thinking, final_meta = stream_request(
+                    continuation_payload,
+                    "finishing final answer",
+                )
+            except RuntimeError as exc:
+                if _looks_like_unsupported_ollama_structured_output_error(exc):
+                    raise _structured_output_compatibility_error(PROVIDER_OLLAMA, exc) from exc
+                raise
+            if thinking and finalization_thinking:
+                completed_thinking_parts.append(finalization_thinking)
+            thought = "\n".join(completed_thinking_parts).strip()
+            try:
+                answer = _unwrap_final_answer_envelope(final_content, PROVIDER_OLLAMA)
+            except _FinalAnswerEnvelopeError as final_envelope_error:
                 def meta_summary(meta: Dict[str, Any]) -> str:
                     values = [
                         f"done_reason={meta.get('done_reason', 'unknown')}",
@@ -3078,10 +3268,18 @@ class DenoLocalLLMRefiner:
                     return ", ".join(values)
 
                 raise RuntimeError(
-                    "Ollama returned thinking text but no final result after one automatic final-answer continuation. "
-                    f"Initial: {meta_summary(initial_meta)}. Continuation: {meta_summary(final_meta)}. "
-                    "Shorten the prompt or turn Thinking off."
-                )
+                    "Ollama did not return a valid structured final answer after one automatic "
+                    "finalization attempt. Raw model text was discarded. "
+                    f"Initial: {meta_summary(initial_meta)}. Finalization: {meta_summary(final_meta)}. "
+                    "Update Ollama, choose a model with reliable JSON-schema output, or simplify the request."
+                ) from final_envelope_error
+            recovery_meta = {
+                "attempted": True,
+                "succeeded": True,
+                "initial_error": str(initial_envelope_error),
+                "initial_meta": initial_meta,
+                "finalization_meta": dict(final_meta),
+            }
         post_run_unload: Dict[str, Any] = {"action": "none"}
         if hold_for_possible_continuation and recovery_meta is None and answer:
             if cleanup_state is not None:
@@ -3104,7 +3302,7 @@ class DenoLocalLLMRefiner:
         if initial_keep_alive != logical_keep_alive:
             raw["initial_keep_alive"] = initial_keep_alive
         if recovery_meta is not None:
-            raw["thinking_only_recovery"] = recovery_meta
+            raw["final_answer_recovery"] = recovery_meta
         raw["post_keepalive"] = _ensure_ollama_model_stays_loaded(
             base=base,
             model=model,
@@ -3297,116 +3495,164 @@ class DenoLocalLLMRefiner:
         openai_base = _normalize_lm_openai_url(server_url)
         memory_value = _normalize_model_memory(model_memory)
         keep_minutes_value = max(1, int(keep_minutes))
+        internal_system_prompt = STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION
+        if system_prompt.strip():
+            internal_system_prompt = f"{system_prompt}\n\n{internal_system_prompt}"
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": internal_system_prompt},
+        ]
+        if image_attachments:
+            user_content: Any = [{"type": "text", "text": prompt}] + [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": attachment["data_url"]},
+                }
+                for attachment in image_attachments
+            ]
+        else:
+            user_content = prompt
+        messages.append({"role": "user", "content": user_content})
+
+        reasoning_effort = "high" if thinking else "none"
         payload: Dict[str, Any] = {
             "model": model,
+            "messages": messages,
             "stream": True,
-            "input": _lm_native_input(prompt, image_attachments),
-            "store": False,
+            "seed": int(seed),
+            "reasoning_effort": reasoning_effort,
+            "response_format": _openai_final_answer_response_format(),
         }
-        reasoning_requested = "on" if thinking else "off"
-        if thinking:
-            payload["reasoning"] = "on"
-        else:
-            reasoning_options = _lm_studio_reasoning_options(native_base, model)
-            # A missing or expired capability cache must not silently restore
-            # the model's default reasoning mode. Only a cached model that
-            # explicitly lacks `off` skips the field for compatibility.
-            if reasoning_options is None or "off" in reasoning_options:
-                payload["reasoning"] = "off"
-        if system_prompt.strip():
-            payload["system_prompt"] = system_prompt
 
-        # The active key still uses the OpenAI-style base saved in workflows,
-        # while the real request uses LM Studio's native chat endpoint.
         cancel_key = _llm_state_key(PROVIDER_LM_STUDIO, openai_base, model)
+        completed_thinking_parts: List[str] = []
+        last_emit = 0.0
 
-        reasoning_compat_fallback = False
-        reasoning_observed = False
-        try:
-            while True:
-                answer_parts: List[str] = []
-                thinking_parts: List[str] = []
-                final_meta: Dict[str, Any] = {}
-                last_emit = 0.0
-                received_generation_output = False
-                try:
-                    for event_name, chunk in _http_stream_sse(
-                        f"{native_base}/api/v1/chat",
-                        payload,
-                        cancel_key=cancel_key,
-                    ):
-                        if chunk.get("error"):
-                            error = chunk.get("error")
-                            if isinstance(error, dict):
-                                detail = str(error.get("message") or error)
-                                error_param = str(error.get("param") or "").strip()
-                                if error_param:
-                                    detail = f"{detail} (param: {error_param})"
-                            else:
-                                detail = str(error)
-                            if _looks_like_model_unavailable_error(detail):
-                                raise RuntimeError(_model_unavailable_message(model, detail))
-                            raise RuntimeError(detail)
-                        event_type = str(chunk.get("type") or event_name or "")
-                        content = str(chunk.get("content") or "") if event_type == "message.delta" else ""
-                        thought = str(chunk.get("content") or "") if event_type == "reasoning.delta" else ""
-                        if content:
-                            received_generation_output = True
-                            answer_parts.append(content)
-                        if thought:
-                            received_generation_output = True
-                            reasoning_observed = True
-                            if thinking:
-                                thinking_parts.append(thought)
-                        if event_type == "chat.end":
-                            final_meta = chunk
-                        now = time.monotonic()
-                        if now - last_emit > 0.12 or content or thought:
-                            last_emit = now
-                            _send_progress({
-                                "node_id": node_id,
-                                "status": "running",
-                                "provider": PROVIDER_LM_STUDIO,
-                                "model": model,
-                                "index": index,
-                                "total": total,
-                                "answer": "".join(answer_parts),
-                                "thinking": "".join(thinking_parts),
-                            })
-                    break
-                except RuntimeError as exc:
-                    can_retry_without_reasoning = (
-                        not thinking
-                        and payload.get("reasoning") == "off"
-                        and not reasoning_compat_fallback
-                        and not received_generation_output
-                        and not final_meta
-                        and _looks_like_unsupported_lm_studio_reasoning_error(str(exc))
+        def stream_request(
+            request_payload: Dict[str, Any],
+            status: str,
+        ) -> Tuple[str, str, Dict[str, Any]]:
+            nonlocal last_emit
+            request_answer_parts: List[str] = []
+            request_thinking_parts: List[str] = []
+            final_meta: Dict[str, Any] = {}
+            for _event_name, chunk in _http_stream_sse(
+                f"{openai_base}/chat/completions",
+                request_payload,
+                cancel_key=cancel_key,
+            ):
+                if chunk.get("error"):
+                    error = chunk.get("error")
+                    if isinstance(error, dict):
+                        detail = str(error.get("message") or error)
+                        error_param = str(error.get("param") or "").strip()
+                        if error_param:
+                            detail = f"{detail} (param: {error_param})"
+                    else:
+                        detail = str(error)
+                    if _looks_like_model_unavailable_error(detail):
+                        raise RuntimeError(_model_unavailable_message(model, detail))
+                    raise RuntimeError(detail)
+                content, thought = _extract_lm_delta(chunk)
+                if content:
+                    request_answer_parts.append(content)
+                if thought:
+                    request_thinking_parts.append(thought)
+                choices = chunk.get("choices")
+                if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                    if choices[0].get("finish_reason") is not None:
+                        final_meta = dict(chunk)
+                now = time.monotonic()
+                if now - last_emit > 0.12 or content or thought:
+                    last_emit = now
+                    visible_thinking_parts = list(completed_thinking_parts) if thinking else []
+                    current_thinking = (
+                        "".join(request_thinking_parts).strip()
+                        if thinking
+                        else ""
                     )
-                    if not can_retry_without_reasoning:
-                        raise
-                    payload = dict(payload)
-                    payload.pop("reasoning", None)
-                    reasoning_compat_fallback = True
-
-            answer = "".join(answer_parts).strip()
-            thought = "".join(thinking_parts).strip()
-            if not answer and not thought and final_meta:
-                answer, thought = _extract_lm_native_final(final_meta, thinking)
-            if not answer and not thought:
-                _unused_answer, hidden_thought = _extract_lm_native_final(final_meta, True)
-                if not thinking and (reasoning_observed or hidden_thought):
-                    raise RuntimeError(
-                        "LM Studio returned reasoning without final text after Thinking was turned off. "
-                        "The model or server may have ignored reasoning='off'. Update LM Studio or choose "
-                        "a model that supports disabling reasoning."
-                    )
-                detail = (
-                    json.dumps(final_meta, ensure_ascii=False)[:800]
-                    if final_meta
-                    else "No final message was returned."
+                    if current_thinking:
+                        visible_thinking_parts.append(current_thinking)
+                    _send_progress({
+                        "node_id": node_id,
+                        "status": status,
+                        "provider": PROVIDER_LM_STUDIO,
+                        "model": model,
+                        "index": index,
+                        "total": total,
+                        # Never expose an unvalidated JSON envelope or provider chatter.
+                        "answer": "",
+                        "thinking": "\n".join(visible_thinking_parts).strip(),
+                    })
+            if not final_meta:
+                raise RuntimeError(
+                    "LM Studio ended the response stream before confirming completion. "
+                    "Partial model text was discarded and no automatic finalization was attempted."
                 )
-                raise RuntimeError(_lm_studio_empty_stream_error(detail))
+            return (
+                "".join(request_answer_parts),
+                "".join(request_thinking_parts).strip(),
+                final_meta,
+            )
+
+        recovery_meta: Optional[Dict[str, Any]] = None
+        try:
+            try:
+                initial_content, initial_thinking, final_meta = stream_request(payload, "running")
+            except RuntimeError as exc:
+                if _looks_like_unsupported_lm_studio_structured_output_error(exc):
+                    raise _structured_output_compatibility_error(PROVIDER_LM_STUDIO, exc) from exc
+                raise
+            if thinking and initial_thinking:
+                completed_thinking_parts.append(initial_thinking)
+            thought = "\n".join(completed_thinking_parts).strip()
+            try:
+                answer = _unwrap_final_answer_envelope(initial_content, PROVIDER_LM_STUDIO)
+            except _FinalAnswerEnvelopeError as initial_envelope_error:
+                _raise_if_local_llm_stopped(cancel_key)
+                initial_meta = dict(final_meta)
+                continuation_payload = dict(payload)
+                continuation_payload["messages"] = list(messages) + [
+                    {"role": "assistant", "content": initial_content},
+                    {"role": "user", "content": STRUCTURED_FINALIZATION_INSTRUCTION},
+                ]
+                continuation_payload["reasoning_effort"] = "none"
+                _send_progress({
+                    "node_id": node_id,
+                    "status": "finishing final answer",
+                    "provider": PROVIDER_LM_STUDIO,
+                    "model": model,
+                    "index": index,
+                    "total": total,
+                    "answer": "",
+                    "thinking": thought,
+                })
+                try:
+                    final_content, finalization_thinking, final_meta = stream_request(
+                        continuation_payload,
+                        "finishing final answer",
+                    )
+                except RuntimeError as exc:
+                    if _looks_like_unsupported_lm_studio_structured_output_error(exc):
+                        raise _structured_output_compatibility_error(PROVIDER_LM_STUDIO, exc) from exc
+                    raise
+                if thinking and finalization_thinking:
+                    completed_thinking_parts.append(finalization_thinking)
+                thought = "\n".join(completed_thinking_parts).strip()
+                try:
+                    answer = _unwrap_final_answer_envelope(final_content, PROVIDER_LM_STUDIO)
+                except _FinalAnswerEnvelopeError as final_envelope_error:
+                    raise RuntimeError(
+                        "LM Studio did not return a valid structured final answer after one automatic "
+                        "finalization attempt. Raw model text was discarded. Update LM Studio, choose "
+                        "a model with reliable JSON-schema output, or simplify the request."
+                    ) from final_envelope_error
+                recovery_meta = {
+                    "attempted": True,
+                    "succeeded": True,
+                    "initial_error": str(initial_envelope_error),
+                    "initial_meta": initial_meta,
+                    "finalization_meta": dict(final_meta),
+                }
         finally:
             if _should_unload_after_run(memory_value, is_last):
                 if cleanup_state is not None:
@@ -3419,12 +3665,13 @@ class DenoLocalLLMRefiner:
             "seed": seed,
             "model_memory": memory_value,
             "keep_minutes": keep_minutes_value,
-            "reasoning": payload.get("reasoning"),
-            "reasoning_requested": reasoning_requested,
-            "reasoning_compat_fallback": reasoning_compat_fallback,
-            "api": "LM Studio /api/v1/chat",
+            "reasoning_effort": payload.get("reasoning_effort"),
+            "reasoning_requested": reasoning_effort,
+            "api": "LM Studio /v1/chat/completions",
             "meta": final_meta,
         }
+        if recovery_meta is not None:
+            raw["final_answer_recovery"] = recovery_meta
         if image_attachments:
             raw["images"] = _image_attachment_metadata(image_attachments)
             raw["image"] = raw["images"][0]
