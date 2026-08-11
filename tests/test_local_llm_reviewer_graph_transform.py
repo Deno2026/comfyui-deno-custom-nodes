@@ -218,13 +218,33 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 updatedAt: 1234,
             }});
             assert(savedState.answer === "saved answer", "Loader state setter must return the saved answer");
+            assert(savedState.thinking === "saved thinking", "Loader live preview state may keep current-run Thinking in memory");
             assert(stateNode.properties.deno_local_llm_state.answer === "saved answer", "Loader state must persist into node.properties");
-            const restoredStateNode = {{ id: 45, properties: {{ deno_local_llm_state: stateNode.properties.deno_local_llm_state }} }};
+            assert(stateNode.properties.deno_local_llm_state.thinking === "", "Loader properties must never persist current-run Thinking");
+            const restoredStateNode = {{
+                id: 45,
+                properties: {{
+                    deno_local_llm_state: {{
+                        ...stateNode.properties.deno_local_llm_state,
+                        thinking: "legacy saved thinking",
+                    }},
+                }},
+            }};
             const restoredState = api.restoreLocalLLMStateFromProperties(restoredStateNode);
             assert(restoredState.answer === "saved answer", "Loader state must restore from workflow properties");
-            assert(restoredStateNode.__denoLocalLLMState.thinking === "saved thinking", "Restored Loader state must hydrate the visible node state");
-            const lazyRestoredStateNode = {{ id: 145, properties: {{ deno_local_llm_state: stateNode.properties.deno_local_llm_state }} }};
-            assert(api.getLocalLLMNodeState(lazyRestoredStateNode).thinking === "saved thinking", "Loader preview state must lazily restore Thinking from workflow properties");
+            assert(restoredStateNode.__denoLocalLLMState.thinking === "", "Restoring older Loader state must not hydrate private Thinking");
+            assert(restoredStateNode.properties.deno_local_llm_state.thinking === "", "Restoring older Loader state must scrub private Thinking from properties");
+            const lazyRestoredStateNode = {{
+                id: 145,
+                properties: {{
+                    deno_local_llm_state: {{
+                        ...stateNode.properties.deno_local_llm_state,
+                        thinking: "legacy lazy thinking",
+                    }},
+                }},
+            }};
+            assert(api.getLocalLLMNodeState(lazyRestoredStateNode).thinking === "", "Loader preview state must not lazily restore Thinking from workflow properties");
+            assert(lazyRestoredStateNode.properties.deno_local_llm_state.thinking === "", "Lazy restore must scrub private Thinking from workflow properties");
             const progressStateNode = {{ id: 146, properties: {{}}, setDirtyCanvas() {{}} }};
             api.setLocalLLMNodeState(progressStateNode, {{
                 status: "done",
@@ -240,6 +260,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 answer: "kept answer",
             }}));
             assert(api.getLocalLLMNodeState(progressStateNode).thinking === "kept thinking", "Progress updates without Thinking must not wipe the saved Thinking preview");
+            assert(progressStateNode.properties.deno_local_llm_state.thinking === "", "Live progress Thinking must remain absent from Loader properties");
             api.setLocalLLMNodeState(progressStateNode, api.localLLMProgressStatePatch(progressStateNode, {{
                 status: "running",
                 provider: "vLLM",
@@ -357,15 +378,26 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             }};
             assert(configuredLoader.configure(configureInfo) === "configured", "Loader configure wrapper must preserve the original configure result");
             assert(configuredLoader.__denoLocalLLMState.answer === "workflow answer", "Loader configure must restore saved result state from properties");
+            assert(configuredLoader.__denoLocalLLMState.thinking === "", "Loader configure must not restore saved private Thinking");
+            assert(configureInfo.properties.deno_local_llm_state.thinking === "", "Loader configure must scrub private Thinking before base restore");
             const sameIdOtherWorkflowNode = {{ id: 46, type: "DenoLocalLLMRefiner", properties: {{}} }};
             assert(
                 api.getLocalLLMNodeState(sameIdOtherWorkflowNode).answer !== "workflow answer",
                 "Loader state must be scoped to the actual node object, not a node id reused by another workflow"
             );
+            api.setLocalLLMNodeState(configuredLoader, {{ thinking: "current run thinking", updatedAt: 3333 }});
+            assert(configuredLoader.__denoLocalLLMState.thinking === "current run thinking", "Current-run Thinking must remain visible in the in-memory Loader preview");
+            assert(configuredLoader.properties.deno_local_llm_state.thinking === "", "Current-run Thinking must not leak into live workflow properties");
             const serializedInfo = {{ widgets_values: [...savedLoaderValues], properties: {{}} }};
             assert(configuredLoader.onSerialize(serializedInfo) === "serialized", "Loader serialize wrapper must preserve the original serialize result");
             assert(serializedInfo.widgets_values.length === 13, "Loader serialize must remove generated buttons and keep canonical widget count");
             assert(serializedInfo.properties.deno_local_llm_state.answer === "workflow answer", "Loader serialize must include saved result state in properties");
+            assert(serializedInfo.properties.deno_local_llm_state.thinking === "", "Loader serialize must never include current-run Thinking");
+            assert(configuredLoader.properties.deno_local_llm_state.thinking === "", "Loader serialize must keep node.properties free of Thinking");
+            assert(configuredLoader.__denoLocalLLMState.thinking === "current run thinking", "Loader serialize must not erase the current in-memory Thinking preview");
+            const serializedReloadNode = {{ id: 246, properties: serializedInfo.properties }};
+            assert(api.restoreLocalLLMStateFromProperties(serializedReloadNode).answer === "workflow answer", "Serialized Loader state must retain the final answer on reload");
+            assert(serializedReloadNode.__denoLocalLLMState.thinking === "", "Serialized Loader state must reload without private Thinking");
             const legacyInputNode = {{
                 id: 146,
                 inputs: [
@@ -684,7 +716,8 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(api.getWidget(copiedLoaderNode, "thinking").value === true, "Loader copy/paste setup must restore Thinking On");
             assert(api.getWidget(copiedLoaderNode, "seed").value === 42, "Loader copy/paste setup must restore the saved seed");
             assert(api.getWidget(copiedLoaderNode, "prompt").value === "Prompt text", "Loader copy/paste setup must restore the saved prompt text");
-            assert(api.getLocalLLMNodeState(copiedLoaderNode).thinking === "copied thinking", "Loader copy/paste setup must restore saved Thinking preview state");
+            assert(api.getLocalLLMNodeState(copiedLoaderNode).thinking === "", "Loader copy/paste setup must not restore saved private Thinking");
+            assert(copiedLoaderNode.properties.deno_local_llm_state.thinking === "", "Loader copy/paste setup must scrub private Thinking from properties");
             assert(copiedLoaderNode.inputs.filter((input) => input.name === "audio_context").length === 1, "Fresh setup must add one audio analysis socket");
             const copiedPromptWidget = api.getWidget(copiedLoaderNode, "prompt");
             assert(typeof copiedPromptWidget.computeSize === "undefined", "Modern ComfyUI prompt layout must not keep the current node height as a fixed computeSize minimum");

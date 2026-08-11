@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.85 - 2026-08-11
+
+- Fixed `(Deno) Local LLM Loader` so, whenever the node executes, its final Result is embedded in that output's workflow metadata and restored inside the node when a saved PNG or workflow is reopened, without persisting Thinking/reasoning content.
+
 ## 0.7.84 - 2026-08-11
 
 - Added `(Deno) Audio Transcript` for optional local Whisper transcription with user-supplied wording priority, segment timing, confidence context, official checkpoint caching, audio passthrough, and post-run model unload.

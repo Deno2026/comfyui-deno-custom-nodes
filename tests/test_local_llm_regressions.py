@@ -187,6 +187,252 @@ def test_local_llm_refine_preserves_system_and_user_prompts_when_adding_duration
     )
 
 
+def test_local_llm_metadata_helper_updates_only_the_matching_workflow_node(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    stale_state = {"schema": 1, "answer": "stale", "thinking": "private reasoning"}
+    untouched_state = {"schema": 1, "answer": "keep this"}
+    extra_pnginfo = [{
+        "workflow": {
+            "nodes": [
+                {
+                    "id": 143,
+                    "type": "DenoLocalLLMRefiner",
+                    "properties": {"deno_local_llm_state": stale_state},
+                },
+                {
+                    "id": 144,
+                    "type": "DenoLocalLLMRefiner",
+                    "properties": {"deno_local_llm_state": untouched_state},
+                },
+                {"id": 145, "type": "SaveImage", "properties": {"keep": True}},
+            ]
+        }
+    }]
+    monkeypatch.setattr(module.time, "time", lambda: 1234.567)
+
+    assert module._persist_local_llm_answer_in_workflow_metadata(
+        extra_pnginfo,
+        ["143"],
+        provider="Custom",
+        model="koboldcpp-model",
+        answer="the exact final prompt",
+        index=2,
+        total=2,
+    ) is True
+
+    target = extra_pnginfo[0]["workflow"]["nodes"][0]["properties"]["deno_local_llm_state"]
+    assert target == {
+        "schema": 1,
+        "status": "done",
+        "provider": "Custom",
+        "model": "koboldcpp-model",
+        "answer": "the exact final prompt",
+        "thinking": "",
+        "error": "",
+        "index": 2,
+        "total": 2,
+        "updatedAt": 1234567,
+    }
+    assert extra_pnginfo[0]["workflow"]["nodes"][1]["properties"]["deno_local_llm_state"] == untouched_state
+    assert extra_pnginfo[0]["workflow"]["nodes"][2]["properties"] == {"keep": True}
+
+
+def test_local_llm_metadata_helper_is_json_round_trip_safe_and_bounds_answer_text(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    extra_pnginfo = {
+        "workflow": {
+            "nodes": [
+                {"id": 143, "type": "DenoLocalLLMRefiner", "properties": {}},
+            ]
+        }
+    }
+    monkeypatch.setattr(module.time, "time", lambda: 1.0)
+    oversized = "한글\n" + ("x" * (module.LOCAL_LLM_STATE_TEXT_LIMIT + 20))
+
+    assert module._persist_local_llm_answer_in_workflow_metadata(
+        extra_pnginfo,
+        143,
+        provider="LM Studio",
+        model="google/gemma",
+        answer=oversized,
+    ) is True
+
+    round_tripped = json.loads(json.dumps(extra_pnginfo, ensure_ascii=False))
+    state = round_tripped["workflow"]["nodes"][0]["properties"]["deno_local_llm_state"]
+    assert len(state["answer"]) == module.LOCAL_LLM_STATE_TEXT_LIMIT
+    assert state["answer"].startswith("한글\n")
+    assert state["thinking"] == ""
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected_model"),
+    [
+        ("Ollama", "qwen3"),
+        ("LM Studio", "google/gemma"),
+        ("llama.cpp", "custom-model"),
+        ("vLLM", "custom-model"),
+        ("Custom", "custom-model"),
+        ("llama-swap", "custom-model"),
+    ],
+)
+def test_local_llm_refine_embeds_same_run_final_answer_for_every_provider(
+    monkeypatch,
+    provider,
+    expected_model,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    extra_pnginfo = [{
+        "workflow": {
+            "nodes": [
+                {
+                    "id": 143,
+                    "type": "DenoLocalLLMRefiner",
+                    "properties": {
+                        "deno_local_llm_state": {
+                            "schema": 1,
+                            "status": "ready",
+                            "answer": "previous run",
+                            "thinking": "previous private reasoning",
+                        }
+                    },
+                }
+            ]
+        }
+    }]
+    calls = []
+
+    monkeypatch.setattr(module, "_send_progress", lambda payload: calls.append(payload))
+    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
+    monkeypatch.setattr(module.time, "time", lambda: 2000.0)
+
+    def run_single(**kwargs):
+        kwargs["cleanup_state"]["provider_cleanup_attempted"] = True
+        return "same-run final answer", "private chain of thought", {}
+
+    monkeypatch.setattr(node, "_run_single", run_single)
+    kwargs = _refine_kwargs(["Direct the scene."])
+    kwargs.update({
+        "provider": provider,
+        "unique_id": ["143"],
+        "extra_pnginfo": extra_pnginfo,
+    })
+
+    output = node.refine(**kwargs)
+
+    assert output["result"] == (["same-run final answer"],)
+    state = extra_pnginfo[0]["workflow"]["nodes"][0]["properties"]["deno_local_llm_state"]
+    assert state["answer"] == "same-run final answer"
+    assert state["thinking"] == ""
+    assert state["error"] == ""
+    assert state["provider"] == provider
+    assert state["model"] == expected_model
+    assert state["updatedAt"] == 2000000
+    assert calls[-1]["answer"] == "same-run final answer"
+
+
+def test_local_llm_refine_embeds_the_last_answer_from_a_prompt_batch(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    extra_pnginfo = {
+        "workflow": {
+            "nodes": [
+                {"id": 143, "type": "DenoLocalLLMRefiner", "properties": {}},
+            ]
+        }
+    }
+    generated = iter([
+        ("first final answer", "first private thought", {}),
+        ("second final answer", "second private thought", {}),
+    ])
+
+    monkeypatch.setattr(module, "_send_progress", lambda _payload: None)
+    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
+    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
+
+    def run_single(**kwargs):
+        kwargs["cleanup_state"]["provider_cleanup_attempted"] = True
+        return next(generated)
+
+    monkeypatch.setattr(node, "_run_single", run_single)
+    kwargs = _refine_kwargs(["First direction.", "Second direction."])
+    kwargs.update({"unique_id": "143", "extra_pnginfo": extra_pnginfo})
+
+    output = node.refine(**kwargs)
+
+    assert output["result"] == (["first final answer", "second final answer"],)
+    state = extra_pnginfo["workflow"]["nodes"][0]["properties"]["deno_local_llm_state"]
+    assert state["answer"] == "second final answer"
+    assert state["index"] == 2
+    assert state["total"] == 2
+    assert state["thinking"] == ""
+
+
+def test_local_llm_cache_key_ignores_runtime_workflow_metadata():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    base = {
+        "provider": "Ollama",
+        "prompt": ["Direct the scene."],
+        "seed": 7,
+        "seed_mode": "fixed",
+        "unique_id": "143",
+    }
+    first = {
+        **base,
+        "extra_pnginfo": {
+            "workflow": {
+                "nodes": [
+                    {
+                        "id": 143,
+                        "type": "DenoLocalLLMRefiner",
+                        "properties": {"deno_local_llm_state": {"answer": "first", "thinking": "private"}},
+                    }
+                ]
+            }
+        },
+    }
+    second = {
+        **base,
+        "unique_id": "999",
+        "extra_pnginfo": {
+            "workflow": {
+                "nodes": [
+                    {
+                        "id": 999,
+                        "type": "DenoLocalLLMRefiner",
+                        "properties": {"deno_local_llm_state": {"answer": "second", "thinking": "other"}},
+                    }
+                ]
+            }
+        },
+    }
+
+    assert module._local_llm_cache_key(first) == module._local_llm_cache_key(second)
+
+
+@pytest.mark.parametrize(
+    "extra_pnginfo",
+    [None, [], {}, {"workflow": None}, {"workflow": {}}, {"workflow": {"nodes": []}}],
+)
+def test_local_llm_metadata_helper_is_a_safe_noop_without_a_matching_workflow(extra_pnginfo):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    assert module._persist_local_llm_answer_in_workflow_metadata(
+        extra_pnginfo,
+        "143",
+        provider="Ollama",
+        model="qwen3",
+        answer="final",
+    ) is False
+
+
 def _run_ollama_kwargs(**overrides):
     kwargs = {
         "server_url": "http://127.0.0.1:11434",

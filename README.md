@@ -460,6 +460,7 @@ Main features:
 - connect prompt batches through one node run so the local model can stay loaded until the batch finishes
 - optionally attach an IMAGE to a vision-capable local model call
 - preview Thinking and Result text directly on the node
+- embed the node's final Result in saved PNG/workflow metadata whenever the Local LLM node executes, so reopening the file restores it inside the node; Thinking/reasoning remains preview-only and is not persisted
 - keep named System Prompt presets in ComfyUI user data so they survive browser-profile cleanup; existing browser presets can be imported once while the browser copy stays untouched as a backup
 - see the actually applied System Prompt preset name on the node and in the editor; edited unmatched text is shown as `Custom`
 - connect a positive FLOAT to `video seconds` to append a sentence such as `This is an 8-second video.` to each LLM user prompt without changing the saved Prompt text
