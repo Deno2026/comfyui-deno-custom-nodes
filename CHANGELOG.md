@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.84 - 2026-08-11
+
+- Added `(Deno) Audio Transcript` for optional local Whisper transcription with user-supplied wording priority, segment timing, confidence context, official checkpoint caching, audio passthrough, and post-run model unload.
+- Added `(Deno) Audio Analysis Finalizer` to keep only the documented acoustic-analysis fields from ComfyUI `TextGenerate` output and optionally unload the analysis CLIP model.
+- Added an optional `audio_context` STRING input to `(Deno) Local LLM Loader` so transcript and acoustic evidence can guide prompt direction as data without replacing the user's prompt.
+- Added a portable beginner MiniMax H3 R2V audio-reference workflow that uses the stock H3 reference-audio path and muxes the selected source-audio section unchanged into the final video.
+
 ## 0.7.83 - 2026-08-09
 
 - Hardened `(Deno) Local LLM Loader` so Ollama and LM Studio return only the validated final answer while keeping reasoning and provider-added preambles out of the Result, without changing saved prompts, images, seed controls, or arbitrary multiline and Reviewer JSON outputs; LM Studio now applies the selected seed to generation requests.

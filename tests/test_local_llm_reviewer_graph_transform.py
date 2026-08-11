@@ -367,6 +367,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(serializedInfo.widgets_values.length === 13, "Loader serialize must remove generated buttons and keep canonical widget count");
             assert(serializedInfo.properties.deno_local_llm_state.answer === "workflow answer", "Loader serialize must include saved result state in properties");
             const legacyInputNode = {{
+                id: 146,
                 inputs: [
                     {{ name: "image", label: "image", type: "IMAGE", link: 501 }},
                     {{ name: "prompt", label: "prompt", type: "STRING", link: 502 }},
@@ -374,11 +375,39 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 graph,
                 setDirtyCanvas() {{}},
             }};
+            graph.links[501] = {{ target_id: 146, target_slot: 0 }};
+            graph.links[502] = {{ target_id: 146, target_slot: 1 }};
             assert(api.ensureLoaderVideoSecondsInputSocket(legacyInputNode) === true, "Old Loader workflows must gain the new video seconds socket");
             assert(legacyInputNode.inputs.length === 3, "Adding video seconds must not replace an existing image or prompt socket");
             assert(legacyInputNode.inputs[0].link === 501 && legacyInputNode.inputs[1].link === 502, "Adding video seconds must preserve existing socket links and order");
             assert(legacyInputNode.inputs[2].name === "video_seconds" && legacyInputNode.inputs[2].type === "FLOAT", "Video seconds must be appended as a FLOAT socket on old workflows");
             assert(api.ensureLoaderVideoSecondsInputSocket(legacyInputNode) === false, "Video seconds migration must be idempotent");
+            assert(api.ensureLoaderAudioContextInputSocket(legacyInputNode) === true, "Old Loader workflows must gain the new audio analysis socket");
+            assert(legacyInputNode.inputs.length === 4, "Adding audio analysis must not replace existing image, prompt, or duration sockets");
+            assert(legacyInputNode.inputs[3].name === "audio_context" && legacyInputNode.inputs[3].type === "STRING", "Audio analysis must be appended as a STRING socket");
+            assert(legacyInputNode.inputs[3].label === "audio analysis" && legacyInputNode.inputs[3].localized_name === "audio analysis", "Audio analysis must use the visible beginner-facing label");
+            assert(graph.links[501].target_slot === 0 && graph.links[502].target_slot === 1, "Appending optional sockets must preserve existing linked input slots");
+            assert(api.ensureLoaderAudioContextInputSocket(legacyInputNode) === false, "Audio analysis migration must be idempotent");
+            assert(legacyInputNode.inputs.filter((input) => input.name === "audio_context").length === 1, "Repeated setup must not duplicate the audio analysis socket");
+            const reopenedAudioNode = {{
+                id: 147,
+                inputs: [
+                    {{ name: "image", label: "image", type: "IMAGE", link: 601 }},
+                    {{ name: "prompt", label: "prompt", type: "STRING", link: 602 }},
+                    {{ name: "video_seconds", label: "video seconds", type: "FLOAT", link: 603 }},
+                    {{ name: "audio analysis", localized_name: "audio analysis", label: "audio analysis", type: "*", link: 604 }},
+                ],
+                graph,
+                setDirtyCanvas() {{}},
+            }};
+            graph.links[601] = {{ target_id: 147, target_slot: 0 }};
+            graph.links[602] = {{ target_id: 147, target_slot: 1 }};
+            graph.links[603] = {{ target_id: 147, target_slot: 2 }};
+            graph.links[604] = {{ target_id: 147, target_slot: 3 }};
+            assert(api.ensureLoaderAudioContextInputSocket(reopenedAudioNode) === false, "Save/reopen must reuse the serialized audio analysis socket");
+            assert(reopenedAudioNode.inputs.length === 4, "Save/reopen must not duplicate serialized optional sockets");
+            assert(reopenedAudioNode.inputs[3].name === "audio_context" && reopenedAudioNode.inputs[3].type === "STRING", "Save/reopen must normalize legacy audio analysis socket fields");
+            assert(reopenedAudioNode.inputs[3].link === 604 && graph.links[604].target_slot === 3, "Save/reopen normalization must preserve the audio analysis link and slot");
             const modelChoices = api.modelChoiceValuesWithSavedValue(
                 [{{ id: "google/gemma-4-e4b" }}, {{ id: "google/gemma-4-12b" }}],
                 "codex/missing-saved-lm-studio-model"
@@ -656,6 +685,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(api.getWidget(copiedLoaderNode, "seed").value === 42, "Loader copy/paste setup must restore the saved seed");
             assert(api.getWidget(copiedLoaderNode, "prompt").value === "Prompt text", "Loader copy/paste setup must restore the saved prompt text");
             assert(api.getLocalLLMNodeState(copiedLoaderNode).thinking === "copied thinking", "Loader copy/paste setup must restore saved Thinking preview state");
+            assert(copiedLoaderNode.inputs.filter((input) => input.name === "audio_context").length === 1, "Fresh setup must add one audio analysis socket");
             const copiedPromptWidget = api.getWidget(copiedLoaderNode, "prompt");
             assert(typeof copiedPromptWidget.computeSize === "undefined", "Modern ComfyUI prompt layout must not keep the current node height as a fixed computeSize minimum");
             const compactPromptLayout = copiedPromptWidget.computeLayoutSize(copiedLoaderNode);
@@ -667,6 +697,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const restoredPromptLayout = copiedPromptWidget.computeLayoutSize(copiedLoaderNode);
             assert(grownPromptLayout.minHeight === 90 && restoredPromptLayout.minHeight === 90, "Growing a Loader must not ratchet its Prompt minimum and block shrinking back to the saved height");
             api.setupNode(copiedLoaderNode);
+            assert(copiedLoaderNode.inputs.filter((input) => input.name === "audio_context").length === 1, "Repeated setup must keep one audio analysis socket");
             assert(typeof copiedPromptWidget.computeSize === "undefined" && copiedPromptWidget.computeLayoutSize(copiedLoaderNode).minHeight === 90, "Repeated setup must preserve the non-ratcheting native Prompt layout");
             const legacyPromptNode = makeCopiedLoaderNode(149);
             const legacyPromptWidget = api.getWidget(legacyPromptNode, "prompt");

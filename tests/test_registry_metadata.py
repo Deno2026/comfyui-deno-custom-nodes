@@ -82,6 +82,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     description = pyproject["project"]["description"]
     assert "DENO RTX node" in description
     assert "MiniMax H3 multi-reference image" in description
+    assert "audio transcription and analysis helpers" in description
     assert "RTX Video Super Resolution" in description
     assert "RTX Super Resolution" in description
     assert "Video SR/VSR" in description
@@ -105,7 +106,11 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "deno-custom-nodes",
         "minimax-h3",
         "minimax-h3-reference-to-video",
+        "minimax-h3-audio-reference",
         "multi-reference-image",
+        "audio-transcription",
+        "audio-analysis",
+        "whisper",
         "rtx-video-super-resolution",
         "nvidia-vfx",
         "ltx-2.3",
@@ -148,7 +153,14 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     classifiers = pyproject["project"]["classifiers"]
     assert "Operating System :: OS Independent" in classifiers
     assert "License :: OSI Approved :: GNU General Public License v3 (GPLv3)" in classifiers
-    assert pyproject["project"]["dependencies"] == []
+    assert pyproject["project"]["dependencies"] == ["openai-whisper>=20250625"]
+    requirements = [
+        line.strip()
+        for line in (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert requirements == pyproject["project"]["dependencies"]
+    assert "requirements.txt" not in COMFYIGNORE_PATH.read_text(encoding="utf-8")
     assert pyproject["project"]["urls"]["Repository"] == "https://github.com/Deno2026/comfyui-deno-custom-nodes"
     assert pyproject["project"]["urls"]["Bug Tracker"] == "https://github.com/Deno2026/comfyui-deno-custom-nodes/issues"
 
@@ -173,6 +185,8 @@ def test_manager_node_list_matches_public_node_registration():
     assert "node_list.json" not in comfyignore
     assert "DenoLTX8GBModelDownloader" not in node_list
     assert "DenoRandomPromptBox" not in node_list
+    assert "DenoMiniMaxH3AudioToVideo" not in node_list
+    assert not (REPO_ROOT / "deno_minimax_h3_audio_to_video.py").exists()
 
 
 def test_public_readmes_use_current_ltx_tiled_display_name():

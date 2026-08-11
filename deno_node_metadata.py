@@ -86,6 +86,18 @@ NODE_INPUT_TOOLTIPS = {
         "ref_video_audios": "Stock MiniMax H3 soundtrack slots paired by number with reference videos.",
         "ref_audios": "Stock MiniMax H3 standalone reference-audio slots, in prompt tag order.",
     },
+    "DenoAudioTranscript": {
+        "audio": "Source mono or stereo audio to transcribe locally. The node downmixes it to mono and resamples it to 16 kHz for Whisper.",
+        "model": "Local Whisper model size. large-v3 prioritizes lyric and difficult-speech accuracy; large-v3-turbo is the faster default. The official checkpoint downloads on first use to ComfyUI/models/stt/whisper.",
+        "language": "Choose a known language or let Whisper detect it automatically.",
+        "model_after_run": "CUDA Smart Swap unloads ComfyUI models before transcription. Unload also releases Whisper afterward; Keep loaded is an advanced repeated-run option.",
+        "manual_transcript": "Optional exact lyrics or dialogue. When non-empty, this wording is authoritative while Whisper still runs to provide approximate segment timing.",
+    },
+    "DenoAudioAnalysisFinalize": {
+        "analysis": "Raw Gemma 4 audio analysis from Text Generate. Reasoning chatter is removed and only the supported analysis fields are kept.",
+        "clip": "The same Gemma 4 CLIP value used by Text Generate. It lets the node release only that audio-analysis model after the text is ready.",
+        "model_after_run": "Unload releases only the connected audio-analysis CLIP model. Keep loaded is an advanced option for repeated runs.",
+    },
     "DenoAdvancedImageSourceLoader": {
         "image_paths": "Files, folders, absolute paths, or web URLs selected by the advanced source UI.",
         "mode": "Choose how images are resized for the batch output.",
@@ -226,6 +238,7 @@ NODE_INPUT_TOOLTIPS = {
         "prompt": "Main prompt text. The in-node textarea and STRING socket feed this same backend input.",
         "image": "Optional image sent to a vision-capable local model.",
         "video_seconds": "Optional video length. A positive FLOAT adds an English duration sentence to every user prompt sent to the local LLM.",
+        "audio_context": "Optional source-audio context appended without replacing the user prompt. Only explicitly labeled user-supplied wording is authoritative; automatic transcript and acoustic analysis remain untrusted evidence.",
     },
     "DenoAIReviewGate": {
         "review": "Text or JSON verdict from a reviewer LLM or text node.",
@@ -312,6 +325,14 @@ NODE_OUTPUT_TOOLTIPS = {
     "DenoMiniMaxH3ReferenceToVideo": (
         "Positive MiniMax H3 conditioning containing the ordered image, video, and audio references.",
         "Empty MiniMax H3 audio/video latent for sampling.",
+    ),
+    "DenoAudioTranscript": (
+        "Structured transcript data with requested/detected language, timestamped segments, and a heuristic confidence band for an LLM prompt builder.",
+        "Effective plain transcript: the exact user-supplied lyrics or dialogue when provided, otherwise the Whisper transcript.",
+        "The original source AUDIO unchanged, for a guaranteed Whisper-before-Gemma Smart Swap chain.",
+    ),
+    "DenoAudioAnalysisFinalize": (
+        "Canonical-order supported audio-analysis fields with Gemma reasoning and unrelated chatter removed.",
     ),
     "DenoAdvancedImageSourceLoader": (
         "Loaded sources resized into one same-size IMAGE batch.",

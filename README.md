@@ -133,6 +133,24 @@ The dedicated H3 socket is intentional: a normal ComfyUI `IMAGE` batch requires 
 
 These two MiniMax H3 nodes require ComfyUI 0.30.0 or newer. See the portable [MiniMax H3 multi-reference workflow](docs/workflows/minimax-h3-multi-reference.json) for the complete native H3 pipeline with the two stock `Load Image` nodes replaced by the one-cable DENO loader.
 
+### MiniMax H3 R2V Audio Reference workflow
+
+The [beginner audio-reference workflow](docs/workflows/minimax-h3-r2v-audio-reference.json) keeps ComfyUI's stock MiniMax H3 reference-audio path and adds an automatic prompt-direction lane:
+
+- `(Deno) Audio Transcript` uses local OpenAI Whisper for lyrics or dialogue, segment timing, detected language, and a confidence summary. Optional user-entered lyrics remain the wording authority.
+- `(Deno) Audio Analysis Finalizer` keeps only the documented acoustic-analysis fields from ComfyUI's `TextGenerate` result and can unload that CLIP model after the analysis.
+- `(Deno) Local LLM Loader` receives the transcript and acoustic report through its optional `audio_context` STRING input. Raw AUDIO is not sent to the local LLM, and upstream analysis is treated as data rather than instructions.
+- The selected source-audio section is both H3's `<Audio 1>` reference and the audio muxed into the final MP4. H3's internally generated audio is not decoded in this workflow.
+
+Requirements:
+
+- current ComfyUI Stable with MiniMax H3 and audio-capable `TextGenerate` support
+- [ComfyUI-VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) for `Load Audio (Upload)`
+- `gemma4_e4b_it_fp8_scaled.safetensors` in `ComfyUI/models/text_encoders/` for acoustic analysis
+- LM Studio with `google/gemma-4-12b-qat` loaded and its Local Server running for the final prompt-director step
+
+`openai-whisper` is installed as a node dependency. The selected Whisper checkpoint downloads from OpenAI on the first `(Deno) Audio Transcript` run, is checksum-validated by the official Whisper loader, and is cached under `ComfyUI/models/stt/whisper/`.
+
 ### `(Deno) Advanced Image Source Loader`
 
 Advanced image source loader for workflows that need external folders, local file paths, web image URLs, and mixed-size image-list output.
@@ -449,7 +467,7 @@ Main features:
 - pass or block IMAGE and AUDIO outputs from a review text result
 - approve the current reviewed result once, or rerun the path before the reviewer
 
-Audio note: the Local LLM Loader does not send AUDIO into a local model. The Reviewer can gate AUDIO when another text-generation node, including ComfyUI audio-capable text generation, creates the review text.
+Audio note: the Local LLM Loader does not send raw AUDIO into a local model. Its optional `audio_context` STRING input can carry an upstream transcript and acoustic report as data while preserving the user's prompt. The Reviewer can gate AUDIO when another text-generation node, including ComfyUI audio-capable text generation, creates the review text.
 
 ## Why This Exists
 
@@ -538,9 +556,11 @@ Clone inside your `custom_nodes` folder:
 
 ```bash
 git clone https://github.com/Deno2026/comfyui-deno-custom-nodes.git
+cd comfyui-deno-custom-nodes
+python -m pip install -r requirements.txt
 ```
 
-Then restart ComfyUI.
+ComfyUI Manager/Registry installs `requirements.txt` automatically. For a manual clone, run the command above with the same Python executable that starts ComfyUI, then restart ComfyUI.
 
 ## Links
 

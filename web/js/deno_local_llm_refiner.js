@@ -2149,6 +2149,7 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         displayModelValueForCurrentChoices,
         getWidget,
         ensureLoaderVideoSecondsInputSocket,
+        ensureLoaderAudioContextInputSocket,
         localLLMLoaderSerializedValuesFromWidgets,
         preserveLocalLLMLoaderSavedComboOptions,
         preserveWidgetOption,
@@ -2812,6 +2813,7 @@ function setupNode(node) {
         removePromptWidgets(node);
         normalizeLoaderPromptInputSocket(node);
         ensureLoaderVideoSecondsInputSocket(node);
+        ensureLoaderAudioContextInputSocket(node);
         removeLoaderWidgetInputSockets(node);
         ensureSeedModeWidget(node);
         migrateLegacyModelWidgets(node);
@@ -4106,6 +4108,7 @@ function schedulePostSetupCleanup(node) {
         removePromptWidgets(node);
         normalizeLoaderPromptInputSocket(node);
         ensureLoaderVideoSecondsInputSocket(node);
+        ensureLoaderAudioContextInputSocket(node);
         removeLoaderWidgetInputSockets(node);
         ensureProviderWidgets(node);
         migrateLegacyModelWidgets(node);
@@ -4345,6 +4348,33 @@ function ensureLoaderVideoSecondsInputSocket(node) {
         localized_name: "video seconds",
         label: "video seconds",
         type: "FLOAT",
+        link: null,
+    };
+    node.inputs.push(input);
+    node.inputs.forEach((candidate, index) => updateInputLinkSlots(node, asInputLinkList(candidate), index));
+    markGraphDirty(node);
+    return true;
+}
+
+function ensureLoaderAudioContextInputSocket(node) {
+    if (!Array.isArray(node?.inputs)) {
+        return false;
+    }
+    let input = node.inputs.find((candidate) =>
+        loaderSocketIdentifiers(candidate).some((identifier) => identifier === "audio_context" || identifier === "audio analysis"),
+    );
+    if (input) {
+        input.name = "audio_context";
+        input.localized_name = "audio analysis";
+        input.label = "audio analysis";
+        input.type = "STRING";
+        return false;
+    }
+    input = {
+        name: "audio_context",
+        localized_name: "audio analysis",
+        label: "audio analysis",
+        type: "STRING",
         link: null,
     };
     node.inputs.push(input);
@@ -5032,6 +5062,7 @@ function polishInputLabels(node) {
     const labels = {
         image: "image",
         video_seconds: "video seconds",
+        audio_context: "audio analysis",
     };
     for (const input of node.inputs || []) {
         if (labels[input.name]) {
@@ -5962,6 +5993,7 @@ function refreshNode(node) {
         removePromptWidgets(node);
         normalizeLoaderPromptInputSocket(node);
         ensureLoaderVideoSecondsInputSocket(node);
+        ensureLoaderAudioContextInputSocket(node);
         removeLoaderWidgetInputSockets(node);
         ensureSeedModeWidget(node);
         setActiveProviderModelVisibility(node);

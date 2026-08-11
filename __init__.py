@@ -485,6 +485,12 @@ _OPTIONAL_NODES = (
         "DenoMiniMaxH3ReferenceToVideo",
         "(Deno) MiniMax H3 Reference to Video",
     ),
+    ("deno_audio_transcript", "DenoAudioTranscript", "(Deno) Audio Transcript"),
+    (
+        "deno_audio_analysis_finalize",
+        "DenoAudioAnalysisFinalize",
+        "(Deno) Audio Analysis Finalizer",
+    ),
     ("deno_advanced_image_source_loader", "DenoAdvancedImageSourceLoader", "(Deno) Advanced Image Source Loader"),
     ("deno_ltx_sequencer_plus", "DenoLTXSequencer", "(Deno) LTX Sequencer"),
     ("deno_ltx23_preset_loader", "DenoLTX23PresetLoader", "(Deno) LTX Model Loader"),
