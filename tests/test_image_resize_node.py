@@ -3733,8 +3733,12 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert optional["audio_context"][1]["multiline"] is True
     assert "user_prompt" not in optional
     assert "audio" not in optional
-    assert list(hidden) == ["unique_id"]
+    assert list(hidden) == ["unique_id", "extra_pnginfo"]
+    assert hidden["extra_pnginfo"] == "EXTRA_PNGINFO"
     assert "reviewer_state" not in hidden
+    assert node_cls.OUTPUT_TOOLTIPS == (
+        "Final Result returned by the Local LLM node. When the node executes, its latest Result is embedded in saved workflow metadata; Thinking/reasoning is not persisted. Batched prompts return a STRING list.",
+    )
 
     script = (REPO_ROOT / "web" / "js" / "deno_local_llm_refiner.js").read_text(encoding="utf-8")
     assert 'const NODE_NAME = "DenoLocalLLMRefiner";' in script

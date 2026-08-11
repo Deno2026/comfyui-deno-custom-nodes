@@ -704,11 +704,23 @@ function sanitizeLocalLLMState(raw) {
     };
 }
 
+function sanitizeLocalLLMPersistedState(raw) {
+    const clean = sanitizeLocalLLMState(raw);
+    if (!clean) {
+        return null;
+    }
+    // Thinking is a live preview only; workflow/PNG metadata keeps the final answer, never private reasoning.
+    return {
+        ...clean,
+        thinking: "",
+    };
+}
+
 function persistLocalLLMStateToProperties(node, state) {
     if (!node) {
         return null;
     }
-    const clean = sanitizeLocalLLMState(state);
+    const clean = sanitizeLocalLLMPersistedState(state);
     if (!clean) {
         return null;
     }
@@ -718,10 +730,12 @@ function persistLocalLLMStateToProperties(node, state) {
 }
 
 function restoreLocalLLMStateFromProperties(node) {
-    const restored = sanitizeLocalLLMState(node?.properties?.[LOADER_STATE_PROPERTY]);
+    const restored = sanitizeLocalLLMPersistedState(node?.properties?.[LOADER_STATE_PROPERTY]);
     if (!node || !restored) {
         return null;
     }
+    node.properties = node.properties || {};
+    node.properties[LOADER_STATE_PROPERTY] = restored;
     node.__denoLocalLLMState = restored;
     const key = localLLMNodeStateKey(node);
     if (key) {
@@ -1057,7 +1071,7 @@ app.registerExtension({
         const configure = nodeType.prototype.configure;
         nodeType.prototype.configure = function (info) {
             const normalizedValues = normalizeLocalLLMLoaderWidgetValues(info);
-            const restoredState = sanitizeLocalLLMState(info?.properties?.[LOADER_STATE_PROPERTY]);
+            const restoredState = sanitizeLocalLLMPersistedState(info?.properties?.[LOADER_STATE_PROPERTY]);
             if (restoredState) {
                 info.properties = info.properties || {};
                 info.properties[LOADER_STATE_PROPERTY] = restoredState;
@@ -1097,7 +1111,7 @@ app.registerExtension({
                     || normalizeLocalLLMLoaderSerializedValues(info.widgets_values)
                     || info.widgets_values.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
             }
-            const state = sanitizeLocalLLMState(this.__denoLocalLLMState || restoreLocalLLMStateFromProperties(this));
+            const state = sanitizeLocalLLMPersistedState(this.__denoLocalLLMState || restoreLocalLLMStateFromProperties(this));
             if (state && info) {
                 info.properties = info.properties || {};
                 info.properties[LOADER_STATE_PROPERTY] = state;
@@ -2141,6 +2155,7 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         persistLocalLLMStateToProperties,
         restoreLocalLLMStateFromProperties,
         sanitizeLocalLLMState,
+        sanitizeLocalLLMPersistedState,
         getLocalLLMNodeState,
         localLLMProgressStatePatch,
         setLocalLLMNodeState,

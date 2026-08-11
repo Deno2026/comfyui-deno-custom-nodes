@@ -384,7 +384,7 @@ NODE_OUTPUT_TOOLTIPS = {
         "Drawn board boxes as downstream BBOX data.",
     ),
     "DenoLocalLLMRefiner": (
-        "Local LLM answer or extracted final prompt. Batched prompts return a STRING list.",
+        "Final Result returned by the Local LLM node. When the node executes, its latest Result is embedded in saved workflow metadata; Thinking/reasoning is not persisted. Batched prompts return a STRING list.",
     ),
     "DenoAIReviewGate": (
         "Original image passed through only when the review approves it.",

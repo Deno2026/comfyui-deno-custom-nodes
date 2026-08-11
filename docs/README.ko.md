@@ -236,7 +236,7 @@ Negative preset은 출력 모드가 아니라 아래 negative prompt 칸을 자�
 
 내 PC에서 실행 중인 로컬 LLM을 ComfyUI 안에서 호출하고, LLM이 만든 review text로 저장 전 결과를 통과하거나 막는 노드입니다.
 
-주요 기능: Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible 서버 또는 llama-swap 로컬 모델 호출, `127.0.0.1`/`localhost` 전용 안전 제한, provider별 모델 새로고침, 실행 중인 로컬 LLM 요청 중단, llama-swap 실행 상태 확인과 수동/실행 후 unload, prompt batch를 한 번의 노드 실행으로 순차 처리, vision 모델용 IMAGE 첨부, Thinking/Result 프리뷰, Save 노드 앞 IMAGE/AUDIO gate, 현재 리뷰 결과 1회 승인, reviewer 앞 경로만 다시 실행. llama-swap에 설정된 서버 timeout은 자동 unload 시점을 계속 관리합니다.
+주요 기능: Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible 서버 또는 llama-swap 로컬 모델 호출, `127.0.0.1`/`localhost` 전용 안전 제한, provider별 모델 새로고침, 실행 중인 로컬 LLM 요청 중단, llama-swap 실행 상태 확인과 수동/실행 후 unload, prompt batch를 한 번의 노드 실행으로 순차 처리, vision 모델용 IMAGE 첨부, Thinking/Result 프리뷰, Save 노드 앞 IMAGE/AUDIO gate, 현재 리뷰 결과 1회 승인, reviewer 앞 경로만 다시 실행. Local LLM 노드가 실행되어 반환한 최종 Result는 PNG/워크플로 메타데이터에 저장되어 파일을 다시 열면 노드 안에서 복원되며, Thinking/reasoning 내용은 저장하지 않습니다. llama-swap에 설정된 서버 timeout은 자동 unload 시점을 계속 관리합니다.
 
 오디오 참고: Local LLM Loader는 원본 AUDIO를 로컬 모델에 직접 보내지 않습니다. 선택형 `audio_context` STRING 입력으로 상위 노드의 받아쓰기와 음향 보고서를 사용자 prompt를 바꾸지 않는 참고 데이터로 받을 수 있습니다. ComfyUI 기본 또는 다른 audio-capable text generation 노드가 review text를 만들면, Local LLM Reviewer가 그 review text 기준으로 AUDIO도 함께 통과하거나 차단할 수 있습니다.
 
