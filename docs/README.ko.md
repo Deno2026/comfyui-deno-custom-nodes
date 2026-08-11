@@ -85,6 +85,24 @@ ComfyUI 순정 MiniMax H3 Reference to Video용 한 줄 연결 다중 참조 이
 
 이 두 MiniMax H3 노드는 ComfyUI 0.30.0 이상이 필요합니다. 순정 H3 전체 구성에서 여러 `Load Image` 노드만 DENO 한 줄 로더로 교체한 [MiniMax H3 다중 참조 예제 워크플로](workflows/minimax-h3-multi-reference.json)를 함께 제공합니다.
 
+### MiniMax H3 R2V 오디오 레퍼런스 워크플로
+
+[초보자용 오디오 레퍼런스 워크플로](workflows/minimax-h3-r2v-audio-reference.json)는 ComfyUI 순정 MiniMax H3 오디오 레퍼런스 경로를 유지하면서 자동 프롬프트 연출 단계를 더합니다.
+
+- `(Deno) Audio Transcript`: 로컬 OpenAI Whisper로 가사·대사, 구간 시간, 감지 언어, 신뢰도 요약을 만듭니다. 사용자가 직접 입력한 가사·대사가 있으면 그 문구를 최우선으로 사용합니다.
+- `(Deno) Audio Analysis Finalizer`: ComfyUI `TextGenerate` 결과에서 문서화된 음향 분석 항목만 남기고, 선택에 따라 분석용 CLIP 모델을 실행 후 내립니다.
+- `(Deno) Local LLM Loader`: 선택형 `audio_context` STRING 입력으로 받아쓰기와 음향 보고서를 받습니다. 원본 AUDIO를 로컬 LLM에 직접 보내지 않으며, 자동 분석 결과는 지시가 아니라 참고 데이터로 취급합니다.
+- 선택한 원본 오디오 구간은 H3의 `<Audio 1>` 레퍼런스이면서 최종 MP4에 그대로 들어가는 소리입니다. 이 워크플로에서는 H3 내부 생성음을 디코딩하지 않습니다.
+
+필수 준비:
+
+- MiniMax H3와 오디오 입력 `TextGenerate`를 지원하는 최신 ComfyUI Stable
+- `Load Audio (Upload)`용 [ComfyUI-VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite)
+- 음향 분석용 `gemma4_e4b_it_fp8_scaled.safetensors`를 `ComfyUI/models/text_encoders/`에 저장
+- 최종 프롬프트 감독용 LM Studio의 `google/gemma-4-12b-qat` 모델과 실행 중인 Local Server
+
+`openai-whisper`는 노드 의존성으로 설치됩니다. 선택한 Whisper 체크포인트는 `(Deno) Audio Transcript` 첫 실행 때 OpenAI 공식 주소에서 내려받고 공식 Whisper 로더가 체크섬을 검증하며, `ComfyUI/models/stt/whisper/`에 캐시됩니다.
+
 ### `(Deno) Advanced Image Source Loader`
 
 외부 폴더, 로컬 경로, 웹 이미지 URL, 혼합 크기 이미지 리스트가 필요한 워크플로우용 고급 이미지 소스 로더입니다.
@@ -220,7 +238,7 @@ Negative preset은 출력 모드가 아니라 아래 negative prompt 칸을 자�
 
 주요 기능: Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible 서버 또는 llama-swap 로컬 모델 호출, `127.0.0.1`/`localhost` 전용 안전 제한, provider별 모델 새로고침, 실행 중인 로컬 LLM 요청 중단, llama-swap 실행 상태 확인과 수동/실행 후 unload, prompt batch를 한 번의 노드 실행으로 순차 처리, vision 모델용 IMAGE 첨부, Thinking/Result 프리뷰, Save 노드 앞 IMAGE/AUDIO gate, 현재 리뷰 결과 1회 승인, reviewer 앞 경로만 다시 실행. llama-swap에 설정된 서버 timeout은 자동 unload 시점을 계속 관리합니다.
 
-오디오 참고: Local LLM Loader가 AUDIO를 직접 로컬 모델로 보내는 구조는 아닙니다. ComfyUI 기본 또는 다른 audio-capable text generation 노드가 review text를 만들면, Local LLM Reviewer가 그 review text 기준으로 AUDIO도 함께 통과하거나 차단할 수 있습니다.
+오디오 참고: Local LLM Loader는 원본 AUDIO를 로컬 모델에 직접 보내지 않습니다. 선택형 `audio_context` STRING 입력으로 상위 노드의 받아쓰기와 음향 보고서를 사용자 prompt를 바꾸지 않는 참고 데이터로 받을 수 있습니다. ComfyUI 기본 또는 다른 audio-capable text generation 노드가 review text를 만들면, Local LLM Reviewer가 그 review text 기준으로 AUDIO도 함께 통과하거나 차단할 수 있습니다.
 
 ## Why This Exists
 
@@ -236,9 +254,11 @@ ComfyUI의 `custom_nodes` 폴더 안에서 설치합니다.
 
 ```bash
 git clone https://github.com/Deno2026/comfyui-deno-custom-nodes.git
+cd comfyui-deno-custom-nodes
+python -m pip install -r requirements.txt
 ```
 
-그 다음 ComfyUI를 다시 시작하세요.
+ComfyUI Manager/Registry로 설치하면 `requirements.txt` 의존성이 자동으로 설치됩니다. 직접 clone했다면 위 명령의 `python`을 ComfyUI를 실행하는 동일한 Python 실행 파일로 사용한 뒤 ComfyUI를 다시 시작하세요.
 
 ## Links
 

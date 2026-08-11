@@ -3,6 +3,8 @@
   "DenoMultiImageLoader": "(Deno) Multi Image Loader",
   "DenoMiniMaxH3ReferenceImageLoader": "(Deno) MiniMax H3 Multi Reference Image Loader",
   "DenoMiniMaxH3ReferenceToVideo": "(Deno) MiniMax H3 Reference to Video",
+  "DenoAudioTranscript": "(Deno) Audio Transcript",
+  "DenoAudioAnalysisFinalize": "(Deno) Audio Analysis Finalizer",
   "DenoAdvancedImageSourceLoader": "(Deno) Advanced Image Source Loader",
   "DenoLTXSequencer": "(Deno) LTX Sequencer",
   "DenoLTX23PresetLoader": "(Deno) LTX Model Loader",

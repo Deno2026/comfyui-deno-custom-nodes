@@ -49,6 +49,9 @@ PUBLIC_WORKFLOWS = [
 H3_MULTI_REFERENCE_WORKFLOW = (
     REPO_ROOT / "docs" / "workflows" / "minimax-h3-multi-reference.json"
 )
+H3_AUDIO_REFERENCE_WORKFLOW = (
+    REPO_ROOT / "docs" / "workflows" / "minimax-h3-r2v-audio-reference.json"
+)
 
 
 # --------------------------------------------------------------------------
@@ -279,6 +282,175 @@ def test_minimax_h3_multi_reference_workflow_keeps_native_media_contract():
     assert "<Audio 1>" not in prompt
     assert "up to 2K" not in workflow_note
     assert "1920 x 1088" not in size_note
+
+
+def test_minimax_h3_audio_reference_workflow_is_portable_and_release_scoped():
+    assert H3_AUDIO_REFERENCE_WORKFLOW.exists()
+    graph = _load(H3_AUDIO_REFERENCE_WORKFLOW)
+    nodes = {node["id"]: node for node in graph["nodes"]}
+
+    assert len(graph["nodes"]) == 36
+    assert len(graph["links"]) == 34
+    assert len(graph["groups"]) == 4
+    assert graph["last_node_id"] == max(nodes)
+    assert graph["last_link_id"] == max(link[0] for link in graph["links"])
+    assert len([node for node in graph["nodes"] if node["type"] == "MarkdownNote"]) == 12
+
+    node_types = {node["type"] for node in graph["nodes"]}
+    assert {
+        "DenoAudioTranscript",
+        "DenoAudioAnalysisFinalize",
+        "DenoLocalLLMRefiner",
+        "DenoMiniMaxH3ReferenceImageLoader",
+        "DenoMiniMaxH3ReferenceToVideo",
+        "DenoPromptText",
+    } <= node_types
+    assert "DenoMiniMaxH3AudioToVideo" not in node_types
+    assert "VAEDecodeAudio" not in node_types
+
+    assert nodes[142]["widgets_values"] == ["", ""]
+    assert nodes[155]["widgets_values"] == {
+        "audio": "",
+        "start_time": 0,
+        "duration": 10,
+    }
+    assert nodes[143]["widgets_values"][0:3] == [
+        "LM Studio",
+        "",
+        "google/gemma-4-12b-qat",
+    ]
+    assert set(nodes[143]["properties"]) == {
+        "cnr_id",
+        "ver",
+        "Node name for S&R",
+    }
+    assert nodes[183]["widgets_values"] == [
+        "large-v3",
+        "auto",
+        "Unload after run",
+    ]
+    assert nodes[186]["widgets_values"] == ["Unload after run"]
+
+    for node in graph["nodes"]:
+        if node["type"] != "MarkdownNote":
+            assert not node.get("title"), f"node {node['id']} overrides its native title"
+        if node.get("properties", {}).get("cnr_id") == "deno-custom-nodes":
+            assert node["properties"]["ver"] == "0.7.84"
+
+    expected_models = {
+        128: (
+            "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/"
+            "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        ),
+        181: (
+            "gemma4_e4b_it_fp8_scaled.safetensors",
+            "https://huggingface.co/Comfy-Org/gemma-4/resolve/main/"
+            "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors",
+        ),
+    }
+    for node_id, (name, url) in expected_models.items():
+        node = nodes[node_id]
+        assert node["widgets_values"][0] == name
+        assert node["properties"]["models"] == [
+            {"name": name, "url": url, "directory": "text_encoders"}
+        ]
+
+    serialized = json.dumps(graph, ensure_ascii=False)
+    for forbidden in (
+        "deno_h3_a2v_beginner_test",
+        "2026-08-03 18-19-32.mp3",
+        "deno_local_llm_state",
+        "denoLocalLLMModelChoicesByProvider",
+        "denoLocalLLMServerUrlsByProvider",
+        "[LLM] gemma4_e4b",
+        "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "9e77bb63d2e2d98b27f2119a5b29824ca5b12e30",
+    ):
+        assert forbidden not in serialized
+
+    notes = "\n".join(
+        str(node.get("widgets_values", [""])[0])
+        for node in graph["nodes"]
+        if node["type"] == "MarkdownNote"
+    )
+    assert "does not decode H3's internally generated audio" in notes
+    assert "final MP4 keeps the original audio unchanged" in notes
+    assert "qwen3vl_32b_minimax_h3_int8_convrot.safetensors" in notes
+    assert "`Load Audio (Upload)`" in notes
+
+
+def test_minimax_h3_audio_reference_workflow_keeps_exact_stock_audio_topology():
+    graph = _load(H3_AUDIO_REFERENCE_WORKFLOW)
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    links = {tuple(link) for link in graph["links"]}
+    expected_links = {
+        (1, 127, 0, 124, 0, "MODEL"),
+        (2, 127, 0, 126, 0, "MODEL"),
+        (3, 129, 0, 125, 0, "NOISE"),
+        (4, 126, 0, 125, 1, "GUIDER"),
+        (5, 123, 0, 125, 2, "SAMPLER"),
+        (6, 124, 0, 125, 3, "SIGMAS"),
+        (7, 119, 0, 122, 1, "VAE"),
+        (8, 125, 0, 122, 0, "LATENT"),
+        (9, 128, 0, 141, 0, "CLIP"),
+        (10, 119, 0, 141, 1, "VAE"),
+        (11, 120, 0, 141, 2, "VAE"),
+        (12, 142, 0, 141, 3, "DENO_MINIMAX_H3_REFERENCE_IMAGES"),
+        (13, 155, 0, 141, 6, "AUDIO"),
+        (14, 143, 0, 141, 8, "STRING"),
+        (17, 131, 1, 141, 11, "INT"),
+        (18, 141, 0, 126, 1, "CONDITIONING"),
+        (19, 141, 1, 125, 4, "LATENT"),
+        (20, 122, 0, 130, 0, "IMAGE"),
+        (21, 155, 0, 130, 1, "AUDIO"),
+        (22, 130, 0, 92, 0, "VIDEO"),
+        (23, 142, 1, 143, 0, "IMAGE"),
+        (24, 155, 1, 143, 1, "FLOAT"),
+        (25, 184, 0, 143, 2, "STRING"),
+        (26, 155, 1, 131, 0, "FLOAT,INT,BOOLEAN"),
+        (27, 155, 0, 183, 0, "AUDIO"),
+        (28, 187, 0, 183, 1, "STRING"),
+        (29, 183, 2, 182, 3, "AUDIO"),
+        (30, 181, 0, 182, 0, "CLIP"),
+        (31, 181, 0, 186, 1, "CLIP"),
+        (32, 182, 0, 186, 0, "STRING"),
+        (33, 186, 0, 184, 0, "STRING"),
+        (34, 183, 0, 184, 1, "STRING"),
+        (35, 188, 1, 141, 9, "INT"),
+        (36, 188, 2, 141, 10, "INT"),
+    }
+    assert links == expected_links
+
+    for link_id, source_id, source_slot, target_id, target_slot, _link_type in links:
+        assert link_id in (nodes[source_id]["outputs"][source_slot].get("links") or [])
+        assert nodes[target_id]["inputs"][target_slot].get("link") == link_id
+
+    h3_input_names = [slot["name"] for slot in nodes[141]["inputs"]]
+    assert h3_input_names[6] == "ref_audios.ref_audio_0"
+    assert h3_input_names[8] == "prompt"
+    assert nodes[130]["inputs"][1]["name"] == "audio"
+    assert nodes[143]["inputs"][2]["name"] == "audio_context"
+    assert [slot["name"] for slot in nodes[183]["outputs"]] == [
+        "audio_context",
+        "transcript",
+        "audio",
+    ]
+    assert [slot["name"] for slot in nodes[186]["outputs"]] == ["audio_context"]
+
+
+def test_minimax_h3_audio_reference_workflow_is_in_registry_package_scope():
+    rel_path = H3_AUDIO_REFERENCE_WORKFLOW.relative_to(REPO_ROOT).as_posix()
+    rules = [
+        line.strip()
+        for line in (REPO_ROOT / ".comfyignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    for rule in rules:
+        if rule.endswith("/"):
+            assert not rel_path.startswith(rule)
+        else:
+            assert rel_path != rule
 
 
 # --------------------------------------------------------------------------
@@ -1048,15 +1220,19 @@ def test_legacy_ltx_prompt_guide_layout_present_in_fixtures():
 # --------------------------------------------------------------------------
 # 5. Paused / WIP nodes must never ship inside a public fixture.
 # --------------------------------------------------------------------------
-@pytest.mark.parametrize("fixture", FIXTURES, ids=lambda p: p.name)
-def test_no_paused_wip_nodes_in_fixture(fixture):
-    graph = _load(fixture)
+@pytest.mark.parametrize("workflow", PUBLIC_WORKFLOWS, ids=lambda p: p.name)
+def test_no_paused_wip_nodes_in_public_workflow(workflow):
+    graph = _load(workflow)
     types = {
         node.get("type")
         for node in graph.get("nodes", [])
         if isinstance(node, dict)
     }
     assert "DenoRandomPromptBox" not in types, (
-        f"{fixture.name}: paused WIP node DenoRandomPromptBox must not appear "
+        f"{workflow.name}: paused WIP node DenoRandomPromptBox must not appear "
         f"in a public workflow fixture"
+    )
+    assert "DenoMiniMaxH3AudioToVideo" not in types, (
+        f"{workflow.name}: retired experimental DenoMiniMaxH3AudioToVideo must "
+        "not appear in a public workflow"
     )
