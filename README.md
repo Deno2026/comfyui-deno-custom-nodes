@@ -106,6 +106,7 @@ Main features:
 - `Input Folder` browser for reusing existing ComfyUI `input` images
 - input subfolder browsing with folder tiles, double-click navigation, and a `Parent` button
 - nested input images can be added while preserving their ComfyUI subfolder paths
+- external symlinks or junctions that leave ComfyUI's `input` folder are skipped for security; use `(Deno) Advanced Image Source Loader`'s External Folder mode for those sources
 - newest-first input image sorting based on file modified time
 - responsive input-folder thumbnails for smoother browsing with many images
 - `Keep Input Ratio`, `Preset Ratio`, or `Manual Input` size mode
@@ -169,8 +170,9 @@ Main features:
 - supports upload, drag-and-drop, paste, and browser folder upload where the browser allows it
 - includes a visible `Paste` button plus normal Ctrl+V image paste
 - click thumbnails to disable/enable sources without deleting them
+- disabled sources stay readable and remain saved with the workflow until re-enabled or removed
 - drag thumbnail cards to reorder output sequence
-- the gallery expands vertically when the ComfyUI node is resized
+- the gallery follows the node's available height in both the classic canvas and Nodes 2.0
 - thumbnails use a masonry-style flow so mixed portrait/landscape references are easier to scan
 - `Load Path` reads an external folder directly without first importing it into ComfyUI `input`
 - `Upload Folder...` is an optional browser upload/import helper, not required for external path loading
@@ -369,19 +371,22 @@ The full audio latent is passed to every video tile as context, while the return
 
 ### `(Deno) Easy Model Download Helper`
 
-Preset-based setup helper for recommended model file sets. The first built-in preset is the LTX 2.3 8GB VRAM GGUF starter set.
+Preset-based setup helper for recommended model file sets. The built-in presets cover the LTX 2.3 8GB VRAM GGUF starter set and the official LTX 2.5 Distilled INT8 two-stage model set.
 
 ![Deno Easy Model Download Helper](docs/images/easy-model-download-helper.png)
 
 Main features:
 
 - opens official model links in the browser instead of downloading files in Python
+- includes the LTX 2.5 diffusion model, projected Gemma 4 text encoder, video and audio VAEs, and x2 spatial upscaler required by the two-stage workflow
 - shows detected ComfyUI model roots and lets users copy the selected root
 - supports saved creator presets inside the workflow and restores them from browser storage after a page reload
 - supports Hugging Face direct links and Civitai page/download links without Python-side network requests
 - checks ComfyUI-registered model folders, including custom folder names from `extra_model_paths`
 - checks each preset's exact target path inside those registered model folders without scanning unrelated nested project folders
 - shows target ComfyUI model subfolders so viewers know exactly where files should go
+
+The LTX 2.5 repository requires a Hugging Face account and **Agree and Access** before its files can be downloaded. The helper does not bypass that gate or download files automatically. Review the [LTX-2 Community License](https://github.com/Lightricks/LTX-2/blob/main/LICENSE.md), request access on the [official LTX 2.5 repository](https://huggingface.co/Lightricks/LTX-2.5), then use the helper's browser links and move each downloaded file into the displayed ComfyUI model folder.
 
 Creator preset link guide:
 

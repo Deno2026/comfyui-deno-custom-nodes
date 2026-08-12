@@ -79,7 +79,7 @@ class DenoMiniMaxH3ReferenceImageLoader:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image_paths": ("STRING", {"default": "", "multiline": True}),
+                "image_paths": ("STRING", {"default": "", "multiline": True, "hidden": True}),
             }
         }
 

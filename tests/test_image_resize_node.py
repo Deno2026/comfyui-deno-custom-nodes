@@ -1840,6 +1840,7 @@ def test_multi_image_loader_returns_batch_and_int_dimensions():
     input_types = node_cls.INPUT_TYPES()
 
     assert input_types["required"]["image_paths"][0] == "STRING"
+    assert input_types["required"]["image_paths"][1]["hidden"] is True
     assert input_types["required"]["mode"][0] == ["Keep Input Ratio", "Preset Ratio", "Manual Input"]
     assert input_types["required"]["mode"][1]["default"] == "Keep Input Ratio"
     assert "16:9" in input_types["required"]["ratio_preset"][0]
@@ -1900,6 +1901,9 @@ def test_minimax_h3_reference_loader_rejects_empty_and_more_than_nine_images():
     package = load_package()
     loader_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceImageLoader"]
 
+    input_types = loader_cls.INPUT_TYPES()
+    assert list(input_types["required"]) == ["image_paths"]
+    assert input_types["required"]["image_paths"][1]["hidden"] is True
     assert "No images are selected" in loader_cls.VALIDATE_INPUTS("")
     ten_paths = "\n".join(f"image-{index}.png" for index in range(10))
     validation = loader_cls.VALIDATE_INPUTS(ten_paths)
@@ -2092,6 +2096,17 @@ def test_multi_image_loader_dom_panel_tracks_manual_node_resize():
     assert "node.__denoSyncLoaderPanelGeometry" not in script
 
 
+def test_multi_image_loader_keeps_serialized_path_widget_hidden_without_reordering():
+    script = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
+
+    assert "hideSerializedWidget(pathsWidget)" in script
+    assert "widget.options.hidden = true" in script
+    assert "const preservedValue = widget.value" in script
+    assert "const preservedCallback = widget.callback" in script
+    assert "widget.value = preservedValue" in script
+    assert "widget.callback = preservedCallback" in script
+
+
 def test_multi_image_loader_frontend_supports_copy_image_context_menu():
     script = (REPO_ROOT / "web" / "js" / "deno_extra_nodes.js").read_text(encoding="utf-8")
 
@@ -2260,8 +2275,10 @@ def test_advanced_image_source_loader_declares_external_outputs():
     input_types = node_cls.INPUT_TYPES()
 
     assert input_types["required"]["image_paths"][0] == "STRING"
+    assert input_types["required"]["image_paths"][1]["hidden"] is True
     assert input_types["required"]["mode"][0] == ["Keep Input Ratio", "Preset Ratio", "Manual Input"]
     assert input_types["required"]["disabled_image_paths"][0] == "STRING"
+    assert input_types["required"]["disabled_image_paths"][1]["hidden"] is True
     assert input_types["required"]["resize_method"][0] == [
         "Center Crop (Fill)",
         "Fit (Letterbox/Pillarbox)",
@@ -2477,6 +2494,160 @@ def test_multi_image_loader_copy_path_route_never_returns_absolute_filesystem_pa
     assert temp_dir not in json.dumps(absolute_response)
 
 
+def test_input_folder_browser_omits_external_links_but_allows_internal_links(monkeypatch, tmp_path):
+    import asyncio
+
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    folder_paths = sys.modules["folder_paths"]
+    input_dir = tmp_path / "input"
+    inside_target = input_dir / "inside-target"
+    outside_target = tmp_path / "outside-target"
+    input_dir.mkdir()
+    inside_target.mkdir()
+    outside_target.mkdir()
+    Image.new("RGB", (3, 2), color=(12, 34, 56)).save(inside_target / "inside.png")
+    Image.new("RGB", (3, 2), color=(65, 43, 21)).save(outside_target / "outside.png")
+
+    internal_link = input_dir / "internal-link"
+    external_link = input_dir / "external-link"
+
+    def create_directory_link(link_path: Path, target_path: Path) -> None:
+        try:
+            link_path.symlink_to(target_path, target_is_directory=True)
+            return
+        except OSError as symlink_error:
+            if os.name != "nt":
+                pytest.skip(f"directory symlinks are unavailable in this environment: {symlink_error}")
+        result = subprocess.run(
+            ["cmd.exe", "/d", "/c", "mklink", "/J", str(link_path), str(target_path)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            pytest.skip(f"directory links are unavailable in this environment: {result.stderr or result.stdout}")
+
+    create_directory_link(internal_link, inside_target)
+    create_directory_link(external_link, outside_target)
+
+    monkeypatch.setattr(folder_paths, "get_input_directory", lambda: str(input_dir))
+
+    root_listing = board._list_input_folder_entries("")
+    root_folders = {entry["path"] for entry in root_listing["folders"]}
+    assert "internal-link" in root_folders
+    assert "external-link" not in root_folders
+    assert root_listing["blocked_count"] == 1
+    assert "1 linked item skipped" in root_listing["notice"]
+    assert "external-link" not in json.dumps(root_listing)
+    assert str(outside_target) not in json.dumps(root_listing)
+
+    internal_response = asyncio.run(
+        board.deno_input_folder_images(types.SimpleNamespace(query={"path": "internal-link"}))
+    )
+    assert internal_response["status"] == 200
+    assert [entry["name"] for entry in internal_response["payload"]["files"]] == [
+        "internal-link/inside.png"
+    ]
+
+    blocked_folder_response = asyncio.run(
+        board.deno_input_folder_images(types.SimpleNamespace(query={"path": "external-link"}))
+    )
+    blocked_image_response = asyncio.run(
+        board.deno_input_image_path(
+            types.SimpleNamespace(query={"path": "external-link/outside.png"})
+        )
+    )
+    assert blocked_folder_response["status"] == 403
+    assert blocked_image_response["status"] == 403
+    blocked_payloads = json.dumps([blocked_folder_response, blocked_image_response])
+    assert "outside the ComfyUI input folder" in blocked_payloads
+    assert "external-link" not in blocked_payloads
+    assert str(outside_target) not in blocked_payloads
+
+
+def test_input_folder_browser_reparse_containment_policy_without_link_privileges(monkeypatch, tmp_path):
+    import asyncio
+
+    load_package()
+    board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
+    folder_paths = sys.modules["folder_paths"]
+    input_dir = tmp_path / "input"
+    inside_target = input_dir / "inside-target"
+    outside_target = tmp_path / "outside-target"
+    input_dir.mkdir()
+    inside_target.mkdir()
+    outside_target.mkdir()
+    Image.new("RGB", (3, 2), color=(12, 34, 56)).save(inside_target / "inside.png")
+    Image.new("RGB", (3, 2), color=(65, 43, 21)).save(outside_target / "outside.png")
+
+    internal_link = input_dir / "internal-link"
+    external_link = input_dir / "external-link"
+    real_realpath = os.path.realpath
+    real_listdir = os.listdir
+    real_stat = os.stat
+    real_isdir = os.path.isdir
+    real_isfile = os.path.isfile
+    input_real = real_realpath(input_dir)
+    link_targets = {
+        os.path.normcase(str(internal_link)): real_realpath(inside_target),
+        os.path.normcase(str(external_link)): real_realpath(outside_target),
+    }
+
+    def fake_realpath(path):
+        text = str(path)
+        normalized = os.path.normcase(os.path.abspath(text))
+        for link_path, target_path in link_targets.items():
+            if normalized == link_path or normalized.startswith(link_path + os.sep):
+                suffix = normalized[len(link_path):].lstrip("\\/")
+                return real_realpath(os.path.join(target_path, suffix))
+        return real_realpath(text)
+
+    def fake_listdir(path):
+        entries = list(real_listdir(fake_realpath(path)))
+        if os.path.normcase(fake_realpath(path)) == os.path.normcase(input_real):
+            entries.extend(["internal-link", "external-link"])
+        return entries
+
+    monkeypatch.setattr(folder_paths, "get_input_directory", lambda: str(input_dir))
+    monkeypatch.setattr(board.os.path, "realpath", fake_realpath)
+    monkeypatch.setattr(board.os, "listdir", fake_listdir)
+    monkeypatch.setattr(board.os, "stat", lambda path, *args, **kwargs: real_stat(fake_realpath(path), *args, **kwargs))
+    monkeypatch.setattr(board.os.path, "isdir", lambda path: real_isdir(fake_realpath(path)))
+    monkeypatch.setattr(board.os.path, "isfile", lambda path: real_isfile(fake_realpath(path)))
+
+    root_listing = board._list_input_folder_entries("")
+    root_folders = {entry["path"] for entry in root_listing["folders"]}
+    assert "internal-link" in root_folders
+    assert "external-link" not in root_folders
+    assert root_listing["blocked_count"] == 1
+    assert "1 linked item skipped" in root_listing["notice"]
+    assert "external-link" not in json.dumps(root_listing)
+    assert str(outside_target) not in json.dumps(root_listing)
+
+    internal_response = asyncio.run(
+        board.deno_input_folder_images(types.SimpleNamespace(query={"path": "internal-link"}))
+    )
+    blocked_folder_response = asyncio.run(
+        board.deno_input_folder_images(types.SimpleNamespace(query={"path": "external-link"}))
+    )
+    blocked_image_response = asyncio.run(
+        board.deno_input_image_path(
+            types.SimpleNamespace(query={"path": "external-link/outside.png"})
+        )
+    )
+    assert internal_response["status"] == 200
+    assert [entry["name"] for entry in internal_response["payload"]["files"]] == [
+        "internal-link/inside.png"
+    ]
+    assert blocked_folder_response["status"] == 403
+    assert blocked_image_response["status"] == 403
+    blocked_payloads = json.dumps([blocked_folder_response, blocked_image_response])
+    assert "outside the ComfyUI input folder" in blocked_payloads
+    assert "external-link" not in blocked_payloads
+    assert str(outside_target) not in blocked_payloads
+
+
 def test_advanced_image_source_loader_lists_and_expands_external_folders():
     load_package()
     advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
@@ -2560,11 +2731,23 @@ def test_ltx_sequencer_declares_sync_controls():
     node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXSequencer"]
     input_types = node_cls.INPUT_TYPES()
 
+    assert input_types["required"]["multi_input"][0] == "IMAGE"
+    assert input_types["required"]["multi_input"][1]["lazy"] is True
     assert input_types["required"]["strength_sync"][0] == "BOOLEAN"
     assert input_types["required"]["bypass"][0] == "BOOLEAN"
     assert list(input_types["required"]).index("bypass") == list(input_types["required"]).index("strength_sync") + 1
     assert node_cls.RETURN_TYPES == ("CONDITIONING", "CONDITIONING", "LATENT")
     assert node_cls.CATEGORY == "Deno/LTX"
+
+
+def test_ltx_sequencer_only_requests_images_for_active_i2v_guides():
+    package = load_package()
+    node_cls = package.NODE_CLASS_MAPPINGS["DenoLTXSequencer"]
+
+    assert node_cls.check_lazy_status(True, 1, None) == []
+    assert node_cls.check_lazy_status(False, 0, None) == []
+    assert node_cls.check_lazy_status(False, 1, None) == ["multi_input"]
+    assert node_cls.check_lazy_status(False, 1, object()) == []
 
 
 def test_ltx_sequencer_bypass_returns_inputs_without_touching_vae():
@@ -2838,6 +3021,7 @@ def test_ltx_model_setup_helper_declares_output_node_and_safe_root_widget():
     assert "presets_json" in input_types["required"]
     assert input_types["required"]["presets_json"][0] == "STRING"
     assert "ltx_23_8gb_vram" in input_types["required"]["presets_json"][1]["default"]
+    assert "ltx_25_distilled_int8" in input_types["required"]["presets_json"][1]["default"]
     assert node_cls().run(input_types["required"]["model_root"][1]["default"]) == ()
 
 
@@ -2905,8 +3089,43 @@ def test_ltx_model_setup_helper_preserves_builtin_preset_for_old_workflows():
     )
 
     assert parsed["presets"][0]["id"] == "ltx_23_8gb_vram"
-    assert parsed["presets"][1]["id"] == "custom_pack"
+    assert parsed["presets"][1]["id"] == "ltx_25_distilled_int8"
+    assert parsed["presets"][2]["id"] == "custom_pack"
     assert parsed["active_preset_id"] == "custom_pack"
+
+
+def test_ltx_model_setup_helper_ltx25_preset_matches_workflow_models():
+    package = load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+    preset = module._ltx25_package()
+
+    assert preset["id"] == "ltx_25_distilled_int8"
+    assert {(item["target_subdir"], item["filename"], item["size"]) for item in preset["files"]} == {
+        ("diffusion_models", "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors", 21_504_034_224),
+        ("text_encoders", "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors", 15_372_971_786),
+        ("vae", "ltx-2.5-video-vae-bf16.safetensors", 1_472_223_346),
+        ("vae", "ltx-2.5-audio-vae-bf16.safetensors", 364_866_540),
+        ("latent_upscale_models", "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors", 995_778_752),
+    }
+    assert all(item["url"].startswith("https://huggingface.co/Lightricks/LTX-2.5/resolve/main/") for item in preset["files"])
+
+
+def test_ltx_model_setup_helper_replaces_stale_builtin_package_payloads():
+    load_package()
+    module = sys.modules["comfyui_deno_custom_nodes.deno_ltx_model_downloader"]
+
+    canonical = module._canonicalize_builtin_package(
+        {
+            "id": "ltx_25_distilled_int8",
+            "title": "Stale Saved Copy",
+            "files": [],
+        }
+    )
+
+    assert canonical == module._ltx25_package()
+    assert canonical["files"][-1]["filename"] == "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"
+    assert "Agree and Access" in canonical["description"]
+    assert "LTX-2 Community License" in canonical["description"]
 
 
 def test_ltx_model_setup_helper_checks_registered_model_folder_names():
@@ -3155,7 +3374,7 @@ def test_ltx_model_setup_helper_has_no_backend_download_code():
 def test_ltx_model_setup_helper_frontend_keeps_auto_root_selection_available():
     script = (REPO_ROOT / "web" / "js" / "deno_ltx_model_downloader.js").read_text(encoding="utf-8")
 
-    assert "r2026.06.23-root-intent-c" in script
+    assert "r2026.08.12-ltx25-presets-a" in script
     assert "rootMode" in script
     assert "explicitRootId" in script
     assert "effectiveRootId" in script

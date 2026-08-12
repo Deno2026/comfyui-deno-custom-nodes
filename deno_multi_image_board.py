@@ -56,16 +56,27 @@ def _normalize_input_browser_path(relative_path: str | None) -> str | None:
     return normalized
 
 
+def _path_is_within_root(root_path: str, candidate_path: str) -> bool:
+    root_real_path = os.path.realpath(root_path)
+    candidate_real_path = os.path.realpath(candidate_path)
+    try:
+        common_path = os.path.commonpath([
+            os.path.normcase(root_real_path),
+            os.path.normcase(candidate_real_path),
+        ])
+    except ValueError:
+        return False
+    return common_path == os.path.normcase(root_real_path)
+
+
+def _input_browser_path_is_contained(input_dir: str, relative_path: str) -> bool:
+    return _path_is_within_root(input_dir, os.path.join(input_dir, relative_path))
+
+
 def _resolve_input_browser_dir(input_dir: str, relative_path: str) -> str | None:
     base_dir = os.path.realpath(input_dir)
     candidate_dir = os.path.realpath(os.path.join(base_dir, relative_path))
-
-    try:
-        common_path = os.path.commonpath([os.path.normcase(base_dir), os.path.normcase(candidate_dir)])
-    except ValueError:
-        return None
-
-    if common_path != os.path.normcase(base_dir):
+    if not _path_is_within_root(base_dir, candidate_dir):
         return None
     return candidate_dir if os.path.isdir(candidate_dir) else None
 
@@ -77,13 +88,6 @@ def _resolve_input_image_copy_path(path: str | None) -> str | None:
     return _resolve_input_path(raw_path)
 
 
-def _to_input_relative_path(input_dir: str, full_path: str) -> str:
-    relative = os.path.relpath(full_path, input_dir)
-    if relative == ".":
-        return ""
-    return relative.replace("\\", "/")
-
-
 def _get_input_browser_parent(relative_path: str) -> str:
     if not relative_path:
         return ""
@@ -91,12 +95,25 @@ def _get_input_browser_parent(relative_path: str) -> str:
     return "" if parent == "." else parent
 
 
-def _empty_input_folder_listing(relative_path: str = ""):
+def _blocked_input_items_notice(blocked_count: int) -> str:
+    count = max(0, int(blocked_count or 0))
+    if count <= 0:
+        return ""
+    noun = "item" if count == 1 else "items"
+    return (
+        f"{count} linked {noun} skipped because the target is outside "
+        "the ComfyUI input folder. Use Advanced Image Source Loader for external folders."
+    )
+
+
+def _empty_input_folder_listing(relative_path: str = "", blocked_count: int = 0):
     return {
         "path": relative_path,
         "parent": _get_input_browser_parent(relative_path),
         "folders": [],
         "files": [],
+        "blocked_count": max(0, int(blocked_count or 0)),
+        "notice": _blocked_input_items_notice(blocked_count),
     }
 
 
@@ -116,33 +133,45 @@ def _list_input_folder_entries(relative_path: str | None = ""):
 
     folders = []
     files = []
+    blocked_count = 0
     try:
-        for name in os.listdir(current_dir):
-            full_path = os.path.join(current_dir, name)
+        names = os.listdir(current_dir)
+    except Exception as exc:
+        print(f"[DenoMultiImageLoader] Failed to list input folder images: {exc}")
+        return _empty_input_folder_listing(browser_path)
+
+    for name in names:
+        full_path = os.path.join(current_dir, name)
+        if not _path_is_within_root(input_dir, full_path):
+            blocked_count += 1
+            continue
+        try:
             stat = os.stat(full_path)
+            entry_path = "/".join(part for part in (browser_path, name) if part)
             if os.path.isdir(full_path):
                 folders.append({
                     "name": name,
-                    "path": _to_input_relative_path(input_dir, full_path),
+                    "path": entry_path,
                     "mtime": stat.st_mtime,
                 })
                 continue
             if os.path.isfile(full_path) and os.path.splitext(name)[1].lower() in INPUT_BROWSER_IMAGE_EXTENSIONS:
                 files.append({
-                    "name": _to_input_relative_path(input_dir, full_path),
+                    "name": entry_path,
                     "display_name": name,
                     "mtime": stat.st_mtime,
                     "size": stat.st_size,
                 })
-    except Exception as exc:
-        print(f"[DenoMultiImageLoader] Failed to list input folder images: {exc}")
-        return _empty_input_folder_listing(browser_path)
+        except OSError:
+            continue
 
     return {
         "path": browser_path,
         "parent": _get_input_browser_parent(browser_path),
         "folders": sorted(folders, key=lambda item: str(item["name"]).lower()),
         "files": sorted(files, key=lambda item: (-float(item["mtime"]), str(item["name"]).lower())),
+        "blocked_count": blocked_count,
+        "notice": _blocked_input_items_notice(blocked_count),
     }
 
 
@@ -156,6 +185,15 @@ async def deno_input_folder_images(request):
     browser_path = _normalize_input_browser_path(requested_path)
     if browser_path is None:
         return web.json_response({"error": "Invalid input folder path."}, status=400)
+    folder_paths = _get_folder_paths()
+    if (
+        folder_paths is not None
+        and hasattr(folder_paths, "get_input_directory")
+        and not _input_browser_path_is_contained(folder_paths.get_input_directory(), browser_path)
+    ):
+        return web.json_response({
+            "error": "This input folder path is blocked because it resolves outside the ComfyUI input folder."
+        }, status=403)
     return web.json_response(_list_input_folder_entries(browser_path))
 
 
@@ -167,6 +205,15 @@ async def deno_input_image_path(request):
     browser_path = _normalize_input_browser_path(requested_path)
     if browser_path is None:
         return web.json_response({"error": "Invalid input image path."}, status=400)
+    folder_paths = _get_folder_paths()
+    if (
+        folder_paths is not None
+        and hasattr(folder_paths, "get_input_directory")
+        and not _input_browser_path_is_contained(folder_paths.get_input_directory(), browser_path)
+    ):
+        return web.json_response({
+            "error": "This input image path is blocked because it resolves outside the ComfyUI input folder."
+        }, status=403)
     resolved_path = _resolve_input_image_copy_path(requested_path)
     return web.json_response({
         "path": browser_path if resolved_path else "",
@@ -446,7 +493,7 @@ class DenoMultiImageLoader:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image_paths": ("STRING", {"default": "", "multiline": True}),
+                "image_paths": ("STRING", {"default": "", "multiline": True, "hidden": True}),
                 "mode": (["Keep Input Ratio", "Preset Ratio", "Manual Input"], {"default": "Keep Input Ratio"}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "megapixels": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),

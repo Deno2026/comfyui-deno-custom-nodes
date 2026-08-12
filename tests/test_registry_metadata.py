@@ -89,6 +89,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "RTX upscale helpers" in description
     assert "NVIDIA VFX/nvvfx" in description
     assert "LTX 2.3" in description
+    assert "LTX 2.5" in description
     assert "Bernini Prompt Guide" in description
     assert "Local LLM Loader and Reviewer" in description
     assert "GPT/Gemini-ready Error Help reports" in description
@@ -114,6 +115,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "rtx-video-super-resolution",
         "nvidia-vfx",
         "ltx-2.3",
+        "ltx-2.5",
         "bernini",
         "bernini-prompt-guide",
         "bernini-conditioning",
