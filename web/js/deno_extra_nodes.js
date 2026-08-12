@@ -868,7 +868,7 @@ function setupMultiImageLoader(node, options = {}) {
     }
 
     node.__denoLoaderReady = true;
-    hideWidget(pathsWidget);
+    hideSerializedWidget(pathsWidget);
     const outputSizeHintEnabled = options.outputSizeHint !== false;
     const sequencerNotificationsEnabled = options.notifySequencers !== false;
     const maxImages = Number.isFinite(Number(options.maxImages))
@@ -1316,6 +1316,8 @@ function setupMultiImageLoader(node, options = {}) {
                 parent: normalizeInputFolderPath(payload?.parent ?? ""),
                 folders: (payload?.folders ?? []).map(normalizeInputFolderFolder).filter(Boolean),
                 files: (payload?.files ?? []).map(normalizeInputFolderFile).filter(Boolean),
+                blocked_count: Math.max(0, Number(payload?.blocked_count) || 0),
+                notice: String(payload?.notice || ""),
             };
         }
 
@@ -1334,7 +1336,7 @@ function setupMultiImageLoader(node, options = {}) {
             .map((entry) => String(entry || "").trim())
             .filter((entry) => /\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i.test(entry))
             .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
-        return { path: "", parent: "", folders: [], files };
+        return { path: "", parent: "", folders: [], files, blocked_count: 0, notice: "" };
     }
 
     function showInputFolderBrowser() {
@@ -1467,6 +1469,7 @@ function setupMultiImageLoader(node, options = {}) {
         let currentParent = "";
         let allFolders = [];
         let allFiles = [];
+        let listingNotice = "";
         let filteredEntries = [];
         let virtualRenderFrame = 0;
         const virtualGrid = {
@@ -1701,9 +1704,10 @@ function setupMultiImageLoader(node, options = {}) {
                 return `${entry.name || ""} ${entry.path || ""}`.toLowerCase().includes(needle);
             });
             const totalEntries = allFolders.length + allFiles.length;
-            status.textContent = needle
+            const countStatus = needle
                 ? `${filteredEntries.length} of ${totalEntries} input item${totalEntries === 1 ? "" : "s"} shown`
                 : `${allFolders.length} folder${allFolders.length === 1 ? "" : "s"}, ${allFiles.length} image${allFiles.length === 1 ? "" : "s"} found`;
+            status.textContent = listingNotice ? `${countStatus}. ${listingNotice}` : countStatus;
             list.scrollTop = 0;
             renderVirtualGrid();
         };
@@ -1725,6 +1729,7 @@ function setupMultiImageLoader(node, options = {}) {
                     currentParent = normalizeInputFolderPath(payload.parent ?? "");
                     allFolders = payload.folders ?? [];
                     allFiles = payload.files ?? [];
+                    listingNotice = String(payload.notice || "");
                     updatePathLabel();
                     applyInputFolderFilter();
                     refreshSelected();
@@ -1737,6 +1742,7 @@ function setupMultiImageLoader(node, options = {}) {
                     status.textContent = `Failed to read input folder list: ${error.message || error}`;
                     allFolders = [];
                     allFiles = [];
+                    listingNotice = "";
                     filteredEntries = [];
                     updatePathLabel();
                     list.replaceChildren();
@@ -4557,6 +4563,8 @@ function toggleWidgetVisibility(widget, visible) {
         return;
     }
     if (visible) {
+        widget.options = widget.options && typeof widget.options === "object" ? widget.options : {};
+        widget.options.hidden = false;
         widget.hidden = false;
         if (widget.__denoOrigType !== undefined) {
             widget.type = widget.__denoOrigType;
@@ -4570,6 +4578,8 @@ function toggleWidgetVisibility(widget, visible) {
         return;
     }
 
+    widget.options = widget.options && typeof widget.options === "object" ? widget.options : {};
+    widget.options.hidden = true;
     widget.hidden = true;
     if (widget.element) {
         widget.element.style.display = "none";
@@ -4599,11 +4609,28 @@ function createActionButton(label, danger = false) {
 }
 
 function hideWidget(widget) {
+    if (!widget) {
+        return;
+    }
+    widget.options = widget.options && typeof widget.options === "object" ? widget.options : {};
+    widget.options.hidden = true;
     widget.hidden = true;
-    widget.computeSize = () => [0, -4];
+    widget.type = "hidden";
     if (widget.element) {
         widget.element.style.display = "none";
     }
+}
+
+function hideSerializedWidget(widget) {
+    if (!widget) {
+        return;
+    }
+    const preservedValue = widget.value;
+    const preservedCallback = widget.callback;
+    hideWidget(widget);
+    widget.value = preservedValue;
+    widget.callback = preservedCallback;
+    widget.__denoSerializedHidden = true;
 }
 
 function getWidget(node, name) {
@@ -4626,6 +4653,8 @@ if (typeof window !== "undefined" && typeof window.__DENO_EXTRA_NODES_TEST_HOOK_
         resolveLoaderNodeSize,
         shouldApplyLoaderNodeSize,
         installLoaderCanvasNavigation,
+        hideSerializedWidget,
+        toggleWidgetVisibility,
         ensureSequencerDynamicWidget,
         getSequencerFullSchemaStackHeight,
         isSequencerVueNodesMode,

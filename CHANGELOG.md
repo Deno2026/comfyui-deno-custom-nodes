@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.86 - 2026-08-12
+
+- Added the complete official LTX 2.5 Distilled INT8 model set to `(Deno) Easy Model Download Helper`, including the two-stage x2 spatial upscaler, while preserving saved custom and legacy LTX 2.3 presets and keeping all gated downloads in the user's browser.
+- Updated `(Deno) LTX Sequencer` to request its image input lazily when guides are active and to follow current ComfyUI LTX guide metadata without changing its saved input or output schema.
+- Fixed the DENO input-folder browsers to skip external symlinks and junctions that ComfyUI cannot safely serve, with a clear route to `(Deno) Advanced Image Source Loader` for external folders. Fixes #71.
+- Fixed image-loader compatibility with Nodes 2.0 by keeping serialized path widgets hidden, making the Advanced loader gallery follow the available node height, and keeping disabled sources readable without rebuilding the whole gallery. Fixes #72.
+
 ## 0.7.85 - 2026-08-11
 
 - Fixed `(Deno) Local LLM Loader` so, whenever the node executes, its final Result is embedded in that output's workflow metadata and restored inside the node when a saved PNG or workflow is reopened, without persisting Thinking/reasoning content.

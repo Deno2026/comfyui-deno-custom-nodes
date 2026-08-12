@@ -73,7 +73,7 @@ ComfyUI용 해상도 도우미와 이미지 리사이즈 노드입니다.
 
 ![Deno Multi Image Loader](images/multi-image-loader.jpg)
 
-주요 기능: 고정 높이 갤러리, 드래그 정렬, 업로드, 드래그 앤 드롭, 이미지 붙여넣기, ComfyUI `input` 폴더 탐색, 중첩 폴더 이미지 추가, 최신순 정렬, 비율 유지/프리셋/직접 입력 리사이즈, `multi_output`, `width`, `height` 출력.
+주요 기능: 고정 높이 갤러리, 드래그 정렬, 업로드, 드래그 앤 드롭, 이미지 붙여넣기, ComfyUI `input` 폴더 탐색, 중첩 폴더 이미지 추가, 최신순 정렬, 비율 유지/프리셋/직접 입력 리사이즈, `multi_output`, `width`, `height` 출력. 보안을 위해 `input` 폴더 밖으로 나가는 외부 심볼릭 링크·정션은 건너뛰며, 이런 소스는 `(Deno) Advanced Image Source Loader`의 External Folder를 사용합니다.
 
 ### `(Deno) MiniMax H3 Multi Reference Image Loader`
 
@@ -109,7 +109,7 @@ ComfyUI 순정 MiniMax H3 Reference to Video용 한 줄 연결 다중 참조 이
 
 ![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
 
-주요 기능: ComfyUI `input` 폴더와 외부 로컬 폴더 지원, URL/Path 입력, 업로드와 붙여넣기, 썸네일 enable/disable, 드래그 정렬, masonry 스타일 갤러리, 재귀 폴더 로드, 배치 텐서와 `image_list` 출력.
+주요 기능: ComfyUI `input` 폴더와 외부 로컬 폴더 지원, URL/Path 입력, 업로드와 붙여넣기, 썸네일 enable/disable, 드래그 정렬, masonry 스타일 갤러리, 재귀 폴더 로드, 배치 텐서와 `image_list` 출력. 비활성 이미지는 삭제하지 않은 채 알아볼 수 있는 밝기로 유지되고, 갤러리는 기존 캔버스와 Nodes 2.0에서 노드 높이에 맞춰 유동적으로 배치됩니다.
 
 ### `(Deno) Image Compare`
 
@@ -189,11 +189,13 @@ LTX AV refinement 패스를 위한 샘플러입니다. 하나의 global sampler 
 
 ### `(Deno) Easy Model Download Helper`
 
-권장 모델 파일 세트를 안내하는 프리셋 기반 설치 도우미입니다.
+권장 모델 파일 세트를 안내하는 프리셋 기반 설치 도우미입니다. 내장 프리셋은 기존 LTX 2.3 8GB VRAM GGUF 세트와 공식 LTX 2.5 Distilled INT8 2단계 모델 세트를 함께 제공합니다.
 
 ![Deno Easy Model Download Helper](images/easy-model-download-helper.png)
 
-주요 기능: Python에서 직접 다운로드하지 않고 공식 모델 링크를 브라우저로 열기, ComfyUI 모델 루트 표시, workflow 안 creator preset 저장, Hugging Face와 Civitai 링크 지원, 파일이 올바른 모델 폴더에 있는지 확인.
+주요 기능: Python에서 직접 다운로드하지 않고 공식 모델 링크를 브라우저로 열기, ComfyUI 모델 루트 표시, workflow 안 creator preset 저장, Hugging Face와 Civitai 링크 지원, 파일이 올바른 모델 폴더에 있는지 확인. LTX 2.5 프리셋에는 diffusion model, projection이 포함된 Gemma 4 text encoder, video/audio VAE, 2단계 처리용 x2 spatial upscaler가 모두 포함됩니다.
+
+LTX 2.5 파일은 Hugging Face 로그인 후 **Agree and Access** 승인이 필요합니다. 이 도우미는 접근 제한을 우회하거나 모델을 자동 다운로드하지 않습니다. 먼저 [LTX-2 Community License](https://github.com/Lightricks/LTX-2/blob/main/LICENSE.md)를 확인하고 [공식 LTX 2.5 저장소](https://huggingface.co/Lightricks/LTX-2.5)에서 접근 권한을 받은 뒤, 노드가 여는 브라우저 링크로 파일을 내려받아 화면에 표시된 ComfyUI 모델 폴더에 옮기세요.
 
 ![Hugging Face link guide](images/easy-model-download-helper-huggingface-link.png)
 

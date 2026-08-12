@@ -49,6 +49,8 @@ class FakeMouseEvent {
   }
 }
 
+class FakeWheelEvent extends FakeMouseEvent {}
+
 function pointerEvent(overrides = {}) {
   return {
     type: "mousedown",
@@ -77,6 +79,7 @@ windowTarget.__DENO_ADVANCED_IMAGE_SOURCE_TEST_HOOK__ = (registered) => {
 const context = {
   console,
   MouseEvent: FakeMouseEvent,
+  WheelEvent: FakeWheelEvent,
   URLSearchParams,
   app: {
     canvas: { canvas: canvasTarget },
@@ -116,33 +119,123 @@ assert.equal(
 );
 assert.match(hooks.getPreviewUrl("folder/a.png"), /^\/api\/view\?/);
 
+assert.deepEqual(Array.from(hooks.resolveAdvancedNodeSize([300, 400])), [520, 620]);
+assert.deepEqual(Array.from(hooks.resolveAdvancedNodeSize([840, 900])), [840, 900]);
+assert.equal(hooks.shouldApplyAdvancedNodeSize([520, 620], [520, 620]), false);
+assert.equal(hooks.shouldApplyAdvancedNodeSize([500, 620], [520, 620]), true);
+
+const hiddenCallback = () => "preserved";
+const hiddenWidget = {
+  name: "image_paths",
+  value: "one.png\ntwo.png",
+  callback: hiddenCallback,
+  computeSize: () => [320, 80],
+};
+const widgetOrder = [{ name: "before" }, hiddenWidget, { name: "after" }];
+hooks.hideWidget(hiddenWidget);
+assert.equal(widgetOrder[1], hiddenWidget, "the serialized widget must stay in its original array slot");
+assert.equal(hiddenWidget.value, "one.png\ntwo.png");
+assert.equal(hiddenWidget.callback, hiddenCallback);
+assert.equal(hiddenWidget.options.hidden, true);
+assert.equal(hiddenWidget.hidden, true);
+assert.equal(hiddenWidget.type, "hidden");
+
+const conditionalWidget = {
+  type: "number",
+  hidden: false,
+  options: {},
+  computeSize: () => [320, 24],
+};
+hooks.toggleWidgetVisibility(conditionalWidget, false);
+assert.equal(conditionalWidget.type, "hidden");
+assert.equal(conditionalWidget.options.hidden, true);
+hooks.toggleWidgetVisibility(conditionalWidget, true);
+assert.equal(conditionalWidget.type, "number");
+assert.equal(conditionalWidget.options.hidden, false);
+assert.deepEqual(Array.from(conditionalWidget.computeSize()), [320, 24]);
+
 const root = new FakeEventTarget();
-const cleanup = hooks.installMiddleMouseCanvasPan(root);
-assert.equal(root.listenerCount("mousedown"), 1);
-assert.equal(root.listenerCount("mousemove"), 1);
+const galleryChild = {};
+root.contains = (target) => target === root || target === galleryChild;
+const gallery = {
+  scrollTop: 10,
+  clientHeight: 100,
+  scrollHeight: 300,
+  contains(target) {
+    return target === galleryChild;
+  },
+};
+const cleanup = hooks.installMiddleMouseCanvasPan(root, gallery);
+assert.equal(root.listenerCount("wheel"), 0);
+assert.equal(root.listenerCount("mousedown"), 0);
+assert.equal(root.listenerCount("mousemove"), 0);
 assert.equal(root.listenerCount("auxclick"), 1);
+assert.equal(windowTarget.listenerCount("wheel"), 1);
+assert.equal(windowTarget.listenerCount("mousedown"), 1);
 assert.equal(windowTarget.listenerCount("mousemove"), 1);
 assert.equal(windowTarget.listenerCount("mouseup"), 1);
 
+const localWheel = pointerEvent({
+  type: "wheel",
+  target: galleryChild,
+  deltaX: 0,
+  deltaY: 120,
+  deltaZ: 0,
+  deltaMode: 0,
+});
+windowTarget.emit("wheel", localWheel);
+assert.equal(canvasTarget.dispatched.length, 0, "wheel over the visible gallery remains local scrolling");
+assert.equal(gallery.scrollTop, 130);
+assert.equal(localWheel.preventDefaultCalls, 1);
+assert.equal(localWheel.stopPropagationCalls, 1);
+
+gallery.scrollTop = 200;
+const boundaryWheel = pointerEvent({
+  type: "wheel",
+  target: galleryChild,
+  deltaX: 0,
+  deltaY: 120,
+  deltaZ: 0,
+  deltaMode: 0,
+});
+windowTarget.emit("wheel", boundaryWheel);
+assert.equal(canvasTarget.dispatched.length, 1, "wheel at the gallery boundary reaches the ComfyUI canvas");
+assert.equal(boundaryWheel.preventDefaultCalls, 1);
+
+const canvasWheel = pointerEvent({
+  type: "wheel",
+  target: root,
+  deltaX: 0,
+  deltaY: -120,
+  deltaZ: 0,
+  deltaMode: 0,
+});
+windowTarget.emit("wheel", canvasWheel);
+assert.equal(canvasTarget.dispatched.length, 2, "wheel outside the gallery reaches the ComfyUI canvas");
+assert.equal(canvasTarget.dispatched[1].type, "wheel");
+assert.equal(canvasWheel.preventDefaultCalls, 1);
+assert.equal(canvasWheel.stopPropagationCalls, 1);
+
 const down = pointerEvent();
-root.emit("mousedown", down);
-assert.equal(canvasTarget.dispatched.length, 1);
+down.target = root;
+windowTarget.emit("mousedown", down);
+assert.equal(canvasTarget.dispatched.length, 3);
 assert.equal(down.preventDefaultCalls, 1);
 assert.equal(down.stopPropagationCalls, 1);
 
 const move = pointerEvent({ type: "mousemove" });
 windowTarget.emit("mousemove", move);
-assert.equal(canvasTarget.dispatched.length, 2);
+assert.equal(canvasTarget.dispatched.length, 4);
 
 cleanup();
 cleanup();
-assert.equal(root.listenerCount("mousedown"), 0);
-assert.equal(root.listenerCount("mousemove"), 0);
+assert.equal(windowTarget.listenerCount("mousedown"), 0);
+assert.equal(windowTarget.listenerCount("wheel"), 0);
 assert.equal(root.listenerCount("auxclick"), 0);
 assert.equal(windowTarget.listenerCount("mousemove"), 0);
 assert.equal(windowTarget.listenerCount("mouseup"), 0);
 root.emit("mousedown", pointerEvent());
-assert.equal(canvasTarget.dispatched.length, 2);
+assert.equal(canvasTarget.dispatched.length, 4);
 
 const node = { __denoAdvancedLastExternalRoot: "C:\\Previous" };
 await hooks.fetchExternalFolderImagesAndRemember(node, "  /home/user/images  ", "child");

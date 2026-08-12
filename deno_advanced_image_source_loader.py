@@ -492,7 +492,7 @@ class DenoAdvancedImageSourceLoader:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image_paths": ("STRING", {"default": "", "multiline": True}),
+                "image_paths": ("STRING", {"default": "", "multiline": True, "hidden": True}),
                 "mode": (["Keep Input Ratio", "Preset Ratio", "Manual Input"], {"default": "Keep Input Ratio"}),
                 "ratio_preset": (COMMON_RATIOS, {"default": "16:9"}),
                 "megapixels": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
@@ -503,7 +503,7 @@ class DenoAdvancedImageSourceLoader:
                 "resize_method": (ADVANCED_RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
                 "recursive_folders": ("BOOLEAN", {"default": False}),
                 "list_output_mode": (["Original Size", "Match Batch Size"], {"default": "Original Size"}),
-                "disabled_image_paths": ("STRING", {"default": "", "multiline": True}),
+                "disabled_image_paths": ("STRING", {"default": "", "multiline": True, "hidden": True}),
             },
             "optional": {
                 "images": ("IMAGE",),

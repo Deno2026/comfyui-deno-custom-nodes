@@ -4,8 +4,8 @@ import { api } from "../../scripts/api.js";
 const ADVANCED_NODE = "DenoAdvancedImageSourceLoader";
 const MIN_SIZE = [520, 620];
 const PANEL_MIN_HEIGHT = 360;
-const PANEL_RESERVED_NODE_HEIGHT = 248;
-const PANEL_MAX_HEIGHT = 780;
+const PANEL_WIDGET_EXTRA_HEIGHT = 12;
+const PANEL_WRAPPER_COMPENSATION = 4;
 const MASONRY_ROW_HEIGHT = 8;
 const MASONRY_GAP = 10;
 const CARD_MIN_HEIGHT = 116;
@@ -68,9 +68,11 @@ function setupAdvancedImageSourceLoader(node) {
 
     const container = document.createElement("div");
     container.tabIndex = 0;
+    container.dataset.denoAdvancedLayout = "fluid-v1";
     container.style.cssText = `
         width: 100%;
-        height: ${PANEL_MIN_HEIGHT}px;
+        height: calc(100% + ${PANEL_WRAPPER_COMPENSATION}px);
+        min-height: ${PANEL_MIN_HEIGHT}px;
         display: flex;
         flex-direction: column;
         gap: ${MASONRY_GAP}px;
@@ -108,7 +110,8 @@ function setupAdvancedImageSourceLoader(node) {
 
     const grid = document.createElement("div");
     grid.style.cssText = `
-        flex: 1;
+        flex: 1 1 0px;
+        height: 0;
         min-height: 0;
         overflow-y: auto;
         display: grid;
@@ -135,38 +138,35 @@ function setupAdvancedImageSourceLoader(node) {
     folderUploadInput.style.display = "none";
 
     container.append(topBar, hint, statusLabel, grid, uploadInput, folderUploadInput);
+    node.addDOMWidget("advanced_source_panel", "deno_advanced_image_source_loader", container, {
+        serialize: false,
+        getMinHeight: () => PANEL_MIN_HEIGHT + PANEL_WIDGET_EXTRA_HEIGHT,
+    });
 
-    function panelHeight() {
-        const nodeHeight = Number(node.size?.[1]) || MIN_SIZE[1];
-        return Math.max(
-            PANEL_MIN_HEIGHT,
-            Math.min(PANEL_MAX_HEIGHT, nodeHeight - PANEL_RESERVED_NODE_HEIGHT)
-        );
+    const nextNodeSize = resolveAdvancedNodeSize(node.size);
+    if (shouldApplyAdvancedNodeSize(node.size, nextNodeSize)) {
+        if (typeof node.setSize === "function") {
+            node.setSize(nextNodeSize);
+        } else {
+            node.size = nextNodeSize;
+        }
     }
 
-    function refreshPanelHeight() {
-        container.style.height = `${panelHeight()}px`;
-        requestAnimationFrame(refreshMasonrySpans);
-    }
-
-    const widget = node.addDOMWidget("advanced_source_panel", "deno_advanced_image_source_loader", container, { serialize: false });
-    widget.computeSize = () => {
-        const height = panelHeight();
-        container.style.height = `${height}px`;
-        return [Math.max(node.size?.[0] ?? 0, MIN_SIZE[0]), height + 12];
+    let masonryRefreshFrame = 0;
+    const scheduleMasonryRefresh = () => {
+        if (masonryRefreshFrame) {
+            return;
+        }
+        masonryRefreshFrame = requestAnimationFrame(() => {
+            masonryRefreshFrame = 0;
+            refreshMasonrySpans();
+        });
     };
-
-    node.size = [
-        Math.max(node.size?.[0] ?? 0, MIN_SIZE[0]),
-        Math.max(node.size?.[1] ?? 0, MIN_SIZE[1]),
-    ];
-
-    const originalOnResize = node.onResize;
-    node.onResize = function () {
-        const result = originalOnResize?.apply(this, arguments);
-        refreshPanelHeight();
-        return result;
-    };
+    const panelResizeObserver = typeof ResizeObserver === "function"
+        ? new ResizeObserver(scheduleMasonryRefresh)
+        : null;
+    panelResizeObserver?.observe(container);
+    panelResizeObserver?.observe(grid);
 
     let draggedCard = null;
     let placeholder = null;
@@ -201,6 +201,46 @@ function setupAdvancedImageSourceLoader(node) {
             .filter(Boolean);
     }
 
+    function updateEnabledCount(paths, disabled) {
+        const enabledCount = paths.filter((path) => !disabled.has(path)).length;
+        countLabel.textContent = `${enabledCount}/${paths.length} enabled`;
+    }
+
+    function applyCardDisabledState(card, isDisabled) {
+        if (!card) {
+            return;
+        }
+        card.dataset.denoDisabled = isDisabled ? "true" : "false";
+        card.style.background = isDisabled ? "rgba(7, 12, 9, 0.92)" : "rgba(13, 31, 20, 0.9)";
+        card.setAttribute("aria-pressed", String(!isDisabled));
+        const image = card.querySelector("[data-deno-card-image]");
+        if (image) {
+            image.style.opacity = isDisabled ? "0.78" : "1";
+        }
+        const name = card.querySelector("[data-deno-card-name]");
+        if (name) {
+            name.style.color = isDisabled ? "#b6c9b9" : "#d9ffe5";
+        }
+        const disabledPill = card.querySelector("[data-deno-disabled-pill]");
+        if (disabledPill) {
+            disabledPill.style.display = isDisabled ? "block" : "none";
+        }
+    }
+
+    function syncDisabledCardStates(paths, disabled) {
+        const cards = Array.from(grid.querySelectorAll("[data-source-index]"));
+        if (
+            cards.length !== paths.length
+            || cards.some((card, index) => card.dataset.path !== paths[index])
+        ) {
+            return false;
+        }
+        cards.forEach((card) => applyCardDisabledState(card, disabled.has(card.dataset.path)));
+        updateEnabledCount(paths, disabled);
+        scheduleMasonryRefresh();
+        return true;
+    }
+
     function setDisabledPaths(paths) {
         if (!disabledWidget) {
             return;
@@ -210,7 +250,10 @@ function setupAdvancedImageSourceLoader(node) {
             .filter((entry) => activePaths.has(entry));
         disabledWidget.value = cleaned.join("\n");
         disabledWidget.callback?.(disabledWidget.value);
-        render();
+        const currentPaths = getPaths();
+        if (!syncDisabledCardStates(currentPaths, new Set(cleaned))) {
+            render();
+        }
         node.setDirtyCanvas?.(true, true);
         app.graph?.setDirtyCanvas?.(true, true);
     }
@@ -234,10 +277,9 @@ function setupAdvancedImageSourceLoader(node) {
     function render() {
         const paths = getPaths();
         const disabled = new Set(getDisabledPaths());
-        const enabledCount = paths.filter((path) => !disabled.has(path)).length;
-        countLabel.textContent = `${enabledCount}/${paths.length} enabled`;
+        updateEnabledCount(paths, disabled);
         grid.replaceChildren(...paths.map((path, index) => buildCard(path, index, disabled.has(path))));
-        requestAnimationFrame(refreshMasonrySpans);
+        scheduleMasonryRefresh();
     }
 
     function buildCard(path, index, isDisabled) {
@@ -256,7 +298,7 @@ function setupAdvancedImageSourceLoader(node) {
             box-sizing: border-box;
             border: 1px solid rgba(72,255,132,0.32);
             border-radius: 8px;
-            background: ${isDisabled ? "rgba(5, 8, 7, 0.86)" : "rgba(13, 31, 20, 0.9)"};
+            background: rgba(13, 31, 20, 0.9);
             color: #d9ffe5;
             cursor: grab;
             overflow: hidden;
@@ -282,11 +324,12 @@ function setupAdvancedImageSourceLoader(node) {
         const previewUrl = getPreviewUrl(path);
         if (previewUrl) {
             const image = document.createElement("img");
+            image.dataset.denoCardImage = "true";
             image.loading = "lazy";
             image.decoding = "async";
             image.src = previewUrl;
             image.alt = "";
-            image.style.cssText = `width:100%; height:100%; object-fit:contain; opacity:${isDisabled ? "0.38" : "1"}; pointer-events:none;`;
+            image.style.cssText = "width:100%; height:100%; object-fit:contain; opacity:1; pointer-events:none;";
             image.onload = () => applyMasonrySpanForImage(card, image);
             image.onerror = () => {
                 preview.textContent = getSourceKind(path);
@@ -298,6 +341,7 @@ function setupAdvancedImageSourceLoader(node) {
         }
 
         const name = document.createElement("div");
+        name.dataset.denoCardName = "true";
         name.textContent = path;
         name.title = path;
         name.style.cssText = `
@@ -305,7 +349,7 @@ function setupAdvancedImageSourceLoader(node) {
             overflow: hidden;
             text-overflow: ellipsis;
             font: 700 10px sans-serif;
-            color: ${isDisabled ? "#7d917f" : "#d9ffe5"};
+            color: #d9ffe5;
         `;
 
         const badge = document.createElement("div");
@@ -327,18 +371,23 @@ function setupAdvancedImageSourceLoader(node) {
         `;
 
         const disabledOverlay = document.createElement("div");
+        disabledOverlay.dataset.denoDisabledPill = "true";
         disabledOverlay.textContent = "Disabled";
         disabledOverlay.style.cssText = `
             position: absolute;
-            inset: 0;
-            display: ${isDisabled ? "flex" : "none"};
-            align-items: center;
-            justify-content: center;
-            background: rgba(0,0,0,0.58);
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            padding: 4px 9px;
+            border: 1px solid rgba(255,255,255,0.34);
+            border-radius: 999px;
+            background: rgba(0,0,0,0.46);
             color: #dfffea;
-            font: 900 12px sans-serif;
+            font: 800 11px sans-serif;
             letter-spacing: 0;
             pointer-events: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.35);
         `;
 
         const remove = document.createElement("button");
@@ -562,6 +611,7 @@ function setupAdvancedImageSourceLoader(node) {
         });
 
         card.append(preview, name, remove, badge, disabledOverlay);
+        applyCardDisabledState(card, isDisabled);
         return card;
     }
 
@@ -794,26 +844,57 @@ function setupAdvancedImageSourceLoader(node) {
     });
 
     node.__denoAdvancedPanCleanup?.();
-    node.__denoAdvancedPanCleanup = installMiddleMouseCanvasPan(container);
+    node.__denoAdvancedPanCleanup = installMiddleMouseCanvasPan(container, grid);
     const originalOnRemoved = node.onRemoved;
     node.onRemoved = function () {
         this.__denoCloseAdvancedFolderBrowser?.();
         this.__denoCloseAdvancedFolderBrowser = null;
         this.__denoAdvancedPanCleanup?.();
         this.__denoAdvancedPanCleanup = null;
+        panelResizeObserver?.disconnect();
+        if (masonryRefreshFrame) {
+            cancelAnimationFrame(masonryRefreshFrame);
+            masonryRefreshFrame = 0;
+        }
         return originalOnRemoved?.apply(this, arguments);
     };
 
     setTimeout(() => {
         node._denoUpdateAdvancedSourceVisibility?.();
-        refreshPanelHeight();
         render();
     }, 0);
 }
 
-function installMiddleMouseCanvasPan(root) {
+function resolveAdvancedNodeSize(currentSize, minSize = MIN_SIZE) {
+    const width = Number(currentSize?.[0]);
+    const height = Number(currentSize?.[1]);
+    const minWidth = Math.max(1, Number(minSize?.[0]) || MIN_SIZE[0]);
+    const minHeight = Math.max(1, Number(minSize?.[1]) || MIN_SIZE[1]);
+    return [
+        Math.max(Number.isFinite(width) ? width : 0, minWidth),
+        Math.max(Number.isFinite(height) ? height : 0, minHeight),
+    ];
+}
+
+function shouldApplyAdvancedNodeSize(currentSize, nextSize, tolerance = 1) {
+    if (!Array.isArray(currentSize)) {
+        return true;
+    }
+    const allowedDelta = Math.max(0, Number(tolerance) || 0);
+    return nextSize.some((value, index) => {
+        const currentValue = Number(currentSize[index]);
+        return !Number.isFinite(currentValue) || Math.abs(currentValue - value) > allowedDelta;
+    });
+}
+
+function installMiddleMouseCanvasPan(root, localScrollSurface = null) {
     let forwardingPan = false;
     let cleanedUp = false;
+
+    const eventTargetsRoot = (event) => {
+        const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+        return path.length ? path.includes(root) : root.contains?.(event.target);
+    };
 
     const forward = (event) => {
         const canvas = app.canvas?.canvas;
@@ -847,20 +928,63 @@ function installMiddleMouseCanvasPan(root) {
         event.stopPropagation();
     };
 
+    const onWheel = (event) => {
+        if (!eventTargetsRoot(event)) {
+            return;
+        }
+        const target = event.target;
+        const usesLocalScroll = Boolean(
+            localScrollSurface
+            && (target === localScrollSurface || localScrollSurface.contains?.(target))
+        );
+        const canScrollUp = Number(localScrollSurface?.scrollTop || 0) > 0;
+        const canScrollDown = (
+            Number(localScrollSurface?.scrollTop || 0)
+            + Number(localScrollSurface?.clientHeight || 0)
+        ) < Number(localScrollSurface?.scrollHeight || 0) - 1;
+        const canConsumeLocally = usesLocalScroll && (
+            (event.deltaY < 0 && canScrollUp)
+            || (event.deltaY > 0 && canScrollDown)
+        );
+        if (canConsumeLocally) {
+            const deltaScale = event.deltaMode === 1
+                ? 16
+                : event.deltaMode === 2
+                    ? Math.max(1, Number(localScrollSurface.clientHeight || 1))
+                    : 1;
+            localScrollSurface.scrollTop += event.deltaY * deltaScale;
+            consume(event);
+            return;
+        }
+        const canvas = app.canvas?.canvas;
+        if (!canvas) {
+            return;
+        }
+        canvas.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            deltaX: event.deltaX,
+            deltaY: event.deltaY,
+            deltaZ: event.deltaZ,
+            deltaMode: event.deltaMode,
+            screenX: event.screenX,
+            screenY: event.screenY,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey,
+            shiftKey: event.shiftKey,
+            metaKey: event.metaKey,
+        }));
+        consume(event);
+    };
+
     const onMouseDown = (event) => {
-        if (!shouldForward(event)) {
+        if (!eventTargetsRoot(event) || !shouldForward(event)) {
             return;
         }
         forwardingPan = true;
-        if (forward(event)) {
-            consume(event);
-        }
-    };
-
-    const onRootMouseMove = (event) => {
-        if (!shouldForward(event)) {
-            return;
-        }
         if (forward(event)) {
             consume(event);
         }
@@ -893,8 +1017,8 @@ function installMiddleMouseCanvasPan(root) {
         }
     };
 
-    root.addEventListener("mousedown", onMouseDown, true);
-    root.addEventListener("mousemove", onRootMouseMove, true);
+    window.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    window.addEventListener("mousedown", onMouseDown, true);
     window.addEventListener("mousemove", onWindowMouseMove, true);
     window.addEventListener("mouseup", onWindowMouseUp, true);
     root.addEventListener("auxclick", onAuxClick, true);
@@ -905,8 +1029,8 @@ function installMiddleMouseCanvasPan(root) {
         }
         cleanedUp = true;
         forwardingPan = false;
-        root.removeEventListener("mousedown", onMouseDown, true);
-        root.removeEventListener("mousemove", onRootMouseMove, true);
+        window.removeEventListener("wheel", onWheel, { capture: true, passive: false });
+        window.removeEventListener("mousedown", onMouseDown, true);
         window.removeEventListener("mousemove", onWindowMouseMove, true);
         window.removeEventListener("mouseup", onWindowMouseUp, true);
         root.removeEventListener("auxclick", onAuxClick, true);
@@ -1115,6 +1239,7 @@ function showBrowserModal(options) {
     let parentFolder = "";
     let folders = [];
     let files = [];
+    let listingNotice = "";
     const selected = new Set();
 
     const refreshSelected = () => {
@@ -1215,7 +1340,8 @@ function showBrowserModal(options) {
             return card;
         }));
 
-        status.textContent = `${folders.length} folder${folders.length === 1 ? "" : "s"}, ${files.length} image${files.length === 1 ? "" : "s"} found`;
+        const countStatus = `${folders.length} folder${folders.length === 1 ? "" : "s"}, ${files.length} image${files.length === 1 ? "" : "s"} found`;
+        status.textContent = listingNotice ? `${countStatus}. ${listingNotice}` : countStatus;
         refreshSelected();
     };
 
@@ -1231,6 +1357,7 @@ function showBrowserModal(options) {
             parentFolder = normalizeSlashPath(payload.parent || "");
             folders = payload.folders || [];
             files = payload.files || [];
+            listingNotice = String(payload.notice || "");
             render();
         } catch (error) {
             if (!request.isCurrent() || closed || error?.name === "AbortError") {
@@ -1239,6 +1366,7 @@ function showBrowserModal(options) {
             status.textContent = error.message || String(error);
             folders = [];
             files = [];
+            listingNotice = "";
             list.replaceChildren();
         }
     };
@@ -1278,6 +1406,8 @@ async function fetchInputFolderImages(folderPath = "", signal = undefined) {
             name: normalizeSlashPath(entry.name || ""),
             display_name: entry.display_name || String(entry.name || "").split("/").pop() || entry.name,
         })).filter((entry) => entry.name && IMAGE_RE.test(entry.name)),
+        blocked_count: Math.max(0, Number(payload.blocked_count) || 0),
+        notice: String(payload.notice || ""),
     };
 }
 
@@ -1498,8 +1628,13 @@ function inputStyle() {
 }
 
 function hideWidget(widget) {
+    if (!widget) {
+        return;
+    }
+    widget.options = widget.options && typeof widget.options === "object" ? widget.options : {};
+    widget.options.hidden = true;
     widget.hidden = true;
-    widget.computeSize = () => [0, -4];
+    widget.type = "hidden";
     if (widget.element) {
         widget.element.style.display = "none";
     }
@@ -1509,8 +1644,17 @@ function toggleWidgetVisibility(widget, visible) {
     if (!widget) {
         return;
     }
+    if (!Object.prototype.hasOwnProperty.call(widget, "__denoVisibilityOriginalComputeSize")) {
+        widget.__denoVisibilityOriginalComputeSize = widget.computeSize;
+    }
+    if (!Object.prototype.hasOwnProperty.call(widget, "__denoVisibilityOriginalType")) {
+        widget.__denoVisibilityOriginalType = widget.type;
+    }
+    widget.options = widget.options && typeof widget.options === "object" ? widget.options : {};
+    widget.options.hidden = !visible;
     widget.hidden = !visible;
-    widget.computeSize = visible ? undefined : () => [0, -4];
+    widget.type = visible ? widget.__denoVisibilityOriginalType : "hidden";
+    widget.computeSize = visible ? widget.__denoVisibilityOriginalComputeSize : () => [0, -4];
     if (widget.element) {
         widget.element.style.display = visible ? "" : "none";
     }
@@ -1545,5 +1689,9 @@ if (typeof window !== "undefined" && typeof window.__DENO_ADVANCED_IMAGE_SOURCE_
         getSourceKind,
         installMiddleMouseCanvasPan,
         createLatestRequestGate,
+        hideWidget,
+        toggleWidgetVisibility,
+        resolveAdvancedNodeSize,
+        shouldApplyAdvancedNodeSize,
     });
 }

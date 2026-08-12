@@ -74,6 +74,55 @@ MODEL_FILES = [
 ]
 
 
+LTX25_MODEL_FILES = [
+    {
+        "id": "diffusion_model",
+        "label": "LTX 2.5 distilled INT8 model",
+        "repo": "Lightricks/LTX-2.5",
+        "repo_path": "diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+        "target_subdir": "diffusion_models",
+        "filename": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+        "size": 21_504_034_224,
+    },
+    {
+        "id": "text_encoder",
+        "label": "Gemma 4 text encoder with LTX 2.5 projection",
+        "repo": "Lightricks/LTX-2.5",
+        "repo_path": "text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+        "target_subdir": "text_encoders",
+        "filename": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+        "size": 15_372_971_786,
+    },
+    {
+        "id": "video_vae",
+        "label": "LTX 2.5 video VAE",
+        "repo": "Lightricks/LTX-2.5",
+        "repo_path": "vae/ltx-2.5-video-vae-bf16.safetensors",
+        "target_subdir": "vae",
+        "filename": "ltx-2.5-video-vae-bf16.safetensors",
+        "size": 1_472_223_346,
+    },
+    {
+        "id": "audio_vae",
+        "label": "LTX 2.5 audio VAE",
+        "repo": "Lightricks/LTX-2.5",
+        "repo_path": "vae/ltx-2.5-audio-vae-bf16.safetensors",
+        "target_subdir": "vae",
+        "filename": "ltx-2.5-audio-vae-bf16.safetensors",
+        "size": 364_866_540,
+    },
+    {
+        "id": "spatial_upscaler",
+        "label": "LTX 2.5 spatial upscaler x2",
+        "repo": "Lightricks/LTX-2.5",
+        "repo_path": "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
+        "target_subdir": "latent_upscale_models",
+        "filename": "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
+        "size": 995_778_752,
+    },
+]
+
+
 MODEL_ROOT_SUBDIRS = {
     "unet",
     "diffusion_models",
@@ -232,10 +281,28 @@ def _default_package() -> Dict:
     }
 
 
+def _ltx25_package() -> Dict:
+    return {
+        "id": "ltx_25_distilled_int8",
+        "title": "LTX 2.5 Distilled INT8",
+        "description": (
+            "Official LTX 2.5 distilled INT8 model set, including the projected Gemma 4 text encoder, "
+            "video/audio VAEs, and x2 spatial upscaler. Sign in to Hugging Face and complete "
+            "Agree and Access before opening the download links. Files are provided under the "
+            "LTX-2 Community License."
+        ),
+        "files": [_model_file_to_package_file(item) for item in LTX25_MODEL_FILES],
+    }
+
+
+def _builtin_packages() -> List[Dict]:
+    return [_default_package(), _ltx25_package()]
+
+
 def _default_presets_state() -> Dict:
     return {
         "active_preset_id": "ltx_23_8gb_vram",
-        "presets": [_default_package()],
+        "presets": _builtin_packages(),
     }
 
 
@@ -510,13 +577,14 @@ def _parse_presets_state(value) -> Dict:
     if not isinstance(presets, list):
         presets = []
 
-    default_package = _default_package()
+    builtin_packages = _builtin_packages()
+    builtin_ids = {package["id"] for package in builtin_packages}
     normalized = [
         _normalize_package(item)
         for item in presets
-        if isinstance(item, dict) and str(item.get("id") or "") != default_package["id"]
+        if isinstance(item, dict) and str(item.get("id") or "") not in builtin_ids
     ]
-    normalized = [default_package, *normalized]
+    normalized = [*builtin_packages, *normalized]
 
     active_id = str(value.get("active_preset_id") or normalized[0]["id"])
     if not any(item["id"] == active_id for item in normalized):
@@ -534,6 +602,15 @@ def _active_package_from_state(state_value) -> Dict:
         if package["id"] == state["active_preset_id"]:
             return package
     return state["presets"][0]
+
+
+def _canonicalize_builtin_package(package: Dict) -> Dict:
+    """Replace stale saved copies of built-ins while preserving custom packages."""
+    package_id = str(package.get("id") or "")
+    for builtin in _builtin_packages():
+        if builtin["id"] == package_id:
+            return builtin
+    return package
 
 
 def _model_subdirs(models_root: str) -> List[str]:
@@ -624,7 +701,11 @@ def _public_package_files(models_root: str, package: Dict) -> List[Dict]:
 def _build_payload(root_id: str | None, state_value=None, package_value=None, model_root: str | None = None) -> Dict:
     selected, roots, selection_mode, selection_reason = _select_root(root_id)
     state = _parse_presets_state(state_value)
-    package = _normalize_package(package_value) if package_value is not None else _active_package_from_state(state)
+    package = (
+        _canonicalize_builtin_package(_normalize_package(package_value))
+        if package_value is not None
+        else _active_package_from_state(state)
+    )
     roots = [
         {
             **root,
@@ -701,9 +782,10 @@ async def ltx_model_downloader_check(request):
 class DenoLTXModelDownloader:
     DESCRIPTION = (
         "Preset-based easy model download helper.\n"
-        "The first preset is the LTX 2.3 8GB VRAM GGUF starter set. "
-        "Shows official Hugging Face links, target ComfyUI model paths, "
-        "and local install status without running automatic downloads."
+        "Includes the LTX 2.3 8GB VRAM GGUF starter set and the official LTX 2.5 Distilled INT8 set. "
+        "Shows Hugging Face links, target ComfyUI model paths, and local install status without "
+        "running automatic downloads. LTX 2.5 requires Hugging Face Agree and Access and is "
+        "provided under the LTX-2 Community License."
     )
     RETURN_TYPES = ()
     FUNCTION = "run"

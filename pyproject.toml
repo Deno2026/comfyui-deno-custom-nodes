@@ -1,7 +1,7 @@
 [project]
 name = "deno-custom-nodes"
-description = "DENO RTX node pack for ComfyUI: MiniMax H3 multi-reference image and Reference to Video helpers, local audio transcription and analysis helpers, Ideogram Director visual JSON/bbox prompt builder, Local LLM Loader and Reviewer helpers, GPT/Gemini-ready Error Help reports, Prompt Only final prompt extraction, RTX Video Super Resolution, RTX Super Resolution, Video SR/VSR, NVIDIA VFX/nvvfx, RTX upscale helpers, LTX 2.3 workflows, LTX tiled second-pass refinement helpers, Bernini Prompt Guide, audio/image review gates, Bernini conditioning helpers, Wan 2.2 reference video edit workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
-version = "0.7.85"
+description = "DENO RTX node pack for ComfyUI: MiniMax H3 multi-reference image and Reference to Video helpers, local audio transcription and analysis helpers, Ideogram Director visual JSON/bbox prompt builder, Local LLM Loader and Reviewer helpers, GPT/Gemini-ready Error Help reports, Prompt Only final prompt extraction, RTX Video Super Resolution, RTX Super Resolution, Video SR/VSR, NVIDIA VFX/nvvfx, RTX upscale helpers, LTX 2.3 and LTX 2.5 model/workflow helpers, LTX tiled second-pass refinement helpers, Bernini Prompt Guide, audio/image review gates, Bernini conditioning helpers, Wan 2.2 reference video edit workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
+version = "0.7.86"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = ["openai-whisper>=20250625"]
@@ -21,6 +21,7 @@ keywords = [
   "nvvfx",
   "ltx-video",
   "ltx-2.3",
+  "ltx-2.5",
   "ltx-tiled",
   "ltx-tiled-sampler",
   "ltx-av-tiled",

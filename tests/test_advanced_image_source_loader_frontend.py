@@ -35,3 +35,40 @@ def test_external_root_memory_is_runtime_only() -> None:
     assert "node.properties.__denoAdvancedLastExternalRoot" not in source
     assert "localStorage" not in source
     assert "sessionStorage" not in source
+
+
+def test_advanced_panel_uses_nodes2_fluid_dom_layout() -> None:
+    source = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert 'container.dataset.denoAdvancedLayout = "fluid-v1"' in source
+    assert "height: calc(100% + ${PANEL_WRAPPER_COMPENSATION}px)" in source
+    assert "getMinHeight: () => PANEL_MIN_HEIGHT + PANEL_WIDGET_EXTRA_HEIGHT" in source
+    assert "flex: 1 1 0px" in source
+    assert "height: 0" in source
+    assert 'const widget = node.addDOMWidget("advanced_source_panel"' not in source
+    assert "function panelHeight()" not in source
+    assert "refreshPanelHeight" not in source
+    assert "PANEL_RESERVED_NODE_HEIGHT" not in source
+    assert "panelResizeObserver?.observe(container)" in source
+    assert "panelResizeObserver?.observe(grid)" in source
+
+
+def test_advanced_gallery_keeps_disabled_cards_readable_without_full_toggle_render() -> None:
+    source = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert 'image.style.opacity = isDisabled ? "0.78" : "1"' in source
+    assert 'disabledPill.style.display = isDisabled ? "block" : "none"' in source
+    assert "syncDisabledCardStates(currentPaths, new Set(cleaned))" in source
+    assert "cards.forEach((card) => applyCardDisabledState" in source
+    assert "scheduleMasonryRefresh();" in source
+
+
+def test_advanced_panel_preserves_local_gallery_scroll_and_canvas_navigation() -> None:
+    source = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert "installMiddleMouseCanvasPan(container, grid)" in source
+    assert 'window.addEventListener("wheel", onWheel' in source
+    assert "localScrollSurface.contains?.(target)" in source
+    assert "localScrollSurface.scrollTop += event.deltaY * deltaScale" in source
+    assert 'canvas.dispatchEvent(new WheelEvent("wheel"' in source
+    assert 'window.addEventListener("mousedown", onMouseDown, true)' in source

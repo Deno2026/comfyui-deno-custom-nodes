@@ -11,7 +11,7 @@ const LEGACY_PRESET_STORAGE_KEYS = [
     "deno_ltx_model_downloader_presets_v1",
     "deno_ltx_model_downloader_presets_v2",
 ];
-const LTX_MODEL_DOWNLOADER_REV = "r2026.06.23-root-intent-c";
+const LTX_MODEL_DOWNLOADER_REV = "r2026.08.12-ltx25-presets-a";
 
 const DEFAULT_PACKAGE = {
     id: "ltx_23_8gb_vram",
@@ -69,9 +69,60 @@ const DEFAULT_PACKAGE = {
     ],
 };
 
+const LTX25_PACKAGE = {
+    id: "ltx_25_distilled_int8",
+    title: "LTX 2.5 Distilled INT8",
+    description: "Official LTX 2.5 distilled INT8 model set, including the projected Gemma 4 text encoder, video/audio VAEs, and x2 spatial upscaler. Sign in to Hugging Face and complete Agree and Access before opening the download links. Files are provided under the LTX-2 Community License.",
+    files: [
+        {
+            id: "diffusion_model",
+            label: "LTX 2.5 distilled INT8 model",
+            url: "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors?download=true",
+            target_subdir: "diffusion_models",
+            filename: "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+            size: 21504034224,
+        },
+        {
+            id: "text_encoder",
+            label: "Gemma 4 text encoder with LTX 2.5 projection",
+            url: "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors?download=true",
+            target_subdir: "text_encoders",
+            filename: "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+            size: 15372971786,
+        },
+        {
+            id: "video_vae",
+            label: "LTX 2.5 video VAE",
+            url: "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-video-vae-bf16.safetensors?download=true",
+            target_subdir: "vae",
+            filename: "ltx-2.5-video-vae-bf16.safetensors",
+            size: 1472223346,
+        },
+        {
+            id: "audio_vae",
+            label: "LTX 2.5 audio VAE",
+            url: "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-audio-vae-bf16.safetensors?download=true",
+            target_subdir: "vae",
+            filename: "ltx-2.5-audio-vae-bf16.safetensors",
+            size: 364866540,
+        },
+        {
+            id: "spatial_upscaler",
+            label: "LTX 2.5 spatial upscaler x2",
+            url: "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors?download=true",
+            target_subdir: "latent_upscale_models",
+            filename: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
+            size: 995778752,
+        },
+    ],
+};
+
+const BUILTIN_PACKAGES = [DEFAULT_PACKAGE, LTX25_PACKAGE];
+const BUILTIN_PACKAGE_IDS = new Set(BUILTIN_PACKAGES.map((item) => item.id));
+
 const DEFAULT_STATE = {
     active_preset_id: DEFAULT_PACKAGE.id,
-    presets: [DEFAULT_PACKAGE],
+    presets: BUILTIN_PACKAGES,
 };
 
 app.registerExtension({
@@ -681,6 +732,16 @@ function buildUi(node, rootWidget, presetsWidget) {
             if (!request.isCurrent() || sequence !== state.refreshSequence) {
                 return;
             }
+            const normalizedBackendState = normalizedPresetsStateFromPayload(payload);
+            if (normalizedBackendState) {
+                if (!presetsStateEqual(state.presetsState, normalizedBackendState)) {
+                    state.presetsState = writePresetsState(presetsWidget, normalizedBackendState);
+                    state.editorPresetId = currentPackage(state.presetsState).id;
+                    markWorkflowDirty();
+                    renderPresetButton();
+                    editor.load(currentPackage(state.presetsState));
+                }
+            }
             renderRoots(payload);
             renderFiles(payload.files || []);
             const total = (payload.files || []).length;
@@ -707,15 +768,15 @@ function buildUi(node, rootWidget, presetsWidget) {
 
     function saveEditorPreset(nextPackage) {
         const normalized = normalizePackage(nextPackage);
-        const editingDefaultPreset = state.editorPresetId === DEFAULT_PACKAGE.id;
+        const editingBuiltinPreset = isBuiltinPresetId(state.editorPresetId);
         const requestedId = normalized.id || slugify(normalized.title);
         const addingPreset = !state.editorPresetId;
-        const packageId = editingDefaultPreset || addingPreset
-            ? uniquePresetId(requestedId === DEFAULT_PACKAGE.id ? `${DEFAULT_PACKAGE.id}_custom` : requestedId, state.presetsState.presets)
+        const packageId = editingBuiltinPreset || addingPreset
+            ? uniquePresetId(isBuiltinPresetId(requestedId) ? `${requestedId}_custom` : requestedId, state.presetsState.presets)
             : state.editorPresetId;
         normalized.id = packageId;
 
-        const presets = ensureDefaultPreset(state.presetsState.presets);
+        const presets = ensureBuiltinPresets(state.presetsState.presets);
         const existingIndex = presets.findIndex((item) => item.id === packageId);
         if (existingIndex >= 0) {
             presets[existingIndex] = normalized;
@@ -1423,11 +1484,17 @@ function prettyBytes(value) {
 }
 
 function readPresetsState(widget) {
+    let parsedWidgetState = null;
     let widgetState = null;
     try {
-        widgetState = normalizePresetsState(JSON.parse(widget?.value || ""));
+        parsedWidgetState = JSON.parse(widget?.value || "");
+        widgetState = normalizePresetsState(parsedWidgetState);
     } catch (_error) {
         widgetState = normalizePresetsState(DEFAULT_STATE);
+    }
+    if (widget && JSON.stringify(parsedWidgetState) !== JSON.stringify(widgetState)) {
+        widget.value = JSON.stringify(widgetState, null, 2);
+        widget.callback?.(widget.value);
     }
     const storedState = readStoredPresetsState();
     if (storedState && hasCustomPresets(storedState)) {
@@ -1458,10 +1525,7 @@ function readStoredPresetsState() {
                 continue;
             }
             const stored = normalizePresetsState(JSON.parse(raw));
-            return {
-                active_preset_id: DEFAULT_PACKAGE.id,
-                presets: stored.presets,
-            };
+            return stored;
         } catch (_error) {
             // Ignore stale browser storage and keep the workflow as authority.
         }
@@ -1473,7 +1537,7 @@ function writeStoredPresetsState(value) {
     try {
         const normalized = normalizePresetsState(value);
         localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify({
-            active_preset_id: DEFAULT_PACKAGE.id,
+            active_preset_id: normalized.active_preset_id,
             presets: normalized.presets,
         }));
     } catch (_error) {
@@ -1486,7 +1550,7 @@ function mergePresetLibrary(workflowState, storedState) {
     const stored = normalizePresetsState(storedState);
     const byId = new Map(workflow.presets.map((item) => [item.id, item]));
     for (const item of stored.presets) {
-        if (item.id !== DEFAULT_PACKAGE.id && !byId.has(item.id)) {
+        if (!isBuiltinPresetId(item.id) && !byId.has(item.id)) {
             byId.set(item.id, item);
         }
     }
@@ -1501,12 +1565,12 @@ function mergePresetLibrary(workflowState, storedState) {
 }
 
 function hasCustomPresets(state) {
-    return normalizePresetsState(state).presets.some((item) => item.id !== DEFAULT_PACKAGE.id);
+    return normalizePresetsState(state).presets.some((item) => !isBuiltinPresetId(item.id));
 }
 
 function normalizePresetsState(value = {}) {
     const presets = Array.isArray(value.presets) ? value.presets.map(normalizePackage) : [];
-    const safePresets = ensureDefaultPreset(presets);
+    const safePresets = ensureBuiltinPresets(presets);
     let activeId = String(value.active_preset_id || safePresets[0].id);
     if (!safePresets.some((item) => item.id === activeId)) {
         activeId = safePresets[0].id;
@@ -1540,12 +1604,24 @@ function normalizePackage(value = {}) {
     };
 }
 
-function ensureDefaultPreset(presets = []) {
-    const defaultPreset = normalizePackage(DEFAULT_PACKAGE);
+function ensureBuiltinPresets(presets = []) {
+    const builtins = BUILTIN_PACKAGES.map(normalizePackage);
     const customPresets = presets
         .map(normalizePackage)
-        .filter((item) => item.id !== DEFAULT_PACKAGE.id);
-    return [defaultPreset, ...customPresets];
+        .filter((item) => !isBuiltinPresetId(item.id));
+    return [...builtins, ...customPresets];
+}
+
+function isBuiltinPresetId(presetId) {
+    return BUILTIN_PACKAGE_IDS.has(String(presetId || ""));
+}
+
+function presetsStateEqual(left, right) {
+    return JSON.stringify(normalizePresetsState(left)) === JSON.stringify(normalizePresetsState(right));
+}
+
+function normalizedPresetsStateFromPayload(payload = {}) {
+    return payload?.presets_state ? normalizePresetsState(payload.presets_state) : null;
 }
 
 function uniquePresetId(baseId, presets = []) {
@@ -1553,7 +1629,7 @@ function uniquePresetId(baseId, presets = []) {
     const used = new Set(
         presets
             .map((item) => String(item?.id || ""))
-            .filter((id) => id && id !== DEFAULT_PACKAGE.id)
+            .filter((id) => id && !isBuiltinPresetId(id))
     );
     if (!used.has(safeBase)) {
         return safeBase;
@@ -1640,5 +1716,17 @@ async function copyText(text) {
 if (typeof window !== "undefined" && typeof window.__DENO_LTX_MODEL_DOWNLOADER_TEST_HOOK__ === "function") {
     window.__DENO_LTX_MODEL_DOWNLOADER_TEST_HOOK__({
         createLatestRequestGate,
+        normalizePresetsState,
+        mergePresetLibrary,
+        hasCustomPresets,
+        isBuiltinPresetId,
+        presetsStateEqual,
+        normalizedPresetsStateFromPayload,
+        readPresetsState,
+        readStoredPresetsState,
+        writeStoredPresetsState,
+        DEFAULT_PACKAGE,
+        LTX25_PACKAGE,
+        DEFAULT_STATE,
     });
 }
