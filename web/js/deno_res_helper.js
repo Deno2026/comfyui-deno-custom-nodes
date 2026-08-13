@@ -1200,10 +1200,11 @@ function getLinkedImageState(node) {
     const upstreamPreviewImage = Array.isArray(sourceNode.imgs) && sourceNode.imgs.length > 0
         ? sourceNode.imgs[0]
         : null;
-    if (upstreamPreviewImage) {
+    const embeddedPreviewMedia = sourcePreviewMedia(sourceNode);
+    if (upstreamPreviewImage || embeddedPreviewMedia) {
         clearSourcePreviewImage(node);
     }
-    const previewImage = upstreamPreviewImage || ensureSourcePreviewImage(node, previewUrl);
+    const previewImage = upstreamPreviewImage || embeddedPreviewMedia || ensureSourcePreviewImage(node, previewUrl);
 
     const hintedSize = sourceNode.__denoOutputImageSize ?? sourceNode.properties?.__denoOutputImageSize;
     const hintedWidth = Number(hintedSize?.width);
@@ -1212,12 +1213,9 @@ function getLinkedImageState(node) {
         return { connected: true, size: { width: hintedWidth, height: hintedHeight }, previewImage, previewUrl };
     }
 
-    if (previewImage) {
-        const imgWidth = Number(previewImage?.naturalWidth ?? previewImage?.width ?? 0);
-        const imgHeight = Number(previewImage?.naturalHeight ?? previewImage?.height ?? 0);
-        if (imgWidth > 0 && imgHeight > 0) {
-            return { connected: true, size: { width: imgWidth, height: imgHeight }, previewImage, previewUrl };
-        }
+    const previewSize = previewMediaSize(previewImage);
+    if (previewSize) {
+        return { connected: true, size: previewSize, previewImage, previewUrl };
     }
 
     const widthWidget = getWidget(sourceNode, "width");
@@ -1229,6 +1227,23 @@ function getLinkedImageState(node) {
     }
 
     return { connected: true, size: null, previewImage, previewUrl };
+}
+
+function sourcePreviewMedia(sourceNode) {
+    const widgets = sourceNode?.widgets || [];
+    const previewWidget = widgets.find((widget) => widget?.name === "videopreview")
+        || widgets.find((widget) => widget?.videoEl || widget?.imgEl);
+    const candidates = [previewWidget?.videoEl, previewWidget?.imgEl];
+    return candidates.find((candidate) => previewMediaSize(candidate)) || null;
+}
+
+function previewMediaSize(media) {
+    if (!media) {
+        return null;
+    }
+    const width = Number(media.videoWidth || media.naturalWidth || media.width || 0);
+    const height = Number(media.videoHeight || media.naturalHeight || media.height || 0);
+    return width > 0 && height > 0 ? { width, height } : null;
 }
 
 function sourcePreviewUrl(sourceNode) {

@@ -99,6 +99,31 @@ assert.match(knownInfo.text, new RegExp(`^${knownInfo.width} x ${knownInfo.heigh
 assert.doesNotMatch(knownInfo.text, /Input-dependent/);
 assert.equal(JSON.stringify(known.widgets), knownBefore);
 
+const vhsVideoElement = { videoWidth: 595, videoHeight: 730 };
+const vhsSource = {
+  id: 10,
+  widgets: [{ name: "videopreview", videoEl: vhsVideoElement, imgEl: { naturalWidth: 0, naturalHeight: 0 } }],
+};
+graph.nodes.set(10, vhsSource);
+graph.links[104] = { origin_id: 10 };
+const vhsConnected = makeNode({ connected: true, linkId: 104 });
+vhsConnected.widgets.find((widget) => widget.name === "megapixels").value = 0.4;
+const vhsExpected = hooks.computeKeepInputRatioDims(595, 730, 0.4, 32);
+const vhsInfo = hooks.calculateDisplayInfo(vhsConnected);
+assert.deepEqual(
+  [vhsInfo.width, vhsInfo.height],
+  Array.from(vhsExpected),
+  "VHS video metadata must drive Keep Input Ratio before workflow execution",
+);
+assert.deepEqual([vhsInfo.previewWidth, vhsInfo.previewHeight], Array.from(vhsExpected));
+assert.equal(vhsInfo.sourceState.previewImage, vhsVideoElement);
+assert.deepEqual(
+  [vhsInfo.sourceState.size.width, vhsInfo.sourceState.size.height],
+  [595, 730],
+);
+assert.match(vhsInfo.text, new RegExp(`^${vhsInfo.width} x ${vhsInfo.height}\\b`));
+assert.doesNotMatch(vhsInfo.text, /Input-dependent/);
+
 const loadImageSource = {
   id: 8,
   widgets: [{ name: "image", value: "references/session/example image.png" }],

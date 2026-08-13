@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.87 - 2026-08-13
+
+- Fixed `(Deno) Resize Box` in `Keep Input Ratio` mode so connected VHS video previews provide their loaded frame ratio before execution, replacing the incorrect 1024 x 1024 fallback preview with the computed portrait or landscape output dimensions without changing backend sizing or saved workflow compatibility.
+
 ## 0.7.86 - 2026-08-12
 
 - Added the complete official LTX 2.5 Distilled INT8 model set to `(Deno) Easy Model Download Helper`, including the two-stage x2 spatial upscaler, while preserving saved custom and legacy LTX 2.3 presets and keeping all gated downloads in the user's browser.
