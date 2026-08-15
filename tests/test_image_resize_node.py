@@ -3885,6 +3885,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
             return [{"id": "custom-model-e", "label": "Custom Model E", "loaded": False}]
         if provider == "llama-swap":
             return [{"id": "llama-swap-model-f", "label": "llama-swap Model F", "loaded": False}]
+        if provider == "Unsloth":
+            return [{"id": "unsloth-model-g", "label": "Unsloth Model G", "loaded": False}]
         return [{"id": "ollama-model-a", "label": "Ollama Model A", "loaded": False}]
 
     module.list_local_llm_models = fake_list_models
@@ -3909,12 +3911,13 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"]) == node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"])
     assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"], video_seconds=[8.0]) != node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"], video_seconds=[9.0])
     assert "help rewrite or review prompt text" in node_cls.DESCRIPTION
-    assert "Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap" in node_cls.DESCRIPTION
+    assert "Ollama, LM Studio, llama.cpp, vLLM, Custom, llama-swap, or Unsloth" in node_cls.DESCRIPTION
     assert "An optional IMAGE input" in node_cls.DESCRIPTION
     assert "connect STRING into Prompt" in node_cls.DESCRIPTION
     assert "AUDIO" not in node_cls.DESCRIPTION
-    assert required["provider"][0] == ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap"]
+    assert required["provider"][0] == ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap", "Unsloth"]
     assert "llama-swap" in required["provider"][1]["tooltip"]
+    assert "Unsloth Studio" in required["provider"][1]["tooltip"]
     assert "server_url" not in required
     assert "model" not in required
     assert required["ollama_model"][0] == ["ollama-model-a"]
@@ -3922,6 +3925,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert required["custom_server_url"][0] == "STRING"
     assert required["custom_server_url"][1]["default"] == "http://127.0.0.1:8000/v1"
     assert "llama-swap" in required["custom_server_url"][1]["tooltip"]
+    assert "http://127.0.0.1:8888/v1" in required["custom_server_url"][1]["tooltip"]
+    assert "DENO_LOCAL_LLM_UNSLOTH_API_KEY" in required["custom_server_url"][1]["tooltip"]
     assert required["custom_model"][0] == "STRING"
     assert required["system_prompt"][1]["default"] == ""
     assert required["system_prompt"][1]["multiline"] is True
@@ -3933,8 +3938,10 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "user_prompt" not in required
     assert required["seed_mode"][0] == ["fixed", "increment", "decrement", "randomize"]
     assert "control_after_generate" not in required
+    assert "retries once without that field" in required["thinking"][1]["tooltip"]
     assert required["model_memory"][0] == ["Unload after run", "Keep for minutes", "Keep loaded"]
     assert "server-side unload timeout" in required["keep_minutes"][1]["tooltip"]
+    assert "does not schedule a timed unload" in required["keep_minutes"][1]["tooltip"]
     assert required["comfy_vram_policy"][0] == [
         "Auto: unload only before first LLM call",
         "Always unload before each LLM call",
@@ -4055,6 +4062,10 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "vLLM" in script
     assert "Custom" in script
     assert "LEGACY_PROVIDER_CUSTOM" in script
+    assert 'const PROVIDER_UNSLOTH = "Unsloth";' in script
+    assert 'const UNSLOTH_DEFAULT_URL = "http://127.0.0.1:8888/v1";' in script
+    assert "const LOADER_SERIALIZED_WIDGET_COUNT = 13;" in script
+    assert "unslothStatusCopy" in script
     assert "Server URL" in script
     assert "custom_server_url" in script
     assert "LEGACY_CUSTOM_DEFAULT_URL" in script

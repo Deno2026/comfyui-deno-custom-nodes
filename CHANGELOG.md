@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.88 - 2026-08-15
+
+- Added Unsloth Studio as a first-class `(Deno) Local LLM Loader` provider with authenticated model discovery and chat, Thinking control, manual and post-run unload, provider-specific URL restoration, and saved-workflow compatibility without storing the API key in workflows or PNG metadata.
+- Fixed LM Studio compatibility for models that do not expose reasoning configuration by retrying exactly once without `reasoning_effort` only before generation output starts, while preserving the prompt, images, seed, structured-output request, cancellation, and unload behavior. Fixes #68.
+
 ## 0.7.87 - 2026-08-13
 
 - Fixed `(Deno) Resize Box` in `Keep Input Ratio` mode so connected VHS video previews provide their loaded frame ratio before execution, replacing the incorrect 1024 x 1024 fallback preview with the computed portrait or landscape output dimensions without changing backend sizing or saved workflow compatibility.

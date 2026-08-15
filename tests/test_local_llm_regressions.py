@@ -1331,6 +1331,347 @@ def test_llama_swap_terminal_request_cleanup_occurs_exactly_once(
     assert cleanup_state["provider_cleanup_attempted"] is bool(expected_unloads)
 
 
+def test_unsloth_is_appended_without_changing_local_llm_widget_schema():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    assert module.PROVIDERS[-1] == module.PROVIDER_UNSLOTH == "Unsloth"
+    assert module._default_openai_compatible_server(module.PROVIDER_UNSLOTH) == (
+        "http://127.0.0.1:8888/v1"
+    )
+    required = package.DenoLocalLLMRefiner.INPUT_TYPES()["required"]
+    assert list(required) == [
+        "provider",
+        "ollama_model",
+        "lm_studio_model",
+        "custom_server_url",
+        "custom_model",
+        "system_prompt",
+        "thinking",
+        "seed",
+        "seed_mode",
+        "model_memory",
+        "keep_minutes",
+        "comfy_vram_policy",
+        "prompt",
+    ]
+
+
+def test_unsloth_model_list_uses_environment_bearer_without_payload_leak(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    calls = []
+    secret = "test-unsloth-secret"
+    monkeypatch.setenv(module.UNSLOTH_API_KEY_ENV, secret)
+
+    def fake_http_json(url, payload=None, **kwargs):
+        calls.append((url, payload, dict(kwargs)))
+        return {"data": [{"id": "unsloth/Qwen3.8-27B", "object": "model"}]}
+
+    monkeypatch.setattr(module, "_http_json", fake_http_json)
+
+    models = module.list_local_llm_models(module.PROVIDER_UNSLOTH, "")
+
+    assert models == [
+        {
+            "id": "unsloth/Qwen3.8-27B",
+            "label": "unsloth/Qwen3.8-27B",
+            "loaded": False,
+        }
+    ]
+    assert calls == [
+        (
+            "http://127.0.0.1:8888/v1/models",
+            None,
+            {
+                "timeout": 10.0,
+                "headers": {"Authorization": f"Bearer {secret}"},
+            },
+        )
+    ]
+    assert secret not in json.dumps(models)
+
+
+def test_local_llm_http_helpers_forward_optional_headers_without_putting_them_in_payload(
+    monkeypatch,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    requests = []
+    secret = "transport-only-secret"
+
+    class FakeResponse:
+        status = 200
+
+        def __init__(self, lines=None, body=b"{}"):
+            self.lines = list(lines or [])
+            self.body = body
+
+        def read(self):
+            return self.body
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else b""
+
+    class FakeConnection:
+        def __init__(self):
+            self.response = None
+
+        def request(self, method, path, body=None, headers=None):
+            payload = json.loads(body.decode("utf-8")) if body else None
+            requests.append((method, path, payload, dict(headers or {})))
+            if path.endswith("/models"):
+                self.response = FakeResponse(body=b'{"data":[]}')
+            else:
+                self.response = FakeResponse(
+                    lines=[
+                        b'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n',
+                        b"\n",
+                    ]
+                )
+
+        def getresponse(self):
+            return self.response
+
+        @staticmethod
+        def close():
+            return None
+
+    monkeypatch.setattr(
+        module,
+        "_open_local_llm_http_connection",
+        lambda _parsed, timeout: FakeConnection(),
+    )
+    auth = {"Authorization": f"Bearer {secret}"}
+
+    assert module._http_json(
+        "http://127.0.0.1:8888/v1/models",
+        headers=auth,
+    ) == {"data": []}
+    events = list(
+        module._http_stream_sse(
+            "http://127.0.0.1:8888/v1/chat/completions",
+            {"model": "local-model", "stream": True},
+            headers=auth,
+        )
+    )
+
+    assert events[0][1]["choices"][0]["delta"]["content"] == "ok"
+    assert requests[0][3]["Authorization"] == f"Bearer {secret}"
+    assert requests[1][3]["Authorization"] == f"Bearer {secret}"
+    assert secret not in json.dumps(requests[0][2])
+    assert secret not in json.dumps(requests[1][2])
+
+
+@pytest.mark.parametrize("thinking", [False, True])
+def test_unsloth_chat_uses_auth_and_enable_thinking_without_key_in_payload_or_raw(
+    monkeypatch,
+    thinking,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    secret = "unsloth-chat-secret"
+    calls = []
+    monkeypatch.setenv(module.UNSLOTH_API_KEY_ENV, secret)
+
+    def fake_stream(url, payload, **kwargs):
+        calls.append((url, dict(payload), dict(kwargs)))
+        delta = {"content": "finished answer"}
+        if thinking:
+            delta["reasoning_content"] = "private reasoning"
+        yield "message", {
+            "choices": [{"delta": delta, "finish_reason": "stop"}],
+        }
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    answer, thought, raw = node._run_openai_compatible(
+        provider=module.PROVIDER_UNSLOTH,
+        server_url="",
+        model="unsloth/Qwen3.8-27B",
+        system_prompt="",
+        prompt="hello",
+        thinking=thinking,
+        seed=7,
+        model_memory="Keep loaded",
+        keep_minutes=5,
+        image_attachments=[],
+        is_last=True,
+        node_id="unsloth-chat",
+        index=1,
+        total=1,
+    )
+
+    assert answer == "finished answer"
+    assert thought == ("private reasoning" if thinking else "")
+    assert len(calls) == 1
+    url, payload, kwargs = calls[0]
+    assert url == "http://127.0.0.1:8888/v1/chat/completions"
+    assert payload["enable_thinking"] is thinking
+    assert kwargs["headers"] == {"Authorization": f"Bearer {secret}"}
+    assert secret not in json.dumps(payload)
+    assert secret not in json.dumps(raw)
+
+
+def test_unsloth_diagnostic_request_reuses_auth_without_storing_key(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    secret = "unsloth-diagnostic-secret"
+    diagnostic_calls = []
+    monkeypatch.setenv(module.UNSLOTH_API_KEY_ENV, secret)
+
+    def fake_stream(_url, _payload, **kwargs):
+        assert kwargs["headers"] == {"Authorization": f"Bearer {secret}"}
+        if False:
+            yield None  # pragma: no cover
+
+    def fake_http_json(url, payload=None, **kwargs):
+        diagnostic_calls.append((url, dict(payload or {}), dict(kwargs)))
+        return {"choices": [{"message": {"content": "diagnostic answer"}}]}
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+    monkeypatch.setattr(module, "_http_json", fake_http_json)
+
+    answer, _thought, raw = node._run_openai_compatible(
+        provider=module.PROVIDER_UNSLOTH,
+        server_url="",
+        model="unsloth/Qwen3.8-27B",
+        system_prompt="",
+        prompt="hello",
+        thinking=False,
+        seed=7,
+        model_memory="Keep loaded",
+        keep_minutes=5,
+        image_attachments=[],
+        is_last=True,
+        node_id="unsloth-diagnostic",
+        index=1,
+        total=1,
+    )
+
+    assert answer == "diagnostic answer"
+    assert diagnostic_calls[0][0] == "http://127.0.0.1:8888/v1/chat/completions"
+    assert diagnostic_calls[0][1]["stream"] is False
+    assert diagnostic_calls[0][2]["headers"] == {
+        "Authorization": f"Bearer {secret}"
+    }
+    assert secret not in json.dumps(raw)
+
+
+def test_unsloth_missing_key_and_unauthorized_errors_explain_environment_setup(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    monkeypatch.delenv(module.UNSLOTH_API_KEY_ENV, raising=False)
+
+    with pytest.raises(RuntimeError, match=module.UNSLOTH_API_KEY_ENV):
+        module.list_local_llm_models(module.PROVIDER_UNSLOTH, "")
+
+    secret = "must-not-leak"
+    monkeypatch.setenv(module.UNSLOTH_API_KEY_ENV, secret)
+
+    def unauthorized_stream(*_args, **_kwargs):
+        raise RuntimeError('Local LLM server returned HTTP 401: {"error":"unauthorized"}')
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(module, "_http_stream_sse", unauthorized_stream)
+
+    with pytest.raises(RuntimeError, match=module.UNSLOTH_API_KEY_ENV) as error:
+        node._run_openai_compatible(
+            provider=module.PROVIDER_UNSLOTH,
+            server_url="",
+            model="unsloth/Qwen3.8-27B",
+            system_prompt="",
+            prompt="hello",
+            thinking=False,
+            seed=7,
+            model_memory="Keep loaded",
+            keep_minutes=5,
+            image_attachments=[],
+            is_last=True,
+            node_id="unsloth-auth",
+            index=1,
+            total=1,
+        )
+    assert secret not in str(error.value)
+
+
+def test_unsloth_non_authentication_server_error_is_preserved(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    monkeypatch.setenv(module.UNSLOTH_API_KEY_ENV, "unsloth-test-secret")
+
+    def server_error(*_args, **_kwargs):
+        raise RuntimeError("HTTP 500: Unsloth worker crashed")
+
+    monkeypatch.setattr(module, "_http_json", server_error)
+
+    with pytest.raises(RuntimeError, match="HTTP 500: Unsloth worker crashed") as error:
+        module.list_local_llm_models(module.PROVIDER_UNSLOTH, "")
+
+    assert error.value.__cause__ is None
+
+
+def test_unsloth_manual_and_post_run_unload_use_official_authenticated_endpoint(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    secret = "unsloth-unload-secret"
+    http_calls = []
+    monkeypatch.setenv(module.UNSLOTH_API_KEY_ENV, secret)
+
+    def fake_http_json(url, payload=None, **kwargs):
+        http_calls.append((url, dict(payload or {}), dict(kwargs)))
+        return {"ok": True}
+
+    def fake_stream(_url, _payload, **_kwargs):
+        yield "message", {
+            "choices": [{"delta": {"content": "done"}, "finish_reason": "stop"}],
+        }
+
+    monkeypatch.setattr(module, "_http_json", fake_http_json)
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    manual = module.unload_local_llm_model(
+        module.PROVIDER_UNSLOTH,
+        "",
+        "unsloth/Qwen3.8-27B",
+    )
+    _answer, _thought, raw = node._run_openai_compatible(
+        provider=module.PROVIDER_UNSLOTH,
+        server_url="",
+        model="unsloth/Qwen3.8-27B",
+        system_prompt="",
+        prompt="hello",
+        thinking=False,
+        seed=7,
+        model_memory="Unload after run",
+        keep_minutes=5,
+        image_attachments=[],
+        is_last=True,
+        node_id="unsloth-unload",
+        index=1,
+        total=1,
+        cleanup_state={"provider_cleanup_attempted": False},
+    )
+
+    assert manual["ok"] is True
+    assert raw["post_run_unload"]["action"] == "Unsloth /api/inference/unload"
+    assert [call[0] for call in http_calls] == [
+        "http://127.0.0.1:8888/api/inference/unload",
+        "http://127.0.0.1:8888/api/inference/unload",
+    ]
+    assert all(call[1] == {"model_path": "unsloth/Qwen3.8-27B"} for call in http_calls)
+    assert all(
+        call[2]["headers"] == {"Authorization": f"Bearer {secret}"}
+        for call in http_calls
+    )
+    assert secret not in json.dumps(manual)
+    assert secret not in json.dumps(raw)
+
+
 @pytest.mark.parametrize(("thinking", "effort"), [(False, "none"), (True, "high")])
 def test_lm_studio_uses_chat_completions_structured_contract(monkeypatch, thinking, effort):
     package = load_package()
@@ -1366,6 +1707,154 @@ def test_lm_studio_uses_chat_completions_structured_contract(monkeypatch, thinki
     assert raw["reasoning_effort"] == effort
     assert raw["api"] == "LM Studio /v1/chat/completions"
     assert all(event["answer"] == "" for event in progress)
+
+
+@pytest.mark.parametrize(("thinking", "effort"), [(False, "none"), (True, "high")])
+def test_lm_studio_retries_once_without_reasoning_effort_for_exact_expose_error(
+    monkeypatch,
+    thinking,
+    effort,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    images = [{
+        "data_url": "data:image/jpeg;base64,reasoning-compat-image",
+        "base64": "reasoning-compat-image",
+        "width": 1,
+        "height": 1,
+        "sent_width": 1,
+        "sent_height": 1,
+    }]
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(dict(payload))
+        if len(payloads) == 1:
+            yield "message", {
+                "error": {
+                    "message": "This model does not expose reasoning configuration",
+                    "type": "invalid_request_error",
+                    "param": "reasoning_effort",
+                    "code": "invalid_value",
+                }
+            }
+            return
+        if thinking:
+            yield _lm_studio_content_chunk(reasoning="native reasoning")
+        yield _lm_studio_content_chunk(content=_ollama_envelope("compatibility answer"))
+        yield _lm_studio_content_chunk(finish_reason="stop")
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    answer, thought, raw = node._run_lm_studio(
+        **_run_lm_studio_kwargs(thinking=thinking, image_attachments=images)
+    )
+
+    assert answer == "compatibility answer"
+    assert thought == ("native reasoning" if thinking else "")
+    assert len(payloads) == 2
+    assert payloads[0]["reasoning_effort"] == effort
+    assert "reasoning_effort" not in payloads[1]
+    first_without_reasoning = dict(payloads[0])
+    first_without_reasoning.pop("reasoning_effort")
+    assert first_without_reasoning == payloads[1]
+    assert payloads[0]["seed"] == payloads[1]["seed"] == 7
+    assert payloads[0]["response_format"] == payloads[1]["response_format"]
+    assert payloads[0]["messages"] == payloads[1]["messages"]
+    assert payloads[1]["messages"][1]["content"][1]["image_url"]["url"].endswith(
+        "reasoning-compat-image"
+    )
+    assert raw["reasoning_effort"] is None
+    assert raw["reasoning_effort_requested"] == effort
+    assert raw["reasoning_effort_applied"] is None
+    assert raw["reasoning_compatibility"] == {
+        "fallback": True,
+        "request": "running",
+        "field": "reasoning_effort",
+        "requested": effort,
+        "applied": None,
+        "error": (
+            "This model does not expose reasoning configuration "
+            "(param: reasoning_effort)"
+        ),
+    }
+
+
+def test_lm_studio_does_not_reasoning_retry_after_any_stream_output(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(dict(payload))
+        yield _lm_studio_content_chunk(content='{"deno_final_answer":"partial')
+        yield "message", {
+            "error": {
+                "message": "This model does not expose reasoning configuration",
+                "param": "reasoning_effort",
+                "code": "invalid_value",
+            }
+        }
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    with pytest.raises(RuntimeError, match="does not expose reasoning configuration"):
+        node._run_lm_studio(**_run_lm_studio_kwargs())
+
+    assert len(payloads) == 1
+    assert payloads[0]["reasoning_effort"] == "none"
+
+
+def test_lm_studio_does_not_reasoning_retry_unrelated_error(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(dict(payload))
+        yield "message", {
+            "error": {
+                "message": "context length exceeded",
+                "param": "messages",
+                "code": "invalid_value",
+            }
+        }
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    with pytest.raises(RuntimeError, match="context length exceeded"):
+        node._run_lm_studio(**_run_lm_studio_kwargs())
+
+    assert len(payloads) == 1
+
+
+def test_lm_studio_reasoning_compatibility_second_failure_is_not_retried(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(dict(payload))
+        yield "message", {
+            "error": {
+                "message": "This model does not expose reasoning configuration",
+                "param": "reasoning_effort",
+                "code": "invalid_value",
+            }
+        }
+
+    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
+
+    with pytest.raises(RuntimeError, match="does not expose reasoning configuration"):
+        node._run_lm_studio(**_run_lm_studio_kwargs())
+
+    assert len(payloads) == 2
+    assert payloads[0]["reasoning_effort"] == "none"
+    assert "reasoning_effort" not in payloads[1]
 
 
 @pytest.mark.parametrize(
