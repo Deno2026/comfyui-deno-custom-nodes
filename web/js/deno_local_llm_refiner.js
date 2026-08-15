@@ -58,15 +58,31 @@ const PROVIDER_LLAMA_CPP = "llama.cpp";
 const PROVIDER_VLLM = "vLLM";
 const PROVIDER_CUSTOM = "Custom";
 const PROVIDER_LLAMA_SWAP = "llama-swap";
+const PROVIDER_UNSLOTH = "Unsloth";
 const LEGACY_PROVIDER_CUSTOM = "Custom Local Server";
-const PROVIDER_VALUES = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO, PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM, PROVIDER_LLAMA_SWAP];
-const OPENAI_COMPATIBLE_PROVIDERS = new Set([PROVIDER_LLAMA_CPP, PROVIDER_VLLM, PROVIDER_CUSTOM, PROVIDER_LLAMA_SWAP]);
+const PROVIDER_VALUES = [
+    PROVIDER_OLLAMA,
+    PROVIDER_LM_STUDIO,
+    PROVIDER_LLAMA_CPP,
+    PROVIDER_VLLM,
+    PROVIDER_CUSTOM,
+    PROVIDER_LLAMA_SWAP,
+    PROVIDER_UNSLOTH,
+];
+const OPENAI_COMPATIBLE_PROVIDERS = new Set([
+    PROVIDER_LLAMA_CPP,
+    PROVIDER_VLLM,
+    PROVIDER_CUSTOM,
+    PROVIDER_LLAMA_SWAP,
+    PROVIDER_UNSLOTH,
+]);
 const OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434";
 const LM_STUDIO_DEFAULT_URL = "http://127.0.0.1:1234/v1";
 const LLAMA_CPP_DEFAULT_URL = "http://127.0.0.1:8080/v1";
 const VLLM_DEFAULT_URL = "http://127.0.0.1:8000/v1";
 const CUSTOM_DEFAULT_URL = "http://127.0.0.1:8000/v1";
 const LLAMA_SWAP_DEFAULT_URL = "http://127.0.0.1:8080/v1";
+const UNSLOTH_DEFAULT_URL = "http://127.0.0.1:8888/v1";
 const LEGACY_CUSTOM_DEFAULT_URL = CUSTOM_DEFAULT_URL;
 const MODEL_MEMORY_VALUES = ["Unload after run", "Keep for minutes", "Keep loaded"];
 const MODEL_MEMORY_ALIASES = {
@@ -5116,6 +5132,24 @@ function llamaSwapStatusCopy(node) {
     return "llama-swap generation uses its OpenAI-compatible /v1 endpoint. How long the model stays loaded is controlled by llama-swap's server-side unload timeout; Unload LLM uses its management API immediately.";
 }
 
+function unslothStatusCopy(node) {
+    const modelMemory = normalizeModelMemoryValue(getWidget(node, "model_memory")?.value);
+    if (modelMemory === "Unload after run") {
+        return "Unsloth Studio generation uses its OpenAI-compatible /v1 endpoint. With Unload after run selected, DENO requests model unload through Unsloth Studio's management API after generation.";
+    }
+    return "Unsloth Studio generation uses its OpenAI-compatible /v1 endpoint. DENO leaves the selected model loaded after the run; Unload LLM uses Unsloth Studio's management API immediately.";
+}
+
+function providerStatusCopy(node, provider) {
+    if (provider === PROVIDER_LLAMA_SWAP) {
+        return llamaSwapStatusCopy(node);
+    }
+    if (provider === PROVIDER_UNSLOTH) {
+        return unslothStatusCopy(node);
+    }
+    return "";
+}
+
 function defaultServerForProvider(provider, node) {
     if (provider === PROVIDER_LM_STUDIO) {
         return LM_STUDIO_DEFAULT_URL;
@@ -5131,6 +5165,9 @@ function defaultServerForProvider(provider, node) {
     }
     if (provider === PROVIDER_LLAMA_SWAP) {
         return serverUrlForOpenAIProvider(node, LLAMA_SWAP_DEFAULT_URL);
+    }
+    if (provider === PROVIDER_UNSLOTH) {
+        return serverUrlForOpenAIProvider(node, UNSLOTH_DEFAULT_URL);
     }
     return OLLAMA_DEFAULT_URL;
 }
@@ -5149,6 +5186,9 @@ function defaultOpenAIProviderUrl(provider) {
     }
     if (provider === PROVIDER_LLAMA_SWAP) {
         return LLAMA_SWAP_DEFAULT_URL;
+    }
+    if (provider === PROVIDER_UNSLOTH) {
+        return UNSLOTH_DEFAULT_URL;
     }
     return CUSTOM_DEFAULT_URL;
 }
@@ -5372,10 +5412,11 @@ function wrapModelMemoryCallback(node) {
         const result = original?.apply(this, arguments);
         memoryWidget.value = normalizeModelMemoryValue(memoryWidget.value);
         setActiveProviderModelVisibility(node);
-        if (currentProvider(node) === PROVIDER_LLAMA_SWAP) {
+        const provider = currentProvider(node);
+        if (provider === PROVIDER_LLAMA_SWAP || provider === PROVIDER_UNSLOTH) {
             setLocalLLMNodeState(node, {
                 status: "ready",
-                thinking: llamaSwapStatusCopy(node),
+                thinking: providerStatusCopy(node, provider),
             });
         }
         refreshNode(node);
@@ -5448,7 +5489,7 @@ function wrapProviderCallback(node) {
             provider,
             model: String(activeModelWidget(node)?.value || ""),
             status: "ready",
-            thinking: provider === PROVIDER_LLAMA_SWAP ? llamaSwapStatusCopy(node) : "",
+            thinking: providerStatusCopy(node, provider),
         });
         removeRefreshButtonWidgets(node);
         removeStopButtonWidgets(node);
@@ -5776,6 +5817,8 @@ async function unloadLocalModel(node) {
             ? "Refresh Models and select an installed local LLM model before unloading."
             : provider === PROVIDER_LLAMA_SWAP
               ? "Requesting unload through llama-swap's management API."
+              : provider === PROVIDER_UNSLOTH
+                ? "Requesting unload through Unsloth Studio's management API."
               : "Requesting unload from the local LLM server.",
     });
     refreshNode(node);

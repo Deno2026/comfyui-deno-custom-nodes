@@ -457,11 +457,13 @@ Local LLM workflow helpers for calling models that are already running on your P
 
 Main features:
 
-- call local Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible, or llama-swap models from ComfyUI
+- call local Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible, llama-swap, or Unsloth Studio models from ComfyUI
 - local-only server safety: use `127.0.0.1` or `localhost`
 - refresh provider-specific model lists from the node
 - stop a running local LLM request before unloading the model
 - use llama-swap's live running-state and management APIs for manual or post-run unload; any configured llama-swap server timeout still owns automatic unloading
+- use the `Unsloth` provider only with an Unsloth Studio server (default `http://127.0.0.1:8888/v1`); if an Unsloth GGUF is running inside LM Studio, select `LM Studio` instead
+- list Unsloth Studio models, send OpenAI-compatible chat requests without tool-definition or tool-choice fields, and use Unsloth Studio's management API for manual or post-run unload; `Keep for minutes` does not schedule a timed Unsloth unload
 - connect prompt batches through one node run so the local model can stay loaded until the batch finishes
 - optionally attach an IMAGE to a vision-capable local model call
 - preview Thinking and Result text directly on the node
@@ -472,6 +474,10 @@ Main features:
 - use `(Deno) Local LLM Reviewer` as a gate before Save nodes
 - pass or block IMAGE and AUDIO outputs from a review text result
 - approve the current reviewed result once, or rerun the path before the reviewer
+
+The `Unsloth` provider requires an API key in the `DENO_LOCAL_LLM_UNSLOTH_API_KEY` environment variable. Set it before starting ComfyUI. The key is not stored in a workflow or PNG metadata.
+
+LM Studio compatibility note: if LM Studio rejects its optional reasoning-control field before any generated output starts, the node retries once without that field. The selected server and model then decide their default reasoning behavior; the Thinking toggle cannot force a reasoning mode that the server does not expose.
 
 Audio note: the Local LLM Loader does not send raw AUDIO into a local model. Its optional `audio_context` STRING input can carry an upstream transcript and acoustic report as data while preserving the user's prompt. The Reviewer can gate AUDIO when another text-generation node, including ComfyUI audio-capable text generation, creates the review text.
 
@@ -533,6 +539,8 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `llama.cpp`
 - `vllm`
 - `llama-swap`
+- `unsloth`
+- `unsloth studio`
 - `bernini`
 - `bernini prompt guide`
 - `bernini conditioning`

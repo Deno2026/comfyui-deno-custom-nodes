@@ -52,6 +52,7 @@ PROVIDER_LLAMA_CPP = "llama.cpp"
 PROVIDER_VLLM = "vLLM"
 PROVIDER_CUSTOM = "Custom"
 PROVIDER_LLAMA_SWAP = "llama-swap"
+PROVIDER_UNSLOTH = "Unsloth"
 LEGACY_PROVIDER_CUSTOM = "Custom Local Server"
 PROVIDERS = [
     PROVIDER_OLLAMA,
@@ -60,12 +61,14 @@ PROVIDERS = [
     PROVIDER_VLLM,
     PROVIDER_CUSTOM,
     PROVIDER_LLAMA_SWAP,
+    PROVIDER_UNSLOTH,
 ]
 OPENAI_COMPATIBLE_PROVIDERS = {
     PROVIDER_LLAMA_CPP,
     PROVIDER_VLLM,
     PROVIDER_CUSTOM,
     PROVIDER_LLAMA_SWAP,
+    PROVIDER_UNSLOTH,
 }
 OLLAMA_DEFAULT_SERVER = "http://127.0.0.1:11434"
 LM_STUDIO_DEFAULT_SERVER = "http://127.0.0.1:1234/v1"
@@ -73,6 +76,8 @@ LLAMA_CPP_DEFAULT_SERVER = "http://127.0.0.1:8080/v1"
 VLLM_DEFAULT_SERVER = "http://127.0.0.1:8000/v1"
 CUSTOM_SERVER_DEFAULT = "http://127.0.0.1:8000/v1"
 LLAMA_SWAP_DEFAULT_SERVER = "http://127.0.0.1:8080/v1"
+UNSLOTH_DEFAULT_SERVER = "http://127.0.0.1:8888/v1"
+UNSLOTH_API_KEY_ENV = "DENO_LOCAL_LLM_UNSLOTH_API_KEY"
 LEGACY_CUSTOM_SERVER_DEFAULT = CUSTOM_SERVER_DEFAULT
 LOCAL_LLM_IMAGE_MAX_SIDE = 2048
 LOCAL_LLM_IMAGE_MAX_PIXELS = 2 * 1024 * 1024
@@ -125,6 +130,7 @@ SHIFTED_MODEL_WIDGET_VALUES = {
     PROVIDER_VLLM,
     PROVIDER_CUSTOM,
     PROVIDER_LLAMA_SWAP,
+    PROVIDER_UNSLOTH,
     LEGACY_PROVIDER_CUSTOM,
     MEMORY_UNLOAD_AFTER_RUN,
     LEGACY_MEMORY_FREE_AFTER_BATCH,
@@ -421,7 +427,31 @@ def _default_openai_compatible_server(provider: str) -> str:
         return VLLM_DEFAULT_SERVER
     if provider == PROVIDER_LLAMA_SWAP:
         return LLAMA_SWAP_DEFAULT_SERVER
+    if provider == PROVIDER_UNSLOTH:
+        return UNSLOTH_DEFAULT_SERVER
     return CUSTOM_SERVER_DEFAULT
+
+
+def _unsloth_request_headers() -> Dict[str, str]:
+    api_key = str(os.environ.get(UNSLOTH_API_KEY_ENV) or "").strip()
+    if not api_key:
+        raise RuntimeError(
+            "Unsloth requires an API key for this provider. Set "
+            f"{UNSLOTH_API_KEY_ENV} in the ComfyUI host environment, then restart ComfyUI. "
+            "The key is read from the environment only and is never stored in the workflow."
+        )
+    return {"Authorization": f"Bearer {api_key}"}
+
+
+def _unsloth_authentication_error(exc: RuntimeError) -> RuntimeError:
+    message = str(exc or "")
+    lowered = message.lower()
+    if "http 401" in lowered or "unauthorized" in lowered or "authentication" in lowered:
+        return RuntimeError(
+            "Unsloth authentication failed (HTTP 401). Check "
+            f"{UNSLOTH_API_KEY_ENV} in the ComfyUI host environment, then restart ComfyUI."
+        )
+    return exc
 
 
 def _normalize_ollama_url(server_url: str) -> str:
@@ -564,18 +594,21 @@ def _http_json(
     payload: Optional[Dict[str, Any]] = None,
     method: str = "GET",
     timeout: float = 20.0,
+    headers: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     parsed = _parse_local_llm_url(url)
     path = parsed.path or "/"
     if parsed.query:
         path = f"{path}?{parsed.query}"
     body = None if payload is None else json.dumps(payload).encode("utf-8")
-    headers = {"Accept": "application/json"}
+    request_headers = {"Accept": "application/json"}
     if body is not None:
-        headers["Content-Type"] = "application/json"
+        request_headers["Content-Type"] = "application/json"
+    if headers:
+        request_headers.update({str(key): str(value) for key, value in headers.items()})
     connection = _open_local_llm_http_connection(parsed, timeout=timeout)
     try:
-        connection.request(method.upper(), path, body=body, headers=headers)
+        connection.request(method.upper(), path, body=body, headers=request_headers)
         response = connection.getresponse()
         data = response.read().decode("utf-8", errors="replace")
         if response.status >= 400:
@@ -625,9 +658,13 @@ def _http_stream_json_lines(
     payload: Dict[str, Any],
     timeout: float = 600.0,
     cancel_key: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
 ) -> Iterable[Dict[str, Any]]:
     try:
-        for raw_line in _iter_cancellable_response_lines(url, payload, timeout=timeout, cancel_key=cancel_key):
+        stream_kwargs: Dict[str, Any] = {"timeout": timeout, "cancel_key": cancel_key}
+        if headers:
+            stream_kwargs["headers"] = headers
+        for raw_line in _iter_cancellable_response_lines(url, payload, **stream_kwargs):
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line:
                 continue
@@ -641,11 +678,15 @@ def _http_stream_sse(
     payload: Dict[str, Any],
     timeout: float = 600.0,
     cancel_key: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
 ) -> Iterable[Tuple[str, Dict[str, Any]]]:
     event_name = "message"
     data_lines: List[str] = []
     try:
-        for raw_line in _iter_cancellable_response_lines(url, payload, timeout=timeout, cancel_key=cancel_key):
+        stream_kwargs: Dict[str, Any] = {"timeout": timeout, "cancel_key": cancel_key}
+        if headers:
+            stream_kwargs["headers"] = headers
+        for raw_line in _iter_cancellable_response_lines(url, payload, **stream_kwargs):
             line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
             if not line:
                 if data_lines:
@@ -672,6 +713,7 @@ def _iter_cancellable_response_lines(
     payload: Dict[str, Any],
     timeout: float = 600.0,
     cancel_key: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
 ) -> Iterable[bytes]:
     parsed = _parse_local_llm_url(url)
     path = parsed.path or "/"
@@ -685,7 +727,10 @@ def _iter_cancellable_response_lines(
     def reader() -> None:
         try:
             body = json.dumps(payload).encode("utf-8")
-            connection.request("POST", path, body=body, headers={"Content-Type": "application/json"})
+            request_headers = {"Content-Type": "application/json"}
+            if headers:
+                request_headers.update({str(key): str(value) for key, value in headers.items()})
+            connection.request("POST", path, body=body, headers=request_headers)
             response = connection.getresponse()
             if response.status >= 400:
                 message = response.read().decode("utf-8", errors="replace")
@@ -2097,12 +2142,15 @@ def _looks_like_unsupported_lm_studio_reasoning_error(detail: Any) -> bool:
         code = ""
 
     lowered = message.lower()
-    if "reasoning" not in lowered and param != "reasoning":
+    if "reasoning" not in lowered and param not in {"reasoning", "reasoning_effort"}:
         return False
     markers = (
         "does not support",
         "doesn't support",
         "not support",
+        "does not expose",
+        "doesn't expose",
+        "not expose",
         "unsupported",
         "unknown field",
         "unknown parameter",
@@ -2116,9 +2164,24 @@ def _looks_like_unsupported_lm_studio_reasoning_error(detail: Any) -> bool:
     return any(marker in lowered for marker in markers) or code in {
         "invalid_parameter",
         "invalid_request",
+        "invalid_value",
         "unsupported_parameter",
         "unsupported_value",
     }
+
+
+class _LMStudioStreamRequestError(RuntimeError):
+    def __init__(self, detail: Any, *, had_output: bool) -> None:
+        self.detail = detail
+        self.had_output = bool(had_output)
+        if isinstance(detail, dict):
+            message = str(detail.get("message") or detail)
+            error_param = str(detail.get("param") or "").strip()
+            if error_param:
+                message = f"{message} (param: {error_param})"
+        else:
+            message = str(detail or "")
+        super().__init__(message)
 
 
 def _lm_studio_models_cache_key(server_url: str) -> str:
@@ -2233,7 +2296,22 @@ def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]
 
     if provider in OPENAI_COMPATIBLE_PROVIDERS:
         server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
-        payload = _http_json(f"{openai_base}/models", timeout=10.0)
+        request_headers = _unsloth_request_headers() if provider == PROVIDER_UNSLOTH else None
+        try:
+            if request_headers:
+                payload = _http_json(
+                    f"{openai_base}/models",
+                    timeout=10.0,
+                    headers=request_headers,
+                )
+            else:
+                payload = _http_json(f"{openai_base}/models", timeout=10.0)
+        except RuntimeError as exc:
+            if provider == PROVIDER_UNSLOTH:
+                auth_error = _unsloth_authentication_error(exc)
+                if auth_error is not exc:
+                    raise auth_error from exc
+            raise
         models = payload.get("data") or payload.get("models") or []
         llama_swap_running: Set[str] = set()
         if provider == PROVIDER_LLAMA_SWAP:
@@ -2583,6 +2661,22 @@ def _llama_cpp_unload(server_root: str, model: str) -> None:
         raise
 
 
+def _unsloth_unload(server_root: str, model: str) -> None:
+    try:
+        _http_json(
+            f"{_strip_trailing_slash(server_root)}/api/inference/unload",
+            {"model_path": model},
+            method="POST",
+            timeout=30.0,
+            headers=_unsloth_request_headers(),
+        )
+    except RuntimeError as exc:
+        auth_error = _unsloth_authentication_error(exc)
+        if auth_error is not exc:
+            raise auth_error from exc
+        raise
+
+
 def _vllm_sleep_key(server_root: str, model: str) -> str:
     return _llm_state_key(PROVIDER_VLLM, server_root, model)
 
@@ -2671,6 +2765,18 @@ def unload_local_llm_model(provider: str, server_url: str, model: str) -> Dict[s
         _clear_local_llm_warm(provider, openai_base, model)
         return {"ok": True, "message": f"Put vLLM model to sleep: {model}"}
 
+    if provider == PROVIDER_UNSLOTH:
+        server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
+        if (
+            _is_local_llm_active(provider, server_root, model)
+            or _is_local_llm_active(provider, openai_base, model)
+        ):
+            return _busy_unload_response(provider, model)
+        _unsloth_unload(server_root, model)
+        _clear_local_llm_warm(provider, server_root, model)
+        _clear_local_llm_warm(provider, openai_base, model)
+        return {"ok": True, "message": f"Unloaded Unsloth model: {model}"}
+
     if provider == PROVIDER_CUSTOM:
         _normalize_openai_compatible_urls(provider, server_url)
         return {
@@ -2682,7 +2788,9 @@ def unload_local_llm_model(provider: str, server_url: str, model: str) -> Dict[s
             "manual_unavailable": True,
         }
 
-    raise RuntimeError("Provider must be Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap.")
+    raise RuntimeError(
+        "Provider must be Ollama, LM Studio, llama.cpp, vLLM, Custom, llama-swap, or Unsloth."
+    )
 
 
 def _cleanup_aborted_local_llm_batch(provider: str, server_url: str, model: str) -> Dict[str, Any]:
@@ -2756,7 +2864,7 @@ if PromptServer is not None:
 
 class DenoLocalLLMRefiner:
     DESCRIPTION = (
-        "Call a local Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap model "
+        "Call a local Ollama, LM Studio, llama.cpp, vLLM, Custom, llama-swap, or Unsloth model "
         "from ComfyUI and help rewrite or review prompt text.\n\n"
         "An optional IMAGE input can be attached to the local model call. "
         "Use a vision-capable local model for image review. An optional Video Seconds FLOAT input "
@@ -2869,7 +2977,10 @@ class DenoLocalLLMRefiner:
     ):
         raw_provider_value = str(_extract_scalar(provider, PROVIDER_OLLAMA) or "").strip()
         if raw_provider_value not in PROVIDERS and raw_provider_value != LEGACY_PROVIDER_CUSTOM:
-            return "Provider must be Ollama, LM Studio, llama.cpp, vLLM, Custom, or llama-swap."
+            return (
+                "Provider must be Ollama, LM Studio, llama.cpp, vLLM, Custom, "
+                "llama-swap, or Unsloth."
+            )
         provider_value = _normalize_provider(raw_provider_value)
         for result in (
             validate_combo_choice("seed_mode", seed_mode, SEED_MODE_OPTIONS, aliases={"random": SEED_MODE_RANDOMIZE}),
@@ -3453,6 +3564,7 @@ class DenoLocalLLMRefiner:
     ) -> Tuple[str, str, Dict[str, Any]]:
         provider = _normalize_provider(provider)
         server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
+        request_headers = _unsloth_request_headers() if provider == PROVIDER_UNSLOTH else None
         memory_value = _normalize_model_memory(model_memory)
         keep_minutes_value = max(1, int(keep_minutes))
         wake_info: Dict[str, Any] = {"action": "none"}
@@ -3469,6 +3581,8 @@ class DenoLocalLLMRefiner:
             "stream": True,
             "seed": int(seed),
         }
+        if provider == PROVIDER_UNSLOTH:
+            payload["enable_thinking"] = bool(thinking)
         answer_parts: List[str] = []
         thinking_parts: List[str] = []
         final_meta: Dict[str, Any] = {}
@@ -3478,6 +3592,10 @@ class DenoLocalLLMRefiner:
         cancel_key = _llm_state_key(provider, openai_base, model)
 
         def raise_image_hint(exc: RuntimeError) -> None:
+            if provider == PROVIDER_UNSLOTH:
+                auth_error = _unsloth_authentication_error(exc)
+                if auth_error is not exc:
+                    raise auth_error from exc
             message = str(exc)
             lowered = message.lower()
             if image_attachments and any(marker in lowered for marker in ("image", "vision", "multimodal", "image_url", "content part")):
@@ -3490,7 +3608,14 @@ class DenoLocalLLMRefiner:
 
         try:
             try:
-                for _event_name, chunk in _http_stream_sse(f"{openai_base}/chat/completions", payload, cancel_key=cancel_key):
+                stream_kwargs: Dict[str, Any] = {"cancel_key": cancel_key}
+                if request_headers:
+                    stream_kwargs["headers"] = request_headers
+                for _event_name, chunk in _http_stream_sse(
+                    f"{openai_base}/chat/completions",
+                    payload,
+                    **stream_kwargs,
+                ):
                     if chunk.get("error"):
                         error = chunk.get("error")
                         if isinstance(error, dict):
@@ -3529,11 +3654,16 @@ class DenoLocalLLMRefiner:
                 diagnostic_payload = dict(payload)
                 diagnostic_payload["stream"] = False
                 try:
+                    diagnostic_kwargs: Dict[str, Any] = {
+                        "method": "POST",
+                        "timeout": 120.0,
+                    }
+                    if request_headers:
+                        diagnostic_kwargs["headers"] = request_headers
                     diagnostic_meta = _http_json(
                         f"{openai_base}/chat/completions",
                         diagnostic_payload,
-                        method="POST",
-                        timeout=120.0,
+                        **diagnostic_kwargs,
                     )
                 except RuntimeError as exc:
                     raise_image_hint(exc)
@@ -3581,6 +3711,9 @@ class DenoLocalLLMRefiner:
             if provider == PROVIDER_LLAMA_SWAP:
                 _llama_swap_unload(server_root, model)
                 return {"action": "llama-swap /api/models/unload/{model}"}
+            if provider == PROVIDER_UNSLOTH:
+                _unsloth_unload(server_root, model)
+                return {"action": "Unsloth /api/inference/unload"}
             return {
                 "action": "unsupported",
                 "message": (
@@ -3643,6 +3776,8 @@ class DenoLocalLLMRefiner:
         cancel_key = _llm_state_key(PROVIDER_LM_STUDIO, openai_base, model)
         completed_thinking_parts: List[str] = []
         last_emit = 0.0
+        reasoning_compatibility: Optional[Dict[str, Any]] = None
+        reasoning_compatibility_retry_used = False
 
         def stream_request(
             request_payload: Dict[str, Any],
@@ -3652,58 +3787,69 @@ class DenoLocalLLMRefiner:
             request_answer_parts: List[str] = []
             request_thinking_parts: List[str] = []
             final_meta: Dict[str, Any] = {}
-            for _event_name, chunk in _http_stream_sse(
-                f"{openai_base}/chat/completions",
-                request_payload,
-                cancel_key=cancel_key,
-            ):
-                if chunk.get("error"):
-                    error = chunk.get("error")
-                    if isinstance(error, dict):
-                        detail = str(error.get("message") or error)
-                        error_param = str(error.get("param") or "").strip()
-                        if error_param:
-                            detail = f"{detail} (param: {error_param})"
-                    else:
-                        detail = str(error)
-                    if _looks_like_model_unavailable_error(detail):
-                        raise RuntimeError(_model_unavailable_message(model, detail))
-                    raise RuntimeError(detail)
-                content, thought = _extract_lm_delta(chunk)
-                if content:
-                    request_answer_parts.append(content)
-                if thought:
-                    request_thinking_parts.append(thought)
-                choices = chunk.get("choices")
-                if isinstance(choices, list) and choices and isinstance(choices[0], dict):
-                    if choices[0].get("finish_reason") is not None:
-                        final_meta = dict(chunk)
-                now = time.monotonic()
-                if now - last_emit > 0.12 or content or thought:
-                    last_emit = now
-                    visible_thinking_parts = list(completed_thinking_parts) if thinking else []
-                    current_thinking = (
-                        "".join(request_thinking_parts).strip()
-                        if thinking
-                        else ""
-                    )
-                    if current_thinking:
-                        visible_thinking_parts.append(current_thinking)
-                    _send_progress({
-                        "node_id": node_id,
-                        "status": status,
-                        "provider": PROVIDER_LM_STUDIO,
-                        "model": model,
-                        "index": index,
-                        "total": total,
-                        # Never expose an unvalidated JSON envelope or provider chatter.
-                        "answer": "",
-                        "thinking": "\n".join(visible_thinking_parts).strip(),
-                    })
+            had_stream_output = False
+            try:
+                for _event_name, chunk in _http_stream_sse(
+                    f"{openai_base}/chat/completions",
+                    request_payload,
+                    cancel_key=cancel_key,
+                ):
+                    if chunk.get("error"):
+                        error = chunk.get("error")
+                        if isinstance(error, dict):
+                            detail = str(error.get("message") or error)
+                        else:
+                            detail = str(error)
+                        if _looks_like_model_unavailable_error(detail):
+                            raise _LMStudioStreamRequestError(
+                                _model_unavailable_message(model, detail),
+                                had_output=had_stream_output,
+                            )
+                        raise _LMStudioStreamRequestError(error, had_output=had_stream_output)
+                    choices = chunk.get("choices")
+                    if isinstance(choices, list) and choices:
+                        had_stream_output = True
+                    content, thought = _extract_lm_delta(chunk)
+                    if content:
+                        request_answer_parts.append(content)
+                    if thought:
+                        request_thinking_parts.append(thought)
+                    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                        if choices[0].get("finish_reason") is not None:
+                            final_meta = dict(chunk)
+                    now = time.monotonic()
+                    if now - last_emit > 0.12 or content or thought:
+                        last_emit = now
+                        visible_thinking_parts = list(completed_thinking_parts) if thinking else []
+                        current_thinking = (
+                            "".join(request_thinking_parts).strip()
+                            if thinking
+                            else ""
+                        )
+                        if current_thinking:
+                            visible_thinking_parts.append(current_thinking)
+                        _send_progress({
+                            "node_id": node_id,
+                            "status": status,
+                            "provider": PROVIDER_LM_STUDIO,
+                            "model": model,
+                            "index": index,
+                            "total": total,
+                            # Never expose an unvalidated JSON envelope or provider chatter.
+                            "answer": "",
+                            "thinking": "\n".join(visible_thinking_parts).strip(),
+                        })
+            except _LMStudioStreamRequestError:
+                raise
+            except RuntimeError as exc:
+                if _looks_like_unsupported_lm_studio_reasoning_error(exc):
+                    raise _LMStudioStreamRequestError(exc, had_output=had_stream_output) from exc
+                raise
             if not final_meta:
-                raise RuntimeError(
+                raise _LMStudioStreamRequestError(
                     "LM Studio ended the response stream before confirming completion. "
-                    "Partial model text was discarded and no automatic finalization was attempted."
+                    "Partial model text was discarded and no automatic finalization was attempted.",
+                    had_output=had_stream_output,
                 )
             return (
                 "".join(request_answer_parts),
@@ -3711,10 +3857,41 @@ class DenoLocalLLMRefiner:
                 final_meta,
             )
 
+        def stream_request_with_reasoning_compatibility(
+            request_payload: Dict[str, Any],
+            status: str,
+        ) -> Tuple[str, str, Dict[str, Any]]:
+            nonlocal reasoning_compatibility
+            nonlocal reasoning_compatibility_retry_used
+            try:
+                return stream_request(request_payload, status)
+            except _LMStudioStreamRequestError as exc:
+                if (
+                    reasoning_compatibility_retry_used
+                    or exc.had_output
+                    or "reasoning_effort" not in request_payload
+                    or not _looks_like_unsupported_lm_studio_reasoning_error(exc.detail)
+                ):
+                    raise
+                rejected_effort = request_payload.get("reasoning_effort")
+                reasoning_compatibility_retry_used = True
+                request_payload.pop("reasoning_effort", None)
+                reasoning_compatibility = {
+                    "fallback": True,
+                    "request": status,
+                    "field": "reasoning_effort",
+                    "requested": rejected_effort,
+                    "applied": None,
+                    "error": str(exc)[:800],
+                }
+                return stream_request(request_payload, status)
+
         recovery_meta: Optional[Dict[str, Any]] = None
         try:
             try:
-                initial_content, initial_thinking, final_meta = stream_request(payload, "running")
+                initial_content, initial_thinking, final_meta = (
+                    stream_request_with_reasoning_compatibility(payload, "running")
+                )
             except RuntimeError as exc:
                 if _looks_like_unsupported_lm_studio_structured_output_error(exc):
                     raise _structured_output_compatibility_error(PROVIDER_LM_STUDIO, exc) from exc
@@ -3732,7 +3909,10 @@ class DenoLocalLLMRefiner:
                     {"role": "assistant", "content": initial_content},
                     {"role": "user", "content": STRUCTURED_FINALIZATION_INSTRUCTION},
                 ]
-                continuation_payload["reasoning_effort"] = "none"
+                if reasoning_compatibility_retry_used:
+                    continuation_payload.pop("reasoning_effort", None)
+                else:
+                    continuation_payload["reasoning_effort"] = "none"
                 _send_progress({
                     "node_id": node_id,
                     "status": "finishing final answer",
@@ -3744,9 +3924,11 @@ class DenoLocalLLMRefiner:
                     "thinking": thought,
                 })
                 try:
-                    final_content, finalization_thinking, final_meta = stream_request(
-                        continuation_payload,
-                        "finishing final answer",
+                    final_content, finalization_thinking, final_meta = (
+                        stream_request_with_reasoning_compatibility(
+                            continuation_payload,
+                            "finishing final answer",
+                        )
                     )
                 except RuntimeError as exc:
                     if _looks_like_unsupported_lm_studio_structured_output_error(exc):
@@ -3784,9 +3966,13 @@ class DenoLocalLLMRefiner:
             "keep_minutes": keep_minutes_value,
             "reasoning_effort": payload.get("reasoning_effort"),
             "reasoning_requested": reasoning_effort,
+            "reasoning_effort_requested": reasoning_effort,
+            "reasoning_effort_applied": payload.get("reasoning_effort"),
             "api": "LM Studio /v1/chat/completions",
             "meta": final_meta,
         }
+        if reasoning_compatibility is not None:
+            raw["reasoning_compatibility"] = reasoning_compatibility
         if recovery_meta is not None:
             raw["final_answer_recovery"] = recovery_meta
         if image_attachments:

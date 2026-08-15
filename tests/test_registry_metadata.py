@@ -148,6 +148,8 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "free-vram",
         "comfyui-stable",
         "portable-comfyui",
+        "unsloth",
+        "unsloth-studio",
     }
     assert required_keywords.issubset(set(keywords))
     assert pyproject["project"]["requires-python"] == ">=3.10"
