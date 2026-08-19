@@ -186,11 +186,194 @@ STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION = (
     "labels, and Markdown fences unless those visible answer elements are explicitly "
     "requested. Never write anything outside the JSON object."
 )
+OLLAMA_LONG_FORM_STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION = (
+    "Internal response contract: Return exactly one JSON object matching the required "
+    "transport schema, with the complete requested answer in deno_final_answer. The JSON "
+    "wrapper changes only transport, never the requested content. Follow the original system "
+    "and user messages exactly, including the requested language, target word or character "
+    "count, length, level of detail, sections, and visible formatting. Do not shorten, "
+    "summarize, omit, or expand the answer unless the original request asks for it. Never "
+    "include private chain-of-thought, hidden reasoning, scratch work, or internal deliberation. "
+    "If the user requests reasoning or an explanation, provide only the answer-facing "
+    "explanation while preserving the original requested scope and detail. Exclude provider "
+    "preambles, process commentary, transport labels, and unrequested Markdown fences. Never "
+    "write anything outside the JSON object."
+)
+PLAIN_FINAL_ANSWER_SYSTEM_INSTRUCTION = (
+    "Internal final-answer contract: Return only the complete downstream answer requested by "
+    "the user. Follow the original system and user messages exactly, including the requested "
+    "language, target word or character count, length, level of detail, sections, and visible "
+    "formatting. Do not shorten, summarize, omit, or expand the answer unless the original "
+    "request asks for it. Never include private chain-of-thought, hidden reasoning, scratch "
+    "work, or internal deliberation. If the user requests reasoning or an explanation, provide "
+    "only the answer-facing explanation while preserving the original requested scope and "
+    "detail. Exclude provider preambles, process commentary, transport labels, and unrequested "
+    "Markdown fences. Do not add a transport JSON wrapper unless the original request explicitly "
+    "requires that visible format."
+)
 STRUCTURED_FINALIZATION_INSTRUCTION = (
     "Finish the original request now. Return one valid response matching the required "
     "transport JSON schema, with only the requested downstream final answer in "
     "deno_final_answer and no text outside the JSON object."
 )
+OLLAMA_LONG_FORM_STRUCTURED_FINALIZATION_INSTRUCTION = (
+    "Finish the original request now and return the complete answer at the originally requested "
+    "scope. Preserve every requested language, target word or character count, length, level of "
+    "detail, section, and visible format. Do not shorten, summarize, omit, or expand the answer "
+    "unless the original request asks for it. Return one valid response matching the required "
+    "transport JSON schema, with only the requested downstream final answer in "
+    "deno_final_answer and no text outside the JSON object."
+)
+LONG_FORM_COMPATIBILITY_MIN_WORDS = 100
+LONG_FORM_COMPATIBILITY_MIN_CHARACTERS = 500
+LONG_FORM_COMPATIBILITY_MIN_RATIO = 0.60
+EXPLICIT_WORD_COUNT_RE = re.compile(
+    r"(?P<count>\d{1,6}(?:[,\s.]\d{3})*)[-\s]*"
+    r"(?P<unit>words?|mots?|palabras?|w[oö]rter|woerter|woorden|parole|palavras|단어)",
+    re.IGNORECASE,
+)
+EXPLICIT_CHARACTER_COUNT_RE = re.compile(
+    r"(?P<count>\d{1,7}(?:[,\s.]\d{3})*)\s*"
+    r"(?P<unit>characters?|chars?|caract[eè]res?|caracteres?|zeichen|caratteri|caracteres|"
+    r"문자|文字|字)",
+    re.IGNORECASE,
+)
+EXPLICIT_COUNT_UPPER_BOUND_MARKERS = (
+    "at most",
+    "up to",
+    "no more than",
+    "not more than",
+    "fewer than",
+    "less than",
+    "under ",
+    "within",
+    "maximum",
+    "max ",
+    "or fewer",
+    "or less",
+    "au plus",
+    "jusqu'à",
+    "jusqu’a",
+    "pas plus de",
+    "moins de",
+    "ou moins",
+    "como máximo",
+    "hasta",
+    "no más de",
+    "no mas de",
+    "menos de",
+    "höchstens",
+    "bis zu",
+    "nicht mehr als",
+    "maximal",
+    "weniger als",
+    "al massimo",
+    "fino a",
+    "non più di",
+    "non piu di",
+    "meno di",
+    "no máximo",
+    "no maximo",
+    "até",
+    "ate",
+    "não mais de",
+    "nao mais de",
+    "이하",
+    "이내",
+    "미만",
+    "최대",
+    "제한",
+    "以内",
+    "以下",
+    "未満",
+    "最多",
+    "収まる",
+    "不超过",
+    "不超過",
+)
+EXPLICIT_LONG_FORM_OUTPUT_MARKER_RE = re.compile(
+    r"\b(?:write|generate|create|compose|draft|produce|provide|give|respond|answer|return|"
+    r"summarize|summarise|condense)\b|"
+    r"\b(?:écris|ecris|écrivez|ecrivez|rédige|redige|rédigez|redigez|génère|genere|"
+    r"générez|generez|crée|cree|créez|creez|composez?|produis|produisez|réponds|reponds|"
+    r"répondez|repondez)\b|"
+    r"\b(?:escribe|escriba|redacta|redacte|genera|genere|crea|cree|compón|compon|"
+    r"componga|produce|produzca|responde|responda)\b|"
+    r"\b(?:schreibe|schreiben|verfasse|verfassen|erstelle|erstellen|erzeuge|erzeugen|"
+    r"antworte|antworten)\b|"
+    r"\b(?:scrivi|scriva|redigi|rediga|genera|generi|crea|crei|componi|componga|"
+    r"produci|produca|rispondi|risponda)\b|"
+    r"\b(?:escreva|escrever|redija|redigir|gere|gerar|crie|criar|componha|compor|"
+    r"produza|produzir|responda|responder)\b|"
+    r"\b(?:schrijf|schrijven|maak|maken|genereer|genereren|antwoord|beantwoord)\b|"
+    r"(?:써\s*줘|써줘|쓰(?:세요|기|라)|작성|생성|만들(?:어|기)|답변|대답|"
+    r"書いて|書く|書け|作成|生成|執筆|答えて|回答|写|寫|撰写|撰寫|创作|創作|作答)",
+    re.IGNORECASE,
+)
+EXPLICIT_LONG_FORM_CREATION_MARKER_RE = re.compile(
+    r"^(?:write|generate|create|compose|draft|produce|"
+    r"écris|ecris|écrivez|ecrivez|rédige|redige|rédigez|redigez|génère|genere|"
+    r"générez|generez|crée|cree|créez|creez|compose|composez|produis|produisez|"
+    r"escribe|escriba|redacta|redacte|genera|genere|crea|cree|compón|compon|"
+    r"componga|produce|produzca|schreibe|schreiben|verfasse|verfassen|erstelle|"
+    r"erstellen|erzeuge|erzeugen|scrivi|scriva|redigi|rediga|genera|generi|crea|"
+    r"crei|componi|componga|produci|produca|escreva|escrever|redija|redigir|gere|"
+    r"gerar|crie|criar|componha|compor|produza|produzir|schrijf|schrijven|maak|"
+    r"maken|genereer|genereren|써\s*줘|써줘|쓰세요|쓰기|쓰라|작성|생성|만들어|"
+    r"만들기|書いて|書く|書け|作成|生成|執筆|写|寫|撰写|撰寫|创作|創作)$",
+    re.IGNORECASE,
+)
+EXPLICIT_LONG_FORM_SOURCE_MARKER_RE = re.compile(
+    r"\b(?:source|input|transcript|attachment)\b|"
+    r"\b(?:the|this|that|following|below|provided|attached|given|existing)\s+"
+    r"(?:source|input|text|article|essay|document|transcript|attachment)\b|"
+    r"\b(?:la|le|ce|cet|cette|suivant|suivante|fourni|fournie|joint|jointe)\s+"
+    r"(?:source|entrée|entree|texte|article|document|transcription|pièce|piece)\b|"
+    r"\b(?:la|el|este|esta|siguiente|proporcionado|proporcionada|adjunto|adjunta)\s+"
+    r"(?:fuente|entrada|texto|artículo|articulo|documento|transcripción|transcripcion)\b|"
+    r"\b(?:die|der|das|diese|dieser|dieses|folgende|folgenden|bereitgestellte|angehängte|"
+    r"angehaengte)\s+(?:quelle|eingabe|text|artikel|dokument|transkript|anlage)\b|"
+    r"(?:다음\s*(?:원문|글|문서|입력|자막|전사|답변)|아래\s*(?:원문|글|문서|입력|자막|전사|답변)|"
+    r"이\s*(?:원문|글|문서|입력|자막|전사|답변)|제공된\s*(?:원문|글|문서|입력|답변)|"
+    r"첨부된\s*(?:원문|글|문서|입력)|원문|입력|자막|전사|"
+    r"次の\s*(?:原文|文章|文書|入力|字幕|文字起こし)|以下の\s*(?:原文|文章|文書|入力)|"
+    r"この\s*(?:原文|文章|文書|入力|回答)|原文|入力|添付|"
+    r"下面的?(?:原文|文章|文档|文檔|输入|輸入)|以下的?(?:原文|文章|文档|文檔|输入|輸入)|"
+    r"这篇|這篇|这个(?:原文|文章|文档|输入)|這個(?:原文|文章|文檔|輸入)|原文|输入|輸入|附件)",
+    re.IGNORECASE,
+)
+EXPLICIT_LONG_FORM_DIRECT_CONNECTOR_RE = re.compile(
+    r"\b(?:in|en|em|mit)\s+(?:(?:exactly|about|around|approximately|roughly|at\s+least)\s+)?$",
+    re.IGNORECASE,
+)
+EXPLICIT_LONG_FORM_POST_CONNECTOR_RE = re.compile(r"^\s*(?:로|으로|で)")
+EXPLICIT_LONG_FORM_POST_IMPERATIVE_RE = re.compile(
+    r"^\s*(?:로|으로)\s*(?:(?:글|답변|에세이|기사|보고서|설명)(?:을|를)?\s*)?"
+    r"(?:(?:작성|생성)(?:해\s*(?:주세요|줘)|해주세요|하세요|하십시오|하라)|"
+    r"써\s*(?:주세요|줘)|써줘|쓰세요|쓰라|만들어\s*(?:주세요|줘)|만들어줘)|"
+    r"^\s*で\s*(?:(?:記事|文章|作文|回答|報告|説明)(?:を)?\s*)?"
+    r"(?:(?:作成|生成|執筆)して(?:ください|下さい)|書いて(?:ください|下さい)?|"
+    r"答えて(?:ください|下さい)?|書け|作成せよ)",
+    re.IGNORECASE,
+)
+EXPLICIT_LONG_FORM_REFERENCE_BRIDGE_RE = re.compile(
+    r"\b(?:why|whether|meaning|phrase|term|mention|reference|definition|"
+    r"written|drafted|composed|presented|provided|attached|published|available|"
+    r"expressed|worded|talking\s+about|discussion\s+of)\b",
+    re.IGNORECASE,
+)
+EXPLICIT_LONG_FORM_TARGET_NOUN_RE = re.compile(
+    r"\b(?:text|essay|article|story|report|response|answer|piece|post|description|"
+    r"summary|review|analysis|explanation|translation|outline|"
+    r"texte|essai|histoire|rapport|réponse|reponse|"
+    r"texto|ensayo|artículo|articulo|historia|informe|respuesta|"
+    r"text|aufsatz|artikel|geschichte|bericht|antwort|"
+    r"testo|saggio|articolo|storia|rapporto|risposta|"
+    r"texto|ensaio|artigo|história|historia|relatório|relatorio|resposta)\b|"
+    r"(?:글|에세이|기사|이야기|보고서|답변|文章|作文|記事|物語|報告|回答)",
+    re.IGNORECASE,
+)
+EXPLICIT_COUNT_CLAUSE_BREAKS = "\r\n.!?;:。！？；"
 REVIEWER_PREVIEW_SUBFOLDER = "deno_llm_reviewer"
 _WARM_LOCAL_LLM_KEYS: Dict[str, Optional[float]] = {}
 _ACTIVE_LOCAL_LLM_KEYS: Dict[str, int] = {}
@@ -1445,6 +1628,365 @@ def _final_answer_schema() -> Dict[str, Any]:
         "required": [STRUCTURED_FINAL_ANSWER_FIELD],
         "additionalProperties": False,
     }
+
+
+def _ollama_long_form_structured_final_answer_system_instruction() -> str:
+    schema_text = json.dumps(
+        _final_answer_schema(),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return (
+        f"{OLLAMA_LONG_FORM_STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION} "
+        f"Required transport JSON schema: {schema_text}"
+    )
+
+
+def _explicit_count_is_upper_bound(text: str, start: int, end: int) -> bool:
+    context = re.sub(
+        r"\s+",
+        " ",
+        str(text or "")[max(0, start - 36) : min(len(text), end + 24)].lower(),
+    )
+    for marker in EXPLICIT_COUNT_UPPER_BOUND_MARKERS:
+        normalized_marker = marker.strip().lower()
+        if not normalized_marker:
+            continue
+        if any("\uac00" <= character <= "\ud7a3" or "\u3040" <= character <= "\u9fff" for character in normalized_marker):
+            if normalized_marker in context:
+                return True
+            continue
+        marker_pattern = re.escape(normalized_marker).replace(r"\ ", r"\s+")
+        if re.search(rf"(?<!\w){marker_pattern}(?!\w)", context, re.IGNORECASE):
+            return True
+    return False
+
+
+def _parse_explicit_count(value: str) -> Optional[int]:
+    digits = re.sub(r"[,\s.]", "", str(value or ""))
+    try:
+        parsed = int(digits)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _explicit_count_clause_bounds(text: str, start: int, end: int) -> Tuple[int, int]:
+    left = 0
+    right = len(text)
+    for separator in EXPLICIT_COUNT_CLAUSE_BREAKS:
+        preceding = text.rfind(separator, 0, start)
+        if preceding >= 0:
+            left = max(left, preceding + 1)
+        following = text.find(separator, end)
+        if following >= 0:
+            right = min(right, following)
+    return left, right
+
+
+def _explicit_count_is_quoted(text: str, start: int, end: int) -> bool:
+    line_left = max(text.rfind("\n", 0, start), text.rfind("\r", 0, start)) + 1
+    line_breaks = [position for position in (text.find("\n", end), text.find("\r", end)) if position >= 0]
+    line_right = min(line_breaks) if line_breaks else len(text)
+
+    left_non_space = start - 1
+    while left_non_space >= line_left and text[left_non_space].isspace():
+        left_non_space -= 1
+    right_non_space = end
+    while right_non_space < line_right and text[right_non_space].isspace():
+        right_non_space += 1
+    if left_non_space >= line_left and right_non_space < line_right:
+        if (text[left_non_space], text[right_non_space]) in {
+            ("'", "'"),
+            ('"', '"'),
+            ("`", "`"),
+            ("“", "”"),
+            ("‘", "’"),
+            ("«", "»"),
+            ("「", "」"),
+            ("『", "』"),
+        }:
+            return True
+
+    for opening, closing in (("“", "”"), ("‘", "’"), ("«", "»"), ("「", "」"), ("『", "』")):
+        last_opening = text.rfind(opening, line_left, start)
+        last_closing = text.rfind(closing, line_left, start)
+        next_closing = text.find(closing, end, line_right)
+        if last_opening > last_closing and next_closing >= 0:
+            return True
+
+    for quote in ('"', "`"):
+        if text[line_left:start].count(quote) % 2 == 1 and text.find(quote, end, line_right) >= 0:
+            return True
+
+    last_apostrophe = text.rfind("'", line_left, start)
+    if last_apostrophe >= 0:
+        opens_quote = last_apostrophe == line_left or not text[last_apostrophe - 1].isalnum()
+        if opens_quote and text.find("'", end, line_right) >= 0:
+            return True
+    return False
+
+
+def _explicit_count_is_in_non_authoritative_region(text: str, start: int) -> bool:
+    line_start = max(text.rfind("\n", 0, start), text.rfind("\r", 0, start)) + 1
+    line_prefix = text[line_start:start]
+    if line_prefix.lstrip().startswith(">") or line_prefix.startswith(("    ", "\t")):
+        return True
+    if text[:start].count("```") % 2 == 1 or text[:start].count("~~~") % 2 == 1:
+        return True
+    return re.search(
+        r"\b(?:example|sample|quoted|instruction|prompt|do\s+not\s+follow|ignore|such\s+as)\b|"
+        r"(?:예시|예제|샘플|지시문|프롬프트|따르지\s*마|"
+        r"例|例文|指示文|プロンプト|従わない|"
+        r"示例|样例|樣例|指令|提示词|提示詞|不要遵循)",
+        line_prefix,
+        re.IGNORECASE,
+    ) is not None
+
+
+def _explicit_count_has_simple_output_prefix(value: str) -> bool:
+    normalized = re.sub(r"\s+", " ", value).strip().lower()
+    if not normalized:
+        return True
+    token = (
+        r"(?:a|an|one|un|une|uno|una|um|uma|ein|eine|einen|een|"
+        r"long|detailed|complete|full|comprehensive|substantial|extended|"
+        r"longo|longa|lang|lange|ausführlich|ausfuehrlich|détaillé|detaille|"
+        r"detallado|detallada|dettagliato|dettagliata|detalhado|detalhada)"
+    )
+    return re.fullmatch(rf"{token}(?:\s+{token})*", normalized, re.IGNORECASE) is not None
+
+
+def _explicit_output_marker_is_top_level(before: str, marker: re.Match) -> bool:
+    prefix = before[:marker.start()]
+    return re.fullmatch(
+        r"\s*(?:(?:please|kindly|always|must|you\s+must|could\s+you|can\s+you|"
+        r"would\s+you|veuillez|por\s+favor)\s+)?",
+        prefix,
+        re.IGNORECASE,
+    ) is not None
+
+
+def _explicit_count_has_output_noun_bridge(bridge: str) -> bool:
+    noun_matches = list(EXPLICIT_LONG_FORM_TARGET_NOUN_RE.finditer(bridge))
+    if len(noun_matches) != 1:
+        return False
+    noun_match = noun_matches[0]
+    prefix = bridge[:noun_match.start()]
+    suffix = re.sub(r"\s+", " ", bridge[noun_match.end():]).strip().lower()
+    modifier = (
+        r"(?:exactly|about|around|approximately|roughly|nearly|at least|"
+        r"at minimum|a minimum of|more than|over)"
+    )
+    allowed_suffix = re.fullmatch(
+        rf"(?:(?:of|de|del|di|mit|com|van)(?:\s+{modifier})?|{modifier})?",
+        suffix,
+        re.IGNORECASE,
+    )
+    return _explicit_count_has_simple_output_prefix(prefix) and allowed_suffix is not None
+
+
+def _explicit_count_is_output_target(text: str, start: int, end: int) -> bool:
+    clause_start, clause_end = _explicit_count_clause_bounds(text, start, end)
+    if text[:clause_start].strip():
+        return False
+    before = text[clause_start:start]
+    after = text[end:clause_end]
+    output_before = list(EXPLICIT_LONG_FORM_OUTPUT_MARKER_RE.finditer(before))
+    output_after = list(EXPLICIT_LONG_FORM_OUTPUT_MARKER_RE.finditer(after[:80]))
+    source_before = list(EXPLICIT_LONG_FORM_SOURCE_MARKER_RE.finditer(before))
+    direct_connector = EXPLICIT_LONG_FORM_DIRECT_CONNECTOR_RE.search(before[-48:]) is not None
+    post_connector = EXPLICIT_LONG_FORM_POST_CONNECTOR_RE.match(after) is not None
+    post_imperative_match = EXPLICIT_LONG_FORM_POST_IMPERATIVE_RE.match(after)
+    top_level_output = next(
+        (
+            candidate
+            for candidate in output_before
+            if _explicit_output_marker_is_top_level(before, candidate)
+        ),
+        None,
+    )
+    output_before_is_negated = False
+    if top_level_output is not None:
+        output_prefix = before[max(0, top_level_output.start() - 32):top_level_output.start()]
+        output_before_is_negated = re.search(
+            r"(?:\b(?:do\s+not|don't|never|avoid|without|ne\s+pas|no|nunca|nicht|"
+            r"non|não|nao)\s*|(?:不要|别|別|勿|하지\s*마|말)\s*)$",
+            output_prefix,
+            re.IGNORECASE,
+        ) is not None
+
+    if post_connector:
+        return (
+            bool(output_after)
+            and not source_before
+            and post_imperative_match is not None
+            and re.match(
+                r"^\s*(?:라는|라고|이라는|이라고|という|とは)",
+                after[post_imperative_match.end():],
+            ) is None
+        )
+
+    if direct_connector:
+        if top_level_output is None:
+            return False
+        if output_before_is_negated:
+            return False
+        bridge = before[top_level_output.end():]
+        if EXPLICIT_LONG_FORM_REFERENCE_BRIDGE_RE.search(bridge):
+            return False
+        if re.search(
+            r"\b(?:is|was|contains?|contained|has|had|consists?|consisted|est|était|"
+            r"etait|contient|tenía|tenia|enthält|enthaelt)\b",
+            bridge,
+            re.IGNORECASE,
+        ):
+            return False
+        bridge_without_connector = EXPLICIT_LONG_FORM_DIRECT_CONNECTOR_RE.sub("", bridge)
+        creation_marker = EXPLICIT_LONG_FORM_CREATION_MARKER_RE.fullmatch(top_level_output.group(0))
+        if creation_marker is not None:
+            return (
+                _explicit_count_has_simple_output_prefix(bridge_without_connector)
+                or _explicit_count_has_output_noun_bridge(bridge_without_connector)
+            )
+        if (
+            not re.sub(r"\s+", "", bridge_without_connector)
+            or _explicit_count_has_output_noun_bridge(bridge_without_connector)
+        ):
+            return True
+        if re.fullmatch(
+            r"\s*(?:(?:the|this|that|following|provided|an?|one)\s+)?"
+            r"(?:\d+[,-]?word\s+)?(?:article|text|essay|document|source|report)\s*",
+            bridge_without_connector,
+            re.IGNORECASE,
+        ):
+            return top_level_output.group(0).strip().lower() in {
+                "summarize",
+                "summarise",
+                "condense",
+            }
+        return False
+
+    if top_level_output is None:
+        return False
+    last_output = top_level_output
+    if output_before_is_negated:
+        return False
+    if source_before and source_before[-1].start() > last_output.start():
+        return False
+
+    bridge = before[last_output.end():]
+    if len(bridge) > 120 or EXPLICIT_LONG_FORM_REFERENCE_BRIDGE_RE.search(bridge):
+        return False
+    normalized_bridge = re.sub(r"\s+", " ", bridge).strip().lower()
+    if re.fullmatch(
+        r"(?:the|this|that|following|provided|given|existing|"
+        r"le|la|ce|cet|cette|el|este|esta|der|die|das|dieser|diese|dieses)",
+        normalized_bridge,
+    ):
+        return False
+    if _explicit_count_has_output_noun_bridge(bridge):
+        return True
+
+    if re.fullmatch(
+        r"(?:(?:please|exactly|about|around|approximately|roughly|nearly|at least|"
+        r"at minimum|a minimum of|more than|over)\s+)*",
+        normalized_bridge,
+    ):
+        return True
+
+    target_after_text = re.sub(r"^(?:的|の)\s*", "", after.lstrip())
+    target_after = EXPLICIT_LONG_FORM_TARGET_NOUN_RE.match(target_after_text)
+    creation_marker = EXPLICIT_LONG_FORM_CREATION_MARKER_RE.fullmatch(last_output.group(0))
+    if (
+        creation_marker is not None
+        and target_after is not None
+        and _explicit_count_has_simple_output_prefix(normalized_bridge)
+    ):
+        return True
+
+    if creation_marker is not None and re.fullmatch(
+        r"(?:一篇|一段|一則|一则|篇|段)?",
+        normalized_bridge,
+    ):
+        return EXPLICIT_LONG_FORM_TARGET_NOUN_RE.match(target_after_text) is not None
+    return False
+
+
+def _explicit_long_form_requirements_from_text(
+    text: str,
+) -> Tuple[List[Dict[str, Any]], bool]:
+    requirements: List[Dict[str, Any]] = []
+    saw_output_length_directive = False
+    for unit, pattern, minimum_target in (
+        ("words", EXPLICIT_WORD_COUNT_RE, LONG_FORM_COMPATIBILITY_MIN_WORDS),
+        ("characters", EXPLICIT_CHARACTER_COUNT_RE, LONG_FORM_COMPATIBILITY_MIN_CHARACTERS),
+    ):
+        for match in pattern.finditer(text):
+            if _explicit_count_is_in_non_authoritative_region(text, match.start()):
+                continue
+            if _explicit_count_is_quoted(text, match.start(), match.end()):
+                continue
+            if not _explicit_count_is_output_target(
+                text,
+                match.start(),
+                match.end(),
+            ):
+                continue
+            saw_output_length_directive = True
+            if _explicit_count_is_upper_bound(text, match.start(), match.end()):
+                continue
+            target = _parse_explicit_count(match.group("count"))
+            if target is None or target < minimum_target:
+                continue
+            requirements.append({
+                "unit": unit,
+                "target": target,
+                "minimum_acceptable": max(
+                    1,
+                    int(math.ceil(target * LONG_FORM_COMPATIBILITY_MIN_RATIO)),
+                ),
+                "matched": match.group(0),
+            })
+    return requirements, saw_output_length_directive
+
+
+def _find_explicit_long_form_requirement(
+    system_prompt: str,
+    prompt: str,
+) -> Optional[Dict[str, Any]]:
+    system_text = str(system_prompt or "")
+    system_requirements, system_has_directive = _explicit_long_form_requirements_from_text(system_text)
+    if system_has_directive:
+        if not system_requirements:
+            return None
+        return max(system_requirements, key=lambda requirement: int(requirement["target"]))
+
+    # A configured system prompt can turn the user text into source material for review,
+    # rewrite, translation, classification, or extraction. Unless that authoritative system
+    # prompt declares its own output length, keep the compatibility path off rather than
+    # treating a count inside the source text as an executable generation requirement.
+    if system_text.strip():
+        return None
+
+    prompt_requirements, _prompt_has_directive = _explicit_long_form_requirements_from_text(
+        str(prompt or "")
+    )
+    if not prompt_requirements:
+        return None
+    return max(prompt_requirements, key=lambda requirement: int(requirement["target"]))
+
+
+def _count_answer_for_requirement(answer: str, requirement: Dict[str, Any]) -> int:
+    text = str(answer or "").strip()
+    if requirement.get("unit") == "characters":
+        return len(text)
+    return len(re.findall(r"\S+", text))
+
+
+def _ollama_completion_was_truncated(meta: Dict[str, Any]) -> bool:
+    reason = str(meta.get("done_reason") or "").strip().lower()
+    return reason in {"length", "max_tokens", "max_length", "token_limit"}
 
 
 def _openai_final_answer_response_format() -> Dict[str, Any]:
@@ -3144,6 +3686,7 @@ class DenoLocalLLMRefiner:
                         index=index + 1,
                         total=total,
                         cleanup_state=batch_cleanup_state,
+                        length_request_prompt=prompt,
                     )
                 finally:
                     _clear_local_llm_active(active_key)
@@ -3244,6 +3787,7 @@ class DenoLocalLLMRefiner:
         index: int,
         total: int,
         cleanup_state: Optional[Dict[str, bool]] = None,
+        length_request_prompt: Optional[str] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
         if provider == PROVIDER_LM_STUDIO:
             return self._run_lm_studio(
@@ -3295,6 +3839,7 @@ class DenoLocalLLMRefiner:
             index,
             total,
             cleanup_state,
+            length_request_prompt,
         )
 
     def _run_ollama(
@@ -3313,12 +3858,26 @@ class DenoLocalLLMRefiner:
         index: int,
         total: int,
         cleanup_state: Optional[Dict[str, bool]] = None,
+        length_request_prompt: Optional[str] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
         base = _normalize_ollama_url(server_url)
         memory_value = _normalize_model_memory(model_memory)
         keep_minutes_value = max(1, int(keep_minutes))
+        authoritative_length_prompt = (
+            prompt
+            if length_request_prompt is None
+            else str(length_request_prompt or "")
+        )
+        long_form_requirement = _find_explicit_long_form_requirement(
+            system_prompt,
+            authoritative_length_prompt,
+        )
         messages = []
         internal_system_prompt = STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION
+        finalization_instruction = STRUCTURED_FINALIZATION_INSTRUCTION
+        if long_form_requirement is not None:
+            internal_system_prompt = _ollama_long_form_structured_final_answer_system_instruction()
+            finalization_instruction = OLLAMA_LONG_FORM_STRUCTURED_FINALIZATION_INSTRUCTION
         if system_prompt.strip():
             internal_system_prompt = f"{system_prompt}\n\n{internal_system_prompt}"
         messages.append({"role": "system", "content": internal_system_prompt})
@@ -3458,7 +4017,7 @@ class DenoLocalLLMRefiner:
                 previous_assistant_message["thinking"] = initial_thinking
             continuation_payload["messages"] = list(messages) + [
                 previous_assistant_message,
-                {"role": "user", "content": STRUCTURED_FINALIZATION_INSTRUCTION},
+                {"role": "user", "content": finalization_instruction},
             ]
             continuation_payload["think"] = False
             continuation_payload["keep_alive"] = logical_keep_alive
@@ -3508,8 +4067,94 @@ class DenoLocalLLMRefiner:
                 "initial_meta": initial_meta,
                 "finalization_meta": dict(final_meta),
             }
+        long_form_compatibility: Optional[Dict[str, Any]] = None
+        if long_form_requirement is not None:
+            initial_count = _count_answer_for_requirement(answer, long_form_requirement)
+            minimum_acceptable = int(long_form_requirement["minimum_acceptable"])
+            needs_compatibility_retry = (
+                initial_count < minimum_acceptable
+                or _ollama_completion_was_truncated(final_meta)
+            )
+            if needs_compatibility_retry:
+                if recovery_meta is not None:
+                    raise RuntimeError(
+                        "Ollama returned a valid structured answer after automatic finalization, "
+                        "but it still did not preserve the explicit long-form request "
+                        f"({initial_count} {long_form_requirement['unit']}; expected at least "
+                        f"{minimum_acceptable} for the requested target of "
+                        f"{long_form_requirement['target']}). No further retry was attempted."
+                    )
+                _raise_if_local_llm_stopped(cancel_key)
+                structured_meta = dict(final_meta)
+                plain_system_prompt = PLAIN_FINAL_ANSWER_SYSTEM_INSTRUCTION
+                if system_prompt.strip():
+                    plain_system_prompt = f"{system_prompt}\n\n{plain_system_prompt}"
+                plain_user_message = dict(user_message)
+                compatibility_payload = dict(payload)
+                compatibility_payload["messages"] = [
+                    {"role": "system", "content": plain_system_prompt},
+                    plain_user_message,
+                ]
+                compatibility_payload.pop("format", None)
+                compatibility_payload["think"] = False
+                compatibility_payload["keep_alive"] = logical_keep_alive
+                _send_progress({
+                    "node_id": node_id,
+                    "status": "recovering requested length",
+                    "provider": PROVIDER_OLLAMA,
+                    "model": model,
+                    "index": index,
+                    "total": total,
+                    "answer": "",
+                    "thinking": thought,
+                })
+                fallback_content, _fallback_thinking, final_meta = stream_request(
+                    compatibility_payload,
+                    "recovering requested length",
+                )
+                fallback_answer = str(fallback_content or "").strip()
+                fallback_count = _count_answer_for_requirement(
+                    fallback_answer,
+                    long_form_requirement,
+                )
+                if (
+                    not fallback_answer
+                    or fallback_count < minimum_acceptable
+                    or _ollama_completion_was_truncated(final_meta)
+                ):
+                    truncation_detail = (
+                        f" The retry ended with done_reason={final_meta.get('done_reason')}."
+                        if _ollama_completion_was_truncated(final_meta)
+                        else ""
+                    )
+                    raise RuntimeError(
+                        "Ollama's structured output shortened an explicit long-form request, and "
+                        "the one compatibility retry without the transport schema still did not "
+                        f"reach the minimum expected length ({fallback_count} "
+                        f"{long_form_requirement['unit']}; expected at least "
+                        f"{minimum_acceptable} for the requested target of "
+                        f"{long_form_requirement['target']}).{truncation_detail}"
+                    )
+                answer = fallback_answer
+                long_form_compatibility = {
+                    "attempted": True,
+                    "succeeded": True,
+                    "unit": long_form_requirement["unit"],
+                    "target": long_form_requirement["target"],
+                    "minimum_acceptable": minimum_acceptable,
+                    "initial_count": initial_count,
+                    "final_count": fallback_count,
+                    "matched": long_form_requirement["matched"],
+                    "initial_meta": structured_meta,
+                    "retry_meta": dict(final_meta),
+                }
         post_run_unload: Dict[str, Any] = {"action": "none"}
-        if hold_for_possible_continuation and recovery_meta is None and answer:
+        if (
+            hold_for_possible_continuation
+            and recovery_meta is None
+            and long_form_compatibility is None
+            and answer
+        ):
             if cleanup_state is not None:
                 cleanup_state["provider_cleanup_attempted"] = True
             try:
@@ -3531,6 +4176,8 @@ class DenoLocalLLMRefiner:
             raw["initial_keep_alive"] = initial_keep_alive
         if recovery_meta is not None:
             raw["final_answer_recovery"] = recovery_meta
+        if long_form_compatibility is not None:
+            raw["long_form_compatibility"] = long_form_compatibility
         raw["post_keepalive"] = _ensure_ollama_model_stays_loaded(
             base=base,
             model=model,
