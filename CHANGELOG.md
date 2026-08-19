@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.89 - 2026-08-19
+
+- Fixed `(Deno) Local LLM Loader` so Ollama JSON-schema output preserves clearly requested long-form word or character targets instead of collapsing them to a title or short introduction. The compatibility path keeps the original prompt, images, seed, cancellation, and unload behavior, while ordinary requests, source-length references, reviewer/rewrite workflows, LM Studio, and saved workflows remain unchanged. Addresses #77.
+
 ## 0.7.88 - 2026-08-15
 
 - Added Unsloth Studio as a first-class `(Deno) Local LLM Loader` provider with authenticated model discovery and chat, Thinking control, manual and post-run unload, provider-specific URL restoration, and saved-workflow compatibility without storing the API key in workflows or PNG metadata.

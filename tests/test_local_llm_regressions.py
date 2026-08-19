@@ -177,6 +177,7 @@ def test_local_llm_refine_preserves_system_and_user_prompts_when_adding_duration
 
     assert len(calls) == 1
     assert calls[0]["system_prompt"] == "Keep this system instruction unchanged."
+    assert calls[0]["length_request_prompt"] == "Direct a natural performance."
     assert calls[0]["prompt"] == (
         "Direct a natural performance.\n\n"
         "This is an 8-second video.\n\n"
@@ -458,6 +459,15 @@ def _ollama_envelope(answer):
     return json.dumps({"deno_final_answer": answer}, ensure_ascii=False)
 
 
+ISSUE_77_FRENCH_LONG_FORM_PROMPT = (
+    "Écris un long texte de 800 mots sur l'intelligence artificielle"
+)
+
+
+def _synthetic_long_answer(word_count, prefix="mot"):
+    return " ".join(f"{prefix}{index}" for index in range(word_count))
+
+
 def _run_lm_studio_kwargs(**overrides):
     kwargs = {
         "server_url": "http://127.0.0.1:1234/v1",
@@ -491,16 +501,21 @@ def _lm_studio_content_chunk(content="", reasoning="", finish_reason=None):
 
 
 @pytest.mark.parametrize("thinking", [False, True])
-def test_local_llm_ollama_uses_structured_final_answer_contract(monkeypatch, thinking):
+def test_local_llm_ollama_long_form_uses_strengthened_structured_contract(
+    monkeypatch,
+    thinking,
+):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
     payloads = []
     progress = []
 
+    final_answer = _synthetic_long_answer(800, prefix="réponse")
+
     def fake_stream(_url, payload, **_kwargs):
         payloads.append(payload)
-        message = {"content": _ollama_envelope("clean final answer")}
+        message = {"content": _ollama_envelope(final_answer)}
         if thinking:
             message["thinking"] = "private reasoning"
         yield {"message": message, "done": False}
@@ -510,36 +525,89 @@ def test_local_llm_ollama_uses_structured_final_answer_contract(monkeypatch, thi
     monkeypatch.setattr(module, "_send_progress", lambda event: progress.append(dict(event)))
     monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
 
-    answer, thought, _raw = node._run_ollama(**_run_ollama_kwargs(thinking=thinking))
+    answer, thought, _raw = node._run_ollama(
+        **_run_ollama_kwargs(
+            model="ministral-3:3b",
+            system_prompt="",
+            prompt=ISSUE_77_FRENCH_LONG_FORM_PROMPT,
+            thinking=thinking,
+        )
+    )
 
-    assert answer == "clean final answer"
+    assert answer == final_answer
     assert thought == ("private reasoning" if thinking else "")
     assert len(payloads) == 1
     assert payloads[0]["think"] is thinking
-    assert payloads[0]["format"] == {
-        "type": "object",
-        "properties": {
-            "deno_final_answer": {
-                "type": "string",
-                "description": (
-                    "Only the complete final answer requested by the original system and user "
-                    "messages. Never include private chain-of-thought, hidden reasoning, scratch "
-                    "work, or internal deliberation. Include an answer-facing explanation or "
-                    "requested visible formatting only when the original request requires it; "
-                    "exclude provider preambles, transport labels, and process commentary."
-                ),
-            }
-        },
-        "required": ["deno_final_answer"],
-        "additionalProperties": False,
-    }
-    assert payloads[0]["messages"][0]["content"].startswith("Keep the user's requested format.")
+    assert payloads[0]["format"] == module._final_answer_schema()
     contract = payloads[0]["messages"][0]["content"]
-    assert "only the completed answer requested by the user" in contract
-    assert "Never include private chain-of-thought" in contract
-    assert "even if requested" in contract
-    assert "answer-facing explanation" in contract
+    serialized_schema = json.dumps(
+        module._final_answer_schema(),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    assert contract.count(serialized_schema) == 1
+    for fidelity_requirement in (
+        "requested language",
+        "target word or character count",
+        "length",
+        "level of detail",
+        "sections",
+        "visible formatting",
+    ):
+        assert fidelity_requirement in contract
+    assert "concise" not in contract.lower()
+    assert payloads[0]["messages"][1]["content"] == ISSUE_77_FRENCH_LONG_FORM_PROMPT
+    assert payloads[0]["options"] == {"seed": 7}
+    assert "num_predict" not in payloads[0]
+    assert "stop" not in payloads[0]
     assert all(event["answer"] == "" for event in progress)
+
+
+@pytest.mark.parametrize("user_system_prompt", ["", "Keep the user's requested format."])
+def test_local_llm_ollama_ordinary_prompt_keeps_legacy_system_contract_byte_for_byte(
+    monkeypatch,
+    user_system_prompt,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        yield {"message": {"content": _ollama_envelope("ordinary final answer")}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, thought, raw = node._run_ollama(
+        **_run_ollama_kwargs(
+            system_prompt=user_system_prompt,
+            prompt="Explain artificial intelligence briefly.",
+        )
+    )
+
+    expected_contract = module.STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION
+    if user_system_prompt:
+        expected_contract = f"{user_system_prompt}\n\n{expected_contract}"
+    contract = payloads[0]["messages"][0]["content"]
+    serialized_schema = json.dumps(
+        module._final_answer_schema(),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+    assert answer == "ordinary final answer"
+    assert thought == ""
+    assert len(payloads) == 1
+    assert contract == expected_contract
+    assert serialized_schema not in contract
+    assert "Required transport JSON schema" not in contract
+    assert "concise" in contract
+    assert module.OLLAMA_LONG_FORM_STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION not in contract
+    assert "long_form_compatibility" not in raw
 
 
 @pytest.mark.parametrize(
@@ -608,6 +676,509 @@ def test_local_llm_ollama_preserves_multiline_and_reviewer_json_strings(monkeypa
     assert thought == ""
 
 
+def test_local_llm_ollama_800_word_structured_answer_round_trips_uneven_stream(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    final_answer = _synthetic_long_answer(800, prefix="élément")
+    encoded = _ollama_envelope(final_answer)
+    split_points = [1, 9, 37, 142, 503, 1021, len(encoded)]
+
+    def fake_stream(_url, _payload, **_kwargs):
+        start = 0
+        for end in split_points:
+            yield {"message": {"content": encoded[start:end]}, "done": False}
+            start = end
+        yield {
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 51,
+            "eval_count": 936,
+        }
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, thought, raw = node._run_ollama(
+        **_run_ollama_kwargs(
+            model="ministral-3:3b",
+            system_prompt="",
+            prompt=ISSUE_77_FRENCH_LONG_FORM_PROMPT,
+        )
+    )
+
+    assert answer.encode("utf-8") == final_answer.encode("utf-8")
+    assert thought == ""
+    assert raw["meta"] == {
+        "done": True,
+        "done_reason": "stop",
+        "prompt_eval_count": 51,
+        "eval_count": 936,
+    }
+    assert "final_answer_recovery" not in raw
+    assert "long_form_compatibility" not in raw
+
+
+def test_local_llm_ollama_short_structured_long_form_uses_one_plain_compatibility_retry(
+    monkeypatch,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    progress = []
+    short_answer = "Introduction très courte sur l'intelligence artificielle."
+    long_answer = _synthetic_long_answer(800, prefix="développement")
+    image_attachments = [{
+        "base64": "issue-77-image-data",
+        "width": 1,
+        "height": 1,
+        "sent_width": 1,
+        "sent_height": 1,
+    }]
+    initial_meta = {
+        "done": True,
+        "done_reason": "stop",
+        "prompt_eval_count": 44,
+        "eval_count": 18,
+    }
+    retry_meta = {
+        "done": True,
+        "done_reason": "stop",
+        "prompt_eval_count": 57,
+        "eval_count": 912,
+    }
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(json.loads(json.dumps(payload, ensure_ascii=False)))
+        if len(payloads) == 1:
+            yield {"message": {"content": _ollama_envelope(short_answer)}, "done": False}
+            yield initial_meta
+            return
+        yield {"message": {"content": long_answer}, "done": False}
+        yield retry_meta
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda event: progress.append(dict(event)))
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, thought, raw = node._run_ollama(
+        **_run_ollama_kwargs(
+            model="ministral-3:3b",
+            system_prompt="",
+            prompt=ISSUE_77_FRENCH_LONG_FORM_PROMPT,
+            thinking=True,
+            image_attachments=image_attachments,
+        )
+    )
+
+    assert answer == long_answer
+    assert thought == ""
+    assert len(payloads) == 2
+    assert payloads[0]["format"] == module._final_answer_schema()
+    assert "format" not in payloads[1]
+    assert payloads[1]["think"] is False
+    assert payloads[1]["options"] == payloads[0]["options"] == {"seed": 7}
+    assert payloads[1]["messages"][1] == payloads[0]["messages"][1]
+    assert payloads[1]["messages"][1]["images"] == ["issue-77-image-data"]
+    assert payloads[1]["messages"][0]["content"] == module.PLAIN_FINAL_ANSWER_SYSTEM_INSTRUCTION
+    assert "Do not add a transport JSON wrapper" in payloads[1]["messages"][0]["content"]
+    assert "deno_final_answer" not in payloads[1]["messages"][0]["content"]
+    assert "Required transport JSON schema" not in payloads[1]["messages"][0]["content"]
+    compatibility = raw["long_form_compatibility"]
+    assert compatibility["attempted"] is True
+    assert compatibility["succeeded"] is True
+    assert compatibility["unit"] == "words"
+    assert compatibility["target"] == 800
+    assert compatibility["minimum_acceptable"] == 480
+    assert compatibility["initial_count"] == len(short_answer.split())
+    assert compatibility["final_count"] == 800
+    assert compatibility["initial_meta"] == initial_meta
+    assert compatibility["retry_meta"] == retry_meta
+    assert raw["meta"] == retry_meta
+    assert progress
+    assert all(event["answer"] == "" for event in progress)
+
+
+def test_local_llm_ollama_rejects_truncated_plain_fallback_even_above_minimum(
+    monkeypatch,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    fallback_answer = _synthetic_long_answer(600, prefix="truncated")
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        if len(payloads) == 1:
+            yield {"message": {"content": _ollama_envelope("Too short.")}, "done": False}
+            yield {"done": True, "done_reason": "stop"}
+            return
+        yield {"message": {"content": fallback_answer}, "done": False}
+        yield {"done": True, "done_reason": "length", "eval_count": 600}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    with pytest.raises(RuntimeError, match=r"(?i)(truncat|done_reason|length)"):
+        node._run_ollama(
+            **_run_ollama_kwargs(
+                system_prompt="",
+                prompt=ISSUE_77_FRENCH_LONG_FORM_PROMPT,
+            )
+        )
+
+    assert len(payloads) == 2
+    assert "format" not in payloads[1]
+
+
+def test_local_llm_ollama_cancellation_before_plain_fallback_stops_after_one_request(
+    monkeypatch,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    cancellation_checks = []
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        yield {"message": {"content": _ollama_envelope("Too short.")}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    def stop_before_retry(cancel_key):
+        cancellation_checks.append(cancel_key)
+        raise RuntimeError("Local LLM generation stopped.")
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_raise_if_local_llm_stopped", stop_before_retry)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    with pytest.raises(RuntimeError, match="Local LLM generation stopped"):
+        node._run_ollama(
+            **_run_ollama_kwargs(
+                system_prompt="",
+                prompt=ISSUE_77_FRENCH_LONG_FORM_PROMPT,
+            )
+        )
+
+    assert len(payloads) == 1
+    assert len(cancellation_checks) == 1
+
+
+def test_local_llm_ollama_unload_after_run_plain_fallback_owns_terminal_keep_alive(
+    monkeypatch,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    explicit_unload_calls = []
+    cleanup_state = {"provider_cleanup_attempted": False}
+    fallback_answer = _synthetic_long_answer(800, prefix="complete")
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        if len(payloads) == 1:
+            yield {"message": {"content": _ollama_envelope("Too short.")}, "done": False}
+            yield {"done": True, "done_reason": "stop"}
+            return
+        yield {"message": {"content": fallback_answer}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+    monkeypatch.setattr(
+        module,
+        "_ollama_unload_best_effort",
+        lambda *args: explicit_unload_calls.append(args),
+    )
+
+    answer, thought, raw = node._run_ollama(
+        **_run_ollama_kwargs(
+            system_prompt="",
+            prompt=ISSUE_77_FRENCH_LONG_FORM_PROMPT,
+            model_memory="Unload after run",
+            is_last=True,
+            cleanup_state=cleanup_state,
+        )
+    )
+
+    assert answer == fallback_answer
+    assert thought == ""
+    assert [payload["keep_alive"] for payload in payloads] == ["5m", "0m"]
+    assert explicit_unload_calls == []
+    assert cleanup_state["provider_cleanup_attempted"] is True
+    assert raw["post_run_unload"] == {"action": "none"}
+    assert raw["long_form_compatibility"]["succeeded"] is True
+
+
+def test_local_llm_ollama_near_target_structured_long_form_does_not_retry(monkeypatch):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    near_target_answer = _synthetic_long_answer(610, prefix="mot")
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        yield {"message": {"content": _ollama_envelope(near_target_answer)}, "done": False}
+        yield {"done": True, "done_reason": "stop", "eval_count": 700}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, _thought, _raw = node._run_ollama(
+        **_run_ollama_kwargs(
+            system_prompt="",
+            prompt=ISSUE_77_FRENCH_LONG_FORM_PROMPT,
+        )
+    )
+
+    assert answer == near_target_answer
+    assert len(payloads) == 1
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Explain artificial intelligence briefly.",
+        "Explain artificial intelligence in at most 800 words.",
+    ],
+)
+def test_local_llm_ollama_non_minimum_length_requests_do_not_trigger_plain_retry(
+    monkeypatch,
+    prompt,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    short_answer = "A brief answer that satisfies the requested upper bound."
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        yield {"message": {"content": _ollama_envelope(short_answer)}, "done": False}
+        yield {"done": True, "done_reason": "stop", "eval_count": 16}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, _thought, _raw = node._run_ollama(
+        **_run_ollama_kwargs(
+            system_prompt="",
+            prompt=prompt,
+        )
+    )
+
+    assert answer == short_answer
+    assert len(payloads) == 1
+
+
+@pytest.mark.parametrize(
+    ("system_prompt", "prompt"),
+    [
+        ("", "Translate the phrase '800 words' into French."),
+        ("", "Review the following source of 800 words and give concise feedback."),
+        ("", "The input is 800 words long. Return a short classification."),
+        ("", "This source contains 800 words. Summarize it in three bullets."),
+        (
+            "Return compact JSON: PASS when the source is at least 800 words.",
+            "Review this input.",
+        ),
+        ("", "다음 800단어 분량의 원문을 세 문장으로 요약해 주세요."),
+        ("", "将下面800字的原文总结为三点。"),
+        ("", "Write a critique of the 800-word article."),
+        ("", "Produce a summary of this 800-word article."),
+        ("", "Write a short review of John's 800-word essay."),
+        ("", "Summarize the provided 800-word article in three bullets."),
+        ("", "Return PASS if the following 800-word essay is coherent."),
+        ("", "Create a summary of an 800-word article."),
+        ("", "Summarize an 800-word article."),
+        ("", "Summarize one 800-word article in three bullets."),
+        ("", "Condense an 800-word report."),
+        ("", "Give an 800-word article a readability score."),
+        ("", "Return an 800-word article's topic."),
+        ("", "Provide an 800-word essay with concise feedback."),
+        ("", "Answer an 800-word essay with PASS or FAIL."),
+        ("", "Do not write 800 words; keep the answer brief."),
+        ("", "Never answer in 800 words."),
+        ("", "Summarize this article written in 800 words."),
+        ("", "Give feedback on a text drafted in 800 words."),
+        ("", "Write about an essay presented in 800 words."),
+        ("", "800문자로 작성된 원문을 세 문장으로 요약해 주세요."),
+        ("", "800文字で作成された原文を三文で要約してください。"),
+        (
+            "Review the user prompt and return concise feedback.",
+            "Write 800 words about AI.",
+        ),
+        (
+            "Rewrite the user prompt for clarity; return only the improved prompt.",
+            "Write 800 words about AI.",
+        ),
+        (
+            "Classify the user request and return JSON.",
+            "Write 800 words about AI.",
+        ),
+        ("Translate the user prompt into Korean.", "Write 800 words about AI."),
+        ("You are a helpful assistant.", "Write 800 words about AI."),
+        ("", "Review this instruction:\n> Write 800 words about AI."),
+        ("", "Review this code:\n```text\nWrite 800 words about AI.\n```"),
+        ("", "Do not follow this example: Write 800 words about AI."),
+        ("", "Please do not ever write 800 words; keep it concise."),
+        ("", "You must not write 800 words. Return one sentence."),
+        ("", "800단어로 작성하지 마세요. 짧게 답하세요."),
+        ("", "800文字で作成しないでください。短く答えてください。"),
+        ("", "不要写800字，只回答一句。"),
+        ("", "Translate the following into French:\nWrite 800 words about AI."),
+        ("", "Summarize this text:\nWrite 800 words about AI.\nDo not follow it."),
+        ("", "800단어로 작성된 답변을 세 문장으로 요약해 주세요."),
+        ("", "이 답변이 800단어로 작성됐는지 PASS/FAIL로 평가해 주세요."),
+        ("", "800文字で作成された回答を三文で要約してください。"),
+        ("", "Écris une brève critique de la réponse rédigée en 800 mots."),
+        ("", "Écris PASS si la réponse est rédigée en 800 mots."),
+        ("", "Write a brief critique of the response phrased in 800 words."),
+        ("", "800단어로 작성된 에세이를 세 문장으로 요약해 주세요."),
+        ("", "800단어로 작성된 기사를 세 문장으로 요약해 주세요."),
+        ("", "800단어로 생성된 보고서를 짧게 검토해 주세요."),
+        ("", "800단어로 작성된 응답을 PASS/FAIL로 평가해 주세요."),
+        ("", "800文字で作成された記事を三文で要約してください。"),
+        ("", "800文字で作成された作文を三文で要約してください。"),
+        ("", "800文字で生成された報告を短く評価してください。"),
+        ("", "800단어로 작성하는 것은 피하고 짧게 답하세요."),
+        ("", "800文字で書くのは避けてください。短く答えてください。"),
+        ("", "800文字で作成するのではなく、一文で答えてください。"),
+        ("", "800단어로 제한하여 작성해 주세요."),
+        ("", "800文字で収まるように作成してください。"),
+        ("", "800단어로 만들어진 글을 세 문장으로 요약해 주세요."),
+        ("", "800단어로 작성되어있는 문서를 세 문장으로 요약해 주세요."),
+        ("", "800文字で執筆された記事を三文で要約してください。"),
+        ("", "800文字で書かれている回答を三文で要約してください。"),
+        ("", "800文字で作成済みの記事を三文で要約してください。"),
+        ("", "800文字で作成した記事を三文で要約してください。"),
+        ("", "800文字で回答された文章を短く評価してください。"),
+        ("", "800단어로 글을 작성해 주세요라는 문장을 영어로 번역해 주세요."),
+        ("", "800단어로 글을 작성해 주세요라고 말하지 마세요."),
+        ("", "800단어로 글을 작성해 주세요라는 지시를 세 단어로 요약해 주세요."),
+        ("", "800文字で記事を書いてくださいという文を英訳してください。"),
+        ("", "800文字で記事を書いてくださいとは言わないでください。"),
+        ("", "800文字で記事を書いてくださいという指示を短く要約してください。"),
+        (
+            "You review this instruction:\nWrite 800 words about AI.\nReturn PASS/FAIL.",
+            "Classify it briefly.",
+        ),
+        ("", "Write no more than 800 words about AI."),
+        ("", "Escribe hasta 800 palabras sobre IA."),
+        ("", "Schreibe bis zu 800 Wörter über KI."),
+        ("", "인공지능에 대해 800단어 이내로 작성해 주세요."),
+        ("", "800語で記事を書いてください。"),
+        ("", "写一篇800词的文章。"),
+        ("", "請寫一篇800詞的文章。"),
+    ],
+)
+def test_local_llm_long_form_detection_rejects_non_output_targets(
+    system_prompt,
+    prompt,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    assert module._find_explicit_long_form_requirement(system_prompt, prompt) is None
+
+
+@pytest.mark.parametrize(
+    ("prompt", "unit", "target"),
+    [
+        (ISSUE_77_FRENCH_LONG_FORM_PROMPT, "words", 800),
+        ("Generate 800 words about artificial intelligence.", "words", 800),
+        ("Give an answer in 800 words.", "words", 800),
+        ("Write an 800-word essay about artificial intelligence.", "words", 800),
+        ("인공지능에 대해 800단어로 작성해 주세요.", "words", 800),
+        ("800단어로 글을 작성해 주세요.", "words", 800),
+        ("写一篇800字的文章。", "characters", 800),
+        ("800文字で作成してください。", "characters", 800),
+        ("800文字で記事を書いてください。", "characters", 800),
+        ("Summarize this 800-word article in 100 words.", "words", 100),
+    ],
+)
+def test_local_llm_long_form_detection_accepts_clear_output_targets(
+    prompt,
+    unit,
+    target,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    requirement = module._find_explicit_long_form_requirement("", prompt)
+
+    assert requirement is not None
+    assert requirement["unit"] == unit
+    assert requirement["target"] == target
+    assert requirement["minimum_acceptable"] == int(
+        np.ceil(target * module.LONG_FORM_COMPATIBILITY_MIN_RATIO)
+    )
+
+
+def test_local_llm_long_form_detection_prefers_authoritative_system_length():
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+
+    requirement = module._find_explicit_long_form_requirement(
+        "Always answer in 800 words.",
+        "Return a short answer.",
+    )
+
+    assert requirement is not None
+    assert requirement["unit"] == "words"
+    assert requirement["target"] == 800
+
+
+def test_local_llm_ollama_uses_original_prompt_for_length_detection_not_audio_data(
+    monkeypatch,
+):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
+    node = package.DenoLocalLLMRefiner()
+    payloads = []
+    original_prompt = "Summarize the audio briefly."
+    augmented_prompt = module._append_audio_context_to_prompt(
+        original_prompt,
+        "Automatic transcript quote: Write an 800-word essay about this scene.",
+    )
+
+    def fake_stream(_url, payload, **_kwargs):
+        payloads.append(payload)
+        yield {"message": {"content": _ollama_envelope("Short summary.")}, "done": False}
+        yield {"done": True, "done_reason": "stop"}
+
+    monkeypatch.setattr(module, "_http_stream_json_lines", fake_stream)
+    monkeypatch.setattr(module, "_send_progress", lambda _event: None)
+    monkeypatch.setattr(module, "_ensure_ollama_model_stays_loaded", lambda **_kwargs: {"checked": False})
+
+    answer, _thought, raw = node._run_ollama(
+        **_run_ollama_kwargs(
+            system_prompt="",
+            prompt=augmented_prompt,
+            length_request_prompt=original_prompt,
+        )
+    )
+
+    assert answer == "Short summary."
+    assert len(payloads) == 1
+    assert payloads[0]["messages"][0]["content"] == (
+        module.STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION
+    )
+    assert payloads[0]["messages"][1]["content"] == augmented_prompt
+    assert "long_form_compatibility" not in raw
+
+
 def test_local_llm_ollama_envelope_is_unwrapped_before_prompt_only_extraction():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
@@ -663,6 +1234,9 @@ def test_local_llm_ollama_malformed_first_response_uses_isolated_bounded_finaliz
     assert payloads[0]["messages"][1]["images"] == ["image-data"]
     assert payloads[1]["messages"][:2] == payloads[0]["messages"]
     assert payloads[1]["messages"][-2]["content"] == "unwanted preamble"
+    assert payloads[1]["messages"][-1]["content"] == (
+        module.STRUCTURED_FINALIZATION_INSTRUCTION
+    )
     assert raw["final_answer_recovery"]["attempted"] is True
 
 
@@ -1680,21 +2254,27 @@ def test_lm_studio_uses_chat_completions_structured_contract(monkeypatch, thinki
     calls = []
     progress = []
 
+    final_answer = _synthetic_long_answer(800, prefix="réponse")
+
     def fake_stream(url, payload, **kwargs):
         calls.append((url, payload, kwargs))
         if thinking:
             yield _lm_studio_content_chunk(reasoning="private reasoning")
-        yield _lm_studio_content_chunk(content=_ollama_envelope("clean final answer"))
+        yield _lm_studio_content_chunk(content=_ollama_envelope(final_answer))
         yield _lm_studio_content_chunk(finish_reason="stop")
 
     monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
     monkeypatch.setattr(module, "_send_progress", lambda event: progress.append(dict(event)))
 
     answer, thought, raw = node._run_lm_studio(
-        **_run_lm_studio_kwargs(thinking=thinking)
+        **_run_lm_studio_kwargs(
+            system_prompt="Keep the user's requested format.",
+            prompt=ISSUE_77_FRENCH_LONG_FORM_PROMPT,
+            thinking=thinking,
+        )
     )
 
-    assert answer == "clean final answer"
+    assert answer == final_answer
     assert thought == ("private reasoning" if thinking else "")
     assert len(calls) == 1
     url, payload, kwargs = calls[0]
@@ -1703,9 +2283,24 @@ def test_lm_studio_uses_chat_completions_structured_contract(monkeypatch, thinki
     assert payload["reasoning_effort"] == effort
     assert payload["seed"] == 7
     assert payload["response_format"] == module._openai_final_answer_response_format()
-    assert payload["messages"][0]["content"].startswith("Keep the user's requested format.")
+    contract = payload["messages"][0]["content"]
+    serialized_schema = json.dumps(
+        module._final_answer_schema(),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    assert contract == (
+        "Keep the user's requested format.\n\n"
+        f"{module.STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION}"
+    )
+    assert serialized_schema not in contract
+    assert "Required transport JSON schema" not in contract
+    assert "concise" in contract
+    assert module.OLLAMA_LONG_FORM_STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION not in contract
+    assert payload["messages"][1]["content"] == ISSUE_77_FRENCH_LONG_FORM_PROMPT
     assert raw["reasoning_effort"] == effort
     assert raw["api"] == "LM Studio /v1/chat/completions"
+    assert "long_form_compatibility" not in raw
     assert all(event["answer"] == "" for event in progress)
 
 
