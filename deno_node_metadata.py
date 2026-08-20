@@ -98,6 +98,11 @@ NODE_INPUT_TOOLTIPS = {
         "clip": "The same Gemma 4 CLIP value used by Text Generate. It lets the node release only that audio-analysis model after the text is ready.",
         "model_after_run": "Unload releases only the connected audio-analysis CLIP model. Keep loaded is an advanced option for repeated runs.",
     },
+    "DenoTextEncoderUnload": {
+        "value": "Any value to pass through unchanged after the connected text encoder is unloaded.",
+        "clip": "The exact CLIP/text encoder to unload. Connect the same CLIP used by every upstream encoding branch.",
+        "wait_for": "Optional extra dependency. Connect another encoding result here when it must finish before unload.",
+    },
     "DenoAdvancedImageSourceLoader": {
         "image_paths": "Files, folders, absolute paths, or web URLs selected by the advanced source UI.",
         "mode": "Choose how images are resized for the batch output.",
@@ -333,6 +338,9 @@ NODE_OUTPUT_TOOLTIPS = {
     ),
     "DenoAudioAnalysisFinalize": (
         "Canonical-order supported audio-analysis fields with Gemma reasoning and unrelated chatter removed.",
+    ),
+    "DenoTextEncoderUnload": (
+        "The original value unchanged, after the connected CLIP/text encoder and its clones are unloaded.",
     ),
     "DenoAdvancedImageSourceLoader": (
         "Loaded sources resized into one same-size IMAGE batch.",

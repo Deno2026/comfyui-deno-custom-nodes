@@ -491,6 +491,11 @@ _OPTIONAL_NODES = (
         "DenoAudioAnalysisFinalize",
         "(Deno) Audio Analysis Finalizer",
     ),
+    (
+        "deno_text_encoder_unload",
+        "DenoTextEncoderUnload",
+        "(Deno) Text Encoder Unload",
+    ),
     ("deno_advanced_image_source_loader", "DenoAdvancedImageSourceLoader", "(Deno) Advanced Image Source Loader"),
     ("deno_ltx_sequencer_plus", "DenoLTXSequencer", "(Deno) LTX Sequencer"),
     ("deno_ltx23_preset_loader", "DenoLTX23PresetLoader", "(Deno) LTX Model Loader"),

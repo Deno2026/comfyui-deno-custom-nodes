@@ -1,7 +1,7 @@
 [project]
 name = "deno-custom-nodes"
-description = "DENO RTX node pack for ComfyUI: MiniMax H3 multi-reference image and Reference to Video helpers, local audio transcription and analysis helpers, Ideogram Director visual JSON/bbox prompt builder, Local LLM Loader and Reviewer helpers, GPT/Gemini-ready Error Help reports, Prompt Only final prompt extraction, RTX Video Super Resolution, RTX Super Resolution, Video SR/VSR, NVIDIA VFX/nvvfx, RTX upscale helpers, LTX 2.3 and LTX 2.5 model/workflow helpers, LTX tiled second-pass refinement helpers, Bernini Prompt Guide, audio/image review gates, Bernini conditioning helpers, Wan 2.2 reference video edit workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
-version = "0.7.89"
+description = "DENO RTX node pack for ComfyUI: MiniMax H3 multi-reference image and Reference to Video helpers, local audio transcription and analysis helpers, targeted text-encoder VRAM unload, Ideogram Director visual JSON/bbox prompt builder, Local LLM Loader and Reviewer helpers, GPT/Gemini-ready Error Help reports, Prompt Only final prompt extraction, RTX Video Super Resolution, RTX Super Resolution, Video SR/VSR, NVIDIA VFX/nvvfx, RTX upscale helpers, LTX 2.3 and LTX 2.5 model/workflow helpers, LTX tiled second-pass refinement helpers, Bernini Prompt Guide, audio/image review gates, Bernini conditioning helpers, Wan 2.2 reference video edit workflows, image and video compare, video preview, Video to GIF/WebP tools, multi-image loading, resize tools, LoRA/model helpers, prompt guides, and visual workflow utilities."
+version = "0.7.90"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = ["openai-whisper>=20250625"]
@@ -16,6 +16,10 @@ keywords = [
   "audio-transcription",
   "audio-analysis",
   "whisper",
+  "text-encoder-unload",
+  "clip-unload",
+  "dynamic-vram",
+  "vram-management",
   "rtx-video-super-resolution",
   "nvidia-vfx",
   "nvvfx",
@@ -92,6 +96,6 @@ Documentation = "https://github.com/Deno2026/comfyui-deno-custom-nodes#readme"
 [tool.comfy]
 PublisherId = "deno2026"
 DisplayName = "Deno Custom Nodes"
-Icon = "https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/icon.svg"
+Icon = "https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/icon.png"
 Banner = "https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/docs/images/deno-custom-nodes-banner.jpg"
 requires-comfyui = ">=0.3.0"

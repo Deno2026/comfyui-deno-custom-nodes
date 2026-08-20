@@ -7,6 +7,7 @@ import re
 import sys
 import tempfile
 import os
+import struct
 import subprocess
 
 
@@ -22,9 +23,11 @@ INSTALL_BAT_PATH = REPO_ROOT / "tools" / "install_rtx_vfx.bat"
 TOOLS_INSTALL_GUIDE_STUB_PATH = REPO_ROOT / "tools" / "OPEN_INSTALL_GUIDE.txt"
 README_PATH = REPO_ROOT / "README.md"
 BANNER_PATH = REPO_ROOT / "docs" / "images" / "deno-custom-nodes-banner.jpg"
+ICON_PATH = REPO_ROOT / "icon.png"
 RTX_INSTALL_GUIDE_PATH = REPO_ROOT / "docs" / "RTX_VFX_INSTALL_GUIDE.md"
 RTX_WEB_INSTALL_GUIDE_PATH = REPO_ROOT / "docs" / "rtx-vfx-install" / "index.html"
 RTX_INSTALLER_README_PATH = REPO_ROOT / "tools" / "README_RTX_VFX_EASY_INSTALL.md"
+BERNINI_PREVIEW_UPDATER_PATH = REPO_ROOT / "tools" / "DENO_Bernini_Preview_Backend_Update.bat"
 WEB_INSTALL_GUIDE_URL = "https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/"
 ZIP_INSTALLER_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip"
 
@@ -83,6 +86,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "DENO RTX node" in description
     assert "MiniMax H3 multi-reference image" in description
     assert "audio transcription and analysis helpers" in description
+    assert "targeted text-encoder VRAM unload" in description
     assert "RTX Video Super Resolution" in description
     assert "RTX Super Resolution" in description
     assert "Video SR/VSR" in description
@@ -112,6 +116,10 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "audio-transcription",
         "audio-analysis",
         "whisper",
+        "text-encoder-unload",
+        "clip-unload",
+        "dynamic-vram",
+        "vram-management",
         "rtx-video-super-resolution",
         "nvidia-vfx",
         "ltx-2.3",
@@ -171,8 +179,15 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert pyproject["tool"]["comfy"]["PublisherId"] == "deno2026"
     assert pyproject["tool"]["comfy"]["DisplayName"] == "Deno Custom Nodes"
     assert pyproject["tool"]["comfy"]["requires-comfyui"] == ">=0.3.0"
-    assert pyproject["tool"]["comfy"]["Icon"].endswith("icon.svg")
+    assert pyproject["tool"]["comfy"]["Icon"].endswith("icon.png")
     assert pyproject["tool"]["comfy"]["Banner"].endswith("/docs/images/deno-custom-nodes-banner.jpg")
+    assert ICON_PATH.exists()
+    assert ICON_PATH.stat().st_size > 100_000
+    icon_bytes = ICON_PATH.read_bytes()
+    assert icon_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+    icon_width, icon_height = struct.unpack(">II", icon_bytes[16:24])
+    assert icon_width == icon_height
+    assert icon_width <= 400
     assert BANNER_PATH.exists()
     assert BANNER_PATH.stat().st_size > 100_000
     assert "docs/images/deno-custom-nodes-banner.jpg" in README_PATH.read_text(encoding="utf-8")
@@ -311,6 +326,16 @@ def test_registry_package_excludes_repository_only_delivery_and_contributor_file
 
     for path in required_exclusions:
         assert path in comfyignore
+
+
+def test_retired_bernini_preview_updater_is_inert_on_current_comfyui():
+    script = BERNINI_PREVIEW_UPDATER_PATH.read_text(encoding="utf-8")
+
+    assert "RETIRED" in script
+    assert "Current ComfyUI Stable already includes native Bernini" in script
+    assert "git -C" not in script
+    assert "pip install" not in script
+    assert "checkout" not in script
 
 
 def test_public_git_surface_excludes_local_only_internal_docs():

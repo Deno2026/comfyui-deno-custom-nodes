@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.90 - 2026-08-21
+
+- Added `(Deno) Text Encoder Unload`, an opt-in type-preserving workflow barrier that unloads only the explicitly connected CLIP/text encoder after all linked encoding branches finish, without globally unloading diffusion models, VAEs, or ControlNets. It includes current ComfyUI MatchType sockets, a legacy wildcard fallback, clear `--gpu-only` handling, and reliable per-queue execution.
+- Refreshed the public node catalog, multilingual setup guidance, native help, search terms, screenshots, Registry icon, and README banner, and retired the obsolete Bernini preview-backend update path now that current ComfyUI Stable includes native Bernini conditioning support.
+
 ## 0.7.89 - 2026-08-19
 
 - Fixed `(Deno) Local LLM Loader` so Ollama JSON-schema output preserves clearly requested long-form word or character targets instead of collapsing them to a title or short introduction. The compatibility path keeps the original prompt, images, seed, cancellation, and unload behavior, while ordinary requests, source-length references, reviewer/rewrite workflows, LM Studio, and saved workflows remain unchanged. Addresses #77.

@@ -26,7 +26,7 @@ Ferramentas que podes executar diretamente no navegador.
 
 - [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - compara dois vídeos renderizados com slider, lado a lado, diferença e toggle.
 - [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - corta, recorta, redimensiona e exporta clips curtos como GIF ou WebP mais leve.
-- [DENO 디스코드용 영상 / 이미지 압축](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 영상이나 이미지를 줄여 가능하면 10MB 이하 디스코드용 파일로 저장합니다.
+- [DENO Compressão de vídeo / imagem para Discord](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - reduz vídeos ou imagens e guarda-os, quando possível, com menos de 10 MB para partilha no Discord. A interface está disponível apenas em coreano.
 
 ## DENO Visual Fold
 
@@ -38,15 +38,25 @@ Ao selecionar dois ou mais nós, aparece um botão verde `Fold` perto do canto s
 
 Ao contrário do Subgraph, Visual Fold não move os nós para um grafo filho. É apenas organização visual, útil quando queres manter nós `Get` / `Set` ou a estrutura pai-filho visível no grafo principal.
 
+## DENO Floating Tools
+
+DENO Floating Tools é um assistente opcional em `Settings > DENO > Tools`. Está desativado por predefinição.
+
+Quando ativado, adiciona um pequeno ícone DENO arrastável ao ecrã do ComfyUI. O painel pode libertar VRAM através do endpoint de limpeza de memória integrado do ComfyUI, mostrar em modo só de leitura o estado da versão atual e mais recente do ComfyUI Stable, e abrir um relatório Error Help quando uma execução falha.
+
+Error Help cria um relatório preparado para GPT / Gemini com o workflow atual, executável e tipo de ambiente Python, versões de pacotes, GPU, contexto recente de traceback / log e resumo de custom nodes. É só de leitura, abre primeiro uma janela de relatório e só copia ao clicar em `Copy Report`. Segredos comuns como tokens, cookies, passwords, private keys e credenciais em URLs são ocultados antes da cópia.
+
+Floating Tools não instala, atualiza, reinicia, repara nem modifica workflows.
+
 ## Included Nodes
 
 ### `(Deno) Ideogram Director`
 
-Visual Ideogram 4 prompt builder for structured JSON captions and bbox layout work.
+Construtor visual de prompts para Ideogram 4, destinado a captions JSON estruturados e layouts bbox dentro do canvas do ComfyUI.
 
 ![Deno Ideogram Director](images/ideogram-director.png)
 
-Main features: draw and edit bbox regions, import JSON prompts from Local LLM Loader or another STRING source, ask before replacing an existing board, reject malformed JSON clearly, use style/layout preset galleries, and use Language view to read/edit board descriptions in your language while final output stays model-ready English and literal TEXT box words stay exact.
+Funcionalidades principais: desenhar e editar regiões bbox, importar prompts JSON do Local LLM Loader ou de outra fonte STRING, confirmar antes de substituir um board existente, rejeitar claramente JSON inválido, usar galerias de presets de estilo/layout e ler ou editar descrições no teu idioma com Language view, mantendo a saída final em inglês pronto para o modelo e preservando exatamente as palavras literais das caixas TEXT, como letreiros, logótipos e títulos.
 
 ### `(Deno) Resize Box`
 
@@ -63,6 +73,41 @@ Carregador de várias imagens pensado para workflows de guia por batch.
 ![Deno Multi Image Loader](images/multi-image-loader.jpg)
 
 Funcionalidades principais: galeria de altura fixa, reordenação por arrastar, upload, drag-and-drop, colar imagem, navegação pela pasta `input`, suporte a subpastas, ordenação por data recente, redimensionamento por proporção/preset/manual, saídas `multi_output`, `width`, `height`.
+
+### `(Deno) MiniMax H3 Multi Reference Image Loader`
+
+Carregador de imagens de referência com uma única ligação para o workflow nativo MiniMax H3 Reference to Video do ComfyUI.
+
+Mantém a mesma experiência de upload, paste, drag-and-drop, Input Folder, reordenação de cartões e limpeza de `(Deno) Multi Image Loader`. Envia até 9 referências ordenadas através de um socket `ref_images`, preservando separadamente as dimensões e proporções originais de cada imagem, sem resize, crop ou padding. A ordem dos cartões corresponde a `<Picture 1>`, `<Picture 2>` e seguintes; as mesmas imagens também são expostas como `image_list` para ligação direta à entrada `image` de `(Deno) Local LLM Loader`.
+
+O nó incluído `(Deno) MiniMax H3 Reference to Video` apenas reúne as imagens numa entrada; mantém as entradas Autogrow nativas de vídeo de referência, áudio associado ao vídeo e áudio independente. Estes dois nós MiniMax H3 exigem ComfyUI 0.30.0 ou posterior. Consulta o [workflow de exemplo MiniMax H3 com múltiplas referências](workflows/minimax-h3-multi-reference.json).
+
+### Workflow MiniMax H3 R2V com referência de áudio
+
+O [workflow de referência de áudio para iniciantes](workflows/minimax-h3-r2v-audio-reference.json) mantém o caminho de áudio de referência nativo do MiniMax H3 e acrescenta uma linha automática de direção de prompts.
+
+- `(Deno) Audio Transcript`: usa OpenAI Whisper local para criar letras ou diálogo, tempos por segmento, idioma detetado e resumo de confiança. Se o utilizador inserir letras ou diálogo, esse texto tem prioridade.
+- `(Deno) Audio Analysis Finalizer`: conserva apenas os campos documentados de análise acústica do resultado ComfyUI `TextGenerate` e pode descarregar o modelo CLIP usado na análise depois da execução.
+- `(Deno) Local LLM Loader`: recebe a transcrição e o relatório acústico pela entrada STRING opcional `audio_context`. O AUDIO original não é enviado para o LLM local e a análise automática é tratada como dados de referência, não como instruções.
+- A secção escolhida do áudio original serve simultaneamente como referência `<Audio 1>` do H3 e como som incluído no MP4 final. Este workflow não descodifica o áudio gerado internamente pelo H3.
+
+Requisitos: ComfyUI Stable atualizado com MiniMax H3 e `TextGenerate` compatível com entrada de áudio; [ComfyUI-VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) para `Load Audio (Upload)`; `gemma4_e4b_it_fp8_scaled.safetensors` em `ComfyUI/models/text_encoders/` para análise acústica; e LM Studio com `google/gemma-4-12b-qat` carregado e Local Server ativo para o passo final de direção do prompt.
+
+`openai-whisper` é instalado como dependência do nó. O checkpoint Whisper escolhido é descarregado do endereço oficial da OpenAI na primeira execução de `(Deno) Audio Transcript`, validado por checksum pelo loader oficial e guardado em cache em `ComfyUI/models/stt/whisper/`.
+
+### `(Deno) Text Encoder Unload`
+
+Barreira de VRAM opcional para inserir em workflows que concluem todo o text encoding antes de iniciar o sampling.
+
+![Workflow Deno Text Encoder Unload](images/text-encoder-unload-workflow.png)
+
+- passa em `value` um conditioning positive ou negative destinado ao sampler; o mesmo objeto e tipo de socket saem sem alterações
+- liga em `clip` o `CLIP` exato usado pelos nós Text Encode anteriores
+- liga a outra ramificação independente positive / negative a `wait_for`, para ambas terminarem antes do unload
+- descarrega pela gestão de modelos do ComfyUI apenas o CLIP / text encoder ligado, os seus clones e componentes geridos; não descarrega globalmente diffusion models, VAE ou ControlNet
+- executa em cada queue para que a cache não omita o efeito de unload
+
+Dynamic VRAM desloca pesos conforme a pressão de memória e pode deixar intencionalmente parte do text encoder residente. Este nó cria um ponto determinístico de libertação, mas não consegue levar todo o processo ComfyUI a `0 MiB`: contexto CUDA, conditioning tensors, outros modelos, custom nodes e outras aplicações mantêm alocações independentes. Também não melhora por si só a qualidade do sampling; cria margem de VRAM que pode reduzir model offload ou evitar um OOM. Um text encode posterior terá de voltar a carregar o modelo e `--gpu-only` não permite retirar o encoder da VRAM.
 
 ### `(Deno) Advanced Image Source Loader`
 
@@ -150,17 +195,23 @@ O áudio completo é passado para cada tile de vídeo como contexto, enquanto o 
 
 ### `(Deno) Easy Model Download Helper`
 
-Assistente baseado em presets para instalar conjuntos recomendados de ficheiros de modelo.
+Assistente baseado em presets para instalar conjuntos recomendados de ficheiros de modelo. Os presets incluídos abrangem o conjunto inicial LTX 2.3 GGUF para 8 GB de VRAM e o conjunto oficial LTX 2.5 Distilled INT8 de duas etapas.
 
 ![Deno Easy Model Download Helper](images/easy-model-download-helper.png)
 
-Funcionalidades principais: abre ligações oficiais no navegador em vez de descarregar via Python, mostra raízes de modelos do ComfyUI, guarda creator presets no workflow, suporta Hugging Face e Civitai, e verifica se os ficheiros estão na pasta correta.
+Funcionalidades principais: abre ligações oficiais no navegador em vez de descarregar via Python, mostra raízes de modelos do ComfyUI, guarda creator presets no workflow, suporta Hugging Face e Civitai, e verifica se os ficheiros estão na pasta correta. O preset LTX 2.5 inclui o diffusion model, o text encoder Gemma 4 com projection, os VAE de vídeo e áudio e o x2 spatial upscaler necessário para o processo de duas etapas.
+
+Os ficheiros LTX 2.5 exigem início de sessão no Hugging Face e aprovação em **Agree and Access** antes do download. O assistente não contorna essa restrição nem descarrega modelos automaticamente. Consulta a [LTX-2 Community License](https://github.com/Lightricks/LTX-2/blob/main/LICENSE.md), pede acesso no [repositório oficial LTX 2.5](https://huggingface.co/Lightricks/LTX-2.5), usa as ligações abertas pelo nó e move cada ficheiro descarregado para a pasta de modelos do ComfyUI apresentada no ecrã.
 
 ![Hugging Face link guide](images/easy-model-download-helper-huggingface-link.png)
 
 ![Civitai page URL guide](images/easy-model-download-helper-civitai-link.png)
 
 ![Civitai preset editor guide](images/easy-model-download-helper-civitai-node.png)
+
+### `(Deno) Multi LoRA Loader`
+
+Carregador multi LoRA genérico para workflows normais de diffusion no ComfyUI. Aplica até oito LoRAs ao `MODEL` ligado e ao `CLIP` opcional; permite ativar ou desativar cada slot sem perder a seleção guardada, definir strengths separados para model e CLIP, guardar trigger words e notas, reordenar slots e enviar os resultados `model` e `clip` corrigidos.
 
 ### `(Deno) LTX Multi LoRA Loader`
 
@@ -190,8 +241,23 @@ O negative preset não é um modo de saída. Apenas preenche a caixa de negative
 
 Escreve o prompt como uma instrução para um chatbot, não como uma lista de tags. Exemplo: `Replace the jacket with the shirt from image0. Keep the camera motion, background, lighting, and shadows unchanged.`
 
-Nota: este nó prepara apenas text conditioning. Bernini visual conditioning ainda precisa de um backend ComfyUI/KJ que suporte Bernini context latents.
-Enquanto esse suporte ainda estiver como draft PR do ComfyUI, usa `tools/DENO_Bernini_Preview_Backend_Update.bat` apenas numa pasta portable ComfyUI copiada para testes.
+Este nó prepara apenas text conditioning. Liga as saídas `positive` e `negative` ao nó nativo `(Bernini) Conditioning` da versão atual do ComfyUI Stable para construir o conditioning visual / context-latent do Bernini. O backend do Bernini foi integrado oficialmente pelo [PR #14216 do ComfyUI](https://github.com/Comfy-Org/ComfyUI/pull/14216), por isso o antigo updater de preview deixou de ser necessário; atualiza o ComfyUI Stable se o nó nativo de conditioning não aparecer.
+
+### `(Deno) Prompt Text`
+
+Pequena fonte STRING multiline para manter system prompts, user prompts, templates ou texto JSON longo legível no seu próprio nó. Usa-a para ligar o texto sem alterações ao Ideogram Director, Local LLM Loader ou a outra entrada STRING.
+
+### `(Deno) Local LLM Loader` / `(Deno) Local LLM Reviewer`
+
+Nós para chamar, a partir do ComfyUI, LLM locais que já estejam a correr no PC e usar um review text do LLM para permitir ou bloquear resultados antes de serem guardados.
+
+Funcionalidades principais: chama modelos Ollama, LM Studio, llama.cpp, vLLM, servidores Custom OpenAI-compatible, llama-swap ou Unsloth Studio; limita endereços a `127.0.0.1` / `localhost`; atualiza listas de modelos por provider; interrompe requests em curso; usa APIs de gestão do llama-swap / Unsloth Studio para unload manual ou após a execução; processa prompt batches sequencialmente numa única execução; anexa IMAGE a modelos de visão; mostra Thinking / Result; controla IMAGE / AUDIO antes dos nós Save; aprova uma vez o resultado atual ou volta a executar apenas o caminho anterior ao reviewer. O Result final é guardado nos metadata PNG / workflow e restaurado ao reabrir; Thinking / reasoning não é guardado.
+
+O provider `Unsloth` destina-se apenas ao Unsloth Studio e usa por predefinição `http://127.0.0.1:8888/v1`. Se executares no LM Studio um GGUF obtido do Unsloth, seleciona `LM Studio`, não `Unsloth`. Antes de iniciar o ComfyUI é necessário definir a variável de ambiente `DENO_LOCAL_LLM_UNSLOTH_API_KEY`; a chave não é guardada em workflows nem metadata PNG.
+
+Se o LM Studio rejeitar o campo opcional de controlo de reasoning antes de iniciar a geração, o nó volta a tentar uma vez sem esse campo. Depois disso, o comportamento de reasoning depende do server e model selecionados.
+
+Nota de áudio: Local LLM Loader não envia AUDIO original diretamente ao modelo local. A entrada STRING opcional `audio_context` pode receber uma transcrição e um relatório acústico anteriores como dados de referência, sem alterar o prompt do utilizador. Local LLM Reviewer pode permitir ou bloquear AUDIO quando outro nó de geração de texto compatível com áudio produz o review text.
 
 ## Why This Exists
 
@@ -199,17 +265,21 @@ Estes nós reduzem fricções repetidas no trabalho real com ComfyUI. O objetivo
 
 ## Search Tips
 
-Podes procurar por `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `stable update check`, `error help`, `comfyui error help`, `sos report`, `gpt gemini report`, `workflow diagnostics`.
+Procura primeiro `Deno Custom Nodes` no ComfyUI Manager. No GitHub, Manager e Registry também podes usar `deno custom nodes`, `ideogram director`, `minimax h3`, `audio transcript`, `whisper`, `text encoder unload`, `clip unload`, `dynamic vram`, `vram barrier`, `multi lora`, `ltx 2.5`, `ltx model loader`, `local llm loader`, `local llm reviewer`, `prompt text`, `ollama`, `lm studio`, `llama.cpp`, `vllm`, `llama-swap`, `unsloth studio`, `bernini conditioning`, `image compare`, `video compare`, `video preview`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `error help`, `workflow diagnostics`.
 
 ## Install
 
-Clona dentro da pasta `custom_nodes` do ComfyUI:
+Método recomendado: procura `Deno Custom Nodes` no ComfyUI Manager, instala-o e reinicia o ComfyUI.
+
+Para uma instalação manual, clona o repositório dentro da pasta `custom_nodes` do ComfyUI e instala as dependências com o mesmo Python que inicia o ComfyUI:
 
 ```bash
 git clone https://github.com/Deno2026/comfyui-deno-custom-nodes.git
+cd comfyui-deno-custom-nodes
+python -m pip install -r requirements.txt
 ```
 
-Depois reinicia o ComfyUI.
+Para atualizar manualmente, executa `git pull --ff-only` na pasta do repositório, volta a instalar `requirements.txt` com o mesmo Python e reinicia o ComfyUI. As instalações via ComfyUI Manager / Registry tratam automaticamente das dependências do pacote.
 
 ## Links
 
