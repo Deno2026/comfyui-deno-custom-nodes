@@ -26,7 +26,7 @@ Deno Custom Nodes は、ComfyUI の実制作でよく繰り返す画像、動画
 
 - [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 2つの動画をスライダー、横並び、差分、トグル表示で比較します。
 - [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 短いクリップをトリム、クロップ、リサイズして GIF または軽量 WebP に書き出します。
-- [DENO 디스코드용 영상 / 이미지 압축](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 영상이나 이미지를 줄여 가능하면 10MB 이하 디스코드용 파일로 저장합니다.
+- [DENO Discord向け動画 / 画像圧縮](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 動画や画像を縮小し、可能な限り Discord 向けに 10MB 以下で保存します。UI は韓国語のみです。
 
 ## DENO Visual Fold
 
@@ -38,15 +38,25 @@ DENO Visual Fold は、大きな ComfyUI グラフを視覚的に整理するた
 
 Subgraph はノードを子グラフへ移動しますが、Visual Fold は単なる視覚整理です。`Get` / `Set` ノードや親子グラフ構造をメイン画面に残したい時に便利です。
 
+## DENO Floating Tools
+
+DENO Floating Tools は `Settings > DENO > Tools` にある任意の補助機能で、初期状態では無効です。
+
+有効にすると、ComfyUI 画面に小さなドラッグ可能な DENO アイコンが追加されます。パネルから ComfyUI 標準のメモリー解放機能で VRAM を解放し、現在と最新の ComfyUI Stable バージョンを読み取り専用で確認し、実行エラー時には Error Help レポートを開けます。
+
+Error Help は、現在のワークフロー、Python 実行ファイルと環境、パッケージ、GPU、直近の traceback / log、カスタムノードの概要を GPT / Gemini 向けレポートにまとめます。レポート画面を先に開く読み取り専用機能で、`Copy Report` を押した時だけコピーします。token、cookie、password、private key、URL 認証情報などの一般的な秘密情報はコピー前にマスクされます。
+
+Floating Tools はインストール、更新、再起動、修復、ワークフロー変更を行いません。
+
 ## Included Nodes
 
 ### `(Deno) Ideogram Director`
 
-Visual Ideogram 4 prompt builder for structured JSON captions and bbox layout work.
+構造化 JSON caption と bbox レイアウトを ComfyUI キャンバス上で編集する、Ideogram 4 向けの視覚的プロンプトビルダーです。
 
 ![Deno Ideogram Director](images/ideogram-director.png)
 
-Main features: draw and edit bbox regions, import JSON prompts from Local LLM Loader or another STRING source, ask before replacing an existing board, reject malformed JSON clearly, use style/layout preset galleries, and use Language view to read/edit board descriptions in your language while final output stays model-ready English and literal TEXT box words stay exact.
+主な機能: bbox 領域の描画と編集、Local LLM Loader または他の STRING ソースからの JSON prompt 取り込み、既存ボードを置き換える前の確認、不正な JSON の明確な拒否、style / layout preset gallery、説明を自分の言語で読み書きしながら最終出力は生成用英語に保ち、看板やロゴなど TEXT box の文字列はそのまま維持する Language view。
 
 ### `(Deno) Resize Box`
 
@@ -63,6 +73,41 @@ ComfyUI 用の解像度補助と画像リサイズノードです。
 ![Deno Multi Image Loader](images/multi-image-loader.jpg)
 
 主な機能: 固定高さギャラリー、ドラッグ並べ替え、アップロード、ドラッグ&ドロップ、画像貼り付け、ComfyUI `input` フォルダー参照、ネストフォルダー対応、新しい順の画像ソート、比率維持/プリセット/手入力リサイズ、`multi_output`, `width`, `height` 出力。
+
+### `(Deno) MiniMax H3 Multi Reference Image Loader`
+
+ComfyUI 標準の MiniMax H3 Reference to Video ワークフロー向けに、複数の参照画像を1本で接続できるローダーです。
+
+`(Deno) Multi Image Loader` と同じ upload、paste、drag-and-drop、Input Folder、カード並べ替え、削除の操作感を保ちます。最大9枚を専用の `ref_images` socket から渡し、各画像の元のサイズと縦横比を resize、crop、padding せず個別に保持します。カード順は `<Picture 1>`, `<Picture 2>` の順に対応し、同じ画像を `(Deno) Local LLM Loader` の `image` 入力へ接続できる `image_list` としても出力します。
+
+付属の `(Deno) MiniMax H3 Reference to Video` は画像入力だけを1本にまとめ、標準の reference video、video audio、standalone audio の Autogrow 入力は維持します。この2つの MiniMax H3 ノードには ComfyUI 0.30.0 以降が必要です。全体構成は [MiniMax H3 複数参照サンプルワークフロー](workflows/minimax-h3-multi-reference.json) で確認できます。
+
+### MiniMax H3 R2V 音声参照ワークフロー
+
+[初心者向け音声参照ワークフロー](workflows/minimax-h3-r2v-audio-reference.json) は、ComfyUI 標準の MiniMax H3 音声参照経路を保ちながら、自動 prompt direction の流れを追加します。
+
+- `(Deno) Audio Transcript`: ローカル OpenAI Whisper で歌詞や台詞、segment 時刻、検出言語、confidence の概要を作ります。ユーザーが入力した歌詞や台詞がある場合は、その文言を優先します。
+- `(Deno) Audio Analysis Finalizer`: ComfyUI `TextGenerate` の結果から文書化された音響分析項目だけを残し、任意で分析用 CLIP model を実行後に unload します。
+- `(Deno) Local LLM Loader`: 任意の `audio_context` STRING 入力で transcript と音響レポートを受け取ります。raw AUDIO はローカル LLM に送らず、自動分析は命令ではなく参考データとして扱います。
+- 選択した元音声区間は H3 の `<Audio 1>` 参照であると同時に、最終 MP4 に mux される音声です。このワークフローでは H3 の内部生成音声を decode しません。
+
+必要なもの: MiniMax H3 と音声入力対応 `TextGenerate` を含む最新の ComfyUI Stable、`Load Audio (Upload)` 用の [ComfyUI-VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite)、音響分析用の `ComfyUI/models/text_encoders/gemma4_e4b_it_fp8_scaled.safetensors`、そして最終 prompt director 用に `google/gemma-4-12b-qat` を読み込んだ LM Studio Local Server。
+
+`openai-whisper` はノード依存関係としてインストールされます。選択した Whisper checkpoint は `(Deno) Audio Transcript` の初回実行時に OpenAI の公式 URL から取得され、公式 loader が checksum を検証し、`ComfyUI/models/stt/whisper/` に cache します。
+
+### `(Deno) Text Encoder Unload`
+
+必要な text encoding がすべて終わってから sampling を開始するワークフローに挿入する、任意使用の VRAM barrier ノードです。
+
+![Deno Text Encoder Unload ワークフロー](images/text-encoder-unload-workflow.png)
+
+- sampler に送る positive または negative conditioning の一方を `value` に通すと、同じ object と socket type がそのまま出力されます。
+- upstream Text Encode が実際に使った正確な `CLIP` を `clip` に接続します。
+- もう一方の positive / negative など独立した encode 分岐を `wait_for` に接続し、unload 前に両方の encode を完了させます。
+- 接続した CLIP / text encoder、その clone と管理対象 component だけを ComfyUI model management で unload し、diffusion model、VAE、ControlNet は global unload しません。
+- cache によって副作用が省略されないよう、queue ごとに実行されます。
+
+Dynamic VRAM は memory pressure に応じて weight を移動するため、text encoder の一部を意図的に残す場合があります。このノードは明確な解放地点を作りますが、ComfyUI process 全体を `0 MiB` にはできません。CUDA context、conditioning tensor、他の model、custom node、他アプリの割り当ては別です。また sampling 品質そのものを上げる機能ではなく、model offload や OOM を減らすための VRAM 余裕を作ります。次の text encode では model の再読み込みが必要になり、`--gpu-only` では encoder を VRAM 外へ移動できません。
 
 ### `(Deno) Advanced Image Source Loader`
 
@@ -150,17 +195,23 @@ LTX AV refinement pass 向けの sampler です。1つの global sampler traject
 
 ### `(Deno) Easy Model Download Helper`
 
-推奨モデルファイルセットを案内するプリセット型セットアップヘルパーです。
+推奨モデルファイルセットを案内するプリセット型セットアップヘルパーです。組み込み preset には、従来の LTX 2.3 8GB VRAM GGUF セットと、公式 LTX 2.5 Distilled INT8 の2段階 model set が含まれます。
 
 ![Deno Easy Model Download Helper](images/easy-model-download-helper.png)
 
-主な機能: Python で直接ダウンロードせず公式モデルリンクをブラウザで開く、ComfyUI モデルルート表示、workflow 内 creator preset 保存、Hugging Face と Civitai リンク対応、対象フォルダーにファイルがあるか確認。
+主な機能: Python で直接ダウンロードせず公式モデルリンクをブラウザで開く、ComfyUI モデルルート表示、workflow 内 creator preset 保存、Hugging Face と Civitai リンク対応、対象フォルダーにファイルがあるか確認。LTX 2.5 preset には diffusion model、projection 付き Gemma 4 text encoder、video / audio VAE、2段階処理用 x2 spatial upscaler が含まれます。
+
+LTX 2.5 のファイルには Hugging Face へのログインと **Agree and Access** の承認が必要です。この helper はアクセス制限を迂回せず、自動ダウンロードも行いません。[LTX-2 Community License](https://github.com/Lightricks/LTX-2/blob/main/LICENSE.md) を確認し、[公式 LTX 2.5 repository](https://huggingface.co/Lightricks/LTX-2.5) でアクセス権を取得してから、ノードが開く browser link を使い、ダウンロードしたファイルを表示された ComfyUI model folder へ移動してください。
 
 ![Hugging Face link guide](images/easy-model-download-helper-huggingface-link.png)
 
 ![Civitai page URL guide](images/easy-model-download-helper-civitai-link.png)
 
 ![Civitai preset editor guide](images/easy-model-download-helper-civitai-node.png)
+
+### `(Deno) Multi LoRA Loader`
+
+通常の ComfyUI diffusion ワークフロー向けの汎用 multi LoRA loader です。接続した `MODEL` と任意の `CLIP` に最大8個の LoRA を適用し、保存した選択を失わずに slot ごとの有効/無効、model / CLIP strength、trigger word、note、slot 順序を管理して、patch 済みの `model` と `clip` を出力します。
 
 ### `(Deno) LTX Multi LoRA Loader`
 
@@ -190,8 +241,23 @@ Negative preset は出力モードではなく、下の negative prompt 欄を�
 
 プロンプトはタグを並べるより、チャットボットに指示するように書きます。例: `Replace the jacket with the shirt from image0. Keep the camera motion, background, lighting, and shadows unchanged.`
 
-注意: このノードは text conditioning のみを準備します。Bernini visual conditioning には、Bernini context latent をサポートする ComfyUI/KJ backend が必要です。
-その backend support がまだ ComfyUI draft PR の段階にある間は、`tools/DENO_Bernini_Preview_Backend_Update.bat` をコピーしたテスト用 portable ComfyUI フォルダーでのみ使ってください。
+このノードが準備するのは text conditioning だけです。`positive` と `negative` の出力を現在の ComfyUI Stable に含まれる標準の `(Bernini) Conditioning` ノードへ接続すると、Bernini visual / context-latent conditioning を構成できます。Bernini backend は [ComfyUI PR #14216](https://github.com/Comfy-Org/ComfyUI/pull/14216) で正式に統合されたため、以前の preview-backend updater は不要です。標準 conditioning ノードが見つからない場合は、まず ComfyUI Stable を更新してください。
+
+### `(Deno) Prompt Text`
+
+system prompt、user prompt、template、JSON などの長い文章を独立したノードで読みやすく保持し、STRING として接続する小さな multiline 入力ノードです。文章を変えずに Ideogram Director、Local LLM Loader、または他の STRING 入力へ渡したい時に使います。
+
+### `(Deno) Local LLM Loader` / `(Deno) Local LLM Reviewer`
+
+PC 上ですでに動作しているローカル LLM を ComfyUI から呼び出し、LLM の review text で保存前の結果を通すか止めるためのノードです。
+
+主な機能: Ollama、LM Studio、llama.cpp、vLLM、Custom OpenAI-compatible server、llama-swap、Unsloth Studio のローカルモデル呼び出し、`127.0.0.1` / `localhost` 専用の安全制限、provider 別 model list の更新、実行中 request の中止、llama-swap / Unsloth Studio の management API による手動または実行後 unload、prompt batch の順次処理、vision model への IMAGE 添付、Thinking / Result preview、Save node 前の IMAGE / AUDIO gate、現在の review 結果の1回承認、reviewer より前の経路だけの再実行。Local LLM node の最終 Result は PNG / workflow metadata に保存され、再度開くと node 内に復元されますが、Thinking / reasoning は保存されません。
+
+`Unsloth` provider は Unsloth Studio server 専用で、既定 URL は `http://127.0.0.1:8888/v1` です。Unsloth の GGUF を LM Studio で動かす場合は `Unsloth` ではなく `LM Studio` を選びます。使用には ComfyUI 起動前に `DENO_LOCAL_LLM_UNSLOTH_API_KEY` 環境変数の設定が必要で、この key は workflow や PNG metadata に保存されません。
+
+LM Studio が生成開始前に任意の reasoning-control field を拒否した場合、node はその field を除いて1回だけ再試行します。その後の reasoning は選択した server と model の既定動作に従います。
+
+音声について: Local LLM Loader は raw AUDIO をローカルモデルへ直接送りません。任意の `audio_context` STRING 入力で upstream の transcript と音響レポートを、user prompt を変更しない参考データとして受け取れます。Local LLM Reviewer は、別の audio-capable text generation node が作った review text に基づいて AUDIO を通すか止めることができます。
 
 ## Why This Exists
 
@@ -199,17 +265,21 @@ Negative preset は出力モードではなく、下の negative prompt 欄を�
 
 ## Search Tips
 
-GitHub、ComfyUI Manager、Registry では `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `bernini`, `bernini prompt guide`, `reference video edit`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `stable update check`, `error help`, `comfyui error help`, `sos report`, `gpt gemini report`, `workflow diagnostics` などで探せます。
+まず ComfyUI Manager で `Deno Custom Nodes` を検索してください。GitHub、Manager、Registry では `deno custom nodes`, `ideogram director`, `minimax h3`, `audio transcript`, `whisper`, `text encoder unload`, `clip unload`, `dynamic vram`, `vram barrier`, `multi lora`, `ltx 2.5`, `ltx model loader`, `local llm loader`, `local llm reviewer`, `prompt text`, `ollama`, `lm studio`, `llama.cpp`, `vllm`, `llama-swap`, `unsloth studio`, `bernini conditioning`, `image compare`, `video compare`, `video preview`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `error help`, `workflow diagnostics` などでも検索できます。
 
 ## Install
 
-ComfyUI の `custom_nodes` フォルダー内でインストールします。
+推奨方法: ComfyUI Manager で `Deno Custom Nodes` を検索してインストールし、ComfyUI を再起動します。
+
+手動インストールでは、ComfyUI の `custom_nodes` フォルダー内で clone し、ComfyUI を起動しているものと同じ Python で依存関係をインストールします。
 
 ```bash
 git clone https://github.com/Deno2026/comfyui-deno-custom-nodes.git
+cd comfyui-deno-custom-nodes
+python -m pip install -r requirements.txt
 ```
 
-その後 ComfyUI を再起動してください。
+手動更新では repository folder で `git pull --ff-only` を実行し、同じ Python で `requirements.txt` をもう一度インストールしてから ComfyUI を再起動します。ComfyUI Manager / Registry のインストールでは package dependency が自動で処理されます。
 
 ## Links
 

@@ -5,6 +5,7 @@
   "DenoMiniMaxH3ReferenceToVideo": "(Deno) MiniMax H3 Reference to Video",
   "DenoAudioTranscript": "(Deno) Audio Transcript",
   "DenoAudioAnalysisFinalize": "(Deno) Audio Analysis Finalizer",
+  "DenoTextEncoderUnload": "(Deno) Text Encoder Unload",
   "DenoAdvancedImageSourceLoader": "(Deno) Advanced Image Source Loader",
   "DenoLTXSequencer": "(Deno) LTX Sequencer",
   "DenoLTX23PresetLoader": "(Deno) LTX Model Loader",

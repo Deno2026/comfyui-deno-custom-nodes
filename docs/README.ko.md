@@ -38,6 +38,16 @@ DENO Visual Fold는 큰 ComfyUI 그래프를 시각적으로 정리하는 기능
 
 ComfyUI Subgraph는 노드를 하위 그래프로 이동시키는 기능입니다. Visual Fold는 그와 달리 정리 목적의 시각 기능입니다. `Get` / `Set` 노드나 부모-자식 그래프 구조를 그대로 보이게 두고 싶을 때 유용합니다.
 
+## DENO Floating Tools
+
+DENO Floating Tools는 `Settings > DENO > Tools`에서 직접 켜는 선택 기능이며 기본값은 꺼짐입니다.
+
+활성화하면 ComfyUI 화면에 작은 DENO 아이콘이 나타납니다. 이 패널에서 ComfyUI 기본 메모리 정리 endpoint를 이용해 VRAM을 비우고, 현재 ComfyUI Stable과 최신 공개 버전을 읽기 전용으로 비교하며, 실행 실패 시 GPT/Gemini에 전달할 Error Help 보고서를 열 수 있습니다.
+
+Error Help는 현재 워크플로, Python 환경과 패키지 버전, GPU 정보, 최근 traceback·로그 문맥, 커스텀 노드 요약을 먼저 별도 창에 보여줍니다. 사용자가 `Copy Report`를 눌렀을 때만 복사하며 token, cookie, password, private key, URL credential처럼 흔한 비밀 값은 복사 전에 가립니다.
+
+Floating Tools 자체는 설치, 업데이트, 재시작, 복구 또는 워크플로 수정을 실행하지 않습니다.
+
 ## Included Nodes
 
 ### `(Deno) Ideogram Director`
@@ -102,6 +112,20 @@ ComfyUI 순정 MiniMax H3 Reference to Video용 한 줄 연결 다중 참조 이
 - 최종 프롬프트 감독용 LM Studio의 `google/gemma-4-12b-qat` 모델과 실행 중인 Local Server
 
 `openai-whisper`는 노드 의존성으로 설치됩니다. 선택한 Whisper 체크포인트는 `(Deno) Audio Transcript` 첫 실행 때 OpenAI 공식 주소에서 내려받고 공식 Whisper 로더가 체크섬을 검증하며, `ComfyUI/models/stt/whisper/`에 캐시됩니다.
+
+### `(Deno) Text Encoder Unload`
+
+필요한 텍스트 인코딩을 모두 끝낸 뒤 샘플링을 시작하는 워크플로에 직접 넣는 선택형 VRAM 장벽 노드입니다.
+
+![Deno Text Encoder Unload 워크플로](images/text-encoder-unload-workflow.png)
+
+- 샘플러로 보낼 positive 또는 negative conditioning 하나를 `value`로 통과시키면 같은 객체와 소켓 타입이 그대로 출력됩니다.
+- 위쪽 Text Encode가 실제 사용한 정확한 `CLIP`을 `clip`에 연결합니다.
+- 반대쪽 positive/negative처럼 별도의 인코딩 분기는 `wait_for`에 연결해 unload 전에 두 인코딩이 모두 끝나게 합니다.
+- 연결한 CLIP/text encoder와 clone, 그 관리 구성요소만 ComfyUI 모델 관리 경로로 내리며 diffusion model, VAE, ControlNet을 전역으로 내리지 않습니다.
+- 캐시 때문에 unload가 생략되지 않도록 매 queue마다 실행됩니다.
+
+Dynamic VRAM은 메모리 압력에 따라 weight를 옮기므로 text encoder 일부가 의도적으로 남을 수 있습니다. 이 노드는 그 인코더를 확실히 내릴 시점을 직접 만드는 기능이지만, ComfyUI 프로세스 전체를 `0 MiB`로 만들지는 않습니다. CUDA context, conditioning tensor, 다른 모델과 커스텀 노드 할당, 다른 앱의 VRAM은 별개입니다. 또한 샘플링 품질 자체를 높이는 기능이 아니라, model offload나 OOM을 줄일 VRAM 여유를 만드는 기능입니다. 다음 text encode에서는 모델을 다시 불러오므로 더 느릴 수 있고, `--gpu-only`에서는 인코더를 VRAM 밖으로 옮길 수 없습니다.
 
 ### `(Deno) Advanced Image Source Loader`
 
@@ -203,6 +227,10 @@ LTX 2.5 파일은 Hugging Face 로그인 후 **Agree and Access** 승인이 필�
 
 ![Civitai preset editor guide](images/easy-model-download-helper-civitai-node.png)
 
+### `(Deno) Multi LoRA Loader`
+
+일반 ComfyUI diffusion 워크플로용 다중 LoRA 로더입니다. 연결한 `MODEL`과 선택형 `CLIP`에 최대 8개 LoRA를 적용하고, 저장된 선택을 잃지 않은 채 슬롯별 enable/disable, model/CLIP strength, trigger word와 note, 슬롯 순서 변경을 관리한 뒤 패치된 `model`과 `clip`을 출력합니다.
+
 ### `(Deno) LTX Multi LoRA Loader`
 
 LTX 워크플로우용 Power-LoRA 스타일 다중 LoRA 로더입니다.
@@ -231,8 +259,11 @@ Negative preset은 출력 모드가 아니라 아래 negative prompt 칸을 자�
 
 프롬프트는 평소 태그를 나열하는 방식보다 챗봇에게 시키듯이 씁니다. 예: `Replace the jacket with the shirt from image0. Keep the camera motion, background, lighting, and shadows unchanged.`
 
-주의: 이 노드는 텍스트 conditioning만 준비합니다. Bernini visual conditioning은 Bernini context latent를 지원하는 ComfyUI/KJ 백엔드가 필요합니다.
-해당 백엔드가 아직 ComfyUI draft PR 상태인 동안에는 `tools/DENO_Bernini_Preview_Backend_Update.bat`를 복사한 테스트용 포터블 ComfyUI 폴더에서만 사용하세요.
+이 노드는 텍스트 conditioning만 준비합니다. `positive`와 `negative` 출력을 현재 ComfyUI Stable의 순정 `(Bernini) Conditioning` 노드에 연결하면 Bernini visual/context-latent conditioning을 구성할 수 있습니다. 최신 ComfyUI에는 [Bernini backend가 정식 병합](https://github.com/Comfy-Org/ComfyUI/pull/14216)되어 있으므로 예전 preview backend updater가 필요하지 않습니다. 순정 conditioning 노드가 보이지 않으면 ComfyUI Stable을 먼저 업데이트하세요.
+
+### `(Deno) Prompt Text`
+
+system prompt, user prompt, template, JSON 같은 긴 문구를 별도 노드에서 읽기 쉽게 보관하고 STRING으로 연결하는 작은 multiline 입력 노드입니다. 문구를 바꾸지 않은 채 Ideogram Director, Local LLM Loader 또는 다른 STRING 입력으로 전달할 때 사용합니다.
 
 ### `(Deno) Local LLM Loader` / `(Deno) Local LLM Reviewer`
 
@@ -254,11 +285,13 @@ LM Studio 호환 참고: LM Studio가 생성 출력을 시작하기 전에 선�
 
 ## Search Tips
 
-GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `ai reviewer`, `media reviewer`, `audio review gate`, `ollama`, `lm studio`, `llama.cpp`, `vllm`, `llama-swap`, `unsloth`, `unsloth studio`, `bernini`, `bernini prompt guide`, `bernini conditioning`, `comfyui bernini`, `kj bernini`, `reference video edit`, `wan-2.2`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `stable update check`, `error help`, `comfyui error help`, `sos report`, `gpt gemini report`, `workflow diagnostics` 같은 키워드로 찾을 수 있습니다.
+GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `ai reviewer`, `media reviewer`, `audio review gate`, `ollama`, `lm studio`, `llama.cpp`, `vllm`, `llama-swap`, `unsloth`, `unsloth studio`, `minimax h3`, `audio transcript`, `whisper`, `text encoder unload`, `clip unload`, `dynamic vram`, `vram barrier`, `bernini`, `bernini prompt guide`, `bernini conditioning`, `comfyui bernini`, `kj bernini`, `reference video edit`, `wan-2.2`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `stable update check`, `error help`, `comfyui error help`, `sos report`, `gpt gemini report`, `workflow diagnostics` 같은 키워드로 찾을 수 있습니다.
 
 ## Install
 
-ComfyUI의 `custom_nodes` 폴더 안에서 설치합니다.
+권장 방법: ComfyUI Manager에서 `Deno Custom Nodes`를 검색해 설치한 뒤 ComfyUI를 다시 시작합니다.
+
+수동 설치는 ComfyUI의 `custom_nodes` 폴더 안에서 clone하고, ComfyUI를 실행하는 동일한 Python으로 의존성을 설치합니다.
 
 ```bash
 git clone https://github.com/Deno2026/comfyui-deno-custom-nodes.git
@@ -266,7 +299,7 @@ cd comfyui-deno-custom-nodes
 python -m pip install -r requirements.txt
 ```
 
-ComfyUI Manager/Registry로 설치하면 `requirements.txt` 의존성이 자동으로 설치됩니다. 직접 clone했다면 위 명령의 `python`을 ComfyUI를 실행하는 동일한 Python 실행 파일로 사용한 뒤 ComfyUI를 다시 시작하세요.
+수동 업데이트는 저장소 폴더에서 `git pull --ff-only`를 실행하고, 같은 Python으로 `requirements.txt`를 다시 설치한 뒤 ComfyUI를 재시작하세요. ComfyUI Manager/Registry 설치는 패키지 의존성을 자동으로 처리합니다.
 
 ## Links
 

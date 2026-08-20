@@ -127,12 +127,16 @@ def _sanitize_analysis(analysis: str) -> str:
     return "\n".join(blocks)
 
 
-def _unload_clip_patcher(clip: Any) -> None:
+def _unload_clip_patcher(
+    clip: Any,
+    *,
+    missing_patcher_label: str = "Audio Analysis CLIP model",
+    unavailable_feature_label: str = "Targeted Gemma CLIP unload",
+) -> None:
     patcher = getattr(clip, "patcher", None)
     if patcher is None:
         raise RuntimeError(
-            "Cannot unload the Audio Analysis CLIP model because the CLIP input "
-            "has no clip.patcher."
+            f"Cannot unload the {missing_patcher_label} because the CLIP input has no clip.patcher."
         )
     if comfy_model_management is None:
         raise RuntimeError(
@@ -143,7 +147,7 @@ def _unload_clip_patcher(clip: Any) -> None:
     soft_empty_cache = getattr(comfy_model_management, "soft_empty_cache", None)
     if not callable(unload_model_and_clones) or not callable(soft_empty_cache):
         raise RuntimeError(
-            "Targeted Gemma CLIP unload requires ComfyUI 0.23.0 or newer. "
+            f"{unavailable_feature_label} requires ComfyUI 0.23.0 or newer. "
             "Update ComfyUI and run the workflow again."
         )
 

@@ -152,6 +152,20 @@ Requirements:
 
 `openai-whisper` is installed as a node dependency. The selected Whisper checkpoint downloads from OpenAI on the first `(Deno) Audio Transcript` run, is checksum-validated by the official Whisper loader, and is cached under `ComfyUI/models/stt/whisper/`.
 
+### `(Deno) Text Encoder Unload`
+
+An opt-in inline VRAM barrier for workflows that finish every text-encoding step before sampling.
+
+![Deno Text Encoder Unload workflow](docs/images/text-encoder-unload-workflow.png)
+
+- connect one sampler-bound value, normally positive or negative conditioning, through `value`; the same object and socket type pass through unchanged
+- connect the exact `CLIP` used by the upstream text encoders to `clip`
+- connect the other independent positive/negative conditioning to `wait_for` so both encodes finish before unload
+- unload only that CLIP/text encoder, its clones, and its managed components through ComfyUI model management; diffusion models, VAEs, and ControlNets are not globally unloaded
+- run on every queue so ComfyUI cannot skip the unload side effect from cache
+
+Dynamic VRAM moves weights according to memory pressure and may intentionally leave text-encoder pages resident. This node provides a deterministic opt-in release point, but it cannot make the whole process use `0 MiB`: CUDA context, conditioning tensors, other models, custom-node allocations, and other applications remain separate. It also does not improve sampling quality by itself; it creates VRAM headroom that can reduce model offloading or avoid an out-of-memory error. A later text encode must reload the model, and `--gpu-only` cannot move the encoder out of VRAM.
+
 ### `(Deno) Advanced Image Source Loader`
 
 Advanced image source loader for workflows that need external folders, local file paths, web image URLs, and mixed-size image-list output.
@@ -401,6 +415,12 @@ Creator preset link guide:
 
 ![Civitai preset editor guide](docs/images/easy-model-download-helper-civitai-node.png)
 
+### `(Deno) Multi LoRA Loader`
+
+General-purpose multi LoRA loader for ordinary ComfyUI diffusion workflows.
+
+Main features: apply up to eight LoRAs to a connected `MODEL` and optional `CLIP`, enable or disable each saved slot without losing its selection, set separate model and CLIP strengths, keep trigger words and notes beside each LoRA, reorder slots, and pass the patched `model` and `clip` downstream.
+
 ### `(Deno) LTX Multi LoRA Loader`
 
 Power-LoRA-style multi LoRA loader for LTX workflows.
@@ -448,8 +468,11 @@ Main features:
 - negative presets fill the visible negative prompt box; edit that box directly to change the final encoded negative prompt
 - outputs: `positive`, `negative`
 
-Note: this node prepares text conditioning only. Bernini visual conditioning still requires a ComfyUI/KJ backend that supports Bernini context latents.
-While that backend support is still a draft ComfyUI PR, use `tools/DENO_Bernini_Preview_Backend_Update.bat` only on a copied/test portable ComfyUI folder.
+This node prepares text conditioning only. Connect its `positive` and `negative` outputs to ComfyUI Stable's native `(Bernini) Conditioning` node for Bernini visual/context-latent conditioning. Current ComfyUI includes the [merged native Bernini backend](https://github.com/Comfy-Org/ComfyUI/pull/14216), so the old preview-backend updater is no longer required; update ComfyUI Stable if the native conditioning node is missing.
+
+### `(Deno) Prompt Text`
+
+A small multiline STRING source for system prompts, user prompts, templates, or JSON text. Use it when a long reusable prompt should stay readable in its own node and connect into Ideogram Director, Local LLM Loader, or another STRING input without changing the text.
 
 ### `(Deno) Local LLM Loader` and `(Deno) Local LLM Reviewer`
 
@@ -541,6 +564,13 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 - `llama-swap`
 - `unsloth`
 - `unsloth studio`
+- `minimax h3`
+- `audio transcript`
+- `whisper`
+- `text encoder unload`
+- `clip unload`
+- `dynamic vram`
+- `vram barrier`
 - `bernini`
 - `bernini prompt guide`
 - `bernini conditioning`
@@ -566,7 +596,9 @@ Useful search terms for GitHub, ComfyUI Manager, and this README:
 
 ## Install
 
-Clone inside your `custom_nodes` folder:
+Recommended: open ComfyUI Manager, search for `Deno Custom Nodes`, install it, and restart ComfyUI.
+
+For a manual install, clone inside your `custom_nodes` folder and install dependencies with the same Python executable that starts ComfyUI:
 
 ```bash
 git clone https://github.com/Deno2026/comfyui-deno-custom-nodes.git
@@ -574,7 +606,7 @@ cd comfyui-deno-custom-nodes
 python -m pip install -r requirements.txt
 ```
 
-ComfyUI Manager/Registry installs `requirements.txt` automatically. For a manual clone, run the command above with the same Python executable that starts ComfyUI, then restart ComfyUI.
+For a manual update, run `git pull --ff-only`, reinstall `requirements.txt` with that same Python, and restart ComfyUI. Manager/Registry installs handle the package dependencies automatically.
 
 ## Links
 

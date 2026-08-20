@@ -408,6 +408,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoMiniMaxH3ReferenceToVideo",
         "DenoAudioTranscript",
         "DenoAudioAnalysisFinalize",
+        "DenoTextEncoderUnload",
         "DenoAdvancedImageSourceLoader",
         "DenoLTXSequencer",
         "DenoLTX23PresetLoader",
@@ -439,6 +440,9 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoAudioTranscript"] == "(Deno) Audio Transcript"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoAudioAnalysisFinalize"] == (
         "(Deno) Audio Analysis Finalizer"
+    )
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoTextEncoderUnload"] == (
+        "(Deno) Text Encoder Unload"
     )
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoAdvancedImageSourceLoader"] == "(Deno) Advanced Image Source Loader"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoLTXSequencer"] == "(Deno) LTX Sequencer"
