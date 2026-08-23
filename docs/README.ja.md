@@ -97,14 +97,15 @@ ComfyUI 標準の MiniMax H3 Reference to Video ワークフロー向けに、�
 
 ### `(Deno) Text Encoder Unload`
 
-必要な text encoding がすべて終わってから sampling を開始するワークフローに挿入する、任意使用の VRAM barrier ノードです。
+一般的な positive-only または positive/negative prompt フローに挿入できる、任意使用の VRAM barrier ノードです。
 
 ![Deno Text Encoder Unload ワークフロー](images/text-encoder-unload-workflow.png)
 
-- sampler に送る positive または negative conditioning の一方を `value` に通すと、同じ object と socket type がそのまま出力されます。
-- upstream Text Encode が実際に使った正確な `CLIP` を `clip` に接続します。
-- もう一方の positive / negative など独立した encode 分岐を `wait_for` に接続し、unload 前に両方の encode を完了させます。
-- 接続した CLIP / text encoder、その clone と管理対象 component だけを ComfyUI model management で unload し、diffusion model、VAE、ControlNet は global unload しません。
+- positive conditioning を必須入力の `Positive Conditioning` に接続します。conditioning は変更されず、そのまま出力されます。
+- encoded negative prompt または `Conditioning Zero Out` は、任意入力の `Negative Conditioning` に接続できます。こちらも変更されず、そのまま出力されます。
+- upstream の text encoder が使用した正確な `CLIP` を `Text Encoder (CLIP)` に接続します。
+- positive-only guider ワークフローでは `Negative Conditioning` を空のままにします。
+- ComfyUI model management を通じて、その CLIP / text encoder、その clone と管理対象 component だけを unload し、diffusion model、VAE、ControlNet は global unload しません。
 - cache によって副作用が省略されないよう、queue ごとに実行されます。
 
 Dynamic VRAM は memory pressure に応じて weight を移動するため、text encoder の一部を意図的に残す場合があります。このノードは明確な解放地点を作りますが、ComfyUI process 全体を `0 MiB` にはできません。CUDA context、conditioning tensor、他の model、custom node、他アプリの割り当ては別です。また sampling 品質そのものを上げる機能ではなく、model offload や OOM を減らすための VRAM 余裕を作ります。次の text encode では model の再読み込みが必要になり、`--gpu-only` では encoder を VRAM 外へ移動できません。

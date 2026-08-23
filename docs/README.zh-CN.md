@@ -97,14 +97,15 @@ ComfyUI 的分辨率辅助与图像缩放节点。
 
 ### `(Deno) Text Encoder Unload`
 
-一种可选的 VRAM 屏障节点，直接放在完成全部文本编码后再开始采样的工作流中。
+一种可选的内联 VRAM 屏障节点，适用于常见的仅 positive 或 positive/negative 提示词流程。
 
 ![Deno Text Encoder Unload 工作流](images/text-encoder-unload-workflow.png)
 
-- 将送往 sampler 的 positive 或 negative conditioning 之一通过 `value` 传递；同一个对象与 socket 类型会原样输出。
-- 把上游 Text Encode 实际使用的准确 `CLIP` 连接到 `clip`。
-- 把另一条独立的 positive / negative 编码分支连接到 `wait_for`，确保两边都完成后才卸载。
-- 只通过 ComfyUI 模型管理卸载已连接的 CLIP / text encoder、它的 clone 与受管组件；不会全局卸载 diffusion model、VAE 或 ControlNet。
+- 将 positive conditioning 连接到必填的 `Positive Conditioning`；它会原样传递，不作任何修改。
+- 可选择将已编码的 negative prompt 或 `Conditioning Zero Out` 连接到 `Negative Conditioning`；它同样会原样传递。
+- 将上游 text encoder 实际使用的准确 `CLIP` 连接到 `Text Encoder (CLIP)`。
+- 仅使用 positive 的 guider 工作流可将 `Negative Conditioning` 留空。
+- 只通过 ComfyUI 模型管理卸载该 CLIP / text encoder、它的 clone 与受管组件；不会全局卸载 diffusion model、VAE 或 ControlNet。
 - 每次 queue 都会执行，避免缓存跳过卸载副作用。
 
 Dynamic VRAM 会根据显存压力移动权重，因此可能有意保留部分 text encoder。此节点提供确定的释放时点，但无法让整个 ComfyUI 进程变成 `0 MiB`；CUDA context、conditioning tensor、其他模型、自定义节点与其他应用的显存占用彼此独立。它也不会直接提高采样质量，而是提供额外 VRAM 空间，以减少 model offload 或避免 OOM。之后再次 text encode 时需要重载模型，`--gpu-only` 模式下也无法把 encoder 移出 VRAM。

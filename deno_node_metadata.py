@@ -99,9 +99,9 @@ NODE_INPUT_TOOLTIPS = {
         "model_after_run": "Unload releases only the connected audio-analysis CLIP model. Keep loaded is an advanced option for repeated runs.",
     },
     "DenoTextEncoderUnload": {
-        "value": "Any value to pass through unchanged after the connected text encoder is unloaded.",
-        "clip": "The exact CLIP/text encoder to unload. Connect the same CLIP used by every upstream encoding branch.",
-        "wait_for": "Optional extra dependency. Connect another encoding result here when it must finish before unload.",
+        "positive_conditioning": "Positive conditioning to pass through unchanged after the connected text encoder is unloaded.",
+        "negative_conditioning": "Optional negative conditioning. Accepts an encoded negative prompt or Conditioning Zero Out.",
+        "text_encoder": "The exact CLIP/text encoder to unload. Connect the same CLIP used by every upstream encoding branch.",
     },
     "DenoAdvancedImageSourceLoader": {
         "image_paths": "Files, folders, absolute paths, or web URLs selected by the advanced source UI.",
@@ -340,7 +340,8 @@ NODE_OUTPUT_TOOLTIPS = {
         "Canonical-order supported audio-analysis fields with Gemma reasoning and unrelated chatter removed.",
     ),
     "DenoTextEncoderUnload": (
-        "The original value unchanged, after the connected CLIP/text encoder and its clones are unloaded.",
+        "The original positive conditioning unchanged, after the connected CLIP/text encoder and its clones are unloaded.",
+        "The original negative conditioning unchanged when the optional negative input is connected.",
     ),
     "DenoAdvancedImageSourceLoader": (
         "Loaded sources resized into one same-size IMAGE batch.",

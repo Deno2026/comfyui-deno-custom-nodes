@@ -160,6 +160,34 @@ def _deno_nodes(graph):
                 yield node
 
 
+def _uses_text_encoder_unload_configure_migration(node):
+    """Return true only for the exact v0.7.90 serialized slot contract.
+
+    The frontend migrates this same registered node in-place before LiteGraph
+    configures it. The dedicated JS harness verifies the resulting current
+    slots and preserved link ids; this helper only keeps the generic fixture
+    prefix assertion from rejecting the intentionally historical fixture.
+    """
+    if node.get("type") != "DenoTextEncoderUnload":
+        return False
+    inputs = node.get("inputs") or []
+    outputs = node.get("outputs") or []
+    return (
+        [slot.get("name") for slot in inputs if isinstance(slot, dict)]
+        == ["value", "clip", "wait_for"]
+        and [slot.get("type") for slot in inputs if isinstance(slot, dict)][0]
+        in ("*", "CONDITIONING")
+        and [slot.get("type") for slot in inputs if isinstance(slot, dict)][1]
+        == "CLIP"
+        and [slot.get("type") for slot in inputs if isinstance(slot, dict)][2]
+        in ("*", "CONDITIONING")
+        and [slot.get("name") for slot in outputs if isinstance(slot, dict)]
+        == ["value"]
+        and [slot.get("type") for slot in outputs if isinstance(slot, dict)][0]
+        in ("*", "CONDITIONING")
+    )
+
+
 def _load(fixture):
     return json.loads(fixture.read_text(encoding="utf-8"))
 
@@ -1184,6 +1212,9 @@ def test_fixture_output_slots_are_prefix_of_return_names(fixture):
             for slot in (node.get("outputs") or [])
             if isinstance(slot, dict)
         ]
+        if _uses_text_encoder_unload_configure_migration(node):
+            assert current == ("positive_conditioning", "negative_conditioning")
+            continue
         assert saved == list(current[:len(saved)]), (
             f"{fixture.name} node {node.get('id')} {node['type']}: saved output "
             f"slots {saved} are not a prefix of current RETURN_NAMES {current}"

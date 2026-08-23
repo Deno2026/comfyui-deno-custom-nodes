@@ -1,4 +1,4 @@
-"""Inline barrier that unloads one exact ComfyUI CLIP/text encoder."""
+"""Conditioning barrier that unloads one exact ComfyUI CLIP/text encoder."""
 
 from __future__ import annotations
 
@@ -11,48 +11,48 @@ try:
 except (ImportError, AttributeError):  # Older ComfyUI keeps the V1 fallback below.
     io = None
 
-
-class _AnyType(str):
-    """Legacy wildcard used only when MatchType is unavailable."""
-
-    def __ne__(self, _other: object) -> bool:
-        return False
+try:
+    from comfy_execution.graph_utils import ExecutionBlocker
+except ImportError:  # ComfyUI v0.3.0 exposes the same class from graph.py.
+    from comfy_execution.graph import ExecutionBlocker
 
 
-ANY_TYPE = _AnyType("*")
-
-VALUE_TOOLTIP = (
-    "Any value to pass through unchanged. Connect this output inline before the sampler or another "
-    "downstream node that should run after the text encoder is released."
+POSITIVE_TOOLTIP = (
+    "Positive CONDITIONING to pass through unchanged. Connect the matching output to the sampler "
+    "or guider that should run after the text encoder is released."
+)
+NEGATIVE_TOOLTIP = (
+    "Optional negative CONDITIONING. Connect either an encoded negative prompt or Conditioning "
+    "Zero Out. When connected, it must finish before the text encoder is unloaded."
 )
 CLIP_TOOLTIP = (
     "The exact CLIP/text encoder to unload. Connect the same CLIP output used by the upstream text "
     "encoding nodes."
 )
-WAIT_FOR_TOOLTIP = (
-    "Optional extra dependency that is not changed or returned. For a classic KSampler, connect the "
-    "other positive/negative conditioning branch here so both encodes finish before unload."
-)
-OUTPUT_TOOLTIP = (
-    "The original value unchanged, emitted only after the connected CLIP/text encoder and its clones "
-    "have been unloaded from ComfyUI model management."
+OUTPUT_TOOLTIPS = (
+    "The original positive CONDITIONING unchanged, emitted after the connected text encoder unload.",
+    "The original negative CONDITIONING unchanged. Connect only when Negative Conditioning is provided.",
 )
 DESCRIPTION = (
-    "Passes one connected value through unchanged after unloading only the explicitly connected "
-    "CLIP/text encoder. Use wait_for when another independent encoding branch must finish first. "
-    "This opt-in barrier does not unload diffusion models, VAEs, or ControlNets, and it cannot make "
-    "the whole ComfyUI process use 0 MiB of VRAM."
+    "Passes positive and optional negative CONDITIONING through unchanged. After every connected "
+    "conditioning path finishes, it unloads only the explicitly connected CLIP/text encoder. The "
+    "negative input accepts either an encoded negative prompt or Conditioning Zero Out. This "
+    "opt-in barrier does not unload diffusion models, VAEs, or ControlNets, and it cannot make the "
+    "whole ComfyUI process use 0 MiB of VRAM."
 )
 
 
 def _legacy_input_types() -> dict:
     return {
         "required": {
-            "value": (ANY_TYPE, {"tooltip": VALUE_TOOLTIP}),
-            "clip": ("CLIP", {"tooltip": CLIP_TOOLTIP}),
+            "positive_conditioning": ("CONDITIONING", {"tooltip": POSITIVE_TOOLTIP}),
+            "text_encoder": ("CLIP", {"tooltip": CLIP_TOOLTIP}),
         },
         "optional": {
-            "wait_for": (ANY_TYPE, {"tooltip": WAIT_FOR_TOOLTIP}),
+            "negative_conditioning": (
+                "CONDITIONING",
+                {"tooltip": NEGATIVE_TOOLTIP},
+            ),
         },
     }
 
@@ -78,39 +78,52 @@ def _ensure_clip_can_leave_accelerator(clip: Any) -> None:
     )
 
 
-def _execute_unload(value: Any, clip: Any) -> tuple[Any]:
-    _ensure_clip_can_leave_accelerator(clip)
+def _missing_negative_output() -> ExecutionBlocker:
+    return ExecutionBlocker(
+        "Connect Negative Conditioning before using the Negative Conditioning output."
+    )
+
+
+def _execute_unload(
+    positive_conditioning: Any,
+    text_encoder: Any,
+    negative_conditioning: Any = None,
+) -> tuple[Any, Any]:
+    _ensure_clip_can_leave_accelerator(text_encoder)
     _unload_clip_patcher(
-        clip,
+        text_encoder,
         missing_patcher_label="connected CLIP/text encoder",
         unavailable_feature_label="Text Encoder Unload",
     )
-    return (value,)
+    return (
+        positive_conditioning,
+        negative_conditioning
+        if negative_conditioning is not None
+        else _missing_negative_output(),
+    )
 
 
-_HAS_MATCH_TYPE = bool(
+_HAS_CONDITIONING_IO = bool(
     io is not None
-    and all(hasattr(io, name) for name in ("Clip", "ComfyNode", "MatchType", "Schema"))
+    and all(hasattr(io, name) for name in ("Clip", "ComfyNode", "Conditioning", "Schema"))
 )
 
 
-if _HAS_MATCH_TYPE:
+if _HAS_CONDITIONING_IO:
 
     class DenoTextEncoderUnload(io.ComfyNode):
-        """Current ComfyUI implementation with type-preserving MatchType sockets."""
+        """Current ComfyUI implementation with positive/negative conditioning lanes."""
 
         DESCRIPTION = DESCRIPTION
-        RETURN_TYPES = (ANY_TYPE,)
-        RETURN_NAMES = ("value",)
-        OUTPUT_TOOLTIPS = (OUTPUT_TOOLTIP,)
+        RETURN_TYPES = ("CONDITIONING", "CONDITIONING")
+        RETURN_NAMES = ("positive_conditioning", "negative_conditioning")
+        OUTPUT_TOOLTIPS = OUTPUT_TOOLTIPS
         FUNCTION = "EXECUTE_NORMALIZED"
         CATEGORY = "Deno/Memory"
         OUTPUT_NODE = False
 
         @classmethod
         def define_schema(cls):
-            value_type = io.MatchType.Template("value")
-            wait_type = io.MatchType.Template("wait_for")
             return io.Schema(
                 node_id="DenoTextEncoderUnload",
                 display_name="(Deno) Text Encoder Unload",
@@ -119,22 +132,34 @@ if _HAS_MATCH_TYPE:
                 description=cls.DESCRIPTION,
                 category="Deno/Memory",
                 inputs=[
-                    io.MatchType.Input("value", template=value_type, tooltip=VALUE_TOOLTIP),
-                    io.Clip.Input("clip", tooltip=CLIP_TOOLTIP),
-                    io.MatchType.Input(
-                        "wait_for",
-                        template=wait_type,
+                    io.Conditioning.Input(
+                        "positive_conditioning",
+                        display_name="Positive Conditioning",
+                        tooltip=POSITIVE_TOOLTIP,
+                    ),
+                    io.Conditioning.Input(
+                        "negative_conditioning",
+                        display_name="Negative Conditioning",
                         optional=True,
-                        tooltip=WAIT_FOR_TOOLTIP,
+                        tooltip=NEGATIVE_TOOLTIP,
+                    ),
+                    io.Clip.Input(
+                        "text_encoder",
+                        display_name="Text Encoder (CLIP)",
+                        tooltip=CLIP_TOOLTIP,
                     ),
                 ],
                 outputs=[
-                    io.MatchType.Output(
-                        template=value_type,
-                        id="value",
-                        display_name="value",
-                        tooltip=OUTPUT_TOOLTIP,
-                    )
+                    io.Conditioning.Output(
+                        id="positive_conditioning",
+                        display_name="Positive Conditioning",
+                        tooltip=OUTPUT_TOOLTIPS[0],
+                    ),
+                    io.Conditioning.Output(
+                        id="negative_conditioning",
+                        display_name="Negative Conditioning",
+                        tooltip=OUTPUT_TOOLTIPS[1],
+                    ),
                 ],
             )
 
@@ -155,20 +180,28 @@ if _HAS_MATCH_TYPE:
             return float("nan")
 
         @classmethod
-        def execute(cls, value: Any, clip: Any, wait_for: Any = None) -> tuple[Any]:
-            del wait_for
-            return _execute_unload(value, clip)
+        def execute(
+            cls,
+            positive_conditioning: Any,
+            text_encoder: Any,
+            negative_conditioning: Any = None,
+        ) -> tuple[Any, Any]:
+            return _execute_unload(
+                positive_conditioning,
+                text_encoder,
+                negative_conditioning,
+            )
 
 
 else:
 
     class DenoTextEncoderUnload:
-        """V1 compatibility fallback for ComfyUI builds without MatchType."""
+        """V1 compatibility fallback for ComfyUI builds without current schema APIs."""
 
         DESCRIPTION = DESCRIPTION
-        RETURN_TYPES = (ANY_TYPE,)
-        RETURN_NAMES = ("value",)
-        OUTPUT_TOOLTIPS = (OUTPUT_TOOLTIP,)
+        RETURN_TYPES = ("CONDITIONING", "CONDITIONING")
+        RETURN_NAMES = ("positive_conditioning", "negative_conditioning")
+        OUTPUT_TOOLTIPS = OUTPUT_TOOLTIPS
         FUNCTION = "execute"
         CATEGORY = "Deno/Memory"
         OUTPUT_NODE = False
@@ -181,6 +214,14 @@ else:
         def IS_CHANGED(cls, **_kwargs):
             return float("nan")
 
-        def execute(self, value: Any, clip: Any, wait_for: Any = None) -> tuple[Any]:
-            del wait_for
-            return _execute_unload(value, clip)
+        def execute(
+            self,
+            positive_conditioning: Any,
+            text_encoder: Any,
+            negative_conditioning: Any = None,
+        ) -> tuple[Any, Any]:
+            return _execute_unload(
+                positive_conditioning,
+                text_encoder,
+                negative_conditioning,
+            )
