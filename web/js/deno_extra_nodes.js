@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import "./deno_text_encoder_unload.js";
 
 const LOADER_NODE = "DenoMultiImageLoader";
 const H3_REFERENCE_LOADER_NODE = "DenoMiniMaxH3ReferenceImageLoader";

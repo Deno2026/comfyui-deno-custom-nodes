@@ -97,14 +97,15 @@ Persyaratan: ComfyUI Stable terbaru dengan MiniMax H3 dan `TextGenerate` yang me
 
 ### `(Deno) Text Encoder Unload`
 
-Barrier VRAM opsional yang dipasang pada workflow yang menyelesaikan semua text encoding sebelum memulai sampling.
+Barrier VRAM inline opsional untuk alur prompt umum yang hanya memakai positive atau memakai positive/negative.
 
 ![Workflow Deno Text Encoder Unload](images/text-encoder-unload-workflow.png)
 
-- lewatkan salah satu conditioning positive atau negative yang menuju sampler melalui `value`; objek dan tipe socket yang sama diteruskan tanpa perubahan
-- hubungkan `CLIP` persis yang dipakai node Text Encode di atas ke `clip`
-- hubungkan cabang encoding positive / negative independen lainnya ke `wait_for` agar keduanya selesai sebelum unload
-- hanya melakukan unload pada CLIP / text encoder yang terhubung, clone, dan komponen terkelolanya lewat pengelolaan model ComfyUI; diffusion model, VAE, dan ControlNet tidak di-unload secara global
+- hubungkan conditioning positive melalui `Positive Conditioning`; input ini wajib dan diteruskan tanpa perubahan
+- secara opsional, hubungkan prompt negative yang sudah di-encode atau `Conditioning Zero Out` melalui `Negative Conditioning`; input ini juga diteruskan tanpa perubahan
+- hubungkan `CLIP` persis yang dipakai text encoder di upstream ke `Text Encoder (CLIP)`
+- biarkan `Negative Conditioning` kosong untuk workflow guider yang hanya memakai positive
+- hanya melakukan unload pada CLIP / text encoder tersebut, clone, dan komponen terkelolanya lewat pengelolaan model ComfyUI; diffusion model, VAE, dan ControlNet tidak di-unload secara global
 - berjalan pada setiap queue agar cache tidak melewati efek unload
 
 Dynamic VRAM memindahkan weight sesuai tekanan memori dan dapat sengaja membiarkan sebagian text encoder tetap resident. Node ini menyediakan titik pelepasan yang deterministik, tetapi tidak dapat membuat seluruh proses ComfyUI menjadi `0 MiB`: CUDA context, conditioning tensor, model lain, custom node, dan aplikasi lain memiliki alokasi terpisah. Node ini juga tidak langsung meningkatkan kualitas sampling; fungsinya menyediakan ruang VRAM yang dapat mengurangi model offload atau mencegah OOM. Text encode berikutnya harus memuat ulang model, dan `--gpu-only` tidak dapat memindahkan encoder keluar dari VRAM.

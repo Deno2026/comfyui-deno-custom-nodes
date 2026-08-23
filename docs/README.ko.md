@@ -115,13 +115,14 @@ ComfyUI 순정 MiniMax H3 Reference to Video용 한 줄 연결 다중 참조 이
 
 ### `(Deno) Text Encoder Unload`
 
-필요한 텍스트 인코딩을 모두 끝낸 뒤 샘플링을 시작하는 워크플로에 직접 넣는 선택형 VRAM 장벽 노드입니다.
+일반적인 positive-only 또는 positive/negative 프롬프트 흐름에 직접 넣는 선택형 VRAM 장벽 노드입니다.
 
 ![Deno Text Encoder Unload 워크플로](images/text-encoder-unload-workflow.png)
 
-- 샘플러로 보낼 positive 또는 negative conditioning 하나를 `value`로 통과시키면 같은 객체와 소켓 타입이 그대로 출력됩니다.
-- 위쪽 Text Encode가 실제 사용한 정확한 `CLIP`을 `clip`에 연결합니다.
-- 반대쪽 positive/negative처럼 별도의 인코딩 분기는 `wait_for`에 연결해 unload 전에 두 인코딩이 모두 끝나게 합니다.
+- positive conditioning을 필수 `Positive Conditioning`에 연결하면 같은 객체가 그대로 출력됩니다.
+- 실제 negative prompt의 인코딩 결과나 `Conditioning Zero Out`은 선택 `Negative Conditioning`에 연결하면 그대로 출력됩니다.
+- positive-only guider 흐름에서는 `Negative Conditioning`을 비워 둡니다.
+- 위쪽 Text Encode가 실제 사용한 정확한 CLIP을 `Text Encoder (CLIP)`에 연결합니다.
 - 연결한 CLIP/text encoder와 clone, 그 관리 구성요소만 ComfyUI 모델 관리 경로로 내리며 diffusion model, VAE, ControlNet을 전역으로 내리지 않습니다.
 - 캐시 때문에 unload가 생략되지 않도록 매 queue마다 실행됩니다.
 

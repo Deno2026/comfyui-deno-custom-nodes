@@ -248,6 +248,18 @@ def install_comfyui_dependency_stubs():
     sys.modules["comfy_api"] = comfy_api
     sys.modules["comfy_api.latest"] = comfy_api_latest
 
+    comfy_execution = types.ModuleType("comfy_execution")
+    graph_utils = types.ModuleType("comfy_execution.graph_utils")
+
+    class ExecutionBlocker:
+        def __init__(self, message):
+            self.message = message
+
+    graph_utils.ExecutionBlocker = ExecutionBlocker
+    comfy_execution.graph_utils = graph_utils
+    sys.modules["comfy_execution"] = comfy_execution
+    sys.modules["comfy_execution.graph_utils"] = graph_utils
+
     if "aiohttp" not in sys.modules:
         aiohttp = types.ModuleType("aiohttp")
         web = types.ModuleType("aiohttp.web")

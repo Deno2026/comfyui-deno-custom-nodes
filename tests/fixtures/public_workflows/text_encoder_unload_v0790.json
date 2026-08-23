@@ -1,0 +1,198 @@
+{
+  "id": "c814b8f0-66b7-44eb-a5d4-d5cdab269790",
+  "revision": 0,
+  "last_node_id": 71,
+  "last_link_id": 111,
+  "nodes": [
+    {
+      "id": 56,
+      "type": "CLIPLoader",
+      "pos": [0, 0],
+      "size": [270, 106],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "CLIP",
+          "name": "CLIP",
+          "type": "CLIP",
+          "slot_index": 0,
+          "links": [73, 108]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "CLIPLoader"
+      },
+      "widgets_values": ["example_text_encoder.safetensors", "default"]
+    },
+    {
+      "id": 51,
+      "type": "CLIPTextEncode",
+      "pos": [320, 0],
+      "size": [400, 200],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "clip",
+          "name": "clip",
+          "type": "CLIP",
+          "link": 73
+        },
+        {
+          "localized_name": "text",
+          "name": "text",
+          "type": "STRING",
+          "widget": {"name": "text"},
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "CONDITIONING",
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [80, 107]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": ["positive prompt"]
+    },
+    {
+      "id": 58,
+      "type": "ConditioningZeroOut",
+      "pos": [320, 250],
+      "size": [210, 26],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "conditioning",
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 80
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "CONDITIONING",
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [109, 111]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "ConditioningZeroOut"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 71,
+      "type": "DenoTextEncoderUnload",
+      "pos": [780, 0],
+      "size": [380, 112],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "value",
+          "name": "value",
+          "type": "*",
+          "link": 107
+        },
+        {
+          "localized_name": "clip",
+          "name": "clip",
+          "type": "CLIP",
+          "link": 108
+        },
+        {
+          "localized_name": "wait_for",
+          "name": "wait_for",
+          "shape": 7,
+          "type": "*",
+          "link": 109
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "value",
+          "name": "value",
+          "type": "*",
+          "slot_index": 0,
+          "links": [110]
+        }
+      ],
+      "title": "(Deno) Text Encoder Unload v0.7.90 saved graph",
+      "properties": {
+        "cnr_id": "deno-custom-nodes",
+        "ver": "0.7.90",
+        "Node name for S&R": "DenoTextEncoderUnload"
+      },
+      "widgets_values": [],
+      "color": "#4a2e15",
+      "bgcolor": "#24170d"
+    },
+    {
+      "id": 53,
+      "type": "KSampler",
+      "pos": [1220, 0],
+      "size": [315, 262],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {"localized_name": "model", "name": "model", "type": "MODEL", "link": null},
+        {"localized_name": "positive", "name": "positive", "type": "CONDITIONING", "link": 110},
+        {"localized_name": "negative", "name": "negative", "type": "CONDITIONING", "link": 111},
+        {"localized_name": "latent_image", "name": "latent_image", "type": "LATENT", "link": null}
+      ],
+      "outputs": [
+        {
+          "localized_name": "LATENT",
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [0, "fixed", 20, 8, "euler", "normal", 1]
+    }
+  ],
+  "links": [
+    [73, 56, 0, 51, 0, "CLIP"],
+    [80, 51, 0, 58, 0, "CONDITIONING"],
+    [107, 51, 0, 71, 0, "CONDITIONING"],
+    [108, 56, 0, 71, 1, "CLIP"],
+    [109, 58, 0, 71, 2, "CONDITIONING"],
+    [110, 71, 0, 53, 1, "CONDITIONING"],
+    [111, 58, 0, 53, 2, "CONDITIONING"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {"scale": 1, "offset": [0, 0]},
+    "frontendVersion": "1.39.19"
+  },
+  "version": 0.4
+}

@@ -154,13 +154,14 @@ Requirements:
 
 ### `(Deno) Text Encoder Unload`
 
-An opt-in inline VRAM barrier for workflows that finish every text-encoding step before sampling.
+An opt-in inline VRAM barrier for the common positive-only or positive/negative prompt flow.
 
 ![Deno Text Encoder Unload workflow](docs/images/text-encoder-unload-workflow.png)
 
-- connect one sampler-bound value, normally positive or negative conditioning, through `value`; the same object and socket type pass through unchanged
-- connect the exact `CLIP` used by the upstream text encoders to `clip`
-- connect the other independent positive/negative conditioning to `wait_for` so both encodes finish before unload
+- connect positive conditioning through `Positive Conditioning`; it is required and passes through unchanged
+- optionally connect an encoded negative prompt or `Conditioning Zero Out` through `Negative Conditioning`; it also passes through unchanged
+- connect the exact `CLIP` used by the upstream text encoders to `Text Encoder (CLIP)`
+- leave `Negative Conditioning` empty for a positive-only guider workflow
 - unload only that CLIP/text encoder, its clones, and its managed components through ComfyUI model management; diffusion models, VAEs, and ControlNets are not globally unloaded
 - run on every queue so ComfyUI cannot skip the unload side effect from cache
 

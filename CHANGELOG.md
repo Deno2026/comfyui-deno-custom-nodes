@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.91 - 2026-08-24
+
+- Reworked `(Deno) Text Encoder Unload` from the v0.7.90 wildcard `value` pass-through plus dependency-only `wait_for` into the typed prompt paths used by normal workflows: required `Positive Conditioning` and optional `Negative Conditioning`, with the latter accepting either an encoded negative prompt or `Conditioning Zero Out` and both paths available as named outputs.
+- Migrates saved v0.7.90 Text Encoder Unload conditioning links to the new named sockets when those workflows are reopened. The former wildcard node's non-conditioning uses are outside the new typed contract. The multilingual README, native help, and workflow screenshot now match the final node layout.
+
 ## 0.7.90 - 2026-08-21
 
 - Added `(Deno) Text Encoder Unload`, an opt-in type-preserving workflow barrier that unloads only the explicitly connected CLIP/text encoder after all linked encoding branches finish, without globally unloading diffusion models, VAEs, or ControlNets. It includes current ComfyUI MatchType sockets, a legacy wildcard fallback, clear `--gpu-only` handling, and reliable per-queue execution.

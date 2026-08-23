@@ -97,14 +97,15 @@ Requisitos: ComfyUI Stable actualizado con MiniMax H3 y `TextGenerate` compatibl
 
 ### `(Deno) Text Encoder Unload`
 
-Barrera de VRAM opcional que se coloca en workflows donde todo el text encoding termina antes de comenzar el sampling.
+Barrera de VRAM en línea y opcional para el flujo habitual con solo prompt positive o con prompts positive/negative.
 
 ![Workflow Deno Text Encoder Unload](images/text-encoder-unload-workflow.png)
 
-- pasa por `value` uno de los conditioning positive o negative que irán al sampler; devuelve el mismo objeto y el mismo tipo de socket sin cambios
-- conecta en `clip` el `CLIP` exacto que usaron los nodos Text Encode anteriores
-- conecta la otra rama independiente positive / negative en `wait_for` para que ambas codificaciones terminen antes del unload
-- descarga mediante la gestión de modelos de ComfyUI solo el CLIP / text encoder conectado, sus clones y componentes gestionados; no descarga globalmente diffusion models, VAE ni ControlNet
+- conecta el conditioning positive mediante `Positive Conditioning`; es obligatorio y se transmite sin cambios
+- opcionalmente, conecta un prompt negative ya codificado o `Conditioning Zero Out` mediante `Negative Conditioning`; también se transmite sin cambios
+- conecta el `CLIP` exacto usado por los text encoders anteriores a `Text Encoder (CLIP)`
+- deja `Negative Conditioning` vacío para un workflow de guider que solo use positive
+- descarga mediante la gestión de modelos de ComfyUI únicamente ese CLIP / text encoder, sus clones y componentes gestionados; no descarga globalmente diffusion models, VAE ni ControlNet
 - se ejecuta en cada queue para que la caché no omita el efecto de unload
 
 Dynamic VRAM mueve pesos según la presión de memoria y puede dejar deliberadamente parte del text encoder residente. Este nodo crea un punto de liberación determinista, pero no puede llevar todo el proceso de ComfyUI a `0 MiB`: el contexto CUDA, los conditioning tensors, otros modelos, custom nodes y otras aplicaciones mantienen asignaciones independientes. Tampoco aumenta por sí solo la calidad del sampling; crea margen de VRAM que puede reducir model offload o evitar un OOM. Un text encode posterior debe volver a cargar el modelo y `--gpu-only` no puede sacar el encoder de la VRAM.
