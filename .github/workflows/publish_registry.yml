@@ -59,7 +59,7 @@ jobs:
             exit 1
           fi
 
-          SUCCESSFUL_RUNS="$(
+          SUCCESSFUL_PUSH_RUNS="$(
             gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
               -f branch=main \
               -f event=push \
@@ -68,8 +68,17 @@ jobs:
               -f per_page=1 \
               --jq '.total_count'
           )"
-          if [ "$SUCCESSFUL_RUNS" -lt 1 ]; then
-            echo "::error::No successful main push CI run exists for target_sha $TARGET_SHA."
+          SUCCESSFUL_MANUAL_RUNS="$(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f branch=main \
+              -f event=workflow_dispatch \
+              -f status=success \
+              -f head_sha="$TARGET_SHA" \
+              -f per_page=1 \
+              --jq '.total_count'
+          )"
+          if [ "$((SUCCESSFUL_PUSH_RUNS + SUCCESSFUL_MANUAL_RUNS))" -lt 1 ]; then
+            echo "::error::No successful exact-main CI run exists for target_sha $TARGET_SHA."
             exit 1
           fi
 

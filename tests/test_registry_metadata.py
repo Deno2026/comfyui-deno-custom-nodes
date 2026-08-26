@@ -13,6 +13,7 @@ import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 PUBLISH_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "publish_registry.yml"
 COMFYIGNORE_PATH = REPO_ROOT / ".comfyignore"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
@@ -240,10 +241,11 @@ def test_publish_workflow_is_manual_exact_sha_and_fails_without_registry_secret(
     assert "actions/workflows/ci.yml/runs" in workflow
     assert "-f branch=main" in workflow
     assert "-f event=push" in workflow
+    assert "-f event=workflow_dispatch" in workflow
     assert "-f status=success" in workflow
     assert '-f head_sha="$TARGET_SHA"' in workflow
     assert "ref: ${{ env.TARGET_SHA }}" in workflow
-    assert "No successful main push CI run exists" in workflow
+    assert "No successful exact-main CI run exists" in workflow
     assert "no longer the current main head" in workflow
     assert "paths:" not in workflow
     assert "actions/checkout@v4" not in workflow
@@ -256,6 +258,16 @@ def test_publish_workflow_is_manual_exact_sha_and_fails_without_registry_secret(
     assert "Comfy-Org/publish-node-action@d2366e7abb6ab16f3bb03e3520ae25c8cf749bc9" in workflow
     assert "personal_access_token: ${{ env.REGISTRY_ACCESS_TOKEN }}" in workflow
     assert "skip_checkout: true" in workflow
+
+
+def test_ci_workflow_keeps_push_checks_and_manual_release_recovery():
+    workflow = CI_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "pull_request:" in workflow
+    assert "push:" in workflow
+    assert "branches:\n      - main" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "python -m pytest . --import-mode=importlib -q" in workflow
 
 
 def test_registry_package_links_public_rtx_installer_but_excludes_flagged_files():
