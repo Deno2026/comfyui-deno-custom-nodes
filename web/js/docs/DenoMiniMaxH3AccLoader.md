@@ -3,7 +3,7 @@
 Loads Alibaba PAI's official MiniMax H3 Acc-LoRA/PDD safetensors directly. No converted copy is required.
 
 1. Download the matching FL2VA or Ref2VA `Acc-8Step.safetensors` from [Alibaba PAI](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs).
-2. Put it in `ComfyUI/models/minimax_h3_acc_loras/` and refresh or restart ComfyUI.
+2. Put it in either the normal `ComfyUI/models/loras/` folder or the dedicated `ComfyUI/models/minimax_h3_acc_loras/` folder, then refresh or restart ComfyUI.
 3. Connect a matching native MiniMax H3 diffusion model. Full and Comfy-Org `*_pruned_*` variants are accepted.
 4. Connect the returned `model` to your guider, and connect `sampler` plus `sigmas` to `SamplerCustomAdvanced`.
 

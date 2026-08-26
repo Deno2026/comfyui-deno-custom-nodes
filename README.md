@@ -138,7 +138,7 @@ These two MiniMax H3 nodes require ComfyUI 0.30.0 or newer. See the portable [Mi
 
 Directly loads Alibaba PAI's official [MiniMax-H3-Acc-LoRAs](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs) without converting or duplicating the safetensors file.
 
-1. Download the official FL2VA or Ref2VA `Acc-8Step.safetensors` file and place it in `ComfyUI/models/minimax_h3_acc_loras/`.
+1. Download the official FL2VA or Ref2VA `Acc-8Step.safetensors` file and place it in either the normal `ComfyUI/models/loras/` folder or the dedicated `ComfyUI/models/minimax_h3_acc_loras/` folder.
 2. Connect a matching native MiniMax H3 diffusion model to `model`; full and Comfy-Org `*_pruned_*` variants are accepted.
 3. Select the matching Acc-LoRA: FL2VA for FL2VA/T2VA, or Ref2VA for Ref2VA.
 4. Connect this node's `model`, `sampler`, and `sigmas` outputs to the normal guider and `SamplerCustomAdvanced` path.

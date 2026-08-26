@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.94 - 2026-08-27
+
+- Updated `(Deno) MiniMax H3 Acc LoRA Loader` to discover Alibaba Acc-LoRA files in both the normal ComfyUI `models/loras/` paths and the dedicated `models/minimax_h3_acc_loras/` paths, including configured extra-model roots.
+
 ## 0.7.93 - 2026-08-27
 
 - Added curve-pruned MiniMax H3 compatibility to `(Deno) MiniMax H3 Acc LoRA Loader`. Comfy-Org `*_pruned_*` models now run by applying all compatible Alibaba LoRA updates and PDD heads while skipping only the 50 full-width AdaLN updates that cannot fit the pruned 8-wide curve basis; full models still receive the complete adapter.

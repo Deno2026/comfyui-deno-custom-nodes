@@ -38,6 +38,7 @@ def _register_model_paths() -> None:
     default_path = os.path.join(folder_paths.models_dir, MODEL_FOLDER)
     folder_paths.add_model_folder_path(MODEL_FOLDER, default_path, is_default=True)
     for lora_path in folder_paths.get_folder_paths("loras"):
+        folder_paths.add_model_folder_path(MODEL_FOLDER, lora_path)
         sibling = os.path.join(os.path.dirname(lora_path), MODEL_FOLDER)
         folder_paths.add_model_folder_path(MODEL_FOLDER, sibling)
     folder_paths.folder_names_and_paths[MODEL_FOLDER][1].add(".safetensors")
@@ -166,7 +167,8 @@ class DenoMiniMaxH3AccLoader:
                     {
                         "tooltip": (
                             "Alibaba MiniMax-H3 Acc-LoRA. Match FL2VA with FL2VA/T2VA models "
-                            "and Ref2VA with Ref2VA models."
+                            "and Ref2VA with Ref2VA models. Files are detected in the normal "
+                            "LoRA folders and in models/minimax_h3_acc_loras."
                         )
                     },
                 ),

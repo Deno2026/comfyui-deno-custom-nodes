@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import math
+import os
 from pathlib import Path
 
 import pytest
@@ -162,6 +163,49 @@ def test_full_model_keeps_every_lora_pair():
     assert skipped == ()
 
 
+def test_model_path_registration_includes_normal_and_dedicated_lora_roots(tmp_path):
+    source_path = REPO_ROOT / "deno_minimax_h3_acc_loader.py"
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    function = next(
+        item
+        for item in module.body
+        if isinstance(item, ast.FunctionDef) and item.name == "_register_model_paths"
+    )
+
+    class FolderPathsStub:
+        def __init__(self):
+            self.models_dir = str(tmp_path / "models")
+            self.lora_paths = [
+                str(tmp_path / "models" / "loras"),
+                str(tmp_path / "shared" / "loras"),
+            ]
+            self.registered = []
+            self.folder_names_and_paths = {"minimax_h3_acc_loras": ([], set())}
+
+        def get_folder_paths(self, folder_name):
+            assert folder_name == "loras"
+            return list(self.lora_paths)
+
+        def add_model_folder_path(self, folder_name, path, is_default=False):
+            self.registered.append((folder_name, path, is_default))
+
+    stub = FolderPathsStub()
+    namespace = {
+        "os": os,
+        "folder_paths": stub,
+        "MODEL_FOLDER": "minimax_h3_acc_loras",
+    }
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(source_path), "exec"), namespace)
+    namespace["_register_model_paths"]()
+
+    registered_paths = [path for _, path, _ in stub.registered]
+    assert str(tmp_path / "models" / "loras") in registered_paths
+    assert str(tmp_path / "shared" / "loras") in registered_paths
+    assert str(tmp_path / "models" / "minimax_h3_acc_loras") in registered_paths
+    assert str(tmp_path / "shared" / "minimax_h3_acc_loras") in registered_paths
+    assert ".safetensors" in stub.folder_names_and_paths["minimax_h3_acc_loras"][1]
+
+
 def test_public_node_surface_is_three_outputs_and_deno_named():
     source_path = REPO_ROOT / "deno_minimax_h3_acc_loader.py"
     source = source_path.read_text(encoding="utf-8")
@@ -184,5 +228,6 @@ def test_public_node_surface_is_three_outputs_and_deno_named():
     assert assignments["CATEGORY"] == "Deno/MiniMax H3"
     assert '"DenoMiniMaxH3AccLoader": "(Deno) MiniMax H3 Acc LoRA Loader"' in source
     assert "select_model_compatible_pairs" in source
+    assert "folder_paths.add_model_folder_path(MODEL_FOLDER, lora_path)" in source
     assert (REPO_ROOT / "web/js/docs/DenoMiniMaxH3AccLoader.md").is_file()
     assert (REPO_ROOT / "web/js/docs/DenoMiniMaxH3AccLoader/ko.md").is_file()

@@ -3,7 +3,7 @@
 Alibaba PAI의 공식 MiniMax H3 Acc-LoRA/PDD safetensors를 변환 복사본 없이 직접 불러옵니다.
 
 1. [Alibaba PAI 저장소](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs)에서 사용할 모델 계열에 맞는 FL2VA 또는 Ref2VA `Acc-8Step.safetensors`를 내려받습니다.
-2. 파일을 `ComfyUI/models/minimax_h3_acc_loras/`에 넣고 모델 목록을 새로고침하거나 ComfyUI를 재시작합니다.
+2. 파일을 기존 `ComfyUI/models/loras/` 또는 전용 `ComfyUI/models/minimax_h3_acc_loras/` 폴더 중 한 곳에 넣고 모델 목록을 새로고침하거나 ComfyUI를 재시작합니다.
 3. 같은 계열의 순정 MiniMax H3 diffusion model을 연결합니다. 완전판과 Comfy-Org `*_pruned_*` 모델을 모두 사용할 수 있습니다.
 4. 출력 `model`은 guider에, `sampler`와 `sigmas`는 `SamplerCustomAdvanced`에 연결합니다.
 
