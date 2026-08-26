@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import math
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,10 @@ from deno_minimax_h3_pdd_core import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+requires_real_torch = pytest.mark.skipif(
+    not all(hasattr(torch, name) for name in ("arange", "linspace", "zeros")),
+    reason="tensor math requires the real torch package rather than the lightweight CI stub",
+)
 
 
 def test_official_config_is_eight_model_evaluations():
@@ -36,6 +41,7 @@ def test_official_config_is_eight_model_evaluations():
     assert config.rank == 64
 
 
+@requires_real_torch
 def test_video_schedule_matches_official_comfy_boundaries():
     actual = shifted_sigmas(VIDEO_SHIFT, 32)[::4]
     expected = torch.tensor(
@@ -55,6 +61,7 @@ def test_video_schedule_matches_official_comfy_boundaries():
     assert torch.allclose(actual, expected, atol=1.0e-10, rtol=0.0)
 
 
+@requires_real_torch
 def test_head_fusion_is_delta_weighted():
     config = PDDConfig(
         4,
@@ -88,6 +95,7 @@ def test_head_fusion_is_delta_weighted():
     assert tuple(fused.video_weight.shape) == (2, 96, 5376)
 
 
+@requires_real_torch
 def test_qkv_offsets_and_swiglu_half_swap():
     rank = 2
     down = torch.zeros(rank, 5)
@@ -118,6 +126,7 @@ def test_qkv_offsets_and_swiglu_half_swap():
     assert float(ffn[1].up[0, 0]) == 1.0
 
 
+@requires_real_torch
 def test_other_sigma_schedules_are_rejected():
     bounds = tuple(float(value) for value in shifted_sigmas(VIDEO_SHIFT, 32)[::4])
     assert select_exact_step(bounds[0], bounds[1], bounds) == 0
@@ -128,7 +137,7 @@ def test_other_sigma_schedules_are_rejected():
 def test_audio_factor_is_finite_and_positive():
     value = audio_inner_velocity_factor(1.0, 0.9882352941, VIDEO_SHIFT, AUDIO_SHIFT)
     assert value > 0.0
-    assert torch.isfinite(torch.tensor(value))
+    assert math.isfinite(value)
 
 
 def test_public_node_surface_is_three_outputs_and_deno_named():
