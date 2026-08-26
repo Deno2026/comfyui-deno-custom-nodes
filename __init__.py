@@ -485,6 +485,11 @@ _OPTIONAL_NODES = (
         "DenoMiniMaxH3ReferenceToVideo",
         "(Deno) MiniMax H3 Reference to Video",
     ),
+    (
+        "deno_minimax_h3_acc_loader",
+        "DenoMiniMaxH3AccLoader",
+        "(Deno) MiniMax H3 Acc LoRA Loader",
+    ),
     ("deno_audio_transcript", "DenoAudioTranscript", "(Deno) Audio Transcript"),
     (
         "deno_audio_analysis_finalize",
@@ -527,12 +532,12 @@ for _module_name, _class_name, _display_name in _OPTIONAL_NODES:
         _module = importlib.import_module(f".{_module_name}", __name__)
         _node_class = getattr(_module, _class_name)
     except Exception as _exc:
-        if _module_name.startswith("deno_minimax_h3") and _module_name not in _OPTIONAL_REQUIREMENT_WARNED:
+        if _module_name.startswith("deno_minimax_h3") and "minimax_h3" not in _OPTIONAL_REQUIREMENT_WARNED:
             logging.warning(
                 "[DENO] MiniMax H3 nodes require ComfyUI >= 0.30.0; "
                 "update ComfyUI before using these nodes."
             )
-            _OPTIONAL_REQUIREMENT_WARNED.add(_module_name)
+            _OPTIONAL_REQUIREMENT_WARNED.add("minimax_h3")
         logging.warning(
             "[DENO] Skipped node %s (%s): %s: %s",
             _class_name,

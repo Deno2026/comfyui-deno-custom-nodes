@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.92 - 2026-08-27
+
+- Added `(Deno) MiniMax H3 Acc LoRA Loader` for direct use of Alibaba PAI's official FL2VA and Ref2VA Acc-LoRA/PDD safetensors with full native ComfyUI MiniMax H3 models. The node applies the complete adapter, automatically returns Euler and the trained 8-step sigma schedule, and rejects incompatible pruned models or schedules; LoRA weights and workflows are not bundled.
+
 ## 0.7.91 - 2026-08-24
 
 - Reworked `(Deno) Text Encoder Unload` from the v0.7.90 wildcard `value` pass-through plus dependency-only `wait_for` into the typed prompt paths used by normal workflows: required `Positive Conditioning` and optional `Negative Conditioning`, with the latter accepting either an encoded negative prompt or `Conditioning Zero Out` and both paths available as named outputs.

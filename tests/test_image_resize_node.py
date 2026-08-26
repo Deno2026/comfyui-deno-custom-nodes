@@ -161,6 +161,13 @@ def install_comfyui_dependency_stubs():
     folder_paths = types.ModuleType("folder_paths")
     folder_paths.models_dir = str(REPO_ROOT / "models")
     folder_paths.folder_names_and_paths = {}
+    def add_model_folder_path(folder_name, path, is_default=False):
+        del is_default
+        paths, extensions = folder_paths.folder_names_and_paths.setdefault(folder_name, ([], set()))
+        if path not in paths:
+            paths.append(path)
+        return paths, extensions
+    folder_paths.add_model_folder_path = add_model_folder_path
     folder_paths.get_filename_list = lambda folder_name: []
     folder_paths.get_full_path = lambda folder_name, filename: str(REPO_ROOT / "models" / folder_name / filename)
     folder_paths.get_full_path_or_raise = folder_paths.get_full_path
@@ -214,6 +221,12 @@ def install_comfyui_dependency_stubs():
     comfy.lora_convert = types.ModuleType("comfy.lora_convert")
     comfy.utils = types.ModuleType("comfy.utils")
     comfy.model_management = types.ModuleType("comfy.model_management")
+    comfy.patcher_extension = types.ModuleType("comfy.patcher_extension")
+    comfy.samplers = types.ModuleType("comfy.samplers")
+    comfy.weight_adapter = types.ModuleType("comfy.weight_adapter")
+    comfy.ldm = types.ModuleType("comfy.ldm")
+    comfy.ldm.minimax = types.ModuleType("comfy.ldm.minimax")
+    comfy.ldm.minimax.model = types.ModuleType("comfy.ldm.minimax.model")
     comfy.lora.model_lora_keys_unet = lambda model, key_map: key_map
     comfy.lora.model_lora_keys_clip = lambda clip, key_map: key_map
     comfy.lora.load_lora = lambda lora_sd, key_map: {}
@@ -221,11 +234,21 @@ def install_comfyui_dependency_stubs():
     comfy.utils.load_torch_file = lambda *args, **kwargs: {}
     comfy.model_management.InterruptProcessingException = RuntimeError
     comfy.model_management.throw_exception_if_processing_interrupted = lambda: None
+    comfy.patcher_extension.WrappersMP = types.SimpleNamespace(DIFFUSION_MODEL="diffusion_model")
+    comfy.samplers.sampler_object = lambda name: name
+    comfy.weight_adapter.LoRAAdapter = lambda *args, **kwargs: (args, kwargs)
+    comfy.ldm.minimax.model.MiniMaxH3Model = type("MiniMaxH3Model", (), {})
     sys.modules["comfy"] = comfy
     sys.modules["comfy.lora"] = comfy.lora
     sys.modules["comfy.lora_convert"] = comfy.lora_convert
     sys.modules["comfy.utils"] = comfy.utils
     sys.modules["comfy.model_management"] = comfy.model_management
+    sys.modules["comfy.patcher_extension"] = comfy.patcher_extension
+    sys.modules["comfy.samplers"] = comfy.samplers
+    sys.modules["comfy.weight_adapter"] = comfy.weight_adapter
+    sys.modules["comfy.ldm"] = comfy.ldm
+    sys.modules["comfy.ldm.minimax"] = comfy.ldm.minimax
+    sys.modules["comfy.ldm.minimax.model"] = comfy.ldm.minimax.model
 
     comfy_api = types.ModuleType("comfy_api")
     comfy_api_latest = types.ModuleType("comfy_api.latest")
@@ -418,6 +441,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoMultiImageLoader",
         "DenoMiniMaxH3ReferenceImageLoader",
         "DenoMiniMaxH3ReferenceToVideo",
+        "DenoMiniMaxH3AccLoader",
         "DenoAudioTranscript",
         "DenoAudioAnalysisFinalize",
         "DenoTextEncoderUnload",
@@ -448,6 +472,9 @@ def test_node_registration_exports_expected_nodes():
     )
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMiniMaxH3ReferenceToVideo"] == (
         "(Deno) MiniMax H3 Reference to Video"
+    )
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoMiniMaxH3AccLoader"] == (
+        "(Deno) MiniMax H3 Acc LoRA Loader"
     )
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoAudioTranscript"] == "(Deno) Audio Transcript"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoAudioAnalysisFinalize"] == (
@@ -558,6 +585,7 @@ def test_minimax_h3_nodes_are_skipped_together_when_stock_h3_is_unavailable(monk
     assert "DenoMultiImageLoader" in package.NODE_CLASS_MAPPINGS
     assert "DenoMiniMaxH3ReferenceImageLoader" not in package.NODE_CLASS_MAPPINGS
     assert "DenoMiniMaxH3ReferenceToVideo" not in package.NODE_CLASS_MAPPINGS
+    assert "DenoMiniMaxH3AccLoader" not in package.NODE_CLASS_MAPPINGS
     assert caplog.text.count("MiniMax H3 nodes require ComfyUI >= 0.30.0") == 1
 
 

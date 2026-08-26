@@ -86,6 +86,10 @@ NODE_INPUT_TOOLTIPS = {
         "ref_video_audios": "Stock MiniMax H3 soundtrack slots paired by number with reference videos.",
         "ref_audios": "Stock MiniMax H3 standalone reference-audio slots, in prompt tag order.",
     },
+    "DenoMiniMaxH3AccLoader": {
+        "model": "Full, non-pruned native ComfyUI MiniMax H3 diffusion model to accelerate.",
+        "acc_lora": "Official Alibaba MiniMax-H3 Acc-LoRA. Match FL2VA with FL2VA/T2VA and Ref2VA with Ref2VA.",
+    },
     "DenoAudioTranscript": {
         "audio": "Source mono or stereo audio to transcribe locally. The node downmixes it to mono and resamples it to 16 kHz for Whisper.",
         "model": "Local Whisper model size. large-v3 prioritizes lyric and difficult-speech accuracy; large-v3-turbo is the faster default. The official checkpoint downloads on first use to ComfyUI/models/stt/whisper.",
@@ -330,6 +334,11 @@ NODE_OUTPUT_TOOLTIPS = {
     "DenoMiniMaxH3ReferenceToVideo": (
         "Positive MiniMax H3 conditioning containing the ordered image, video, and audio references.",
         "Empty MiniMax H3 audio/video latent for sampling.",
+    ),
+    "DenoMiniMaxH3AccLoader": (
+        "MiniMax H3 model patched with the selected Alibaba Acc-LoRA and PDD output heads.",
+        "Euler sampler required by the official acceleration checkpoint.",
+        "Exact trained 8-step sigma schedule required by the official acceleration checkpoint.",
     ),
     "DenoAudioTranscript": (
         "Structured transcript data with requested/detected language, timestamped segments, and a heuristic confidence band for an LLM prompt builder.",
