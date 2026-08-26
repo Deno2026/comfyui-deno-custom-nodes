@@ -134,6 +134,19 @@ The dedicated H3 socket is intentional: a normal ComfyUI `IMAGE` batch requires 
 
 These two MiniMax H3 nodes require ComfyUI 0.30.0 or newer. See the portable [MiniMax H3 multi-reference workflow](docs/workflows/minimax-h3-multi-reference.json) for the complete native H3 pipeline with the two stock `Load Image` nodes replaced by the one-cable DENO loader.
 
+### `(Deno) MiniMax H3 Acc LoRA Loader`
+
+Directly loads Alibaba PAI's official [MiniMax-H3-Acc-LoRAs](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs) without converting or duplicating the safetensors file.
+
+1. Download the official FL2VA or Ref2VA `Acc-8Step.safetensors` file and place it in `ComfyUI/models/minimax_h3_acc_loras/`.
+2. Connect a matching full, non-pruned native MiniMax H3 diffusion model to `model`.
+3. Select the matching Acc-LoRA: FL2VA for FL2VA/T2VA, or Ref2VA for Ref2VA.
+4. Connect this node's `model`, `sampler`, and `sigmas` outputs to the normal guider and `SamplerCustomAdvanced` path.
+
+The node applies the static LoRA weights and the checkpoint's time-dependent PDD output heads, then automatically returns Euler plus the exact trained 8-step sigma schedule. There is no sampler or step widget to configure. The current official checkpoints require LoRA strength `1.0`, video/audio sigma shifts `12.0 / 3.0`, and their exact schedule; another schedule is rejected instead of being approximated silently. The node also rejects pruned H3 models because the official adapters require the full-width AdaLN layers.
+
+LoRA weights and workflows are not bundled with Deno Custom Nodes. Download the weights from Alibaba and build or adapt your own native ComfyUI workflow.
+
 ### MiniMax H3 R2V Audio Reference workflow
 
 The [beginner audio-reference workflow](docs/workflows/minimax-h3-r2v-audio-reference.json) keeps ComfyUI's stock MiniMax H3 reference-audio path and adds an automatic prompt-direction lane:

@@ -85,6 +85,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     description = pyproject["project"]["description"]
     assert "DENO RTX node" in description
     assert "MiniMax H3 multi-reference image" in description
+    assert "direct Alibaba MiniMax H3 Acc-LoRA/PDD loading" in description
     assert "audio transcription and analysis helpers" in description
     assert "targeted text-encoder VRAM unload" in description
     assert "RTX Video Super Resolution" in description
@@ -112,6 +113,9 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "minimax-h3",
         "minimax-h3-reference-to-video",
         "minimax-h3-audio-reference",
+        "minimax-h3-acc-lora",
+        "minimax-h3-pdd",
+        "minimax-h3-8-step",
         "multi-reference-image",
         "audio-transcription",
         "audio-analysis",
