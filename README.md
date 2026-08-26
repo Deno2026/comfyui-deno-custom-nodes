@@ -139,11 +139,11 @@ These two MiniMax H3 nodes require ComfyUI 0.30.0 or newer. See the portable [Mi
 Directly loads Alibaba PAI's official [MiniMax-H3-Acc-LoRAs](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs) without converting or duplicating the safetensors file.
 
 1. Download the official FL2VA or Ref2VA `Acc-8Step.safetensors` file and place it in `ComfyUI/models/minimax_h3_acc_loras/`.
-2. Connect a matching full, non-pruned native MiniMax H3 diffusion model to `model`.
+2. Connect a matching native MiniMax H3 diffusion model to `model`; full and Comfy-Org `*_pruned_*` variants are accepted.
 3. Select the matching Acc-LoRA: FL2VA for FL2VA/T2VA, or Ref2VA for Ref2VA.
 4. Connect this node's `model`, `sampler`, and `sigmas` outputs to the normal guider and `SamplerCustomAdvanced` path.
 
-The node applies the static LoRA weights and the checkpoint's time-dependent PDD output heads, then automatically returns Euler plus the exact trained 8-step sigma schedule. There is no sampler or step widget to configure. The current official checkpoints require LoRA strength `1.0`, video/audio sigma shifts `12.0 / 3.0`, and their exact schedule; another schedule is rejected instead of being approximated silently. The node also rejects pruned H3 models because the official adapters require the full-width AdaLN layers.
+The node applies the static LoRA weights and the checkpoint's time-dependent PDD output heads, then automatically returns Euler plus the exact trained 8-step sigma schedule. There is no sampler or step widget to configure. The current official checkpoints require LoRA strength `1.0`, video/audio sigma shifts `12.0 / 3.0`, and their exact schedule; another schedule is rejected instead of being approximated silently. With a curve-pruned model, compatibility mode skips only the 50 full-width AdaLN LoRA updates whose `2688`-wide inputs cannot fit the pruned model's `8`-wide curve basis; all other LoRA updates and the PDD heads are applied. A full non-pruned model applies the complete adapter.
 
 LoRA weights and workflows are not bundled with Deno Custom Nodes. Download the weights from Alibaba and build or adapt your own native ComfyUI workflow.
 

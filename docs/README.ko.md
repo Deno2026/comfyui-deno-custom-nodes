@@ -100,11 +100,11 @@ ComfyUI 순정 MiniMax H3 Reference to Video용 한 줄 연결 다중 참조 이
 Alibaba PAI가 공개한 공식 [MiniMax-H3-Acc-LoRAs](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs)를 변환하거나 복사본을 만들지 않고 직접 불러옵니다.
 
 1. 공식 FL2VA 또는 Ref2VA `Acc-8Step.safetensors`를 내려받아 `ComfyUI/models/minimax_h3_acc_loras/`에 넣습니다.
-2. 계열이 맞는 순정 MiniMax H3 완전판 diffusion model을 `model`에 연결합니다. `*_pruned_*` 모델은 사용할 수 없습니다.
+2. 계열이 맞는 순정 MiniMax H3 diffusion model을 `model`에 연결합니다. 완전판과 Comfy-Org `*_pruned_*` 모델을 모두 연결할 수 있습니다.
 3. FL2VA/T2VA 모델에는 FL2VA Acc-LoRA, Ref2VA 모델에는 Ref2VA Acc-LoRA를 선택합니다.
 4. 노드의 `model`, `sampler`, `sigmas`를 기존 guider와 `SamplerCustomAdvanced` 경로에 연결합니다.
 
-노드가 일반 LoRA 가중치와 시간 구간별 PDD 출력 헤드를 함께 적용하고, 공식 설정인 Euler와 정확한 8-step sigma 스케줄을 자동 출력합니다. 샘플러나 step을 따로 고르는 위젯은 없습니다. 현재 공식 체크포인트는 LoRA strength `1.0`, 영상/오디오 sigma shift `12.0 / 3.0`, 정확한 전용 스케줄을 요구하며, 다른 스케줄을 연결하면 임의로 근사하지 않고 실행을 중단합니다.
+노드가 일반 LoRA 가중치와 시간 구간별 PDD 출력 헤드를 함께 적용하고, 공식 설정인 Euler와 정확한 8-step sigma 스케줄을 자동 출력합니다. 샘플러나 step을 따로 고르는 위젯은 없습니다. 현재 공식 체크포인트는 LoRA strength `1.0`, 영상/오디오 sigma shift `12.0 / 3.0`, 정확한 전용 스케줄을 요구하며, 다른 스케줄을 연결하면 임의로 근사하지 않고 실행을 중단합니다. 곡선 압축된 pruned 모델에서는 입력 폭이 `2688`에서 `8`로 줄어 직접 적용할 수 없는 AdaLN LoRA 50개만 호환 모드에서 건너뛰고, 나머지 LoRA와 PDD 헤드는 모두 적용합니다. 완전판 모델에서는 전체 어댑터를 적용합니다.
 
 Deno Custom Nodes에는 LoRA 가중치와 워크플로우를 포함하지 않습니다. 가중치는 Alibaba 저장소에서 각자 내려받고, ComfyUI 순정 워크플로우를 직접 구성하거나 기존 그래프에 연결해 사용합니다.
 

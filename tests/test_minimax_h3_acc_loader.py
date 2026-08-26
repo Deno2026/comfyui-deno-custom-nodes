@@ -15,6 +15,7 @@ from deno_minimax_h3_pdd_core import (
     build_patch_specs,
     fuse_heads,
     parse_config,
+    select_model_compatible_pairs,
     select_exact_step,
     shifted_sigmas,
 )
@@ -140,6 +141,27 @@ def test_audio_factor_is_finite_and_positive():
     assert math.isfinite(value)
 
 
+def test_pruned_compatibility_skips_only_full_width_adaln_pairs():
+    pairs = {
+        "transformer_blocks.0.adaln_proj.linear": (object(), object()),
+        "transformer_blocks.0.attn.to_q": (object(), object()),
+        "token_refiner.refiner_blocks.0.attn.to_q": (object(), object()),
+    }
+    compatible, skipped = select_model_compatible_pairs(pairs, use_adaln_curves=True)
+    assert skipped == ("transformer_blocks.0.adaln_proj.linear",)
+    assert set(compatible) == {
+        "transformer_blocks.0.attn.to_q",
+        "token_refiner.refiner_blocks.0.attn.to_q",
+    }
+
+
+def test_full_model_keeps_every_lora_pair():
+    pairs = {"transformer_blocks.0.adaln_proj.linear": (object(), object())}
+    compatible, skipped = select_model_compatible_pairs(pairs, use_adaln_curves=False)
+    assert compatible == pairs
+    assert skipped == ()
+
+
 def test_public_node_surface_is_three_outputs_and_deno_named():
     source_path = REPO_ROOT / "deno_minimax_h3_acc_loader.py"
     source = source_path.read_text(encoding="utf-8")
@@ -161,5 +183,6 @@ def test_public_node_surface_is_three_outputs_and_deno_named():
     assert assignments["RETURN_NAMES"] == ("model", "sampler", "sigmas")
     assert assignments["CATEGORY"] == "Deno/MiniMax H3"
     assert '"DenoMiniMaxH3AccLoader": "(Deno) MiniMax H3 Acc LoRA Loader"' in source
+    assert "select_model_compatible_pairs" in source
     assert (REPO_ROOT / "web/js/docs/DenoMiniMaxH3AccLoader.md").is_file()
     assert (REPO_ROOT / "web/js/docs/DenoMiniMaxH3AccLoader/ko.md").is_file()

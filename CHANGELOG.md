@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.93 - 2026-08-27
+
+- Added curve-pruned MiniMax H3 compatibility to `(Deno) MiniMax H3 Acc LoRA Loader`. Comfy-Org `*_pruned_*` models now run by applying all compatible Alibaba LoRA updates and PDD heads while skipping only the 50 full-width AdaLN updates that cannot fit the pruned 8-wide curve basis; full models still receive the complete adapter.
+
 ## 0.7.92 - 2026-08-27
 
 - Added `(Deno) MiniMax H3 Acc LoRA Loader` for direct use of Alibaba PAI's official FL2VA and Ref2VA Acc-LoRA/PDD safetensors with full native ComfyUI MiniMax H3 models. The node applies the complete adapter, automatically returns Euler and the trained 8-step sigma schedule, and rejects incompatible pruned models or schedules; LoRA weights and workflows are not bundled.

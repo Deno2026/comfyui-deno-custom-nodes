@@ -171,6 +171,19 @@ def validate_checkpoint(
     return config, pairs
 
 
+def select_model_compatible_pairs(
+    pairs: Mapping[str, tuple[torch.Tensor, torch.Tensor]],
+    use_adaln_curves: bool,
+) -> tuple[dict[str, tuple[torch.Tensor, torch.Tensor]], tuple[str, ...]]:
+    """Skip only full-width AdaLN updates that cannot fit curve-pruned models."""
+
+    if not use_adaln_curves:
+        return dict(pairs), ()
+    skipped = tuple(sorted(base for base in pairs if base.endswith(".adaln_proj.linear")))
+    compatible = {base: tensors for base, tensors in pairs.items() if base not in skipped}
+    return compatible, skipped
+
+
 def shifted_sigmas(shift: float, num_steps: int) -> torch.Tensor:
     base = torch.linspace(1.0, 0.0, num_steps + 1, dtype=torch.float64)
     return shift * base / (1.0 + (shift - 1.0) * base)
@@ -237,8 +250,7 @@ def build_patch_specs(
     def require_shape(target: str) -> tuple[int, ...]:
         if target not in model_state:
             raise ValueError(
-                f"The connected model does not expose required full MiniMax H3 weight: {target}. "
-                "Use a non-pruned FL2VA/Ref2VA diffusion model."
+                f"The connected model does not expose required MiniMax H3 weight: {target}."
             )
         return tuple(model_state[target].shape)
 

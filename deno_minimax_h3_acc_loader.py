@@ -23,6 +23,7 @@ from .deno_minimax_h3_pdd_core import (
     audio_inner_velocity_factor,
     build_patch_specs,
     fuse_heads,
+    select_model_compatible_pairs,
     select_exact_step,
     validate_checkpoint,
 )
@@ -178,7 +179,8 @@ class DenoMiniMaxH3AccLoader:
     CATEGORY = "Deno/MiniMax H3"
     DESCRIPTION = (
         "Loads one official Alibaba MiniMax-H3 Acc safetensors directly, applies all LoRA "
-        "weights and PDD heads, and returns the trained 8-step Euler sampler/sigmas."
+        "weights supported by the connected model plus the PDD heads, and returns the trained "
+        "8-step Euler sampler/sigmas. Curve-pruned models use AdaLN compatibility mode."
     )
 
     @classmethod
@@ -204,14 +206,20 @@ class DenoMiniMaxH3AccLoader:
         diffusion_model = model_clone.get_model_object("diffusion_model")
         if not isinstance(diffusion_model, MiniMaxH3Model):
             raise TypeError("DENO MiniMax H3 Acc Loader can only patch a native ComfyUI MiniMax H3 model")
-        if diffusion_model.use_adaln_curves:
-            raise ValueError(
-                "This Alibaba Acc-LoRA contains full-width AdaLN adapters. "
-                "Select a non-pruned FL2VA/Ref2VA diffusion model."
+
+        compatible_pairs, skipped_pairs = select_model_compatible_pairs(
+            pairs,
+            diffusion_model.use_adaln_curves,
+        )
+        if skipped_pairs:
+            LOGGER.warning(
+                "MiniMax H3 curve-pruned compatibility mode: skipping %d full-width AdaLN "
+                "LoRA pairs while applying the remaining adapter and PDD heads",
+                len(skipped_pairs),
             )
 
         model_state = model_clone.model.state_dict()
-        specs = build_patch_specs(pairs, model_state)
+        specs = build_patch_specs(compatible_pairs, model_state)
         patches = {}
         for spec in specs:
             adapter = comfy.weight_adapter.LoRAAdapter(
@@ -246,6 +254,9 @@ class DenoMiniMaxH3AccLoader:
                 "path": path,
                 "metadata": dict(metadata or {}),
                 "lora_pairs": len(pairs),
+                "applied_lora_pairs": len(compatible_pairs),
+                "skipped_adaln_pairs": len(skipped_pairs),
+                "pruned_compatibility_mode": bool(skipped_pairs),
                 "patches": len(specs),
                 "nfe": config.nfe,
             },
@@ -260,7 +271,7 @@ class DenoMiniMaxH3AccLoader:
             "sampler=Euler | shifts=12/3 | strength=1.0",
             os.path.basename(path),
             variant,
-            len(pairs),
+            len(compatible_pairs),
             config.num_steps,
             config.block_size,
             config.nfe,
