@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+import hashlib
 import logging
 import math
 import os
 
 import torch
-import torch.nn.functional as functional
+from safetensors import SafetensorError, safe_open
 
 import comfy.patcher_extension
 import comfy.utils
@@ -21,11 +22,14 @@ from .deno_minimax_h3_pdd_core import (
     VIDEO_SHIFT,
     FusedPDDHeads,
     PDDHeadBank,
-    audio_inner_velocity_factor,
+    build_curve_adaln_patch_specs,
     build_patch_specs,
+    fit_adaln_curve_basis,
     fuse_heads_for_sigmas,
     load_head_bank,
+    make_pdd_projection_forward,
     select_model_compatible_pairs,
+    validate_model_adaln_layout,
     validate_sigma_schedule,
     validate_checkpoint,
 )
@@ -34,6 +38,16 @@ from .deno_minimax_h3_pdd_core import (
 LOGGER = logging.getLogger("deno.minimax_h3_acc")
 MODEL_FOLDER = "minimax_h3_acc_loras"
 WRAPPER_KEY = "deno_minimax_h3_acc_pdd"
+CURVE_BASIS_MAX_RESIDUAL = 5.0e-3
+_CURVE_BASIS_CACHE: OrderedDict[
+    tuple[str, int, int, str], tuple[torch.Tensor, torch.Tensor, float]
+] = OrderedDict()
+_TIME_EMBEDDER_KEYS = (
+    "time_embedder.proj_in.weight",
+    "time_embedder.proj_in.bias",
+    "time_embedder.proj_out.weight",
+    "time_embedder.proj_out.bias",
+)
 
 
 def _register_model_paths() -> None:
@@ -47,6 +61,94 @@ def _register_model_paths() -> None:
 
 
 _register_model_paths()
+
+
+def _curve_table_digest(table: torch.Tensor) -> str:
+    value = table.detach().to(device="cpu", dtype=torch.float32).contiguous()
+    digest = hashlib.sha256()
+    digest.update(str(tuple(value.shape)).encode("ascii"))
+    digest.update(value.numpy().tobytes())
+    return digest.hexdigest()[:16]
+
+
+def _read_full_time_embedder(path: str) -> dict[str, torch.Tensor]:
+    with safe_open(path, framework="pt", device="cpu") as handle:
+        keys = set(handle.keys())
+        prefixes = sorted(
+            key[: -len(_TIME_EMBEDDER_KEYS[0])]
+            for key in keys
+            if key.endswith(_TIME_EMBEDDER_KEYS[0])
+        )
+        for prefix in prefixes:
+            names = tuple(prefix + suffix for suffix in _TIME_EMBEDDER_KEYS)
+            if not all(name in keys for name in names):
+                continue
+            tensors = {
+                suffix: handle.get_tensor(name).detach().to(device="cpu").clone()
+                for suffix, name in zip(_TIME_EMBEDDER_KEYS, names)
+            }
+            if not all(tensor.is_floating_point() for tensor in tensors.values()):
+                raise ValueError("time_embedder tensors are quantized rather than floating point")
+            return tensors
+    raise ValueError("no complete MiniMax H3 time_embedder was found")
+
+
+def _full_h3_model_candidates(acc_lora: str) -> list[str]:
+    lower_acc = acc_lora.lower()
+    variant = "ref2va" if "ref2va" in lower_acc else "fl2va" if "fl2va" in lower_acc else ""
+    try:
+        filenames = folder_paths.get_filename_list("diffusion_models")
+    except (KeyError, ValueError):
+        return []
+
+    candidates = []
+    for filename in filenames:
+        lower = filename.lower()
+        if not lower.endswith((".safetensors", ".sft")):
+            continue
+        if "minimax" not in lower or "h3" not in lower or "pruned" in lower:
+            continue
+        if variant and variant not in lower:
+            continue
+        path = folder_paths.get_full_path("diffusion_models", filename)
+        if path is None:
+            continue
+        candidates.append((lower, os.path.abspath(path)))
+    candidates.sort()
+    return [path for _name, path in candidates]
+
+
+def _resolve_curve_basis(
+    curve_table: torch.Tensor,
+    acc_lora: str,
+) -> tuple[torch.Tensor, torch.Tensor, float, str] | None:
+    table = curve_table.detach().to(device="cpu", dtype=torch.float32).contiguous()
+    table_digest = _curve_table_digest(table)
+    best = None
+    for path in _full_h3_model_candidates(acc_lora):
+        try:
+            stat = os.stat(path)
+            cache_key = (path, stat.st_size, stat.st_mtime_ns, table_digest)
+            cached = _CURVE_BASIS_CACHE.get(cache_key)
+            if cached is None:
+                time_embedder = _read_full_time_embedder(path)
+                cached = fit_adaln_curve_basis(table, time_embedder)
+                _CURVE_BASIS_CACHE[cache_key] = cached
+                while len(_CURVE_BASIS_CACHE) > 4:
+                    _CURVE_BASIS_CACHE.popitem(last=False)
+            else:
+                _CURVE_BASIS_CACHE.move_to_end(cache_key)
+            c, basis, residual = cached
+        except (OSError, RuntimeError, SafetensorError, ValueError) as exc:
+            LOGGER.debug("Skipping MiniMax H3 full-model basis candidate %s: %s", path, exc)
+            continue
+        if best is None or residual < best[2]:
+            best = (c, basis, residual, path)
+        if residual <= 1.0e-3:
+            break
+    if best is None or best[2] > CURVE_BASIS_MAX_RESIDUAL:
+        return None
+    return best
 
 
 class _DeviceHeadCache:
@@ -169,31 +271,6 @@ class _PDDRuntime:
         self.plan_cache.clear()
 
 
-def _make_final_forward(runtime: _PDDRuntime):
-    def pdd_final_forward(self, x, t_emb, video_seg, audio_seg):
-        shift, scale = self.adaln_proj(t_emb)
-        va, vb, vrow = video_seg
-        aa, ab, arow = audio_seg
-        hv = (self.norm(x[va:vb]) * (1.0 + scale[vrow]) + shift[vrow]).to(torch.float32)
-        ha = (self.norm(x[aa:ab]) * (1.0 + scale[arow]) + shift[arow]).to(torch.float32)
-
-        plan, block, current, next_sigma = runtime.current_step()
-        video_w, video_b, audio_w, audio_b = plan.for_device(hv.device)
-        displacement_video = functional.linear(hv, video_w[block], video_b[block])
-        displacement_audio = functional.linear(ha, audio_w[block], audio_b[block])
-        dsig_video = current - next_sigma
-        video_velocity = displacement_video / dsig_video
-        audio_velocity = displacement_audio * audio_inner_velocity_factor(
-            current,
-            next_sigma,
-            runtime.shift_video,
-            runtime.shift_audio,
-        )
-        return video_velocity, audio_velocity
-
-    return pdd_final_forward
-
-
 class DenoMiniMaxH3AccLoader:
     """Apply the complete Alibaba PDD adapter to a native MiniMax H3 model."""
 
@@ -247,22 +324,77 @@ class DenoMiniMaxH3AccLoader:
         config, pairs = validate_checkpoint(state, metadata)
 
         model_clone = model.clone()
+        previous_attachment = (
+            model_clone.get_attachment("deno_minimax_h3_acc")
+            if hasattr(model_clone, "get_attachment")
+            else None
+        )
+        if previous_attachment and hasattr(model_clone, "get_wrappers"):
+            for previous_runtime in model_clone.get_wrappers(
+                comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
+                WRAPPER_KEY,
+            ):
+                if hasattr(previous_runtime, "cleanup"):
+                    previous_runtime.cleanup()
+        if previous_attachment and hasattr(model_clone, "object_patches"):
+            for legacy_path in (
+                "diffusion_model.final_layer.forward",
+                "diffusion_model.final_layer.video_out.forward",
+                "diffusion_model.final_layer.audio_out.forward",
+            ):
+                model_clone.object_patches.pop(legacy_path, None)
         diffusion_model = model_clone.get_model_object("diffusion_model")
         if not isinstance(diffusion_model, MiniMaxH3Model):
             raise TypeError("DENO MiniMax H3 Acc Loader can only patch a native ComfyUI MiniMax H3 model")
 
+        model_state = model_clone.model.state_dict()
+        curve_table = (
+            diffusion_model.adaln_t_table
+            if diffusion_model.use_adaln_curves
+            else None
+        )
+        adaln_layout = validate_model_adaln_layout(
+            pairs,
+            model_state,
+            diffusion_model.use_adaln_curves,
+            curve_table,
+        )
         compatible_pairs, skipped_pairs = select_model_compatible_pairs(
             pairs,
             diffusion_model.use_adaln_curves,
         )
+        curve_specs = []
+        basis_source = None
+        basis_residual = None
         if skipped_pairs:
-            LOGGER.warning(
-                "MiniMax H3 curve-pruned compatibility mode: skipping %d full-width AdaLN "
-                "LoRA pairs while applying the remaining adapter and PDD heads",
-                len(skipped_pairs),
-            )
+            resolved = _resolve_curve_basis(curve_table, acc_lora)
+            if resolved is not None:
+                c, basis, basis_residual, basis_source = resolved
+                curve_pairs = {base: pairs[base] for base in skipped_pairs}
+                curve_specs = build_curve_adaln_patch_specs(
+                    curve_pairs,
+                    model_state,
+                    c,
+                    basis,
+                    config.alpha,
+                )
+                skipped_pairs = ()
+                LOGGER.info(
+                    "MiniMax H3 curve-pruned model: rebased %d AdaLN LoRA pairs from %s "
+                    "(fit residual %.3e)",
+                    len(curve_specs),
+                    os.path.basename(basis_source),
+                    basis_residual,
+                )
+            else:
+                LOGGER.warning(
+                    "MiniMax H3 curve-pruned compatibility mode: no matching full H3 "
+                    "checkpoint with a usable time_embedder was found in models/diffusion_models; "
+                    "skipping %d AdaLN LoRA pairs while applying every other adapter pair and "
+                    "the PDD heads",
+                    len(skipped_pairs),
+                )
 
-        model_state = model_clone.model.state_dict()
         specs = build_patch_specs(compatible_pairs, model_state)
         patches = {}
         for spec in specs:
@@ -271,6 +403,9 @@ class DenoMiniMaxH3AccLoader:
                 (spec.up, spec.down, config.alpha, None, None, None),
             )
             patches[spec.patch_key] = adapter
+        for spec in curve_specs:
+            patches[spec.weight_key] = ("diff", (spec.weight_delta,))
+            patches[spec.bias_key] = ("diff", (spec.bias_delta,))
         accepted = set(model_clone.add_patches(patches, strength_patch=1.0, strength_model=1.0))
         missing = set(patches) - accepted
         if missing:
@@ -280,7 +415,6 @@ class DenoMiniMaxH3AccLoader:
         head_bank = load_head_bank(state, config)
         runtime = _PDDRuntime(head_bank)
         final_layer = diffusion_model.final_layer
-        bound_forward = _make_final_forward(runtime).__get__(final_layer, final_layer.__class__)
         if hasattr(model_clone, "remove_wrappers_with_key"):
             model_clone.remove_wrappers_with_key(
                 comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
@@ -291,17 +425,39 @@ class DenoMiniMaxH3AccLoader:
             WRAPPER_KEY,
             runtime,
         )
-        model_clone.add_object_patch("diffusion_model.final_layer.forward", bound_forward)
+        model_clone.add_object_patch(
+            "diffusion_model.final_layer.video_out.forward",
+            make_pdd_projection_forward(final_layer.video_out, runtime, True),
+        )
+        model_clone.add_object_patch(
+            "diffusion_model.final_layer.audio_out.forward",
+            make_pdd_projection_forward(final_layer.audio_out, runtime, False),
+        )
+        if hasattr(model_clone, "remove_callbacks_with_key"):
+            model_clone.remove_callbacks_with_key(
+                comfy.patcher_extension.CallbacksMP.ON_CLEANUP,
+                WRAPPER_KEY,
+            )
+        if hasattr(model_clone, "add_callback_with_key"):
+            model_clone.add_callback_with_key(
+                comfy.patcher_extension.CallbacksMP.ON_CLEANUP,
+                WRAPPER_KEY,
+                lambda _patcher: runtime.cleanup(),
+            )
         model_clone.set_attachments(
             "deno_minimax_h3_acc",
             {
                 "path": path,
                 "metadata": dict(metadata or {}),
                 "lora_pairs": len(pairs),
-                "applied_lora_pairs": len(compatible_pairs),
+                "applied_lora_pairs": len(compatible_pairs) + len(curve_specs),
+                "rebased_adaln_pairs": len(curve_specs),
                 "skipped_adaln_pairs": len(skipped_pairs),
                 "pruned_compatibility_mode": bool(skipped_pairs),
-                "patches": len(specs),
+                "model_adaln_layout": adaln_layout,
+                "adaln_basis_source": basis_source,
+                "adaln_basis_residual": basis_residual,
+                "patches": len(patches),
                 "pdd_grid_steps": config.num_steps,
                 "recommended_nfe": config.nfe,
                 "dynamic_schedule": True,
@@ -314,7 +470,7 @@ class DenoMiniMaxH3AccLoader:
             "recommended=Simple/Euler/%d steps | dynamic schedule enabled | strength=1.0",
             os.path.basename(path),
             variant,
-            len(compatible_pairs),
+            len(compatible_pairs) + len(curve_specs),
             config.num_steps,
             config.block_size,
             config.nfe,

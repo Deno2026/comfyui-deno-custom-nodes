@@ -62,6 +62,15 @@ class PatchSpec:
 
 
 @dataclass(frozen=True)
+class CurvePatchSpec:
+    weight_key: str
+    weight_delta: torch.Tensor
+    bias_key: str
+    bias_delta: torch.Tensor
+    source_keys: tuple[str, str]
+
+
+@dataclass(frozen=True)
 class FusedPDDHeads:
     video_weight: torch.Tensor
     video_bias: torch.Tensor
@@ -340,6 +349,183 @@ def _native_target(base: str) -> tuple[str, str]:
     raise ValueError(f"Unsupported MiniMax H3 LoRA module: {base}")
 
 
+def validate_model_adaln_layout(
+    pairs: Mapping[str, tuple[torch.Tensor, torch.Tensor]],
+    model_state: Mapping[str, torch.Tensor],
+    use_adaln_curves: bool,
+    curve_table: torch.Tensor | None = None,
+) -> str:
+    """Classify dense versus curve AdaLN from structure, never filename or dtype."""
+
+    adaln_pairs = {
+        base: tensors
+        for base, tensors in pairs.items()
+        if base.endswith(".adaln_proj.linear")
+    }
+    if not adaln_pairs:
+        return "curve" if use_adaln_curves else "full"
+
+    if use_adaln_curves:
+        if curve_table is None or curve_table.ndim != 2:
+            raise ValueError("MiniMax H3 curve AdaLN model has no valid adaln_t_table")
+        expected_width = int(curve_table.shape[1])
+    else:
+        expected_width = None
+
+    for base, (down, up) in adaln_pairs.items():
+        prefix, _leaf = _native_target(base)
+        target = prefix + ".adaln_proj.linear.weight"
+        if target not in model_state:
+            raise ValueError(
+                f"The connected model does not expose required MiniMax H3 weight: {target}."
+            )
+        shape = tuple(model_state[target].shape)
+        if len(shape) != 2 or shape[0] != up.shape[0]:
+            raise ValueError(
+                f"Shape mismatch for {base} -> {target}: "
+                f"LoRA={tuple(up.shape)}, model={shape}"
+            )
+        if use_adaln_curves:
+            if shape[1] != expected_width:
+                raise ValueError(
+                    f"MiniMax H3 curve AdaLN width mismatch for {target}: "
+                    f"table={expected_width}, model={shape[1]}"
+                )
+        elif shape[1] != down.shape[1]:
+            raise ValueError(
+                f"MiniMax H3 full AdaLN width mismatch for {target}: "
+                f"LoRA={down.shape[1]}, model={shape[1]}"
+            )
+    return "curve" if use_adaln_curves else "full"
+
+
+def minimax_h3_time_embedding_curve(
+    time_embedder: Mapping[str, torch.Tensor],
+    num_rows: int,
+) -> torch.Tensor:
+    """Evaluate silu(time_embedder(t)) on the native H3 curve grid in float64."""
+
+    if num_rows < 2:
+        raise ValueError("MiniMax H3 AdaLN curve grid must contain at least two rows")
+    required = (
+        "time_embedder.proj_in.weight",
+        "time_embedder.proj_in.bias",
+        "time_embedder.proj_out.weight",
+        "time_embedder.proj_out.bias",
+    )
+    missing = [key for key in required if key not in time_embedder]
+    if missing:
+        raise ValueError(f"MiniMax H3 full checkpoint is missing time embedder tensors: {missing}")
+
+    win, bin_, wout, bout = (
+        time_embedder[key].detach().to(device="cpu", dtype=torch.float64)
+        for key in required
+    )
+    if win.ndim != 2 or win.shape[1] % 2:
+        raise ValueError(f"Unexpected MiniMax H3 time_embedder input shape: {tuple(win.shape)}")
+    if bin_.shape != (win.shape[0],):
+        raise ValueError("MiniMax H3 time_embedder proj_in bias shape mismatch")
+    if wout.ndim != 2 or wout.shape[1] != win.shape[0]:
+        raise ValueError("MiniMax H3 time_embedder proj_out weight shape mismatch")
+    if bout.shape != (wout.shape[0],):
+        raise ValueError("MiniMax H3 time_embedder proj_out bias shape mismatch")
+
+    half = win.shape[1] // 2
+    t = torch.arange(num_rows, dtype=torch.float64) / (num_rows - 1)
+    freqs = torch.exp(-math.log(10000.0) * torch.arange(half, dtype=torch.float64) / half)
+    args = t[:, None] * freqs[None]
+    embedded = torch.cat((torch.cos(args), torch.sin(args)), dim=-1)
+    hidden = torch.nn.functional.silu(embedded @ win.T + bin_)
+    projected = hidden @ wout.T + bout
+    return torch.nn.functional.silu(projected)
+
+
+def fit_adaln_curve_basis(
+    curve_table: torch.Tensor,
+    time_embedder: Mapping[str, torch.Tensor],
+) -> tuple[torch.Tensor, torch.Tensor, float]:
+    """Fit dense H3 time embeddings as c + V @ curve coordinates."""
+
+    if curve_table.ndim != 2:
+        raise ValueError("MiniMax H3 adaln_t_table must be a matrix")
+    table = curve_table.detach().to(device="cpu", dtype=torch.float64)
+    dense_curve = minimax_h3_time_embedding_curve(time_embedder, table.shape[0])
+    design = torch.cat(
+        (torch.ones(table.shape[0], 1, dtype=torch.float64), table),
+        dim=1,
+    )
+    solution = torch.linalg.lstsq(design, dense_curve).solution
+    approximation = design @ solution
+    denominator = torch.linalg.vector_norm(dense_curve)
+    if float(denominator) == 0.0:
+        raise ValueError("MiniMax H3 time embedding curve has zero norm")
+    residual = float(torch.linalg.vector_norm(approximation - dense_curve) / denominator)
+    c = solution[0].to(torch.float32).contiguous()
+    basis = solution[1:].T.to(torch.float32).contiguous()
+    return c, basis, residual
+
+
+def build_curve_adaln_patch_specs(
+    pairs: Mapping[str, tuple[torch.Tensor, torch.Tensor]],
+    model_state: Mapping[str, torch.Tensor],
+    c: torch.Tensor,
+    basis: torch.Tensor,
+    alpha: float,
+) -> list[CurvePatchSpec]:
+    """Rebase dense AdaLN LoRA pairs onto a pruned model's curve coordinates."""
+
+    c64 = c.detach().to(device="cpu", dtype=torch.float64)
+    basis64 = basis.detach().to(device="cpu", dtype=torch.float64)
+    if c64.ndim != 1 or basis64.ndim != 2 or basis64.shape[0] != c64.shape[0]:
+        raise ValueError("Invalid MiniMax H3 AdaLN curve basis shapes")
+
+    specs: list[CurvePatchSpec] = []
+    for base in sorted(pairs):
+        if not base.endswith(".adaln_proj.linear"):
+            raise ValueError(f"Non-AdaLN pair passed to curve rebase: {base}")
+        down, up = pairs[base]
+        if down.ndim != 2 or up.ndim != 2 or up.shape[1] != down.shape[0]:
+            raise ValueError(f"Invalid MiniMax H3 AdaLN LoRA shapes for {base}")
+        if down.shape[1] != c64.shape[0]:
+            raise ValueError(
+                f"MiniMax H3 AdaLN basis width mismatch for {base}: "
+                f"LoRA={down.shape[1]}, basis={c64.shape[0]}"
+            )
+        scale = float(alpha) / down.shape[0]
+        down64 = down.detach().to(device="cpu", dtype=torch.float64)
+        up64 = up.detach().to(device="cpu", dtype=torch.float64)
+        weight_delta = (scale * (up64 @ (down64 @ basis64))).to(torch.float32).contiguous()
+        bias_delta = (scale * (up64 @ (down64 @ c64))).to(torch.float32).contiguous()
+
+        prefix, _leaf = _native_target(base)
+        weight_key = prefix + ".adaln_proj.linear.weight"
+        bias_key = prefix + ".adaln_proj.linear.bias"
+        if weight_key not in model_state or bias_key not in model_state:
+            raise ValueError(
+                f"The connected curve model does not expose required AdaLN parameters for {base}"
+            )
+        if tuple(model_state[weight_key].shape) != tuple(weight_delta.shape):
+            raise ValueError(
+                f"Curve AdaLN weight shape mismatch for {base}: "
+                f"delta={tuple(weight_delta.shape)}, model={tuple(model_state[weight_key].shape)}"
+            )
+        if tuple(model_state[bias_key].shape) != tuple(bias_delta.shape):
+            raise ValueError(
+                f"Curve AdaLN bias shape mismatch for {base}: "
+                f"delta={tuple(bias_delta.shape)}, model={tuple(model_state[bias_key].shape)}"
+            )
+        specs.append(
+            CurvePatchSpec(
+                weight_key,
+                weight_delta,
+                bias_key,
+                bias_delta,
+                (base + ".lora_up", base + ".lora_down"),
+            )
+        )
+    return specs
+
+
 def build_patch_specs(
     pairs: Mapping[str, tuple[torch.Tensor, torch.Tensor]],
     model_state: Mapping[str, torch.Tensor],
@@ -415,3 +601,31 @@ def audio_inner_velocity_factor(
     carry_now = ratio + (1.0 - ratio) * current
     carry_next = ratio + (1.0 - ratio) * next_sigma
     return (carry_now * carry_next / ratio) / dsig_video
+
+
+def make_pdd_projection_forward(projection, runtime, is_video: bool):
+    """Replace only one output projection while native FinalLayer stays untouched."""
+
+    def pdd_projection_forward(_self, hidden: torch.Tensor) -> torch.Tensor:
+        hidden = hidden.to(torch.float32)
+        plan, block, current, next_sigma = runtime.current_step()
+        video_w, video_b, audio_w, audio_b = plan.for_device(hidden.device)
+        if is_video:
+            displacement = torch.nn.functional.linear(
+                hidden,
+                video_w[block],
+                video_b[block],
+            )
+            return displacement / (current - next_sigma)
+        displacement = torch.nn.functional.linear(
+            hidden,
+            audio_w[block],
+            audio_b[block],
+        )
+        return displacement * audio_inner_velocity_factor(
+            current,
+            next_sigma,
+            runtime.shift_video,
+            runtime.shift_audio,
+        )
+    return pdd_projection_forward.__get__(projection, projection.__class__)

@@ -52,6 +52,7 @@ H3_MULTI_REFERENCE_WORKFLOW = (
 H3_AUDIO_REFERENCE_WORKFLOW = (
     REPO_ROOT / "docs" / "workflows" / "minimax-h3-r2v-audio-reference.json"
 )
+H3_ACC_LOADER_FIXTURE = FIXTURE_DIR / "minimax_h3_acc_loader_v0795.json"
 
 
 # --------------------------------------------------------------------------
@@ -194,6 +195,22 @@ def _load(fixture):
 
 def test_fixtures_present():
     assert FIXTURES, f"no public workflow fixtures found under {FIXTURE_DIR}"
+
+
+def test_minimax_h3_acc_loader_v0795_saved_contract_is_preserved():
+    graph = _load(H3_ACC_LOADER_FIXTURE)
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    loader = nodes[2]
+    assert loader["type"] == "DenoMiniMaxH3AccLoader"
+    assert loader["widgets_values"] == ["MiniMax-H3-Ref2VA-Acc-8Step.safetensors"]
+    assert [slot["name"] for slot in loader["inputs"]] == ["model"]
+    assert [slot["name"] for slot in loader["outputs"]] == ["model"]
+    assert loader["inputs"][0]["link"] == 1
+    assert loader["outputs"][0]["links"] == [2]
+    assert graph["links"] == [
+        [1, 1, 0, 2, 0, "MODEL"],
+        [2, 2, 0, 3, 0, "MODEL"],
+    ]
 
 
 def _walk_json(value, location="$"):

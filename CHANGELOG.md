@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.96 - 2026-08-27
+
+- Improved `(Deno) MiniMax H3 Acc LoRA Loader` without changing its saved node contract: stock schedulers remain free to provide 4-12 or other descending sigma schedules, native ComfyUI `FinalLayer` modulation stays in control, and only the PDD video/audio projections are replaced. Full non-pruned INT8 models continue through ComfyUI's quantization-aware LoRA path. Curve-pruned models now automatically derive an AdaLN bridge from an installed matching full H3 checkpoint and rebase all 50 AdaLN updates; when no matching full checkpoint is available, the previous non-blocking compatibility fallback remains.
+
 ## 0.7.95 - 2026-08-27
 
 - Changed `(Deno) MiniMax H3 Acc LoRA Loader` to return only the patched model and leave scheduler, sampler, and step controls to stock ComfyUI nodes. The loader now reads each sampling pass's actual descending sigma boundaries and dynamically fuses the checkpoint's 32 PDD intervals, including experimental 9/10-step and split-sigma latent-upscale paths. Simple/Euler at 8 steps remains the official recommended setup. Existing workflows must reconnect the former sampler and sigmas links.

@@ -1,0 +1,115 @@
+{
+  "id": "2230314f-b2e2-4dba-a226-86e8ffc221bb",
+  "revision": 0,
+  "last_node_id": 3,
+  "last_link_id": 2,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "UNETLoader",
+      "pos": [0, 0],
+      "size": [270, 82],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [1]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "UNETLoader"
+      },
+      "widgets_values": ["minimax_h3_ref2va_int8_convrot.safetensors", "default"]
+    },
+    {
+      "id": 2,
+      "type": "DenoMiniMaxH3AccLoader",
+      "pos": [340, 0],
+      "size": [390, 82],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [2]
+        }
+      ],
+      "title": "(Deno) MiniMax H3 Acc LoRA Loader v0.7.95 saved graph",
+      "properties": {
+        "cnr_id": "deno-custom-nodes",
+        "ver": "0.7.95",
+        "Node name for S&R": "DenoMiniMaxH3AccLoader"
+      },
+      "widgets_values": ["MiniMax-H3-Ref2VA-Acc-8Step.safetensors"]
+    },
+    {
+      "id": 3,
+      "type": "BasicGuider",
+      "pos": [800, 0],
+      "size": [220, 82],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
+        },
+        {
+          "localized_name": "conditioning",
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "GUIDER",
+          "name": "GUIDER",
+          "type": "GUIDER",
+          "slot_index": 0,
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "BasicGuider"
+      },
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "MODEL"],
+    [2, 2, 0, 3, 0, "MODEL"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {"scale": 1, "offset": [0, 0]},
+    "frontendVersion": "1.39.19"
+  },
+  "version": 0.4
+}
