@@ -106,7 +106,7 @@ Barrier VRAM inline opsional untuk alur prompt umum yang hanya memakai positive 
 - hubungkan `CLIP` persis yang dipakai text encoder di upstream ke `Text Encoder (CLIP)`
 - biarkan `Negative Conditioning` kosong untuk workflow guider yang hanya memakai positive
 - hanya melakukan unload pada CLIP / text encoder tersebut, clone, dan komponen terkelolanya lewat pengelolaan model ComfyUI; diffusion model, VAE, dan ControlNet tidak di-unload secara global
-- berjalan pada setiap queue agar cache tidak melewati efek unload
+- mengikuti cache input normal ComfyUI, sehingga sampling preview yang tidak berubah dapat digunakan kembali; perubahan pada conditioning atau jalur CLIP tetap memicu unload
 
 Dynamic VRAM memindahkan weight sesuai tekanan memori dan dapat sengaja membiarkan sebagian text encoder tetap resident. Node ini menyediakan titik pelepasan yang deterministik, tetapi tidak dapat membuat seluruh proses ComfyUI menjadi `0 MiB`: CUDA context, conditioning tensor, model lain, custom node, dan aplikasi lain memiliki alokasi terpisah. Node ini juga tidak langsung meningkatkan kualitas sampling; fungsinya menyediakan ruang VRAM yang dapat mengurangi model offload atau mencegah OOM. Text encode berikutnya harus memuat ulang model, dan `--gpu-only` tidak dapat memindahkan encoder keluar dari VRAM.
 

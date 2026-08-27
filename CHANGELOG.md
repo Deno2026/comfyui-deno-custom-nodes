@@ -6,6 +6,12 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.95 - 2026-08-27
+
+- Changed `(Deno) MiniMax H3 Acc LoRA Loader` to return only the patched model and leave scheduler, sampler, and step controls to stock ComfyUI nodes. The loader now reads each sampling pass's actual descending sigma boundaries and dynamically fuses the checkpoint's 32 PDD intervals, including experimental 9/10-step and split-sigma latent-upscale paths. Simple/Euler at 8 steps remains the official recommended setup. Existing workflows must reconnect the former sampler and sigmas links.
+- Changed `(Deno) Text Encoder Unload` to use normal ComfyUI input caching instead of forcing every queue to invalidate its pass-through outputs. Unchanged preview sampling can now remain cached in Group Bypasser and similar preview-to-upscale workflows, while changed conditioning or CLIP paths still run the targeted unload.
+- Changed the MiniMax H3 native-version gate to a static compatibility import so the Registry scanner no longer mistakes the check for dynamic code execution.
+
 ## 0.7.94 - 2026-08-27
 
 - Updated `(Deno) MiniMax H3 Acc LoRA Loader` to discover Alibaba Acc-LoRA files in both the normal ComfyUI `models/loras/` paths and the dedicated `models/minimax_h3_acc_loras/` paths, including configured extra-model roots.

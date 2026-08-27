@@ -16,4 +16,4 @@ CLIP -> positive Text Encode -> Positive Conditioning -> KSampler positive
 
 ComfyUI가 관리하는 text encoder weight를 GPU에서 내리고 사용하지 않는 allocator cache를 정리하지만, 프로세스 전체가 `0 MiB`가 된다고 보장하지는 않습니다. CUDA context, 살아 있는 conditioning tensor, 다른 모델과 커스텀 노드 tensor, 다른 프로세스는 이 노드의 대상이 아닙니다.
 
-캐시 때문에 unload 동작이 생략되지 않도록 이 노드는 매 queue마다 변경된 것으로 처리됩니다. 따라서 입력이 같아도 아래쪽 샘플링은 다시 실행되며, 이후 text encode는 모델을 다시 올려야 합니다. 반복 프롬프트 인코딩 속도보다 샘플링 VRAM 여유가 더 중요할 때만 사용하세요. positive와 negative를 넘는 conditioning을 요구하는 특수 guider는 초보자용인 이 노드의 범위에서 의도적으로 제외합니다.
+이 노드는 ComfyUI의 일반 입력 캐시를 따릅니다. conditioning과 CLIP 그래프 입력이 같으면 통과 결과와 아래쪽 프리뷰 샘플링을 캐시에서 재사용하고, 해당 입력이 바뀌면 노드를 다시 실행해 연결된 encoder를 내립니다. 따라서 Group Bypasser 같은 프리뷰 후 업스케일 워크플로에서 마음에 든 프리뷰를 다시 만들지 않고 업스케일 구간만 진행할 수 있습니다. 이후 text encode가 필요하면 모델을 다시 올려야 합니다. positive와 negative를 넘는 conditioning을 요구하는 특수 guider는 초보자용인 이 노드의 범위에서 의도적으로 제외합니다.

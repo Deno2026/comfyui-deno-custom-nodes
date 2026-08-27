@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import re
-from typing import Mapping
+from typing import Iterable, Mapping
 
 import torch
 
@@ -71,6 +71,19 @@ class FusedPDDHeads:
     sigmas_audio: tuple[float, ...]
     dsum_video: tuple[float, ...]
     dsum_audio: tuple[float, ...]
+    config: PDDConfig
+
+
+@dataclass(frozen=True)
+class PDDHeadBank:
+    """Raw 32-interval PDD projections kept on CPU for runtime schedule fusion."""
+
+    video_weight: torch.Tensor
+    video_bias: torch.Tensor
+    audio_weight: torch.Tensor
+    audio_bias: torch.Tensor
+    sigmas_video: tuple[float, ...]
+    sigmas_audio: tuple[float, ...]
     config: PDDConfig
 
 
@@ -189,32 +202,109 @@ def shifted_sigmas(shift: float, num_steps: int) -> torch.Tensor:
     return shift * base / (1.0 + (shift - 1.0) * base)
 
 
-def _fuse_bank(bank: torch.Tensor, deltas: torch.Tensor, block_size: int) -> torch.Tensor:
-    if bank.shape[0] != deltas.numel():
+def _cpu_float_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    return tensor.detach().to(device="cpu", dtype=torch.float32).contiguous()
+
+
+def load_head_bank(state: Mapping[str, torch.Tensor], config: PDDConfig) -> PDDHeadBank:
+    """Copy the raw PDD banks to stable CPU float tensors after validation."""
+
+    sigmas_video = tuple(float(value) for value in shifted_sigmas(VIDEO_SHIFT, config.num_steps))
+    sigmas_audio = tuple(float(value) for value in shifted_sigmas(AUDIO_SHIFT, config.num_steps))
+    return PDDHeadBank(
+        _cpu_float_tensor(state["proj_out.weight"]),
+        _cpu_float_tensor(state["proj_out.bias"]),
+        _cpu_float_tensor(state["audio_proj_out.weight"]),
+        _cpu_float_tensor(state["audio_proj_out.bias"]),
+        sigmas_video,
+        sigmas_audio,
+        config,
+    )
+
+
+def validate_sigma_schedule(sigmas: Iterable[float] | torch.Tensor) -> tuple[float, ...]:
+    if isinstance(sigmas, torch.Tensor):
+        values = tuple(float(value) for value in sigmas.detach().flatten().to("cpu", torch.float64))
+    else:
+        values = tuple(float(value) for value in sigmas)
+    if len(values) < 2:
+        raise ValueError("MiniMax H3 Acc requires at least two sigma boundaries")
+    if any(not math.isfinite(value) for value in values):
+        raise ValueError("MiniMax H3 Acc sigma boundaries must be finite")
+    tolerance = 2.0e-6
+    if any(value < -tolerance or value > 1.0 + tolerance for value in values):
+        raise ValueError("MiniMax H3 Acc sigma boundaries must stay within [0, 1]")
+    normalized = tuple(min(1.0, max(0.0, value)) for value in values)
+    if any(left <= right for left, right in zip(normalized, normalized[1:])):
+        raise ValueError("MiniMax H3 Acc requires a strictly descending sigma schedule")
+    return normalized
+
+
+def _unshift_sigma(sigma: float, shift: float) -> float:
+    return sigma / (shift - (shift - 1.0) * sigma)
+
+
+def _shift_sigma(base: float, shift: float) -> float:
+    return shift * base / (1.0 + (shift - 1.0) * base)
+
+
+def audio_sigmas_for_video(sigmas_video: Iterable[float] | torch.Tensor) -> tuple[float, ...]:
+    bounds_video = validate_sigma_schedule(sigmas_video)
+    return tuple(
+        _shift_sigma(_unshift_sigma(sigma, VIDEO_SHIFT), AUDIO_SHIFT)
+        for sigma in bounds_video
+    )
+
+
+def _overlap_weights(
+    requested_bounds: tuple[float, ...],
+    raw_bounds: tuple[float, ...],
+) -> torch.Tensor:
+    weights = torch.zeros(
+        (len(requested_bounds) - 1, len(raw_bounds) - 1),
+        dtype=torch.float64,
+    )
+    for request_index, (left, right) in enumerate(
+        zip(requested_bounds, requested_bounds[1:])
+    ):
+        for raw_index, (raw_left, raw_right) in enumerate(zip(raw_bounds, raw_bounds[1:])):
+            overlap = min(left, raw_left) - max(right, raw_right)
+            if overlap > 0.0:
+                weights[request_index, raw_index] = overlap
+        expected = left - right
+        covered = float(weights[request_index].sum())
+        if not math.isclose(covered, expected, rel_tol=2.0e-6, abs_tol=2.0e-7):
+            raise ValueError(
+                "MiniMax H3 Acc sigma interval falls outside the trained PDD grid: "
+                f"{left:.9g} -> {right:.9g}"
+            )
+    return weights
+
+
+def _weighted_fuse_bank(bank: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    if bank.shape[0] != weights.shape[1]:
         raise ValueError("PDD head-bank length does not match its sigma grid")
     fused = []
-    for start in range(0, bank.shape[0], block_size):
-        acc = torch.zeros_like(bank[0], dtype=torch.float64, device="cpu")
-        for index in range(start, start + block_size):
-            acc.add_(bank[index].to(device="cpu", dtype=torch.float64), alpha=float(deltas[index]))
-        fused.append(acc.to(torch.float32))
+    for row in weights:
+        acc = torch.zeros_like(bank[0], dtype=torch.float32, device="cpu")
+        for index in torch.nonzero(row, as_tuple=False).flatten().tolist():
+            acc.add_(bank[index], alpha=float(row[index]))
+        fused.append(acc)
     return torch.stack(fused).contiguous()
 
 
-def fuse_heads(state: Mapping[str, torch.Tensor], config: PDDConfig) -> FusedPDDHeads:
-    sigmas_video_full = shifted_sigmas(VIDEO_SHIFT, config.num_steps)
-    sigmas_audio_full = shifted_sigmas(AUDIO_SHIFT, config.num_steps)
-    deltas_video = sigmas_video_full[:-1] - sigmas_video_full[1:]
-    deltas_audio = sigmas_audio_full[:-1] - sigmas_audio_full[1:]
-
-    video_weight = _fuse_bank(state["proj_out.weight"], deltas_video, config.block_size)
-    video_bias = _fuse_bank(state["proj_out.bias"], deltas_video, config.block_size)
-    audio_weight = _fuse_bank(state["audio_proj_out.weight"], deltas_audio, config.block_size)
-    audio_bias = _fuse_bank(state["audio_proj_out.bias"], deltas_audio, config.block_size)
-
-    knots = tuple(range(0, config.num_steps + 1, config.block_size))
-    bounds_v = tuple(float(sigmas_video_full[i]) for i in knots)
-    bounds_a = tuple(float(sigmas_audio_full[i]) for i in knots)
+def fuse_heads_for_sigmas(
+    bank: PDDHeadBank,
+    sigmas_video: Iterable[float] | torch.Tensor,
+) -> FusedPDDHeads:
+    bounds_v = validate_sigma_schedule(sigmas_video)
+    bounds_a = audio_sigmas_for_video(bounds_v)
+    weights_video = _overlap_weights(bounds_v, bank.sigmas_video)
+    weights_audio = _overlap_weights(bounds_a, bank.sigmas_audio)
+    video_weight = _weighted_fuse_bank(bank.video_weight, weights_video)
+    video_bias = _weighted_fuse_bank(bank.video_bias, weights_video)
+    audio_weight = _weighted_fuse_bank(bank.audio_weight, weights_audio)
+    audio_bias = _weighted_fuse_bank(bank.audio_bias, weights_audio)
     dsum_v = tuple(left - right for left, right in zip(bounds_v, bounds_v[1:]))
     dsum_a = tuple(left - right for left, right in zip(bounds_a, bounds_a[1:]))
     return FusedPDDHeads(
@@ -226,8 +316,18 @@ def fuse_heads(state: Mapping[str, torch.Tensor], config: PDDConfig) -> FusedPDD
         bounds_a,
         dsum_v,
         dsum_a,
-        config,
+        bank.config,
     )
+
+
+def fuse_heads(state: Mapping[str, torch.Tensor], config: PDDConfig) -> FusedPDDHeads:
+    """Build the checkpoint's official block schedule (kept for API/tests)."""
+
+    bank = load_head_bank(state, config)
+    sigmas_video_full = shifted_sigmas(VIDEO_SHIFT, config.num_steps)
+    knots = tuple(range(0, config.num_steps + 1, config.block_size))
+    bounds_v = tuple(float(sigmas_video_full[i]) for i in knots)
+    return fuse_heads_for_sigmas(bank, bounds_v)
 
 
 def _native_target(base: str) -> tuple[str, str]:
@@ -300,22 +400,6 @@ def build_patch_specs(
         else:
             raise ValueError(f"Unsupported MiniMax H3 LoRA target: {base}")
     return specs
-
-
-def select_exact_step(
-    current: float,
-    next_sigma: float,
-    bounds: tuple[float, ...],
-    tolerance: float = 2.0e-5,
-) -> int:
-    for index, (left, right) in enumerate(zip(bounds, bounds[1:])):
-        if abs(current - left) <= tolerance and abs(next_sigma - right) <= tolerance:
-            return index
-    formatted = ", ".join(f"{value:.9g}" for value in bounds)
-    raise ValueError(
-        "MiniMax H3 Acc requires its exact trained 8-step sigma boundaries. "
-        f"Got {current:.9g} -> {next_sigma:.9g}; expected [{formatted}]"
-    )
 
 
 def audio_inner_velocity_factor(

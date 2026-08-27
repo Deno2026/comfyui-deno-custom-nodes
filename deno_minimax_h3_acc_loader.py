@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import logging
 import math
 import os
@@ -10,7 +11,6 @@ import torch
 import torch.nn.functional as functional
 
 import comfy.patcher_extension
-import comfy.samplers
 import comfy.utils
 import comfy.weight_adapter
 from comfy.ldm.minimax.model import MiniMaxH3Model
@@ -20,11 +20,13 @@ from .deno_minimax_h3_pdd_core import (
     AUDIO_SHIFT,
     VIDEO_SHIFT,
     FusedPDDHeads,
+    PDDHeadBank,
     audio_inner_velocity_factor,
     build_patch_specs,
-    fuse_heads,
+    fuse_heads_for_sigmas,
+    load_head_bank,
     select_model_compatible_pairs,
-    select_exact_step,
+    validate_sigma_schedule,
     validate_checkpoint,
 )
 
@@ -73,13 +75,31 @@ class _DeviceHeadCache:
 
 
 class _PDDRuntime:
-    def __init__(self, heads: FusedPDDHeads):
-        self.heads = heads
-        self.device_heads = _DeviceHeadCache(heads)
+    def __init__(self, head_bank: PDDHeadBank):
+        self.head_bank = head_bank
+        self.plan_cache: OrderedDict[tuple[float, ...], _DeviceHeadCache] = OrderedDict()
         self.sigma_v: torch.Tensor | None = None
         self.transformer_options: dict | None = None
         self.shift_video = VIDEO_SHIFT
         self.shift_audio = AUDIO_SHIFT
+        self.warned_intermediate_sigma = False
+
+    def _plan_for(self, sigmas: tuple[float, ...]) -> _DeviceHeadCache:
+        cached = self.plan_cache.get(sigmas)
+        if cached is not None:
+            self.plan_cache.move_to_end(sigmas)
+            return cached
+        heads = fuse_heads_for_sigmas(self.head_bank, sigmas)
+        cached = _DeviceHeadCache(heads)
+        self.plan_cache[sigmas] = cached
+        while len(self.plan_cache) > 4:
+            _key, removed = self.plan_cache.popitem(last=False)
+            removed.clear()
+        LOGGER.info(
+            "Prepared MiniMax H3 Acc PDD heads for %d sampling interval(s)",
+            len(sigmas) - 1,
+        )
+        return cached
 
     def __call__(self, executor, *args, **kwargs):
         timestep = args[1] if len(args) > 1 else kwargs.get("timestep")
@@ -107,25 +127,46 @@ class _PDDRuntime:
             self.sigma_v = None
             self.transformer_options = None
 
-    def current_step(self) -> tuple[int, float, float]:
+    def current_step(self) -> tuple[_DeviceHeadCache, int, float, float]:
         if self.sigma_v is None or self.transformer_options is None:
             raise RuntimeError("MiniMax H3 Acc final head ran outside an active diffusion call")
         sample_sigmas = self.transformer_options.get("sample_sigmas")
-        if sample_sigmas is None or sample_sigmas.numel() < 2:
-            raise ValueError("MiniMax H3 Acc requires SamplerCustomAdvanced with the node's SIGMAS output")
-        flat = sample_sigmas.flatten()
+        if sample_sigmas is None:
+            raise ValueError(
+                "MiniMax H3 Acc requires a sampling path that provides sample_sigmas, "
+                "such as SamplerCustomAdvanced"
+            )
+        schedule = validate_sigma_schedule(torch.as_tensor(sample_sigmas).flatten())
+        plan = self._plan_for(schedule)
         current = float(self.sigma_v.detach().item())
-        distances = (flat[:-1].to(self.sigma_v.device) - self.sigma_v).abs()
-        index = int(distances.argmin().item())
-        next_sigma = float(flat[index + 1].detach().item())
-        block = select_exact_step(current, next_sigma, self.heads.sigmas_video)
-        return block, current, next_sigma
+        tolerance = 2.0e-5
+        for index, left in enumerate(schedule[:-1]):
+            if abs(current - left) <= tolerance:
+                return plan, index, current, schedule[index + 1]
+        if abs(current - schedule[-1]) <= 1.0e-8:
+            raise ValueError("MiniMax H3 Acc received a model call at the terminal sigma")
+        for left, right in zip(schedule, schedule[1:]):
+            if right < current < left:
+                if not self.warned_intermediate_sigma:
+                    LOGGER.warning(
+                        "MiniMax H3 Acc received an intermediate sampler sigma. "
+                        "Dynamic PDD fusion is being used experimentally; Euler is recommended."
+                    )
+                    self.warned_intermediate_sigma = True
+                partial_schedule = validate_sigma_schedule((current, right))
+                return self._plan_for(partial_schedule), 0, current, right
+        raise ValueError(
+            "MiniMax H3 Acc current sigma is outside the sampler's descending schedule: "
+            f"{current:.9g}"
+        )
 
     def to(self, _device):
         return self
 
     def cleanup(self, **_kwargs):
-        self.device_heads.clear()
+        for plan in self.plan_cache.values():
+            plan.clear()
+        self.plan_cache.clear()
 
 
 def _make_final_forward(runtime: _PDDRuntime):
@@ -136,8 +177,8 @@ def _make_final_forward(runtime: _PDDRuntime):
         hv = (self.norm(x[va:vb]) * (1.0 + scale[vrow]) + shift[vrow]).to(torch.float32)
         ha = (self.norm(x[aa:ab]) * (1.0 + scale[arow]) + shift[arow]).to(torch.float32)
 
-        block, current, next_sigma = runtime.current_step()
-        video_w, video_b, audio_w, audio_b = runtime.device_heads.for_device(hv.device)
+        plan, block, current, next_sigma = runtime.current_step()
+        video_w, video_b, audio_w, audio_b = plan.for_device(hv.device)
         displacement_video = functional.linear(hv, video_w[block], video_b[block])
         displacement_audio = functional.linear(ha, audio_w[block], audio_b[block])
         dsig_video = current - next_sigma
@@ -154,7 +195,7 @@ def _make_final_forward(runtime: _PDDRuntime):
 
 
 class DenoMiniMaxH3AccLoader:
-    """Apply the complete Alibaba PDD adapter and emit its exact Euler schedule."""
+    """Apply the complete Alibaba PDD adapter to a native MiniMax H3 model."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -175,14 +216,15 @@ class DenoMiniMaxH3AccLoader:
             }
         }
 
-    RETURN_TYPES = ("MODEL", "SAMPLER", "SIGMAS")
-    RETURN_NAMES = ("model", "sampler", "sigmas")
+    RETURN_TYPES = ("MODEL",)
+    RETURN_NAMES = ("model",)
     FUNCTION = "apply"
     CATEGORY = "Deno/MiniMax H3"
     DESCRIPTION = (
         "Loads one official Alibaba MiniMax-H3 Acc safetensors directly, applies all LoRA "
-        "weights supported by the connected model plus the PDD heads, and returns the trained "
-        "8-step Euler sampler/sigmas. Curve-pruned models use AdaLN compatibility mode."
+        "weights supported by the connected model plus dynamically scheduled PDD heads. "
+        "Choose sampler and sigmas with normal ComfyUI nodes; Simple + Euler at 8 steps is "
+        "recommended, while other step counts are experimental."
     )
 
     @classmethod
@@ -235,8 +277,8 @@ class DenoMiniMaxH3AccLoader:
             preview = ", ".join(str(item) for item in list(missing)[:5])
             raise RuntimeError(f"ComfyUI refused {len(missing)} MiniMax H3 Acc patches, e.g. {preview}")
 
-        heads = fuse_heads(state, config)
-        runtime = _PDDRuntime(heads)
+        head_bank = load_head_bank(state, config)
+        runtime = _PDDRuntime(head_bank)
         final_layer = diffusion_model.final_layer
         bound_forward = _make_final_forward(runtime).__get__(final_layer, final_layer.__class__)
         if hasattr(model_clone, "remove_wrappers_with_key"):
@@ -260,17 +302,16 @@ class DenoMiniMaxH3AccLoader:
                 "skipped_adaln_pairs": len(skipped_pairs),
                 "pruned_compatibility_mode": bool(skipped_pairs),
                 "patches": len(specs),
-                "nfe": config.nfe,
+                "pdd_grid_steps": config.num_steps,
+                "recommended_nfe": config.nfe,
+                "dynamic_schedule": True,
             },
         )
 
-        sigmas = torch.tensor(heads.sigmas_video, dtype=torch.float32, device="cpu")
-        sigmas[-1] = 0.0
-        sampler = comfy.samplers.sampler_object("euler")
         variant = "Ref2VA" if "ref2va" in acc_lora.lower() else "FL2VA/T2VA"
         LOGGER.info(
-            "Loaded %s | %s | LoRA pairs=%d | grid=%d | block=%d | NFE=%d | "
-            "sampler=Euler | shifts=12/3 | strength=1.0",
+            "Loaded %s | %s | LoRA pairs=%d | PDD grid=%d | trained block=%d | "
+            "recommended=Simple/Euler/%d steps | dynamic schedule enabled | strength=1.0",
             os.path.basename(path),
             variant,
             len(compatible_pairs),
@@ -278,7 +319,7 @@ class DenoMiniMaxH3AccLoader:
             config.block_size,
             config.nfe,
         )
-        return model_clone, sampler, sigmas
+        return (model_clone,)
 
 
 NODE_CLASS_MAPPINGS = {

@@ -141,9 +141,12 @@ Directly loads Alibaba PAI's official [MiniMax-H3-Acc-LoRAs](https://huggingface
 1. Download the official FL2VA or Ref2VA `Acc-8Step.safetensors` file and place it in either the normal `ComfyUI/models/loras/` folder or the dedicated `ComfyUI/models/minimax_h3_acc_loras/` folder.
 2. Connect a matching native MiniMax H3 diffusion model to `model`; full and Comfy-Org `*_pruned_*` variants are accepted.
 3. Select the matching Acc-LoRA: FL2VA for FL2VA/T2VA, or Ref2VA for Ref2VA.
-4. Connect this node's `model`, `sampler`, and `sigmas` outputs to the normal guider and `SamplerCustomAdvanced` path.
+4. Connect this node's single `model` output to the normal guider path.
+5. Build the sampling lane with stock ComfyUI nodes. The recommended starting point is `BasicScheduler: simple, steps: 8` and `KSamplerSelect: euler`, connected to `SamplerCustomAdvanced`.
 
-The node applies the static LoRA weights and the checkpoint's time-dependent PDD output heads, then automatically returns Euler plus the exact trained 8-step sigma schedule. There is no sampler or step widget to configure. The current official checkpoints require LoRA strength `1.0`, video/audio sigma shifts `12.0 / 3.0`, and their exact schedule; another schedule is rejected instead of being approximated silently. With a curve-pruned model, compatibility mode skips only the 50 full-width AdaLN LoRA updates whose `2688`-wide inputs cannot fit the pruned model's `8`-wide curve basis; all other LoRA updates and the PDD heads are applied. A full non-pruned model applies the complete adapter.
+The node applies the static LoRA weights and the checkpoint's 32 time-dependent PDD output heads. At sampling time it reads the actual sigma boundaries supplied by ComfyUI and automatically fuses the PDD heads for those intervals. This keeps sampler, scheduler, and step controls in the normal ComfyUI nodes. The official 8-step Simple/Euler setup remains the recommended and trained configuration; 9 steps, 10 steps, other descending schedules, and split sigma passes for latent-upscale workflows are available for experimentation rather than guaranteed quality improvements. Keep the native MiniMax H3 video/audio sigma shifts at `12.0 / 3.0` and LoRA strength at `1.0`.
+
+With a curve-pruned model, compatibility mode skips only the 50 full-width AdaLN LoRA updates whose `2688`-wide inputs cannot fit the pruned model's `8`-wide curve basis; all other LoRA updates and the PDD heads are applied. A full non-pruned model applies the complete adapter. Workflows saved with the earlier three-output loader must reconnect sampler and sigmas through stock ComfyUI nodes after this update.
 
 LoRA weights and workflows are not bundled with Deno Custom Nodes. Download the weights from Alibaba and build or adapt your own native ComfyUI workflow.
 
@@ -176,7 +179,7 @@ An opt-in inline VRAM barrier for the common positive-only or positive/negative 
 - connect the exact `CLIP` used by the upstream text encoders to `Text Encoder (CLIP)`
 - leave `Negative Conditioning` empty for a positive-only guider workflow
 - unload only that CLIP/text encoder, its clones, and its managed components through ComfyUI model management; diffusion models, VAEs, and ControlNets are not globally unloaded
-- run on every queue so ComfyUI cannot skip the unload side effect from cache
+- follow normal ComfyUI input caching, so unchanged preview sampling can be reused while changed conditioning or CLIP paths still trigger the unload
 
 Dynamic VRAM moves weights according to memory pressure and may intentionally leave text-encoder pages resident. This node provides a deterministic opt-in release point, but it cannot make the whole process use `0 MiB`: CUDA context, conditioning tensors, other models, custom-node allocations, and other applications remain separate. It also does not improve sampling quality by itself; it creates VRAM headroom that can reduce model offloading or avoid an out-of-memory error. A later text encode must reload the model, and `--gpu-only` cannot move the encoder out of VRAM.
 

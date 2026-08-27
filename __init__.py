@@ -528,7 +528,9 @@ for _module_name, _class_name, _display_name in _OPTIONAL_NODES:
         if _module_name.startswith("deno_minimax_h3"):
             # H3 landed in ComfyUI 0.30.0. Gate every related DENO node on the
             # same native module so older installs do not expose partial nodes.
-            importlib.import_module("comfy_extras.nodes_minimax_h3")
+            from comfy_extras.nodes_minimax_h3 import (  # noqa: F401
+                MiniMaxH3ReferenceToVideo as _NativeMiniMaxH3ReferenceToVideo,
+            )
         _module = importlib.import_module(f".{_module_name}", __name__)
         _node_class = getattr(_module, _class_name)
     except Exception as _exc:

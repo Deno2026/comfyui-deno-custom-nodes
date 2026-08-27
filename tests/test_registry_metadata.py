@@ -407,6 +407,13 @@ def test_public_git_surface_excludes_local_only_internal_docs():
     assert leaked == []
 
 
+def test_minimax_h3_version_gate_uses_a_static_native_import():
+    source = INIT_PATH.read_text(encoding="utf-8")
+
+    assert "from comfy_extras.nodes_minimax_h3 import" in source
+    assert 'importlib.import_module("comfy_extras.nodes_minimax_h3")' not in source
+
+
 def test_visual_fold_frontend_is_visual_only():
     script = (REPO_ROOT / "web" / "js" / "deno_visual_fold.js").read_text(encoding="utf-8")
 

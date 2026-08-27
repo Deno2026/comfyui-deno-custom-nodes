@@ -106,7 +106,7 @@ ComfyUI 標準の MiniMax H3 Reference to Video ワークフロー向けに、�
 - upstream の text encoder が使用した正確な `CLIP` を `Text Encoder (CLIP)` に接続します。
 - positive-only guider ワークフローでは `Negative Conditioning` を空のままにします。
 - ComfyUI model management を通じて、その CLIP / text encoder、その clone と管理対象 component だけを unload し、diffusion model、VAE、ControlNet は global unload しません。
-- cache によって副作用が省略されないよう、queue ごとに実行されます。
+- ComfyUI の通常の input cache に従うため、変更のない preview sampling は再利用でき、conditioning または CLIP path が変わった場合は unload が再実行されます。
 
 Dynamic VRAM は memory pressure に応じて weight を移動するため、text encoder の一部を意図的に残す場合があります。このノードは明確な解放地点を作りますが、ComfyUI process 全体を `0 MiB` にはできません。CUDA context、conditioning tensor、他の model、custom node、他アプリの割り当ては別です。また sampling 品質そのものを上げる機能ではなく、model offload や OOM を減らすための VRAM 余裕を作ります。次の text encode では model の再読み込みが必要になり、`--gpu-only` では encoder を VRAM 外へ移動できません。
 

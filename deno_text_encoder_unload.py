@@ -170,16 +170,6 @@ if _HAS_CONDITIONING_IO:
             return _legacy_input_types()
 
         @classmethod
-        def fingerprint_inputs(cls, **_kwargs):
-            # Unload is a side effect. A normal passthrough cache hit would skip
-            # it after another branch or workflow loaded the CLIP again.
-            return float("nan")
-
-        @classmethod
-        def IS_CHANGED(cls, **_kwargs):
-            return float("nan")
-
-        @classmethod
         def execute(
             cls,
             positive_conditioning: Any,
@@ -209,10 +199,6 @@ else:
         @classmethod
         def INPUT_TYPES(cls):
             return _legacy_input_types()
-
-        @classmethod
-        def IS_CHANGED(cls, **_kwargs):
-            return float("nan")
 
         def execute(
             self,

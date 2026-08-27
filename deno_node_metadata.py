@@ -87,7 +87,7 @@ NODE_INPUT_TOOLTIPS = {
         "ref_audios": "Stock MiniMax H3 standalone reference-audio slots, in prompt tag order.",
     },
     "DenoMiniMaxH3AccLoader": {
-        "model": "Full, non-pruned native ComfyUI MiniMax H3 diffusion model to accelerate.",
+        "model": "Matching native ComfyUI MiniMax H3 diffusion model to accelerate; full and curve-pruned models are supported.",
         "acc_lora": "Official Alibaba MiniMax-H3 Acc-LoRA. Match FL2VA with FL2VA/T2VA and Ref2VA with Ref2VA.",
     },
     "DenoAudioTranscript": {
@@ -336,9 +336,7 @@ NODE_OUTPUT_TOOLTIPS = {
         "Empty MiniMax H3 audio/video latent for sampling.",
     ),
     "DenoMiniMaxH3AccLoader": (
-        "MiniMax H3 model patched with the selected Alibaba Acc-LoRA and PDD output heads.",
-        "Euler sampler required by the official acceleration checkpoint.",
-        "Exact trained 8-step sigma schedule required by the official acceleration checkpoint.",
+        "MiniMax H3 model patched with the selected Alibaba Acc-LoRA and dynamically scheduled PDD output heads.",
     ),
     "DenoAudioTranscript": (
         "Structured transcript data with requested/detected language, timestamped segments, and a heuristic confidence band for an LLM prompt builder.",

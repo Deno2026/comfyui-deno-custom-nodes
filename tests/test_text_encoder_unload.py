@@ -1,6 +1,5 @@
 import importlib.util
 import json
-import math
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
@@ -105,7 +104,7 @@ def _load_module(monkeypatch, *, with_conditioning_io: bool):
     return module
 
 
-def test_v1_contract_exposes_positive_and_optional_negative_and_runs_every_queue(
+def test_v1_contract_exposes_positive_and_optional_negative_with_normal_cache(
     monkeypatch,
 ):
     module = _load_module(monkeypatch, with_conditioning_io=False)
@@ -122,7 +121,7 @@ def test_v1_contract_exposes_positive_and_optional_negative_and_runs_every_queue
     assert node.RETURN_TYPES == ("CONDITIONING", "CONDITIONING")
     assert node.RETURN_NAMES == ("positive_conditioning", "negative_conditioning")
     assert node.OUTPUT_NODE is False
-    assert math.isnan(node.IS_CHANGED())
+    assert not hasattr(node, "IS_CHANGED")
 
 
 def test_conditioning_schema_exposes_required_and_optional_passthrough_lanes(monkeypatch):
@@ -154,8 +153,8 @@ def test_conditioning_schema_exposes_required_and_optional_passthrough_lanes(mon
         "Positive Conditioning",
         "Negative Conditioning",
     ]
-    assert math.isnan(node.fingerprint_inputs())
-    assert math.isnan(node.IS_CHANGED())
+    assert "fingerprint_inputs" not in node.__dict__
+    assert "IS_CHANGED" not in node.__dict__
 
 
 @pytest.mark.parametrize("with_conditioning_io", [False, True])
@@ -290,3 +289,18 @@ def test_registration_metadata_help_and_global_unload_boundary_are_declared():
     assert "_unload_clip_patcher(" in module_source
     assert (REPO_ROOT / "web/js/docs/DenoTextEncoderUnload.md").is_file()
     assert (REPO_ROOT / "web/js/docs/DenoTextEncoderUnload/ko.md").is_file()
+
+
+def test_public_readmes_do_not_claim_forced_execution_on_every_queue():
+    stale_claims = (
+        "se ejecuta en cada queue",
+        "berjalan pada setiap queue",
+        "queue ごとに実行されます",
+        "executa em cada queue",
+        "每次 queue 都会执行",
+    )
+    readmes = [REPO_ROOT / "README.md", *sorted((REPO_ROOT / "docs").glob("README.*.md"))]
+
+    for path in readmes:
+        content = path.read_text(encoding="utf-8")
+        assert not any(claim in content for claim in stale_claims), path

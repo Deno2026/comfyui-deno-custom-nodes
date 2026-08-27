@@ -12,13 +12,16 @@ from deno_minimax_h3_pdd_core import (
     AUDIO_SHIFT,
     VIDEO_SHIFT,
     PDDConfig,
+    audio_sigmas_for_video,
     audio_inner_velocity_factor,
     build_patch_specs,
     fuse_heads,
+    fuse_heads_for_sigmas,
+    load_head_bank,
     parse_config,
     select_model_compatible_pairs,
-    select_exact_step,
     shifted_sigmas,
+    validate_sigma_schedule,
 )
 
 
@@ -128,12 +131,96 @@ def test_qkv_offsets_and_swiglu_half_swap():
     assert float(ffn[1].up[0, 0]) == 1.0
 
 
+SIMPLE_SCHEDULES = {
+    8: (
+        1.0,
+        0.9882352941,
+        0.9729729730,
+        0.9523809524,
+        0.9230769231,
+        0.8780487805,
+        0.8,
+        0.6315789474,
+        0.0,
+    ),
+    9: (
+        1.0,
+        0.989702165,
+        0.976773441,
+        0.960057557,
+        0.937605381,
+        0.905852437,
+        0.857509673,
+        0.774978280,
+        0.602150619,
+        0.0,
+    ),
+    10: (
+        1.0,
+        0.990825653,
+        0.979591846,
+        0.965517223,
+        0.947368383,
+        0.923076928,
+        0.888888896,
+        0.837209284,
+        0.75,
+        0.571428597,
+        0.0,
+    ),
+}
+
+
+def _small_head_state(num_steps=32, fill="ones"):
+    values = (
+        torch.ones(num_steps, dtype=torch.float32)
+        if fill == "ones"
+        else torch.arange(num_steps, dtype=torch.float32)
+    )
+    return {
+        "proj_out.weight": values.view(num_steps, 1, 1),
+        "proj_out.bias": values.view(num_steps, 1),
+        "audio_proj_out.weight": values.view(num_steps, 1, 1),
+        "audio_proj_out.bias": values.view(num_steps, 1),
+    }
+
+
 @requires_real_torch
-def test_other_sigma_schedules_are_rejected():
-    bounds = tuple(float(value) for value in shifted_sigmas(VIDEO_SHIFT, 32)[::4])
-    assert select_exact_step(bounds[0], bounds[1], bounds) == 0
-    with pytest.raises(ValueError, match="exact trained 8-step sigma boundaries"):
-        select_exact_step(1.0, 0.9, bounds)
+@pytest.mark.parametrize("steps", [8, 9, 10])
+def test_dynamic_fusion_accepts_simple_8_9_and_10_step_schedules(steps):
+    config = PDDConfig(32, 4, 1, 1.0, ())
+    bank = load_head_bank(_small_head_state(), config)
+    schedule = SIMPLE_SCHEDULES[steps]
+    fused = fuse_heads_for_sigmas(bank, schedule)
+    expected_video = torch.tensor(schedule[:-1]) - torch.tensor(schedule[1:])
+    audio = audio_sigmas_for_video(schedule)
+    expected_audio = torch.tensor(audio[:-1]) - torch.tensor(audio[1:])
+    assert tuple(fused.video_weight.shape) == (steps, 1, 1)
+    assert torch.allclose(fused.video_weight[:, 0, 0], expected_video, atol=2.0e-6, rtol=0.0)
+    assert torch.allclose(fused.audio_weight[:, 0, 0], expected_audio, atol=2.0e-6, rtol=0.0)
+
+
+@requires_real_torch
+@pytest.mark.parametrize(("steps", "split_index"), [(8, 6), (9, 6)])
+def test_split_schedule_reuses_the_same_complete_interval_heads(steps, split_index):
+    config = PDDConfig(32, 4, 1, 1.0, ())
+    bank = load_head_bank(_small_head_state(fill="range"), config)
+    schedule = SIMPLE_SCHEDULES[steps]
+    complete = fuse_heads_for_sigmas(bank, schedule)
+    high_noise = fuse_heads_for_sigmas(bank, schedule[: split_index + 1])
+    low_noise = fuse_heads_for_sigmas(bank, schedule[split_index:])
+    combined_video = torch.cat((high_noise.video_weight, low_noise.video_weight))
+    combined_audio = torch.cat((high_noise.audio_weight, low_noise.audio_weight))
+    assert torch.allclose(combined_video, complete.video_weight, atol=1.0e-6, rtol=0.0)
+    assert torch.allclose(combined_audio, complete.audio_weight, atol=1.0e-6, rtol=0.0)
+
+
+@requires_real_torch
+def test_invalid_sigma_schedules_still_fail_clearly():
+    with pytest.raises(ValueError, match="strictly descending"):
+        validate_sigma_schedule((1.0, 0.8, 0.8, 0.0))
+    with pytest.raises(ValueError, match=r"within \[0, 1\]"):
+        validate_sigma_schedule((1.1, 0.0))
 
 
 def test_audio_factor_is_finite_and_positive():
@@ -206,7 +293,7 @@ def test_model_path_registration_includes_normal_and_dedicated_lora_roots(tmp_pa
     assert ".safetensors" in stub.folder_names_and_paths["minimax_h3_acc_loras"][1]
 
 
-def test_public_node_surface_is_three_outputs_and_deno_named():
+def test_public_node_surface_is_model_only_and_deno_named():
     source_path = REPO_ROOT / "deno_minimax_h3_acc_loader.py"
     source = source_path.read_text(encoding="utf-8")
     module = ast.parse(source)
@@ -223,8 +310,8 @@ def test_public_node_surface_is_three_outputs_and_deno_named():
         and isinstance(item.targets[0], ast.Name)
         and item.targets[0].id in {"RETURN_TYPES", "RETURN_NAMES", "CATEGORY"}
     }
-    assert assignments["RETURN_TYPES"] == ("MODEL", "SAMPLER", "SIGMAS")
-    assert assignments["RETURN_NAMES"] == ("model", "sampler", "sigmas")
+    assert assignments["RETURN_TYPES"] == ("MODEL",)
+    assert assignments["RETURN_NAMES"] == ("model",)
     assert assignments["CATEGORY"] == "Deno/MiniMax H3"
     assert '"DenoMiniMaxH3AccLoader": "(Deno) MiniMax H3 Acc LoRA Loader"' in source
     assert "select_model_compatible_pairs" in source

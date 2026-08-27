@@ -106,7 +106,7 @@ Barreira de VRAM inline e opcional para o fluxo habitual apenas com prompt posit
 - liga o `CLIP` exato usado pelos text encoders anteriores a `Text Encoder (CLIP)`
 - deixa `Negative Conditioning` vazio num workflow de guider que use apenas positive
 - descarrega pela gestão de modelos do ComfyUI apenas esse CLIP / text encoder, os seus clones e componentes geridos; não descarrega globalmente diffusion models, VAEs ou ControlNets
-- executa em cada queue para que a cache não omita o efeito de unload
+- segue a cache normal de entradas do ComfyUI, permitindo reutilizar o sampling de preview sem alterações; mudanças no conditioning ou no caminho do CLIP continuam a acionar o unload
 
 Dynamic VRAM desloca pesos conforme a pressão de memória e pode deixar intencionalmente parte do text encoder residente. Este nó cria um ponto determinístico de libertação, mas não consegue levar todo o processo ComfyUI a `0 MiB`: contexto CUDA, conditioning tensors, outros modelos, custom nodes e outras aplicações mantêm alocações independentes. Também não melhora por si só a qualidade do sampling; cria margem de VRAM que pode reduzir model offload ou evitar um OOM. Um text encode posterior terá de voltar a carregar o modelo e `--gpu-only` não permite retirar o encoder da VRAM.
 

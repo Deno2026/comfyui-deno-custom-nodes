@@ -106,7 +106,7 @@ ComfyUI 的分辨率辅助与图像缩放节点。
 - 将上游 text encoder 实际使用的准确 `CLIP` 连接到 `Text Encoder (CLIP)`。
 - 仅使用 positive 的 guider 工作流可将 `Negative Conditioning` 留空。
 - 只通过 ComfyUI 模型管理卸载该 CLIP / text encoder、它的 clone 与受管组件；不会全局卸载 diffusion model、VAE 或 ControlNet。
-- 每次 queue 都会执行，避免缓存跳过卸载副作用。
+- 遵循 ComfyUI 的常规输入缓存，因此可复用未改变的 preview sampling；conditioning 或 CLIP 路径发生变化时仍会重新触发卸载。
 
 Dynamic VRAM 会根据显存压力移动权重，因此可能有意保留部分 text encoder。此节点提供确定的释放时点，但无法让整个 ComfyUI 进程变成 `0 MiB`；CUDA context、conditioning tensor、其他模型、自定义节点与其他应用的显存占用彼此独立。它也不会直接提高采样质量，而是提供额外 VRAM 空间，以减少 model offload 或避免 OOM。之后再次 text encode 时需要重载模型，`--gpu-only` 模式下也无法把 encoder 移出 VRAM。
 
