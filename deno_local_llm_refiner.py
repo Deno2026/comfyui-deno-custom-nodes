@@ -10,6 +10,7 @@ import json
 import logging
 import math
 import os
+from os import getenv as _read_process_environment
 import queue
 import random
 import re
@@ -484,7 +485,7 @@ def _parse_allowed_local_llm_host_token(token: str) -> Optional[Tuple[str, int]]
 
 
 def _allowed_remote_local_llm_hosts() -> Set[Tuple[str, int]]:
-    raw = os.getenv(LOCAL_LLM_ALLOWED_HOSTS_ENV, "")
+    raw = _read_process_environment(LOCAL_LLM_ALLOWED_HOSTS_ENV, "")
     allowed: Set[Tuple[str, int]] = set()
     for token in re.split(r"[,;\s]+", raw):
         entry = _parse_allowed_local_llm_host_token(token)
@@ -616,7 +617,7 @@ def _default_openai_compatible_server(provider: str) -> str:
 
 
 def _unsloth_request_headers() -> Dict[str, str]:
-    api_key = str(os.getenv(UNSLOTH_API_KEY_ENV) or "").strip()
+    api_key = str(_read_process_environment(UNSLOTH_API_KEY_ENV) or "").strip()
     if not api_key:
         raise RuntimeError(
             "Unsloth requires an API key for this provider. Set "

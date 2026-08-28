@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.98 - 2026-08-29
+
+- Followed up the Registry scanner compatibility cleanup by keeping the same four read-only environment lookups behind a direct standard-library import. This removes the scanner's remaining two false-positive source patterns without changing Local LLM host opt-in, Unsloth API-key lookup, SOS diagnostics, or any public node contract.
+
 ## 0.7.97 - 2026-08-29
 
 - Added a one-time canvas migration for standard active UI workflows saved with the v0.7.92-v0.7.94 three-output `(Deno) MiniMax H3 Acc LoRA Loader`. Existing model links stay in place while former sampler and sigmas links move to editable stock `KSamplerSelect: euler` and `BasicScheduler: simple, steps: 8` nodes. Save the UI workflow once after it opens. Current single-output workflows, muted/bypassed nodes, unknown layouts, and malformed graphs are left untouched. Raw API prompt JSON does not run this frontend migration and must be exported again from a migrated UI workflow; files already saved after their legacy sampler/sigmas links were lost require manual reconnection.

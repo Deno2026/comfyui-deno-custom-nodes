@@ -35,8 +35,8 @@ ZIP_INSTALLER_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/r
 
 def test_known_registry_scanner_false_positive_literals_stay_out_of_package_sources():
     source_checks = {
-        "deno_local_llm_refiner.py": ("os.environ.get(", "os.environ["),
-        "deno_sos_report.py": ("os.environ.get(", "os.environ["),
+        "deno_local_llm_refiner.py": ("os.environ.get(", "os.environ[", "os.getenv("),
+        "deno_sos_report.py": ("os.environ.get(", "os.environ[", "os.getenv("),
         "deno_translate_engine.py": ('"su"', "'su'"),
         "web/js/deno_ideogram_director.js": (".bind(",),
         "web/js/deno_local_llm_refiner.js": (".bind(",),

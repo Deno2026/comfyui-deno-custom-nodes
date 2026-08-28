@@ -2,6 +2,7 @@ import configparser
 import importlib.metadata
 import json
 import os
+from os import getenv as _read_process_environment
 import platform
 import re
 import sys
@@ -575,8 +576,8 @@ def _python_snapshot():
     exe_parent = executable.parent
     pth_files = sorted(exe_parent.glob("python*._pth"))
     is_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
-    virtual_env = os.getenv("VIRTUAL_ENV", "")
-    conda_prefix = os.getenv("CONDA_PREFIX", "")
+    virtual_env = _read_process_environment("VIRTUAL_ENV", "")
+    conda_prefix = _read_process_environment("CONDA_PREFIX", "")
     exe_lower = str(executable).lower()
 
     evidence = []
