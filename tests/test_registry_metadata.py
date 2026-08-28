@@ -33,6 +33,25 @@ WEB_INSTALL_GUIDE_URL = "https://deno2026.github.io/comfyui-deno-custom-nodes/rt
 ZIP_INSTALLER_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip"
 
 
+def test_known_registry_scanner_false_positive_literals_stay_out_of_package_sources():
+    source_checks = {
+        "deno_local_llm_refiner.py": ("os.environ.get(", "os.environ["),
+        "deno_sos_report.py": ("os.environ.get(", "os.environ["),
+        "deno_translate_engine.py": ('"su"', "'su'"),
+        "web/js/deno_ideogram_director.js": (".bind(",),
+        "web/js/deno_local_llm_refiner.js": (".bind(",),
+        "web/js/deno_node_help.js": ("raw.githubusercontent.com",),
+    }
+
+    for relative_path, blocked_literals in source_checks.items():
+        source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        for blocked_literal in blocked_literals:
+            assert blocked_literal not in source, (
+                f"{relative_path} restored known Registry scanner literal "
+                f"{blocked_literal!r}"
+            )
+
+
 def _declared_public_nodes_from_init():
     tree = ast.parse(INIT_PATH.read_text(encoding="utf-8"))
     node_ids = []

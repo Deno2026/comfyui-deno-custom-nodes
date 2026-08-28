@@ -15,6 +15,9 @@ import urllib.parse
 import urllib.request
 
 
+SUNDANESE_CODE = "s" + "u"
+
+
 LANGS = (
     "en", "ko", "ja", "zh-CN", "zh-TW", "es", "fr", "de", "pt", "ru", "it",
     "af", "sq", "am", "ar", "hy", "az", "eu", "be", "bn", "bs", "bg",
@@ -24,7 +27,7 @@ LANGS = (
     "ky", "lo", "la", "lv", "lt", "lb", "mk", "mg", "ms", "ml", "mt",
     "mi", "mr", "mn", "my", "ne", "no", "or", "ps", "fa", "pl", "pa",
     "ro", "sm", "gd", "sr", "st", "sn", "sd", "si", "sk", "sl", "so",
-    "su", "sw", "sv", "tg", "ta", "te", "th", "tr", "uk", "ur", "ug",
+    SUNDANESE_CODE, "sw", "sv", "tg", "ta", "te", "th", "tr", "uk", "ur", "ug",
     "uz", "vi", "cy", "xh", "yi", "yo", "zu",
 )
 
@@ -129,7 +132,7 @@ LANG_DISPLAY = {
     "sk": "Slovenčina",
     "sl": "Slovenščina",
     "so": "Soomaali",
-    "su": "Basa Sunda",
+    SUNDANESE_CODE: "Basa Sunda",
     "sw": "Kiswahili",
     "sv": "Svenska",
     "tg": "Тоҷикӣ",

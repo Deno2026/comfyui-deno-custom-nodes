@@ -14,6 +14,6 @@ FL2VA/T2VA에는 FL2VA Acc-LoRA를, Ref2VA에는 Ref2VA Acc-LoRA를 사용하세
 
 완전판 non-pruned 모델은 ComfyUI 순정 INT8 모델을 포함해 전체 어댑터를 양자화 대응 LoRA 경로로 적용합니다. 곡선 압축된 pruned 모델에서는 `models/diffusion_models/`에 이미 있는 같은 계열의 non-pruned H3 체크포인트를 자동으로 찾습니다. 파일 전체를 올리지 않고 작은 FP32 time-embedder 부분만 읽어 AdaLN LoRA 50개를 pruned 곡선에 맞게 메모리에서 변환합니다. 맞는 full 체크포인트가 없더라도 실행을 막지 않으며, 경고를 남기고 그 50개만 건너뛴 뒤 나머지 LoRA와 PDD 헤드는 모두 적용합니다.
 
-이전의 3출력 버전으로 저장한 워크플로우는 업데이트 후 sampler와 sigmas를 ComfyUI 순정 노드로 다시 연결해야 합니다.
+v0.7.92~v0.7.94의 3출력 버전으로 저장한 표준 활성 UI 워크플로우는 ComfyUI 캔버스에서 열 때 자동 변환됩니다. 기존 model 연결은 그대로 두고, 예전 sampler와 sigmas 연결을 각각 사용자가 수정할 수 있는 순정 `KSamplerSelect: euler`와 `BasicScheduler: simple, steps: 8` 노드로 옮깁니다. 열린 뒤 UI 워크플로우를 한 번 저장하세요. 현재 단일 출력 워크플로우는 건드리지 않습니다. mute/bypass 상태, 정확히 판별할 수 없는 사용자 변경형, 손상된 그래프도 임의로 바꾸지 않습니다. raw API prompt JSON에는 이 frontend 변환이 실행되지 않으므로 변환된 UI 워크플로우에서 다시 API 형식으로 내보내야 합니다. 예전 sampler/sigmas 링크가 이미 사라진 채 저장된 파일은 순정 노드를 수동으로 다시 연결해야 합니다.
 
 Deno Custom Nodes에는 LoRA 가중치와 워크플로우를 포함하지 않습니다.

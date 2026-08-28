@@ -14,7 +14,9 @@ explicit migration. All fixtures are excluded from the published package via
 
 | fixture | source name | notable DENO nodes |
 |---|---|---|
+| minimax_h3_acc_loader_v0794_three_output.json | v0.7.92-v0.7.94 saved-contract fixture | DenoMiniMaxH3AccLoader (`MODEL`, `SAMPLER`, `SIGMAS`; graph migration) |
 | minimax_h3_acc_loader_v0795.json | v0.7.95 saved-contract fixture | DenoMiniMaxH3AccLoader (`MODEL` only) |
+| minimax_h3_acc_loader_v0796.json | v0.7.96 saved-contract fixture | DenoMiniMaxH3AccLoader (`MODEL` only; serialized combo and named widget no-op) |
 | bernini_workflow.json | Bernini workflow (Deno) (0604 fixed) | DenoBerniniPromptGuide (v0.7.28) |
 | ltx23_8gb_vram.json | LTX2.3 8GB VRAM workflow | DenoLTXPromptGuide **(v0.3.8 legacy 7-value)**, Sequencer, MultiLora, PresetLoader |
 | ltx23_8gb_vram_audio_to_video.json | LTX2.3 8GB VRAM + Audio to Video | same as above (MultiLora 61-value) |

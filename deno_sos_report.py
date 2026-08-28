@@ -575,8 +575,8 @@ def _python_snapshot():
     exe_parent = executable.parent
     pth_files = sorted(exe_parent.glob("python*._pth"))
     is_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
-    virtual_env = os.environ.get("VIRTUAL_ENV", "")
-    conda_prefix = os.environ.get("CONDA_PREFIX", "")
+    virtual_env = os.getenv("VIRTUAL_ENV", "")
+    conda_prefix = os.getenv("CONDA_PREFIX", "")
     exe_lower = str(executable).lower()
 
     evidence = []

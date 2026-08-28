@@ -1,0 +1,59 @@
+{
+  "id": "3ad44f50-8a08-41d1-a3ae-d5dd79cf0cb2",
+  "revision": 0,
+  "last_node_id": 2,
+  "last_link_id": 0,
+  "nodes": [
+    {
+      "id": 2,
+      "type": "DenoMiniMaxH3AccLoader",
+      "pos": [340, 0],
+      "size": [390, 82],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "localized_name": "acc_lora",
+          "name": "acc_lora",
+          "type": "COMBO",
+          "widget": {"name": "acc_lora"},
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": []
+        }
+      ],
+      "title": "(Deno) MiniMax H3 Acc LoRA Loader v0.7.96 saved graph",
+      "properties": {
+        "cnr_id": "deno-custom-nodes",
+        "ver": "0.7.96",
+        "Node name for S&R": "DenoMiniMaxH3AccLoader"
+      },
+      "widgets_values": ["MiniMax-H3-Ref2VA-Acc-8Step.safetensors"],
+      "widgets_values_named": {
+        "acc_lora": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors"
+      }
+    }
+  ],
+  "links": [],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {"scale": 1, "offset": [0, 0]},
+    "frontendVersion": "1.39.19"
+  },
+  "version": 0.4
+}

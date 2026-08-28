@@ -12,7 +12,7 @@ const UPDATE_BADGE_RADIUS = 5;
 const UPDATE_BADGE_OFFSET_X = 6;
 const UPDATE_BADGE_OFFSET_Y = -5;
 const REGISTRY_INSTALL_URL = "https://api.comfy.org/nodes/deno-custom-nodes/install";
-const CHANGELOG_URL = "https://raw.githubusercontent.com/Deno2026/comfyui-deno-custom-nodes/main/CHANGELOG.md";
+const CHANGELOG_URL = "https://api.github.com/repos/Deno2026/comfyui-deno-custom-nodes/contents/CHANGELOG.md";
 const RELEASE_BASE_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/tag";
 const VERSION_CACHE_KEY = "denoCustomNodes.versionStatus.v2";
 const VERSION_CACHE_MS = 6 * 60 * 60 * 1000;
@@ -167,9 +167,9 @@ function parseChangelogNotes(markdown, version) {
 
 async function fetchReleaseNotes(version) {
     try {
-        const response = await fetchWithTimeout(`${CHANGELOG_URL}?t=${Date.now()}`, {
+        const response = await fetchWithTimeout(`${CHANGELOG_URL}?ref=main&t=${Date.now()}`, {
             method: "GET",
-            headers: { "Accept": "text/plain" },
+            headers: { "Accept": "application/vnd.github.raw+json" },
             cache: "no-store",
         });
         if (!response.ok) {

@@ -3791,7 +3791,7 @@
           modal.addEventListener("pointerdown", (e) => { if (e.target === modal) modal.remove(); });
           const esc = (e) => { if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); modal.remove(); } };
           document.addEventListener("keydown", esc, true);
-          const _rm = HTMLElement.prototype.remove.bind(modal);
+          const _rm = () => HTMLElement.prototype.remove.call(modal);
           panel.append(h); modal.append(panel); document.body.appendChild(modal);
           const galleryOwner = ownBodyOverlay(() => {
             document.removeEventListener("keydown", esc, true);

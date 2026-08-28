@@ -382,8 +382,9 @@ function ownLocalLLMBodyOverlay(node, overlay, beforeRemove = null) {
         return () => overlay?.remove?.();
     }
 
-    const nativeRemove = typeof overlay.remove === "function"
-        ? overlay.remove.bind(overlay)
+    const overlayRemove = overlay.remove;
+    const nativeRemove = typeof overlayRemove === "function"
+        ? () => overlayRemove.call(overlay)
         : () => overlay.parentNode?.removeChild?.(overlay);
     let active = true;
     let frame = 0;

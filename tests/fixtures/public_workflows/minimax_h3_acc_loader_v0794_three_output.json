@@ -1,0 +1,214 @@
+{
+  "id": "f4e83e29-7a84-49da-9713-203217505598",
+  "revision": 0,
+  "last_node_id": 5,
+  "last_link_id": 4,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "UNETLoader",
+      "pos": [0, 0],
+      "size": [270, 82],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "localized_name": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [1]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "UNETLoader"
+      },
+      "widgets_values": ["minimax_h3_ref2va_int8_convrot.safetensors", "default"]
+    },
+    {
+      "id": 2,
+      "type": "DenoMiniMaxH3AccLoader",
+      "pos": [340, 0],
+      "size": [390, 130],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 1
+        },
+        {
+          "localized_name": "acc_lora",
+          "name": "acc_lora",
+          "type": "COMBO",
+          "widget": {"name": "acc_lora"},
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [2]
+        },
+        {
+          "localized_name": "sampler",
+          "name": "sampler",
+          "type": "SAMPLER",
+          "slot_index": 1,
+          "links": [3]
+        },
+        {
+          "localized_name": "sigmas",
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "slot_index": 2,
+          "links": [4]
+        }
+      ],
+      "title": "(Deno) MiniMax H3 Acc LoRA Loader v0.7.94 saved graph",
+      "properties": {
+        "cnr_id": "deno-custom-nodes",
+        "ver": "0.7.94",
+        "Node name for S&R": "DenoMiniMaxH3AccLoader"
+      },
+      "widgets_values": ["MiniMax-H3-Ref2VA-Acc-8Step.safetensors"],
+      "widgets_values_named": {
+        "acc_lora": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors"
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 3,
+      "type": "BasicGuider",
+      "pos": [820, 0],
+      "size": [220, 82],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
+        },
+        {
+          "localized_name": "conditioning",
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "GUIDER",
+          "name": "GUIDER",
+          "type": "GUIDER",
+          "slot_index": 0,
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "BasicGuider"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 4,
+      "type": "RandomNoise",
+      "pos": [820, 150],
+      "size": [270, 82],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "noise_seed",
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {"name": "noise_seed"},
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "NOISE",
+          "name": "NOISE",
+          "type": "NOISE",
+          "slot_index": 0,
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "RandomNoise"
+      },
+      "widgets_values": [0, "fixed"]
+    },
+    {
+      "id": 5,
+      "type": "SamplerCustomAdvanced",
+      "pos": [1150, 120],
+      "size": [270, 180],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {"localized_name": "noise", "name": "noise", "type": "NOISE", "link": null},
+        {"localized_name": "guider", "name": "guider", "type": "GUIDER", "link": null},
+        {"localized_name": "sampler", "name": "sampler", "type": "SAMPLER", "link": 3},
+        {"localized_name": "sigmas", "name": "sigmas", "type": "SIGMAS", "link": 4},
+        {"localized_name": "latent_image", "name": "latent_image", "type": "LATENT", "link": null}
+      ],
+      "outputs": [
+        {
+          "localized_name": "output",
+          "name": "output",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "localized_name": "denoised_output",
+          "name": "denoised_output",
+          "type": "LATENT",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "SamplerCustomAdvanced"
+      },
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "MODEL"],
+    [2, 2, 0, 3, 0, "MODEL"],
+    [3, 2, 1, 5, 2, "SAMPLER"],
+    [4, 2, 2, 5, 3, "SIGMAS"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {"scale": 1, "offset": [0, 0]},
+    "frontendVersion": "1.39.19"
+  },
+  "version": 0.4
+}

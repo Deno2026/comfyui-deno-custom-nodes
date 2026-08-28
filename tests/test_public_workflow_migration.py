@@ -53,6 +53,10 @@ H3_AUDIO_REFERENCE_WORKFLOW = (
     REPO_ROOT / "docs" / "workflows" / "minimax-h3-r2v-audio-reference.json"
 )
 H3_ACC_LOADER_FIXTURE = FIXTURE_DIR / "minimax_h3_acc_loader_v0795.json"
+H3_ACC_LOADER_V0796_FIXTURE = FIXTURE_DIR / "minimax_h3_acc_loader_v0796.json"
+H3_ACC_LOADER_LEGACY_FIXTURE = (
+    FIXTURE_DIR / "minimax_h3_acc_loader_v0794_three_output.json"
+)
 
 
 # --------------------------------------------------------------------------
@@ -189,6 +193,34 @@ def _uses_text_encoder_unload_configure_migration(node):
     )
 
 
+def _uses_minimax_h3_acc_graph_migration(node):
+    """Return true only for the exact v0.7.92-v0.7.94 output contract."""
+    if node.get("type") != "DenoMiniMaxH3AccLoader":
+        return False
+    inputs = node.get("inputs")
+    outputs = node.get("outputs")
+    if not isinstance(inputs, list) or not isinstance(outputs, list):
+        return False
+    if len(inputs) not in (1, 2) or len(outputs) != 3:
+        return False
+    if not all(isinstance(slot, dict) for slot in [*inputs, *outputs]):
+        return False
+    input_schema = [(slot.get("name"), slot.get("type")) for slot in inputs]
+    known_input_schema = input_schema == [("model", "MODEL")] or (
+        input_schema == [("model", "MODEL"), ("acc_lora", "COMBO")]
+        and inputs[1].get("widget", {}).get("name") == "acc_lora"
+    )
+    return (
+        known_input_schema
+        and [(slot.get("name"), slot.get("type")) for slot in outputs]
+        == [
+            ("model", "MODEL"),
+            ("sampler", "SAMPLER"),
+            ("sigmas", "SIGMAS"),
+        ]
+    )
+
+
 def _load(fixture):
     return json.loads(fixture.read_text(encoding="utf-8"))
 
@@ -210,6 +242,37 @@ def test_minimax_h3_acc_loader_v0795_saved_contract_is_preserved():
     assert graph["links"] == [
         [1, 1, 0, 2, 0, "MODEL"],
         [2, 2, 0, 3, 0, "MODEL"],
+    ]
+
+
+def test_minimax_h3_acc_loader_v0796_saved_contract_is_preserved():
+    graph = _load(H3_ACC_LOADER_V0796_FIXTURE)
+    loader = next(node for node in graph["nodes"] if node["type"] == "DenoMiniMaxH3AccLoader")
+    assert not _uses_minimax_h3_acc_graph_migration(loader)
+    assert [(slot["name"], slot["type"]) for slot in loader["inputs"]] == [
+        ("model", "MODEL"),
+        ("acc_lora", "COMBO"),
+    ]
+    assert [slot["name"] for slot in loader["outputs"]] == ["model"]
+    assert loader["widgets_values_named"] == {
+        "acc_lora": "MiniMax-H3-Ref2VA-Acc-8Step.safetensors"
+    }
+    assert loader["inputs"][0]["link"] is None
+    assert loader["outputs"][0]["links"] == []
+    assert graph["links"] == []
+
+
+def test_minimax_h3_acc_loader_v0794_legacy_contract_is_locked():
+    graph = _load(H3_ACC_LOADER_LEGACY_FIXTURE)
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    loader = nodes[2]
+    assert _uses_minimax_h3_acc_graph_migration(loader)
+    assert loader["widgets_values"] == ["MiniMax-H3-Ref2VA-Acc-8Step.safetensors"]
+    assert [slot["links"] for slot in loader["outputs"]] == [[2], [3], [4]]
+    assert graph["links"][1:] == [
+        [2, 2, 0, 3, 0, "MODEL"],
+        [3, 2, 1, 5, 2, "SAMPLER"],
+        [4, 2, 2, 5, 3, "SIGMAS"],
     ]
 
 
@@ -1231,6 +1294,9 @@ def test_fixture_output_slots_are_prefix_of_return_names(fixture):
         ]
         if _uses_text_encoder_unload_configure_migration(node):
             assert current == ("positive_conditioning", "negative_conditioning")
+            continue
+        if _uses_minimax_h3_acc_graph_migration(node):
+            assert current == ("model",)
             continue
         assert saved == list(current[:len(saved)]), (
             f"{fixture.name} node {node.get('id')} {node['type']}: saved output "

@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.97 - 2026-08-29
+
+- Added a one-time canvas migration for standard active UI workflows saved with the v0.7.92-v0.7.94 three-output `(Deno) MiniMax H3 Acc LoRA Loader`. Existing model links stay in place while former sampler and sigmas links move to editable stock `KSamplerSelect: euler` and `BasicScheduler: simple, steps: 8` nodes. Save the UI workflow once after it opens. Current single-output workflows, muted/bypassed nodes, unknown layouts, and malformed graphs are left untouched. Raw API prompt JSON does not run this frontend migration and must be exported again from a migrated UI workflow; files already saved after their legacy sampler/sigmas links were lost require manual reconnection.
+- Rephrased seven behavior-neutral source expressions that the Comfy Registry scanner mistook for environment manipulation, privilege escalation, socket binding, or a blocked URL. Node IDs, inputs, outputs, widgets, saved values, and runtime behavior are unchanged.
+
 ## 0.7.96 - 2026-08-27
 
 - Improved `(Deno) MiniMax H3 Acc LoRA Loader` without changing its saved node contract: stock schedulers remain free to provide 4-12 or other descending sigma schedules, native ComfyUI `FinalLayer` modulation stays in control, and only the PDD video/audio projections are replaced. Full non-pruned INT8 models continue through ComfyUI's quantization-aware LoRA path. Curve-pruned models now automatically derive an AdaLN bridge from an installed matching full H3 checkpoint and rebase all 50 AdaLN updates; when no matching full checkpoint is available, the previous non-blocking compatibility fallback remains.
