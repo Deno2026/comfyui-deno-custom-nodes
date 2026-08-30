@@ -6,6 +6,8 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.99 - 2026-08-31
+
 - Fixed `(Deno) Local LLM Loader` workflow loading on current ComfyUI frontend releases by deferring linked widget-socket cleanup until the node has an authoritative graph. Existing image, duration, audio-context, and prompt links are preserved through load, save, and reopen.
 - Removed duplicate global Local LLM wheel interception and synchronous layout reads. Local preview scrolling stays local, while normal canvas zoom and middle-button pan continue through ComfyUI's native interaction path.
 - Fixed `(Deno) Advanced Image Source Loader` input-folder thumbnails by trying compatible `/api/view` and `/view` URL variants before showing a fallback. Large input and external folders now render a bounded virtual grid with lazy thumbnails and preserved selection instead of creating every card at once.
