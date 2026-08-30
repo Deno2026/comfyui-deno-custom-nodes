@@ -35,6 +35,8 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 setDirtyCanvas() {{}},
             }};
             const animationFrames = new Map();
+            const registeredWindowListeners = [];
+            const registeredDocumentListeners = [];
             let nextAnimationFrame = 1;
             function flushAnimationFrames() {{
                 const callbacks = Array.from(animationFrames.values());
@@ -69,7 +71,9 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                     apiURL(path) {{ return path; }},
                 }},
                 window: {{
-                    addEventListener() {{}},
+                    addEventListener(type, handler, options) {{
+                        registeredWindowListeners.push({{ type, handler, options }});
+                    }},
                     setTimeout() {{ return 0; }},
                     requestAnimationFrame(callback) {{
                         const id = nextAnimationFrame++;
@@ -84,7 +88,9 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                     callback();
                 }},
                 document: {{
-                    addEventListener() {{}},
+                    addEventListener(type, handler, options) {{
+                        registeredDocumentListeners.push({{ type, handler, options }});
+                    }},
                     querySelectorAll() {{ return []; }},
                     querySelector() {{ return null; }},
                 }},
@@ -440,6 +446,219 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(reopenedAudioNode.inputs.length === 4, "Save/reopen must not duplicate serialized optional sockets");
             assert(reopenedAudioNode.inputs[3].name === "audio_context" && reopenedAudioNode.inputs[3].type === "STRING", "Save/reopen must normalize legacy audio analysis socket fields");
             assert(reopenedAudioNode.inputs[3].link === 604 && graph.links[604].target_slot === 3, "Save/reopen normalization must preserve the audio analysis link and slot");
+            const graphlessLoader = {{ id: 148, inputs: [], graph: null, setDirtyCanvas() {{}} }};
+            let graphlessLinkWrites = 0;
+            function reactiveInput(name, initialLink) {{
+                let link = initialLink;
+                let links = initialLink === null ? [] : [initialLink];
+                return Object.defineProperties({{ name, label: name, type: "STRING" }}, {{
+                    link: {{
+                        enumerable: true,
+                        get() {{ return link; }},
+                        set(value) {{
+                            graphlessLinkWrites += 1;
+                            if (!graphlessLoader.graph) throw new Error("NullGraphError: graph is null");
+                            link = value;
+                        }},
+                    }},
+                    links: {{
+                        enumerable: true,
+                        get() {{ return links; }},
+                        set(value) {{
+                            graphlessLinkWrites += 1;
+                            if (!graphlessLoader.graph) throw new Error("NullGraphError: graph is null");
+                            links = value;
+                        }},
+                    }},
+                }});
+            }}
+            const preservedImageInput = reactiveInput("image", 701);
+            const deferredLinkedWidgetInput = reactiveInput("provider", 702);
+            const removableUnlinkedWidgetInput = reactiveInput("system_prompt", null);
+            graphlessLoader.inputs.push(
+                preservedImageInput,
+                deferredLinkedWidgetInput,
+                removableUnlinkedWidgetInput,
+            );
+            assert(
+                api.disconnectInputSlot(graphlessLoader, 1) === false,
+                "Graphless disconnect must defer until the node has an authoritative graph"
+            );
+            assert(graphlessLinkWrites === 0, "Graphless disconnect must not trigger reactive link setters");
+            assert(
+                api.removeLoaderWidgetInputSockets(graphlessLoader) === true,
+                "Graphless cleanup must still remove truly unlinked transient widget sockets"
+            );
+            assert(graphlessLinkWrites === 0, "Graphless cleanup must not write reactive input.link or input.links");
+            assert(
+                graphlessLoader.inputs.length === 2
+                && graphlessLoader.inputs[0] === preservedImageInput
+                && graphlessLoader.inputs[1] === deferredLinkedWidgetInput,
+                "Graphless cleanup must preserve normal inputs and defer linked widget sockets"
+            );
+            const attachedGraph = {{
+                links: {{
+                    701: {{ target_id: 148, target_slot: 0 }},
+                    702: {{ target_id: 148, target_slot: 1 }},
+                }},
+                setDirtyCanvas() {{}},
+            }};
+            let attachedDisconnects = 0;
+            graphlessLoader.graph = attachedGraph;
+            graphlessLoader.disconnectInput = function (slot) {{
+                attachedDisconnects += 1;
+                const input = this.inputs[slot];
+                const linkIds = Array.isArray(input.links) && input.links.length ? [...input.links] : [input.link];
+                input.link = null;
+                input.links = [];
+                for (const linkId of linkIds) delete this.graph.links[linkId];
+            }};
+            assert(
+                api.removeLoaderWidgetInputSockets(graphlessLoader) === true,
+                "Deferred linked widget cleanup must run after the graph becomes authoritative"
+            );
+            assert(attachedDisconnects === 1, "Attached cleanup must use ComfyUI's native disconnect path exactly once");
+            assert(
+                graphlessLoader.inputs.length === 1
+                && graphlessLoader.inputs[0] === preservedImageInput
+                && preservedImageInput.link === 701,
+                "Attached cleanup must preserve existing non-widget socket links and order"
+            );
+            assert(attachedGraph.links[701].target_slot === 0 && !attachedGraph.links[702], "Attached cleanup must remove only the deferred widget link");
+
+            const previousCanvas = context.app.canvas;
+            const previousGraph = context.app.graph;
+            const canvasListeners = [];
+            let forcedLayoutReads = 0;
+            const wheelCanvasElement = {{
+                style: {{}},
+                addEventListener(type, handler, options) {{ canvasListeners.push({{ type, handler, options }}); }},
+                removeEventListener() {{}},
+                getBoundingClientRect() {{
+                    forcedLayoutReads += 1;
+                    return {{ left: 0, top: 0, width: 800, height: 600 }};
+                }},
+            }};
+            const wheelGraph = {{ links: {{}}, _nodes: [], setDirtyCanvas() {{}} }};
+            let nativeWheelCalls = 0;
+            let hitTestTransforms = 0;
+            const wheelCanvas = {{
+                canvas: wheelCanvasElement,
+                graph: wheelGraph,
+                ds: {{
+                    convertCanvasToOffset(point) {{
+                        hitTestTransforms += 1;
+                        return point;
+                    }},
+                }},
+                processMouseWheel() {{
+                    nativeWheelCalls += 1;
+                    return "native-wheel";
+                }},
+            }};
+            context.app.canvas = wheelCanvas;
+            context.app.graph = wheelGraph;
+            api.installPreviewWheelHandler();
+            api.installPreviewWheelHandler();
+            assert(
+                canvasListeners.filter((entry) => entry.type === "wheel").length === 1
+                && !registeredWindowListeners.some((entry) => entry.type === "wheel")
+                && !registeredDocumentListeners.some((entry) => entry.type === "wheel"),
+                "Local LLM must install exactly one canvas wheel path and no document/window duplicates"
+            );
+            function dispatchCanvasWheel(event) {{
+                let immediateStopped = false;
+                const originalStopImmediate = event.stopImmediatePropagation;
+                event.stopImmediatePropagation = function () {{
+                    immediateStopped = true;
+                    originalStopImmediate?.call(this);
+                }};
+                for (const entry of canvasListeners.filter((candidate) => candidate.type === "wheel")) {{
+                    entry.handler(event);
+                    if (immediateStopped) break;
+                }}
+                return immediateStopped ? true : wheelCanvas.processMouseWheel(event);
+            }}
+            const noNodeWheelResult = dispatchCanvasWheel({{
+                type: "wheel",
+                target: wheelCanvasElement,
+                currentTarget: wheelCanvasElement,
+                offsetX: 20,
+                offsetY: 20,
+                deltaY: -120,
+            }});
+            assert(noNodeWheelResult === "native-wheel" && nativeWheelCalls === 1, "No Local LLM node must leave native canvas zoom available");
+            assert(hitTestTransforms === 0, "No Local LLM node must skip preview coordinate hit-testing");
+            assert(forcedLayoutReads === 0, "Ordinary canvas wheel must not force getBoundingClientRect layout reads");
+
+            const previewWidget = {{
+                name: "deno_local_llm_preview",
+                blockBounds: {{ result: [0, 0, 160, 100] }},
+                blockLineInfo: {{ result: {{ total: 12, max: 4 }} }},
+                scrollbarBounds: {{ result: [134, 24, 18, 68] }},
+            }};
+            const previewNode = {{
+                id: 149,
+                type: "DenoLocalLLMRefiner",
+                pos: [0, 0],
+                size: [200, 140],
+                widgets: [previewWidget],
+                properties: {{}},
+                graph: wheelGraph,
+                setDirtyCanvas() {{}},
+            }};
+            wheelGraph._nodes = [previewNode];
+            let localPrevented = 0;
+            let localStopped = 0;
+            const beforeLocalHitTests = hitTestTransforms;
+            let localImmediateStopped = 0;
+            const localWheelResult = dispatchCanvasWheel({{
+                type: "wheel",
+                target: wheelCanvasElement,
+                currentTarget: wheelCanvasElement,
+                offsetX: 40,
+                offsetY: 40,
+                deltaY: -120,
+                preventDefault() {{ localPrevented += 1; }},
+                stopPropagation() {{ localStopped += 1; }},
+                stopImmediatePropagation() {{ localImmediateStopped += 1; }},
+            }});
+            assert(localWheelResult === true, "Scrollable Local LLM preview must consume its intentional local wheel action");
+            assert(nativeWheelCalls === 1, "Intentional local preview scrolling must not also zoom the native canvas");
+            assert(localPrevented === 1 && localStopped === 1 && localImmediateStopped === 1, "Intentional local preview scrolling must stay local");
+            assert(previewNode.properties.denoLocalLLMPreviewScroll.result === 1, "Local preview wheel must advance its own scroll state");
+            assert(hitTestTransforms - beforeLocalHitTests === 1, "One native wheel event must perform at most one Local LLM hit-test");
+            assert(forcedLayoutReads === 0, "Local preview wheel must use canvas offsets without forced layout reads");
+
+            const beforeNativeHitTests = hitTestTransforms;
+            const outsideWheelResult = dispatchCanvasWheel({{
+                type: "wheel",
+                target: wheelCanvasElement,
+                currentTarget: wheelCanvasElement,
+                offsetX: 400,
+                offsetY: 300,
+                deltaY: 120,
+            }});
+            assert(outsideWheelResult === "native-wheel" && nativeWheelCalls === 2, "Wheel outside the local scroll surface must keep native canvas zoom");
+            assert(hitTestTransforms - beforeNativeHitTests === 1, "A non-local native wheel event must not be hit-tested more than once");
+            assert(forcedLayoutReads === 0, "Wheel outside the Local LLM node must not force a layout read");
+
+            let middlePrevented = 0;
+            let middleStopped = 0;
+            api.handleCanvasPreviewPointerDown({{
+                type: "pointerdown",
+                button: 1,
+                pointerId: 9,
+                target: wheelCanvasElement,
+                currentTarget: wheelCanvasElement,
+                offsetX: 140,
+                offsetY: 40,
+                preventDefault() {{ middlePrevented += 1; }},
+                stopImmediatePropagation() {{ middleStopped += 1; }},
+            }});
+            assert(middlePrevented === 0 && middleStopped === 0, "Middle-button canvas pan must bypass Local LLM scrollbar capture");
+            context.app.canvas = previousCanvas;
+            context.app.graph = previousGraph;
             const modelChoices = api.modelChoiceValuesWithSavedValue(
                 [{{ id: "google/gemma-4-e4b" }}, {{ id: "google/gemma-4-12b" }}],
                 "codex/missing-saved-lm-studio-model"

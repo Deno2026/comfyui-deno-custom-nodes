@@ -500,7 +500,7 @@ Local LLM workflow helpers for calling models that are already running on your P
 Main features:
 
 - call local Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible, llama-swap, or Unsloth Studio models from ComfyUI
-- local-only server safety: use `127.0.0.1` or `localhost`
+- localhost-by-default server safety: use `127.0.0.1` or `localhost`, or explicitly allow one private LAN `IP:port` with `DENO_LOCAL_LLM_ALLOWED_HOSTS`
 - refresh provider-specific model lists from the node
 - stop a running local LLM request before unloading the model
 - use llama-swap's live running-state and management APIs for manual or post-run unload; any configured llama-swap server timeout still owns automatic unloading
@@ -518,6 +518,8 @@ Main features:
 - approve the current reviewed result once, or rerun the path before the reviewer
 
 The `Unsloth` provider requires an API key in the `DENO_LOCAL_LLM_UNSLOTH_API_KEY` environment variable. Set it before starting ComfyUI. The key is not stored in a workflow or PNG metadata.
+
+Remote LM Studio note: the dedicated `LM Studio` provider currently uses `http://127.0.0.1:1234/v1`. To call LM Studio on another PC that you own on the same trusted LAN, enable **Serve on Local Network** on that PC, set an exact allowlist before starting ComfyUI (for example `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`), restart ComfyUI, then select `Custom` and use `http://192.168.1.50:1234/v1` as the Custom Server URL. The allowlist accepts exact private IP-and-port pairs only and is never stored in workflows or PNG metadata. The Custom connector does not currently send an authentication token or use LM Studio-specific unload helpers, so restrict the server port to the ComfyUI PC with the host firewall and manage the remote model from LM Studio.
 
 LM Studio compatibility note: if LM Studio rejects its optional reasoning-control field before any generated output starts, the node retries once without that field. The selected server and model then decide their default reasoning behavior; the Thinking toggle cannot force a reasoning mode that the server does not expose.
 

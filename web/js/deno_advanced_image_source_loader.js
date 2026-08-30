@@ -10,6 +10,14 @@ const MASONRY_ROW_HEIGHT = 8;
 const MASONRY_GAP = 10;
 const CARD_MIN_HEIGHT = 116;
 const CARD_MAX_HEIGHT = 320;
+const BROWSER_VIRTUAL_GRID = Object.freeze({
+    gap: 10,
+    padding: 8,
+    scrollbarReserve: 18,
+    minCardWidth: 126,
+    cardHeight: 104,
+    overscanRows: 3,
+});
 const IMAGE_RE = /\.(?:png|jpe?g|webp|bmp|gif|tiff?)$/i;
 const KEEP_INPUT_RATIO_MODE = "Keep Input Ratio";
 const PRESET_MODE = "Preset Ratio";
@@ -321,20 +329,19 @@ function setupAdvancedImageSourceLoader(node) {
             font: 700 10px sans-serif;
         `;
 
-        const previewUrl = getPreviewUrl(path);
-        if (previewUrl) {
+        const previewUrls = getPreviewUrls(path);
+        if (previewUrls.length) {
             const image = document.createElement("img");
             image.dataset.denoCardImage = "true";
             image.loading = "lazy";
             image.decoding = "async";
-            image.src = previewUrl;
             image.alt = "";
             image.style.cssText = "width:100%; height:100%; object-fit:contain; opacity:1; pointer-events:none;";
             image.onload = () => applyMasonrySpanForImage(card, image);
-            image.onerror = () => {
+            setImagePreviewSources(image, previewUrls, () => {
                 preview.textContent = getSourceKind(path);
                 image.remove();
-            };
+            });
             preview.appendChild(image);
         } else {
             preview.textContent = getSourceKind(path);
@@ -1044,7 +1051,7 @@ function showInputFolderBrowser(node, setPaths, getPaths) {
         rootControls: null,
         initialStatus: "Loading input folder list...",
         fetchEntries: fetchInputFolderImages,
-        getPreviewUrl: inputImagePreviewUrl,
+        getPreviewUrls: (entry) => inputImagePreviewUrls(entry.name),
         getSourceValue: (entry) => entry.name,
         setPaths,
         getPaths,
@@ -1093,7 +1100,7 @@ function showExternalFolderBrowser(node, setPaths, getPaths, folderUploadInput, 
             const rootPath = String(rootInput.value || "").trim();
             return fetchExternalFolderImagesAndRemember(node, rootPath, folderPath, signal);
         },
-        getPreviewUrl: (entry) => externalImagePreviewUrl(entry.path),
+        getPreviewUrls: (entry) => [externalImagePreviewUrl(entry.path)].filter(Boolean),
         getSourceValue: (entry) => entry.path,
         setPaths,
         getPaths,
@@ -1169,6 +1176,7 @@ function showBrowserModal(options) {
     ownerNode?.__denoCloseAdvancedFolderBrowser?.();
     const requestGate = createLatestRequestGate();
     let closed = false;
+    let virtualRenderFrame = 0;
     const overlay = createOverlay();
     const modal = createModal(options.title);
 
@@ -1189,15 +1197,17 @@ function showBrowserModal(options) {
     pathRow.append(parentBtn, currentPath);
 
     const list = document.createElement("div");
+    list.dataset.denoAdvancedBrowserList = "true";
     list.style.cssText = `
         flex: 1;
         min-height: 260px;
-        overflow: auto;
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
-        gap: 10px;
-        align-content: start;
+        min-width: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        position: relative;
         padding: 8px;
+        box-sizing: border-box;
         border-radius: 10px;
         background: rgba(0, 6, 3, 0.5);
     `;
@@ -1217,6 +1227,11 @@ function showBrowserModal(options) {
         }
         closed = true;
         requestGate.dispose();
+        window.removeEventListener("resize", scheduleVirtualRender);
+        if (virtualRenderFrame) {
+            cancelAnimationFrame(virtualRenderFrame);
+            virtualRenderFrame = 0;
+        }
         overlay.remove();
         options.onClose?.();
         if (ownerNode?.__denoCloseAdvancedFolderBrowser === closeModal) {
@@ -1240,6 +1255,7 @@ function showBrowserModal(options) {
     let folders = [];
     let files = [];
     let listingNotice = "";
+    let filteredEntries = [];
     const selected = new Set();
 
     const refreshSelected = () => {
@@ -1248,100 +1264,145 @@ function showBrowserModal(options) {
         addBtn.style.opacity = selected.size ? "1" : "0.55";
     };
 
-    const render = () => {
+    const updateCardSelection = (card, value) => {
+        const isSelected = selected.has(value);
+        card.style.borderColor = isSelected ? "rgba(72,255,132,0.95)" : "rgba(72,255,132,0.32)";
+        card.style.background = isSelected ? "rgba(21, 78, 43, 0.96)" : "rgba(13, 31, 20, 0.92)";
+        card.setAttribute("aria-pressed", String(isSelected));
+    };
+
+    const createBrowserCard = (entry, index, metrics) => {
+        const card = document.createElement("div");
+        const isFolder = entry.type === "folder";
+        const value = isFolder ? "" : options.getSourceValue(entry);
+        const column = index % metrics.columns;
+        const row = Math.floor(index / metrics.columns);
+        card.dataset.denoAdvancedBrowserCard = "true";
+        card.dataset.browserIndex = String(index);
+        card.style.cssText = `
+            position: absolute;
+            left: ${BROWSER_VIRTUAL_GRID.padding + (column * (metrics.cardWidth + BROWSER_VIRTUAL_GRID.gap))}px;
+            top: ${BROWSER_VIRTUAL_GRID.padding + (row * metrics.rowHeight)}px;
+            width: ${metrics.cardWidth}px;
+            height: ${BROWSER_VIRTUAL_GRID.cardHeight}px;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            padding: 6px;
+            box-sizing: border-box;
+            border: 1px solid rgba(72,255,132,0.32);
+            border-radius: 8px;
+            background: rgba(13, 31, 20, 0.92);
+            color: #d9ffe5;
+            cursor: pointer;
+            overflow: hidden;
+        `;
+
+        const preview = document.createElement("div");
+        preview.style.cssText = `
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            overflow: hidden;
+            background: rgba(0,0,0,0.42);
+            color: #a4f9bd;
+            font: 700 11px sans-serif;
+        `;
+
+        if (isFolder) {
+            preview.textContent = "Folder";
+        } else {
+            const previewUrls = normalizePreviewUrls(options.getPreviewUrls?.(entry) ?? options.getPreviewUrl?.(entry));
+            if (previewUrls.length) {
+                const image = document.createElement("img");
+                image.loading = "lazy";
+                image.decoding = "async";
+                if ("fetchPriority" in image) {
+                    image.fetchPriority = "low";
+                }
+                image.alt = "";
+                image.style.cssText = "width:100%; height:100%; object-fit:contain;";
+                setImagePreviewSources(image, previewUrls, () => {
+                    preview.textContent = "Image";
+                    image.remove();
+                });
+                preview.appendChild(image);
+            } else {
+                preview.textContent = "Image";
+            }
+        }
+
+        const label = document.createElement("div");
+        label.textContent = entry.display_name || entry.name || entry.path || "";
+        label.title = label.textContent;
+        label.style.cssText = "white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font:700 10px sans-serif;";
+
+        card.ondblclick = () => {
+            if (isFolder) {
+                loadFolder(entry.path || "");
+            }
+        };
+        card.onclick = () => {
+            if (isFolder) {
+                return;
+            }
+            if (selected.has(value)) {
+                selected.delete(value);
+            } else {
+                selected.add(value);
+            }
+            refreshSelected();
+            updateCardSelection(card, value);
+        };
+        if (!isFolder) {
+            updateCardSelection(card, value);
+        }
+
+        card.append(preview, label);
+        return card;
+    };
+
+    const renderVirtualGrid = () => {
+        if (!filteredEntries.length) {
+            const empty = document.createElement("div");
+            empty.textContent = (folders.length || files.length) ? "No items match the search." : "No images found.";
+            empty.style.cssText = "color:#91dca4; padding:10px;";
+            list.replaceChildren(empty);
+            return;
+        }
+        renderBrowserVirtualGrid(list, filteredEntries, createBrowserCard);
+    };
+
+    const scheduleVirtualRender = () => {
+        if (virtualRenderFrame) {
+            return;
+        }
+        virtualRenderFrame = requestAnimationFrame(() => {
+            virtualRenderFrame = 0;
+            renderVirtualGrid();
+        });
+    };
+
+    const applyFilter = () => {
         const query = search.value.trim().toLowerCase();
         currentPath.textContent = currentFolder || "root";
         const folderEntries = folders.map((entry) => ({ ...entry, type: "folder" }));
         const fileEntries = files.map((entry) => ({ ...entry, type: "file" }));
-        const entries = folderEntries.concat(fileEntries).filter((entry) => {
+        filteredEntries = folderEntries.concat(fileEntries).filter((entry) => {
             const label = String(entry.display_name || entry.name || entry.path || "").toLowerCase();
             return !query || label.includes(query);
         });
-
-        list.replaceChildren(...entries.map((entry) => {
-            const card = document.createElement("div");
-            const isFolder = entry.type === "folder";
-            const value = isFolder ? "" : options.getSourceValue(entry);
-            card.style.cssText = `
-                min-width: 0;
-                height: 104px;
-                display: flex;
-                flex-direction: column;
-                gap: 5px;
-                padding: 6px;
-                box-sizing: border-box;
-                border: 1px solid ${selected.has(value) ? "rgba(72,255,132,0.95)" : "rgba(72,255,132,0.32)"};
-                border-radius: 8px;
-                background: ${selected.has(value) ? "rgba(21, 78, 43, 0.96)" : "rgba(13, 31, 20, 0.92)"};
-                color: #d9ffe5;
-                cursor: pointer;
-                overflow: hidden;
-            `;
-
-            const preview = document.createElement("div");
-            preview.style.cssText = `
-                flex: 1;
-                min-height: 0;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: 6px;
-                overflow: hidden;
-                background: rgba(0,0,0,0.42);
-                color: #a4f9bd;
-                font: 700 11px sans-serif;
-            `;
-
-            if (isFolder) {
-                preview.textContent = "Folder";
-            } else {
-                const previewUrl = options.getPreviewUrl(entry);
-                if (previewUrl) {
-                    const image = document.createElement("img");
-                    image.loading = "eager";
-                    image.decoding = "async";
-                    image.src = previewUrl;
-                    image.alt = "";
-                    image.style.cssText = "width:100%; height:100%; object-fit:contain;";
-                    image.onerror = () => {
-                        preview.textContent = "Image";
-                        image.remove();
-                    };
-                    preview.appendChild(image);
-                } else {
-                    preview.textContent = "Image";
-                }
-            }
-
-            const label = document.createElement("div");
-            label.textContent = entry.display_name || entry.name || entry.path || "";
-            label.title = label.textContent;
-            label.style.cssText = "white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font:700 10px sans-serif;";
-
-            card.ondblclick = () => {
-                if (isFolder) {
-                    loadFolder(entry.path || "");
-                }
-            };
-            card.onclick = () => {
-                if (isFolder) {
-                    return;
-                }
-                if (selected.has(value)) {
-                    selected.delete(value);
-                } else {
-                    selected.add(value);
-                }
-                refreshSelected();
-                render();
-            };
-
-            card.append(preview, label);
-            return card;
-        }));
-
-        const countStatus = `${folders.length} folder${folders.length === 1 ? "" : "s"}, ${files.length} image${files.length === 1 ? "" : "s"} found`;
+        const totalEntries = folders.length + files.length;
+        const countStatus = query
+            ? `${filteredEntries.length} of ${totalEntries} item${totalEntries === 1 ? "" : "s"} shown`
+            : `${folders.length} folder${folders.length === 1 ? "" : "s"}, ${files.length} image${files.length === 1 ? "" : "s"} found`;
         status.textContent = listingNotice ? `${countStatus}. ${listingNotice}` : countStatus;
+        list.scrollTop = 0;
+        renderVirtualGrid();
         refreshSelected();
     };
 
@@ -1358,7 +1419,7 @@ function showBrowserModal(options) {
             folders = payload.folders || [];
             files = payload.files || [];
             listingNotice = String(payload.notice || "");
-            render();
+            applyFilter();
         } catch (error) {
             if (!request.isCurrent() || closed || error?.name === "AbortError") {
                 return;
@@ -1367,12 +1428,15 @@ function showBrowserModal(options) {
             folders = [];
             files = [];
             listingNotice = "";
+            filteredEntries = [];
             list.replaceChildren();
         }
     };
 
     parentBtn.onclick = () => loadFolder(parentFolder);
-    search.oninput = render;
+    search.oninput = applyFilter;
+    list.addEventListener("scroll", scheduleVirtualRender, { passive: true });
+    window.addEventListener("resize", scheduleVirtualRender);
     addBtn.onclick = () => {
         options.setPaths(options.getPaths().concat(Array.from(selected)));
         closeModal();
@@ -1383,6 +1447,79 @@ function showBrowserModal(options) {
     }
 
     return loadFolder;
+}
+
+function resolveBrowserVirtualGridMetrics(entryCount, list, config = BROWSER_VIRTUAL_GRID) {
+    const clientWidth = Math.max(1, Number(list?.clientWidth) || Number(list?.offsetWidth) || 820);
+    const offsetWidth = Math.max(clientWidth, Number(list?.offsetWidth) || clientWidth);
+    const measuredScrollbar = Math.max(0, offsetWidth - clientWidth);
+    const rightReserve = Math.max(config.scrollbarReserve, measuredScrollbar);
+    const availableWidth = Math.max(1, clientWidth - (config.padding * 2) - rightReserve);
+    const columns = Math.max(
+        1,
+        Math.floor((availableWidth + config.gap) / (config.minCardWidth + config.gap))
+    );
+    const cardWidth = Math.max(1, Math.floor((availableWidth - (config.gap * (columns - 1))) / columns));
+    const rowHeight = config.cardHeight + config.gap;
+    const rowCount = Math.ceil(Math.max(0, Number(entryCount) || 0) / columns);
+    const totalHeight = rowCount
+        ? (config.padding * 2) + (rowCount * config.cardHeight) + ((rowCount - 1) * config.gap)
+        : 0;
+    return {
+        columns,
+        cardWidth,
+        rowHeight,
+        rowCount,
+        contentWidth: availableWidth + (config.padding * 2),
+        totalHeight,
+    };
+}
+
+function resolveBrowserVirtualWindow(entryCount, list, metrics, config = BROWSER_VIRTUAL_GRID) {
+    const totalEntries = Math.max(0, Number(entryCount) || 0);
+    const scrollTop = Math.max(0, Number(list?.scrollTop) || 0);
+    const viewportHeight = Math.max(1, Number(list?.clientHeight) || 260);
+    const firstViewportRow = Math.max(0, Math.floor(Math.max(0, scrollTop - config.padding) / metrics.rowHeight));
+    const startRow = Math.max(0, firstViewportRow - config.overscanRows);
+    const endRow = Math.min(
+        metrics.rowCount,
+        Math.ceil((scrollTop + viewportHeight) / metrics.rowHeight) + config.overscanRows
+    );
+    return {
+        scrollTop,
+        viewportHeight,
+        startIndex: startRow * metrics.columns,
+        endIndex: Math.min(totalEntries, endRow * metrics.columns),
+    };
+}
+
+function renderBrowserVirtualGrid(list, entries, createCard, config = BROWSER_VIRTUAL_GRID) {
+    const metrics = resolveBrowserVirtualGridMetrics(entries.length, list, config);
+    const windowRange = resolveBrowserVirtualWindow(entries.length, list, metrics, config);
+    const spacer = document.createElement("div");
+    spacer.dataset.denoAdvancedVirtualGrid = "true";
+    spacer.style.cssText = `
+        position: relative;
+        width: ${metrics.contentWidth}px;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
+        height: ${Math.max(metrics.totalHeight, windowRange.viewportHeight)}px;
+        min-height: ${windowRange.viewportHeight}px;
+    `;
+
+    const cards = [];
+    for (let index = windowRange.startIndex; index < windowRange.endIndex; index += 1) {
+        cards.push(createCard(entries[index], index, metrics));
+    }
+    spacer.replaceChildren(...cards);
+    list.replaceChildren(spacer);
+    list.scrollTop = windowRange.scrollTop;
+    return {
+        ...windowRange,
+        metrics,
+        renderedCount: cards.length,
+    };
 }
 
 async function fetchInputFolderImages(folderPath = "", signal = undefined) {
@@ -1456,16 +1593,41 @@ async function fetchExternalFolderImagesAndRemember(node, rootPath, folderPath =
     return payload;
 }
 
-function inputImagePreviewUrl(path) {
-    const normalized = normalizeSlashPath(path);
-    const parts = normalized.split("/").filter(Boolean);
-    const filename = parts.pop() || normalized;
+function inputImagePreviewUrls(path) {
+    const rawPath = String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    const parts = String(path || "")
+        .replace(/\\/g, "/")
+        .split("/")
+        .filter((part) => part !== "");
+    const filename = parts.pop() || "";
     const subfolder = parts.join("/");
+    const urls = [];
+
+    const encodedFilename = encodeURIComponent(filename);
+    const encodedSubfolder = encodeURIComponent(subfolder);
+    urls.push(`/api/view?filename=${encodedFilename}&type=input${subfolder ? `&subfolder=${encodedSubfolder}` : ""}`);
+
     const params = new URLSearchParams({ filename, type: "input" });
     if (subfolder) {
         params.set("subfolder", subfolder);
     }
-    return `/api/view?${params.toString()}`;
+    urls.push(`/api/view?${params.toString()}`);
+
+    if (subfolder) {
+        const viewParams = new URLSearchParams({ filename, type: "input", subfolder });
+        urls.push(`/view?filename=${encodedFilename}&type=input&subfolder=${encodedSubfolder}`);
+        urls.push(`/view?${viewParams.toString()}`);
+        urls.push(`/api/view?filename=${encodeURIComponent(rawPath)}&type=input`);
+    } else {
+        urls.push(`/view?filename=${encodedFilename}&type=input`);
+        urls.push(`/view?${params.toString()}`);
+    }
+
+    return Array.from(new Set(urls.filter(Boolean)));
+}
+
+function inputImagePreviewUrl(path) {
+    return inputImagePreviewUrls(path)[0] || "";
 }
 
 function externalImagePreviewUrl(path) {
@@ -1475,19 +1637,44 @@ function externalImagePreviewUrl(path) {
     return `/deno/advanced/external-image-view?path=${encodeURIComponent(path)}`;
 }
 
-function getPreviewUrl(path) {
+function normalizePreviewUrls(value) {
+    const values = Array.isArray(value) ? value : [value];
+    return Array.from(new Set(values.map((entry) => String(entry || "").trim()).filter(Boolean)));
+}
+
+function setImagePreviewSources(image, sources, onExhausted = undefined) {
+    const urls = normalizePreviewUrls(sources);
+    let urlIndex = 0;
+    image.onerror = () => {
+        urlIndex += 1;
+        if (urlIndex < urls.length) {
+            image.src = urls[urlIndex];
+            return;
+        }
+        image.onerror = null;
+        onExhausted?.();
+    };
+    image.src = urls[urlIndex] || "";
+    return urls;
+}
+
+function getPreviewUrls(path) {
     const text = String(path || "").trim();
     const location = classifySourceLocation(text);
     if (location === "url") {
-        return text;
+        return [text];
     }
     if (location === "external") {
-        return externalImagePreviewUrl(text);
+        return [externalImagePreviewUrl(text)].filter(Boolean);
     }
     if (IMAGE_RE.test(text)) {
-        return inputImagePreviewUrl(text);
+        return inputImagePreviewUrls(text);
     }
-    return "";
+    return [];
+}
+
+function getPreviewUrl(path) {
+    return getPreviewUrls(path)[0] || "";
 }
 
 function getSourceKind(path) {
@@ -1686,7 +1873,14 @@ if (typeof window !== "undefined" && typeof window.__DENO_ADVANCED_IMAGE_SOURCE_
         classifySourceLocation,
         fetchExternalFolderImagesAndRemember,
         getPreviewUrl,
+        getPreviewUrls,
         getSourceKind,
+        inputImagePreviewUrls,
+        setImagePreviewSources,
+        renderBrowserVirtualGrid,
+        resolveBrowserVirtualGridMetrics,
+        resolveBrowserVirtualWindow,
+        showBrowserModal,
         installMiddleMouseCanvasPan,
         createLatestRequestGate,
         hideWidget,

@@ -4225,8 +4225,13 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "wrapModelMemoryCallback(node)" in script
     assert 'modelMemory !== "Keep for minutes"' in script
     assert "installPreviewWheelHandler" in script
-    assert "attachGlobalPreviewWheelHandler" in script
-    assert 'window.addEventListener?.("wheel", previewWheelHandler, { capture: true, passive: false })' in script
+    extension_setup = script.split("    setup() {", 1)[1].split("    },\n});", 1)[0]
+    graph_scan = script.split("function installGraphScan()", 1)[1].split("function installPreviewWheelHandler()", 1)[0]
+    assert "installPreviewWheelHandler" not in extension_setup
+    assert "installPreviewWheelHandler" not in graph_scan
+    assert "attachGlobalPreviewWheelHandler" not in script
+    assert 'window.addEventListener?.("wheel"' not in script
+    assert 'document.addEventListener?.("wheel"' not in script
     assert "PREVIEW_SCROLLBAR_TRACK_WIDTH = 8" in script
     assert "PREVIEW_SCROLLBAR_HIT_WIDTH = 18" in script
     assert "attachPreviewPointerHandler" in script
@@ -4243,8 +4248,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "isDenoLocalLLMModalEvent" in script
     assert ".deno-local-llm-preview-modal, .deno-local-llm-system-prompt-modal" in script
     assert 'textBox.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true })' in script
-    assert "wrapPreviewWheelProcessor" in script
-    assert "canvasObj.processMouseWheel = function (event)" in script
+    assert "wrapPreviewWheelProcessor" not in script
+    assert "canvasObj.processMouseWheel = function (event)" not in script
     assert "currentGraphCanvasElement" in script
     assert 'document.querySelector?.("#graph-canvas")' in script
     assert 'canvas.addEventListener("wheel", previewWheelHandler, { capture: true, passive: false })' in script
@@ -4256,6 +4261,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "canvasObj.node_over" in script
     assert "canvasPointFromWheelEvent" in script
     assert 'typeof event.offsetX === "number"' in script
+    canvas_point_helper = script.split("function canvasPointFromWheelEvent", 1)[1].split("function currentGraphCanvasElement", 1)[0]
+    assert "getBoundingClientRect" not in canvas_point_helper
     assert "event.stopImmediatePropagation?.()" in script
     assert "handlePreviewWheel(event, pos, node, this.blockBounds, this.blockLineInfo)" in script
     assert "drawPreviewScrollbar" in script

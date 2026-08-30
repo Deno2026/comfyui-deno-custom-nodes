@@ -14,14 +14,14 @@ class FakeEventTarget {
   }
 
   addEventListener(type, callback, capture = false) {
-    const key = `${type}:${Boolean(capture)}`;
+    const key = `${type}:${captureFlag(capture)}`;
     const entries = this.listeners.get(key) || [];
     entries.push(callback);
     this.listeners.set(key, entries);
   }
 
   removeEventListener(type, callback, capture = false) {
-    const key = `${type}:${Boolean(capture)}`;
+    const key = `${type}:${captureFlag(capture)}`;
     const entries = this.listeners.get(key) || [];
     this.listeners.set(key, entries.filter((entry) => entry !== callback));
   }
@@ -40,6 +40,113 @@ class FakeEventTarget {
     this.dispatched.push(event);
     return true;
   }
+}
+
+function captureFlag(value) {
+  return typeof value === "object" && value !== null ? Boolean(value.capture) : Boolean(value);
+}
+
+class FakeElement extends FakeEventTarget {
+  constructor(tagName, ownerDocument) {
+    super();
+    this.tagName = String(tagName || "div").toUpperCase();
+    this.ownerDocument = ownerDocument;
+    this.children = [];
+    this.parentElement = null;
+    this.style = { cssText: "" };
+    this.dataset = {};
+    this.attributes = new Map();
+    this.textContent = "";
+    this.value = "";
+    this.disabled = false;
+    this.scrollTop = 0;
+    this.clientWidth = 800;
+    this.offsetWidth = 818;
+    this.clientHeight = 260;
+  }
+
+  append(...children) {
+    for (const child of children) {
+      this.appendChild(child);
+    }
+  }
+
+  appendChild(child) {
+    if (child?.parentElement) {
+      child.parentElement.children = child.parentElement.children.filter((entry) => entry !== child);
+    }
+    child.parentElement = this;
+    this.children.push(child);
+    return child;
+  }
+
+  replaceChildren(...children) {
+    for (const child of this.children) {
+      child.parentElement = null;
+    }
+    this.children = [];
+    this.append(...children);
+  }
+
+  remove() {
+    if (!this.parentElement) {
+      return;
+    }
+    this.parentElement.children = this.parentElement.children.filter((entry) => entry !== this);
+    this.parentElement = null;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(String(name), String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(String(name)) ?? null;
+  }
+
+  querySelector(selector) {
+    const expectedTag = String(selector || "").toUpperCase();
+    return walkElements(this).find((element) => element !== this && element.tagName === expectedTag) || null;
+  }
+
+  focus() {}
+
+  contains(target) {
+    return target === this || walkElements(this).includes(target);
+  }
+
+  get firstElementChild() {
+    return this.children[0] || null;
+  }
+
+  get isConnected() {
+    if (this === this.ownerDocument?.body) {
+      return true;
+    }
+    return Boolean(this.parentElement?.isConnected);
+  }
+}
+
+class FakeDocument {
+  constructor() {
+    this.body = new FakeElement("body", this);
+  }
+
+  createElement(tagName) {
+    return new FakeElement(tagName, this);
+  }
+}
+
+function walkElements(root) {
+  const result = [];
+  const visit = (element) => {
+    result.push(element);
+    for (const child of element.children || []) {
+      visit(child);
+    }
+  };
+  visit(root);
+  return result;
 }
 
 class FakeMouseEvent {
@@ -72,6 +179,7 @@ let hooks = null;
 let responseStatus = 200;
 const windowTarget = new FakeEventTarget();
 const canvasTarget = new FakeEventTarget();
+const documentTarget = new FakeDocument();
 windowTarget.__DENO_ADVANCED_IMAGE_SOURCE_TEST_HOOK__ = (registered) => {
   hooks = registered;
 };
@@ -80,7 +188,14 @@ const context = {
   console,
   MouseEvent: FakeMouseEvent,
   WheelEvent: FakeWheelEvent,
+  AbortController,
   URLSearchParams,
+  document: documentTarget,
+  requestAnimationFrame(callback) {
+    callback();
+    return 0;
+  },
+  cancelAnimationFrame() {},
   app: {
     canvas: { canvas: canvasTarget },
     registerExtension() {},
@@ -118,6 +233,25 @@ assert.equal(
   "/deno/advanced/external-image-view?path=%2Fhome%2Fuser%2Fa.png",
 );
 assert.match(hooks.getPreviewUrl("folder/a.png"), /^\/api\/view\?/);
+
+const previewUrls = Array.from(hooks.inputImagePreviewUrls("folder name/a b.png"));
+assert.ok(previewUrls.length >= 4, "input previews must include Comfy-compatible encoding and route fallbacks");
+assert.match(previewUrls[0], /^\/api\/view\?/);
+assert.ok(previewUrls.some((url) => url.startsWith("/view?")), "input previews must fall back to /view");
+const previewImage = { src: "", onerror: null };
+let previewExhausted = 0;
+hooks.setImagePreviewSources(previewImage, previewUrls, () => {
+  previewExhausted += 1;
+});
+assert.equal(previewImage.src, previewUrls[0]);
+previewImage.onerror();
+assert.equal(previewImage.src, previewUrls[1], "the first preview failure must try the next URL");
+assert.equal(previewExhausted, 0, "a working fallback must not show the Image placeholder");
+for (let index = 1; index < previewUrls.length; index += 1) {
+  previewImage.onerror();
+}
+assert.equal(previewExhausted, 1, "the placeholder may appear only after every fallback fails");
+assert.equal(previewImage.onerror, null);
 
 assert.deepEqual(Array.from(hooks.resolveAdvancedNodeSize([300, 400])), [520, 620]);
 assert.deepEqual(Array.from(hooks.resolveAdvancedNodeSize([840, 900])), [840, 900]);
@@ -250,6 +384,86 @@ assert.equal(
   node.__denoAdvancedLastExternalRoot,
   "/home/user/images",
   "failed loads must not replace the last successful root",
+);
+
+const browserOwner = {};
+const browserFiles = Array.from({ length: 500 }, (_, index) => ({
+  name: `large-folder/image-${String(index).padStart(3, "0")}.png`,
+  display_name: `image-${String(index).padStart(3, "0")}.png`,
+}));
+const loadBrowserFolder = hooks.showBrowserModal({
+  ownerNode: browserOwner,
+  title: "Large input folder",
+  initialStatus: "Waiting",
+  async fetchEntries() {
+    return { path: "large-folder", parent: "", folders: [], files: browserFiles };
+  },
+  getPreviewUrls(entry) {
+    return hooks.inputImagePreviewUrls(entry.name);
+  },
+  getSourceValue(entry) {
+    return entry.name;
+  },
+  setPaths() {},
+  getPaths() {
+    return [];
+  },
+  waitForManualLoad: true,
+});
+await loadBrowserFolder("");
+
+const browserList = walkElements(documentTarget.body).find(
+  (element) => element.dataset.denoAdvancedBrowserList === "true",
+);
+assert.ok(browserList, "the input-folder modal must expose its local scroll viewport");
+assert.match(browserList.style.cssText, /overflow-y:\s*auto/);
+assert.match(browserList.style.cssText, /scrollbar-gutter:\s*stable/);
+
+let browserCards = walkElements(browserList).filter(
+  (element) => element.dataset.denoAdvancedBrowserCard === "true",
+);
+assert.ok(browserCards.length > 0);
+assert.ok(
+  browserCards.length < 80,
+  `500 entries must render only the viewport and bounded overscan, rendered ${browserCards.length}`,
+);
+assert.equal(
+  walkElements(browserList).filter((element) => element.tagName === "IMG").length,
+  browserCards.length,
+  "only virtualized cards may create image elements",
+);
+assert.ok(
+  walkElements(browserList)
+    .filter((element) => element.tagName === "IMG")
+    .every((image) => image.loading === "lazy"),
+  "virtualized preview images must stay lazy",
+);
+
+const firstBrowserCard = browserCards.find((card) => card.dataset.browserIndex === "0");
+assert.ok(firstBrowserCard);
+firstBrowserCard.onclick();
+assert.equal(firstBrowserCard.getAttribute("aria-pressed"), "true");
+browserList.scrollTop = 3000;
+browserList.emit("scroll", { target: browserList }, false);
+browserCards = walkElements(browserList).filter(
+  (element) => element.dataset.denoAdvancedBrowserCard === "true",
+);
+assert.ok(browserCards.every((card) => Number(card.dataset.browserIndex) > 0));
+assert.ok(browserCards.length < 80, "scrolling must keep the DOM window bounded");
+
+browserList.scrollTop = 0;
+browserList.emit("scroll", { target: browserList }, false);
+browserCards = walkElements(browserList).filter(
+  (element) => element.dataset.denoAdvancedBrowserCard === "true",
+);
+const restoredFirstCard = browserCards.find((card) => card.dataset.browserIndex === "0");
+assert.equal(restoredFirstCard?.getAttribute("aria-pressed"), "true", "selection must survive virtual rerenders");
+restoredFirstCard.onclick();
+assert.equal(restoredFirstCard.getAttribute("aria-pressed"), "false");
+browserOwner.__denoCloseAdvancedFolderBrowser();
+assert.equal(
+  walkElements(documentTarget.body).some((element) => element.dataset.denoAdvancedBrowserList === "true"),
+  false,
 );
 
 console.log("advanced_image_source_loader_harness passed");

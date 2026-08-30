@@ -158,9 +158,7 @@ const SHIFTED_MODEL_WIDGET_VALUES = new Set([
 ]);
 let graphScanInstalled = false;
 let previewWheelAttachedCanvas = null;
-let previewWheelAttachedGlobal = false;
 let previewWheelHandler = null;
-let previewWheelWrappedCanvas = null;
 let previewPointerAttachedCanvas = null;
 let previewPointerMoveHandler = null;
 let previewPointerDownHandler = null;
@@ -1148,7 +1146,6 @@ app.registerExtension({
         installLocalLLMApiQueuePromptHook(api);
         installReviewerGraphToPromptHook();
         installGraphScan();
-        installPreviewWheelHandler();
     },
 });
 
@@ -2180,6 +2177,10 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         applyLocalLLMLoaderSavedWidgetValues,
         displayModelValueForCurrentChoices,
         getWidget,
+        disconnectInputSlot,
+        removeLoaderWidgetInputSockets,
+        installPreviewWheelHandler,
+        handleCanvasPreviewPointerDown,
         ensureLoaderVideoSecondsInputSocket,
         ensureLoaderAudioContextInputSocket,
         localLLMLoaderSerializedValuesFromWidgets,
@@ -2316,7 +2317,6 @@ function installGraphScan() {
     }
     graphScanInstalled = true;
     const scan = () => {
-        installPreviewWheelHandler();
         for (const node of safeAppGraph()?._nodes || []) {
             if (node?.type === NODE_NAME) {
                 setupNode(node);
@@ -2334,18 +2334,18 @@ function installGraphScan() {
 
 function installPreviewWheelHandler() {
     const attach = () => {
-        wrapPreviewWheelProcessor();
-        attachGlobalPreviewWheelHandler();
         const canvas = currentGraphCanvasElement();
-        if (!canvas || canvas === previewWheelAttachedCanvas) {
+        if (!canvas) {
             return;
         }
-        if (previewWheelAttachedCanvas && previewWheelHandler) {
-            previewWheelAttachedCanvas.removeEventListener("wheel", previewWheelHandler, { capture: true });
+        if (canvas !== previewWheelAttachedCanvas) {
+            if (previewWheelAttachedCanvas && previewWheelHandler) {
+                previewWheelAttachedCanvas.removeEventListener("wheel", previewWheelHandler, { capture: true });
+            }
+            previewWheelHandler = previewWheelHandler || handleCanvasPreviewWheel;
+            canvas.addEventListener("wheel", previewWheelHandler, { capture: true, passive: false });
+            previewWheelAttachedCanvas = canvas;
         }
-        previewWheelHandler = previewWheelHandler || handleCanvasPreviewWheel;
-        canvas.addEventListener("wheel", previewWheelHandler, { capture: true, passive: false });
-        previewWheelAttachedCanvas = canvas;
         attachPreviewPointerHandler(canvas);
     };
     attach();
@@ -2383,44 +2383,19 @@ function attachPreviewPointerHandler(canvas) {
     previewPointerAttachedCanvas = canvas;
 }
 
-function attachGlobalPreviewWheelHandler() {
-    if (previewWheelAttachedGlobal) {
-        return;
-    }
-    previewWheelHandler = previewWheelHandler || handleCanvasPreviewWheel;
-    window.addEventListener?.("wheel", previewWheelHandler, { capture: true, passive: false });
-    document.addEventListener?.("wheel", previewWheelHandler, { capture: true, passive: false });
-    previewWheelAttachedGlobal = true;
-}
-
-function wrapPreviewWheelProcessor() {
-    const canvasObj = app.canvas;
-    if (!canvasObj || canvasObj === previewWheelWrappedCanvas || typeof canvasObj.processMouseWheel !== "function") {
-        return;
-    }
-    const originalProcessMouseWheel = canvasObj.processMouseWheel;
-    canvasObj.processMouseWheel = function (event) {
-        const hit = previewWheelHitFromEvent(event);
-        if (hit && handlePreviewWheel(event, hit.pos, hit.node, hit.widget.blockBounds, hit.widget.blockLineInfo)) {
-            return true;
-        }
-        return originalProcessMouseWheel.apply(this, arguments);
-    };
-    previewWheelWrappedCanvas = canvasObj;
-}
-
 function handleCanvasPreviewWheel(event) {
     if (isDenoLocalLLMModalEvent(event)) {
-        return;
+        return false;
     }
     const hit = previewWheelHitFromEvent(event);
     if (!hit) {
-        return;
+        return false;
     }
     const consumed = handlePreviewWheel(event, hit.pos, hit.node, hit.widget.blockBounds, hit.widget.blockLineInfo);
     if (consumed) {
         event.stopImmediatePropagation?.();
     }
+    return consumed;
 }
 
 function cancelPreviewScrollbarDrag(node = null, captureTarget = previewPointerAttachedCanvas) {
@@ -2462,6 +2437,10 @@ function handleCanvasPreviewPointerMove(event) {
         hideReviewerTooltip();
         return;
     }
+    if ((Number(event?.buttons) & 4) !== 0) {
+        clearPreviewScrollbarCursor();
+        return;
+    }
     handleReviewerTooltipPointerMove(event);
     if (previewScrollbarDragState) {
         const pos = previewLocalPosFromEvent(event, previewScrollbarDragState.node);
@@ -2489,6 +2468,9 @@ function handleCanvasPreviewPointerMove(event) {
 
 function handleCanvasPreviewPointerDown(event) {
     if (isDenoLocalLLMModalEvent(event)) {
+        return;
+    }
+    if (Number(event?.button ?? 0) !== 0) {
         return;
     }
     const hit = previewScrollbarHitFromEvent(event);
@@ -2618,11 +2600,14 @@ function previewWheelHitFromEvent(event) {
     if (!canvas || !graph) {
         return null;
     }
+    const nodes = previewNodeCandidates(graph);
+    if (!nodes.length) {
+        return null;
+    }
     const graphPoints = graphPointCandidatesFromWheelEvent(event, canvas, ds);
     if (!graphPoints.length) {
         return null;
     }
-    const nodes = previewNodeCandidates(graph);
     for (const graphPoint of graphPoints) {
         for (const node of nodes) {
             if (node?.type !== NODE_NAME || !isPointInsideNode(graphPoint, node)) {
@@ -2791,25 +2776,16 @@ function canvasPointFromWheelEvent(event, canvas) {
     ) {
         return [event.offsetX, event.offsetY];
     }
-    if (typeof event.clientX === "number" && typeof event.clientY === "number") {
-        const rect = canvas.getBoundingClientRect?.();
-        if (rect) {
-            return [event.clientX - rect.left, event.clientY - rect.top];
-        }
-    }
-    if (typeof event.pageX === "number" && typeof event.pageY === "number") {
-        const rect = canvas.getBoundingClientRect?.();
-        if (rect) {
-            return [event.pageX - rect.left - window.scrollX, event.pageY - rect.top - window.scrollY];
-        }
-    }
+    // Wheel and pointer handlers are attached to the native canvas. If the
+    // browser does not provide canvas-relative offsets, fall back to LiteGraph's
+    // cached mouse coordinates instead of forcing a synchronous layout read.
     return null;
 }
 
 function currentGraphCanvasElement() {
-    return document.querySelector?.("#graph-canvas")
+    return app.canvas?.canvas
+        || document.querySelector?.("#graph-canvas")
         || document.querySelector?.("canvas.lgraphcanvas")
-        || app.canvas?.canvas
         || null;
 }
 
@@ -3062,15 +3038,24 @@ function asInputLinkList(input) {
 }
 
 function disconnectInputSlot(node, slot) {
-    if (safeNodeGraph(node) && typeof node.disconnectInput === "function") {
+    const graph = safeNodeGraph(node);
+    if (!graph) {
+        // ComfyUI frontend 1.53+ exposes link fields through reactive setters
+        // that require an owning graph. A node can be configured before it is
+        // added to that graph, so graphless cleanup must not write either field.
+        return false;
+    }
+    if (typeof node.disconnectInput === "function") {
         node.disconnectInput(slot);
-        return;
+        return true;
     }
     const input = Array.isArray(node.inputs) ? node.inputs[slot] : null;
     if (input) {
         input.link = null;
         input.links = [];
+        return true;
     }
+    return false;
 }
 
 function syncReviewerOutputSlots(node) {
@@ -4419,24 +4404,35 @@ function removeLoaderWidgetInputSockets(node) {
     if (!Array.isArray(node?.inputs)) {
         return false;
     }
+    const graph = safeNodeGraph(node);
     let removed = false;
     for (let index = node.inputs.length - 1; index >= 0; index -= 1) {
         const input = node.inputs[index];
         if (!isLoaderWidgetSocket(input)) {
             continue;
         }
+        const links = asInputLinkList(input);
+        if (!graph && links.length > 0) {
+            // Preserve linked saved-workflow sockets until ComfyUI has attached
+            // the node and its graph can authoritatively disconnect the link.
+            continue;
+        }
         if (isPromptWidgetSocket(input)) {
             copyLinkedPromptTextIntoWidget(node, input);
         }
-        disconnectInputSlot(node, index);
+        if (graph) {
+            disconnectInputSlot(node, index);
+        }
         node.inputs.splice(index, 1);
         removed = true;
     }
     if (!removed) {
         return false;
     }
-    node.inputs.forEach((input, index) => updateInputLinkSlots(node, asInputLinkList(input), index));
-    markGraphDirty(node);
+    if (graph) {
+        node.inputs.forEach((input, index) => updateInputLinkSlots(node, asInputLinkList(input), index));
+        markGraphDirty(node);
+    }
     return true;
 }
 
