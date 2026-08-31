@@ -6,6 +6,8 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.100 - 2026-08-31
+
 - Extended `(Deno) Ideogram Director`'s existing `bboxes` output to connect to both `BBOX` and `BOUNDING_BOX` consumers, and exposed its active box count through a transient, non-serialized frontend bridge for `Ideogram4_MultiLora_BoundingBoxNode_Fedor`. Existing output order, saved `caption_data`, widgets, and BBOX links are unchanged.
 
 ## 0.7.99 - 2026-08-31
