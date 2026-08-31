@@ -68,6 +68,7 @@ Ideogram 4용 구조화 JSON 프롬프트와 bbox 배치를 ComfyUI 캔버스 �
 - 스타일/레이아웃 프리셋 갤러리와 가벼운 미리보기 썸네일
 - Language 보기로 장면 설명을 원하는 언어로 읽고 수정할 수 있으며, 최종 출력은 생성용 영어로 유지. 실제 TEXT 박스 단어는 간판, 로고, 제목처럼 그대로 보존
 - 출력: `prompt`, `width`, `height`, `seed`, `bboxes`
+- 기존 `bboxes` 출력은 일반 `BBOX` 소비자와 `Ideogram4_MultiLora_BoundingBoxNode_Fedor` 같은 `BOUNDING_BOX` 입력에 모두 연결할 수 있으며, 저장 필드를 추가하지 않고 Director의 활성 박스 수에 맞춰 해당 노드의 region 행 수를 동기화합니다. 상대 노드는 현재 박스 ID가 아니라 개수만 동기화하므로 중간 박스를 삭제하거나 순서를 바꾼 뒤에는 LoRA 행 배치를 다시 확인하세요
 
 ### `(Deno) Resize Box`
 

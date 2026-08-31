@@ -912,7 +912,7 @@ class DenoIdeogramDirector:
             },
         }
 
-    RETURN_TYPES = ("STRING", "INT", "INT", "INT", "BBOX")
+    RETURN_TYPES = ("STRING", "INT", "INT", "INT", "BBOX,BOUNDING_BOX")
     RETURN_NAMES = ("prompt", "width", "height", "seed", "bboxes")
     FUNCTION = "build"
     CATEGORY = "Deno/Ideogram"

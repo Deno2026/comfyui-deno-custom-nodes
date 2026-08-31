@@ -234,8 +234,33 @@
     const current = candidateIds.indexOf(selectedId);
     return candidateIds[current >= 0 ? (current + 1) % candidateIds.length : 0];
   }
+  function activeDirectorBoxes(sourceBoxes) {
+    if (!Array.isArray(sourceBoxes)) return [];
+    return sourceBoxes
+      .filter((box) => box && box.enabled !== false)
+      .map((box) => ({ id: box.id, x: box.x, y: box.y, w: box.w, h: box.h }));
+  }
+  function publishDirectorActiveBoxes(node, sourceBoxes) {
+    if (!node || typeof node !== "object") return [];
+    const activeBoxes = activeDirectorBoxes(sourceBoxes);
+    const current = Object.getOwnPropertyDescriptor(node, "_boxes");
+    if (!current || current.enumerable) {
+      try {
+        Object.defineProperty(node, "_boxes", {
+          value: activeBoxes,
+          writable: true,
+          configurable: true,
+          enumerable: false,
+        });
+        return activeBoxes;
+      } catch (e) {}
+    }
+    try { node._boxes = activeBoxes; } catch (e) {}
+    return activeBoxes;
+  }
   if (typeof window !== "undefined" && typeof window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__ === "function") {
     window.__DENO_IDEOGRAM_DIRECTOR_TEST_HOOK__({
+      activeDirectorBoxes,
       eventNodeIds,
       backdropSourceNodeForDirector,
       downstreamNodeIdsForTarget,
@@ -243,6 +268,7 @@
       overlappingBoxIdsAtPoint,
       outputTargetNodesForDirector,
       pointerAnchoredPanelPosition,
+      publishDirectorActiveBoxes,
       selectedTargetNodeForDirector,
       shouldAcceptResultForDirectorTarget,
       targetStateForDirector,
@@ -1699,6 +1725,12 @@
         let arLabel = "1:1";     // current aspect-ratio label (persisted in the aspect_ratio widget)
         let railWide = false;    // Elements rail width preference (UI-only, restored on reload)
 
+        // Read-only integration surface for downstream region tools (for example Fedor MultiLoRA).
+        // It is deliberately non-enumerable and rebuilt from caption_data instead of becoming a
+        // second saved source of truth, so existing workflow serialization remains unchanged.
+        function publishActiveBoxes() { return publishDirectorActiveBoxes(node, boxes); }
+        publishActiveBoxes();
+
         const normBox = (b) => {
           const w = clamp01(+b.w || 0), h = clamp01(+b.h || 0);
           return {
@@ -1785,6 +1817,7 @@
         // ── serialize editor state → caption_data widget (§5) ──
         let paintHistory = () => {};
         function serialize() {
+          publishActiveBoxes();
           acknowledgeInvalidPromptIfBoardChanged();
           ensureBoxUiColors();
           const cd = {
@@ -4545,6 +4578,7 @@
         function ensureBoxUiColors() { boxes.forEach((b, i) => ensureBoxUiColor(b, i)); }
         const boxColor = (b, i) => (b.palette && b.palette[0]) || ensureBoxUiColor(b, i);
         function renderBoxes() {
+          publishActiveBoxes();
           ensureBoxUiColors();
           ov.querySelectorAll(".idd-box").forEach((n) => n.remove());
           boxes.forEach((b, i) => {
@@ -5424,6 +5458,7 @@
           try { d = JSON.parse(getW("caption_data", "") || "{}") || {}; } catch (e) { d = {}; }
           resultImageRef = normalizeResultImageDescriptor(d.resultImage);
           boxes = Array.isArray(d.boxes) ? d.boxes.map(normBox) : [];
+          publishActiveBoxes();
           stylePalette = Array.isArray(d.stylePalette) ? d.stylePalette.filter((c) => HEX.test(c)) : [];
           lastImportSig = typeof d.importSig === "string" ? d.importSig : "";
           selectedId = null;
@@ -5480,6 +5515,7 @@
         setTimeout(hydrate, 30);
 
         chain(node, "onRemoved", function () {
+          publishDirectorActiveBoxes(node, []);
           directorNodes.delete(node);
           closeOwnedBodyOverlays();
           try { stageRO.disconnect(); } catch (e) {}

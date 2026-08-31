@@ -72,6 +72,7 @@ Main features:
 - style and layout preset galleries with lightweight preview thumbnails
 - Language view for reading and editing board descriptions in your language while final output stays model-ready English. Literal TEXT box words such as signs, logos, and headlines are preserved exactly
 - outputs: `prompt`, `width`, `height`, `seed`, `bboxes`
+- the existing `bboxes` output connects to both standard `BBOX` consumers and `BOUNDING_BOX` inputs such as `Ideogram4_MultiLora_BoundingBoxNode_Fedor`; that node's region-row count follows the Director's active boxes without adding saved Director fields. Its current count-only synchronization does not track box identity, so review LoRA row assignments after deleting or reordering a middle box
 
 ### `(Deno) Resize Box`
 
