@@ -6,21 +6,33 @@
 
 ![Deno Custom Nodes banner](docs/images/deno-custom-nodes-banner.jpg)
 
-You can use, study, modify, and redistribute this repo under GPL-3.0.
+Practical ComfyUI nodes for loading and resizing images, comparing video results, and building model workflows.
 
-DENO-owned nodes, docs, examples, workflows, and project-local assets in this repo are released under GNU GPL v3.0 (`GPL-3.0-only`). Commercial use is allowed, but distributed modified versions must follow GPL-3.0 and preserve the required license and copyright notices.
+- **Prepare your media:** image loaders, Resize Box, and image/video comparison tools.
+- **Build a generation workflow:** Ideogram, MiniMax H3, LTX, RTX video tools, and local LLM helpers.
+- **Keep the canvas readable:** Visual Fold and optional Floating Tools.
 
-Third-party models, checkpoints, LoRAs, libraries, tools, and services keep their own licenses and terms. If a workflow uses a specific model or asset, check and follow that license before sharing or selling outputs.
+[Quick Start](#quick-start) · [Browse Nodes](#included-nodes) · [Browser Tools](#web-tools) · [Latest Release](https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/latest) · [GPL-3.0-only](#license)
 
-Practical ComfyUI custom nodes focused on fast real-world workflow improvements.
-This repo is built for global creators and production workflows, with a focus on practical UX and reliable daily use.
+## Quick Start
+
+Start with a working ComfyUI installation.
+
+1. Open **ComfyUI Manager**, search for `Deno Custom Nodes`, and install the package.
+2. Restart ComfyUI and refresh its browser page.
+3. Double-click an empty area of the canvas, search for `(Deno) Resize Box`, and add it.
+4. Add a standard `Load Image` node and choose an image. Connect it to Resize Box and connect Resize Box's `image` output to `Preview Image`. Choose a size and run the workflow to see your resized image.
+
+This first example needs no generation model. Individual model and RTX nodes have their own requirements below. If you do not use Manager, see [manual installation](#install).
+
+### Choose your next step
+
+- **Prepare and compare:** start with [Resize Box](#deno-resize-box), [Multi Image Loader](#deno-multi-image-loader), or [Video Compare](#deno-video-compare).
+- **Generate with a model:** see [Ideogram Director](#deno-ideogram-director), [MiniMax H3](#deno-minimax-h3-multi-reference-image-loader), or [LTX Model Loader](#deno-ltx-model-loader).
+- **Organize or work in a browser:** try [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools), or the no-install [Web Tools](#web-tools).
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
 The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, optional **DENO Floating Tools** for Free VRAM, ComfyUI Stable update checks, and GPT/Gemini-ready Error Help reports, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the 한국어 전용 **디스코드용 영상 / 이미지 압축** page.
-
-## Release Notes
-
-Public updates are tracked in [CHANGELOG.md](CHANGELOG.md). GitHub Releases should use the same short format, with optional notes hidden in collapsible sections.
 
 ## Web Tools
 
@@ -32,7 +44,9 @@ Run these directly in your browser:
 
 ## DENO Visual Fold
 
-![DENO Visual Fold](docs/images/deno-visual-fold.webp)
+[![DENO Visual Fold demo preview](docs/images/deno-visual-fold-preview.webp)](docs/images/deno-visual-fold.webp)
+
+Click the preview to open the full demo.
 
 DENO Visual Fold is a visual-only cleanup helper for large ComfyUI graphs. It is enabled automatically when the latest Deno Custom Nodes package is installed or updated.
 
@@ -533,92 +547,16 @@ The goal is not to chase huge feature lists. The goal is to make the workflows p
 
 ## Search Tips
 
-Useful search terms for GitHub, ComfyUI Manager, and this README:
-
-- `deno custom nodes`
-- `(deno)`
-- `comfyui custom nodes`
-- `ideogram`
-- `ideogram 4`
-- `ideogram director`
-- `json prompt`
-- `bbox`
-- `bounding boxes`
-- `layout prompt`
-- `rtx super`
-- `rtx video super resolution`
-- `rtx 2 pass`
-- `2 pass upscale`
-- `low ram workflow`
-- `meta batch`
-- `video super resolution`
-- `nvidia vfx`
-- `nvvfx`
-- `image compare`
-- `video compare`
-- `video preview`
-- `video to gif`
-- `gif webp`
-- `webp converter`
-- `video converter`
-- `ltx`
-- `ltx 2.3`
-- `ltx sequencer`
-- `ltx model loader`
-- `ltx tiled`
-- `ltx tiled sampler`
-- `ltx spatial upscaler`
-- `ltx multi lora`
-- `prompt guide`
-- `system prompt`
-- `local llm loader`
-- `local llm prompt`
-- `local llm reviewer`
-- `prompt only`
-- `final prompt`
-- `ai reviewer`
-- `media reviewer`
-- `audio review gate`
-- `ollama`
-- `lm studio`
-- `llama.cpp`
-- `vllm`
-- `llama-swap`
-- `unsloth`
-- `unsloth studio`
-- `minimax h3`
-- `audio transcript`
-- `whisper`
-- `text encoder unload`
-- `clip unload`
-- `dynamic vram`
-- `vram barrier`
-- `bernini`
-- `bernini prompt guide`
-- `bernini conditioning`
-- `comfyui bernini`
-- `kj bernini`
-- `reference video edit`
-- `wan-2.2`
-- `wan2.2`
-- `multi image loader`
-- `advanced image source`
-- `external folder`
-- `resize`
-- `image resize`
-- `lora loader`
-- `gguf`
-- `visual fold`
-- `fold selected nodes`
-- `workflow tools`
-- `floating tools`
-- `free vram`
-- `comfyui stable`
-- `stable update check`
+- In ComfyUI Manager or Registry, search for `Deno Custom Nodes`.
+- On the canvas, search for `(Deno)` or the node name, such as `Resize Box`.
+- Use [Included Nodes](#included-nodes) to find the tool and its requirements.
 
 ## Install
 
-Recommended: open ComfyUI Manager, search for `Deno Custom Nodes`, install it, and restart ComfyUI.
+For the recommended Manager installation, follow [Quick Start](#quick-start).
+
+<details>
+<summary>Manual installation and updates</summary>
 
 For a manual install, clone inside your `custom_nodes` folder and install dependencies with the same Python executable that starts ComfyUI:
 
@@ -629,6 +567,18 @@ python -m pip install -r requirements.txt
 ```
 
 For a manual update, run `git pull --ff-only`, reinstall `requirements.txt` with that same Python, and restart ComfyUI. Manager/Registry installs handle the package dependencies automatically.
+
+</details>
+
+## License
+
+DENO-owned nodes, docs, examples, workflows, and project-local assets in this repo are released under GNU GPL v3.0 (`GPL-3.0-only`). You may use, study, modify, and redistribute them, including commercially, under the [GPL-3.0 terms](LICENSE). Distributed modified versions must follow GPL-3.0 and preserve the required license and copyright notices.
+
+Third-party models, checkpoints, LoRAs, libraries, tools, and services keep their own licenses and terms. Check the applicable license before using, sharing, or selling outputs from a specific model or asset.
+
+## Release Notes
+
+See the [latest release](https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/latest) and [CHANGELOG.md](CHANGELOG.md) for updates.
 
 ## Links
 

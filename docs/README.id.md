@@ -6,19 +6,27 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-Kamu dapat menggunakan, mempelajari, memodifikasi, dan mendistribusikan ulang repo ini di bawah GPL-3.0.
+Custom node ComfyUI untuk menyiapkan gambar dan video, memuat model, serta merapikan canvas.
 
-Node, dokumen, contoh, workflow, dan aset proyek milik DENO di repo ini dirilis dengan GNU GPL v3.0 (`GPL-3.0-only`). Penggunaan komersial diizinkan, tetapi versi modifikasi yang kamu distribusikan harus mengikuti GPL-3.0 dan mempertahankan pemberitahuan lisensi serta hak cipta yang diperlukan.
+[GPL-3.0](../LICENSE)
 
-Model, checkpoint, LoRA, library, tool, dan layanan pihak ketiga tetap mengikuti lisensi dan ketentuannya masing-masing. Jika sebuah workflow memakai model atau aset tertentu, periksa dan ikuti lisensi tersebut sebelum membagikan atau menjual output.
+- **Siapkan dan bandingkan gambar:** [Resize Box, loader gambar, dan node perbandingan](#deno-resize-box).
+- **Susun workflow generasi:** [MiniMax H3](#deno-minimax-h3-multi-reference-image-loader), [LTX](#deno-ltx-model-loader), dan [LLM lokal](#deno-local-llm-loader--deno-local-llm-reviewer).
+- **Rapikan canvas dan hasil:** [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools), dan [alat browser](#web-tools).
 
-Deno Custom Nodes adalah kumpulan custom node untuk ComfyUI yang membantu workflow nyata untuk gambar, video, LTX, RTX, dan persiapan model terasa lebih cepat, jelas, dan nyaman dipakai setiap hari.
+## Quick Start
+
+Mulai dengan ComfyUI yang sudah terinstal.
+
+1. Buka ComfyUI Manager, lalu cari `Deno Custom Nodes`.
+2. Instal package tersebut, lalu restart ComfyUI.
+3. Klik dua kali area kosong pada canvas, cari `(Deno) Resize Box`, lalu tambahkan node tersebut.
+4. Pilih `Preset Ratio` dan megapixel untuk menetapkan `width` / `height` output.
+5. Tambahkan `Load Image`, pilih atau unggah gambar, lalu hubungkan output `IMAGE` ke input `image` Resize Box. Hubungkan output `image` Resize Box ke `Preview Image`, lalu klik `Run` untuk melihat hasilnya.
+
+[Semua node](#included-nodes) · [Alat web](#web-tools) · [Visual Fold](#deno-visual-fold) · [Floating Tools](#deno-floating-tools) · [Instalasi manual](#install) · [Lisensi](#license)
 
 Sebagian besar node Deno memiliki tombol hijau kecil `i` untuk membuka bantuan cepat tanpa meninggalkan canvas ComfyUI. Jika versi Deno Custom Nodes yang lebih baru tersedia, tombol berubah menjadi kuning dan menampilkan badge `!` kecil.
-
-## Release Notes
-
-Catatan pembaruan publik disimpan secara ringkas di [CHANGELOG.md](../CHANGELOG.md).
 
 ## Web Tools
 
@@ -30,11 +38,11 @@ Alat berikut bisa dibuka langsung di browser.
 
 ## DENO Visual Fold
 
-![DENO Visual Fold](images/deno-visual-fold.webp)
+[![DENO Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
 
 DENO Visual Fold adalah alat visual untuk merapikan graph ComfyUI yang besar. Melipat node atau group tidak mengubah logika workflow.
 
-Saat memilih dua node atau lebih, tombol hijau `Fold` muncul di dekat kanan atas canvas. Klik tombol itu untuk melipat node terpilih menjadi satu group visual yang ringkas, lalu gunakan `Unfold` untuk membukanya kembali. Jika memilih satu group ComfyUI biasa, `Fold Group` melipat node di dalam group tersebut; jika memilih beberapa group, aksi align juga muncul.
+Saat memilih dua node atau lebih, tombol hijau `Fold` muncul pada toolbar pemilihan bawaan ComfyUI. Klik tombol itu untuk melipat node terpilih menjadi satu group visual yang ringkas, lalu gunakan `Unfold` untuk membukanya kembali. Jika memilih satu group ComfyUI biasa, `Fold Group` melipat node di dalam group tersebut; jika memilih beberapa group, aksi align juga muncul.
 
 Berbeda dari Subgraph, Visual Fold tidak memindahkan node ke child graph. Ini hanya untuk kerapian visual, berguna saat node `Get` / `Set` atau struktur parent-child tetap ingin terlihat di graph utama.
 
@@ -54,9 +62,15 @@ Floating Tools tidak menginstal, meng-update, me-restart, memperbaiki, atau meng
 
 Builder prompt visual untuk Ideogram 4 yang membantu mengedit caption JSON terstruktur dan layout bbox langsung di canvas ComfyUI.
 
-![Deno Ideogram Director](images/ideogram-director.png)
+[![Ideogram Director — Demo](images/ideogram-director-video-thumbnail.jpg)](https://youtu.be/Z8s27skkIDM)
 
-Fitur utama: menggambar dan mengedit area bbox, mengimpor prompt JSON dari Local LLM Loader atau sumber STRING lain, meminta konfirmasi sebelum mengganti board yang sudah ada, menolak JSON yang salah format dengan jelas, memakai galeri preset style/layout, serta membaca atau mengedit deskripsi dalam bahasamu lewat Language view sementara output akhir tetap dalam bahasa Inggris siap-model dan kata literal pada kotak TEXT seperti papan, logo, atau judul tetap persis sama.
+- Gambar dan edit area bbox; nonaktifkan tiap kotak sementara tanpa menghapus atau mengubah urutannya.
+- Klik dua kali bbox untuk mengedit di dekat penunjuk, atau gunakan `Alt`+klik berulang kali pada area tumpang tindih untuk memilih kotak di bawahnya secara bergantian.
+- Impor prompt JSON dari Local LLM Loader atau sumber STRING lain, minta konfirmasi sebelum mengganti board, dan tolak JSON yang salah format dengan jelas.
+- Input STRING opsional Summary dan Background menggantikan field board tersebut saat eksekusi; jika tidak terhubung, teks yang tersimpan tetap digunakan.
+- Gunakan galeri preset style/layout dan Language view untuk mengedit deskripsi dalam bahasamu. Output akhir tetap berbahasa Inggris siap-model, sementara kata pada kotak TEXT seperti papan, logo, dan judul dipertahankan persis.
+- Output: `prompt`, `width`, `height`, `seed`, `bboxes`.
+- `bboxes` terhubung ke `BBOX` standar maupun input `BOUNDING_BOX`, misalnya `Ideogram4_MultiLora_BoundingBoxNode_Fedor`. Jumlah baris region pada node itu mengikuti kotak aktif Director tanpa menambah field Director yang disimpan. Sinkronisasi saat ini hanya mengikuti jumlah, bukan identitas kotak: periksa penetapan LoRA setelah menghapus atau mengurutkan ulang kotak di tengah.
 
 ### `(Deno) Resize Box`
 
@@ -64,7 +78,9 @@ Node pembantu resolusi dan resize gambar untuk ComfyUI.
 
 ![Deno Resize Box](images/resize-box.jpg)
 
-Fitur utama: preset rasio, input manual, kalkulasi megapixel, alignment `divisible_by`, mode Center Crop, Crop Position yang dapat diseret, dan Fit, preview rasio serta gambar sumber semi-transparan yang dipotong tepat ke frame output di Crop Position dan dapat digeser dengan menyeret gambar, output `image`, `width`, `height`.
+Fitur utama: `Preset Ratio` / `Manual Input`, preset rasio, kalkulasi megapixel, alignment `divisible_by`, `Center Crop (Fill)`, `Crop Position (Fill)` dengan zoom dan rasio terkunci, `Fit (Letterbox/Pillarbox)`, interpolasi default `lanczos`, serta output `image`, `width`, `height`.
+
+`Crop Position (Fill)` menampilkan seluruh gambar sumber yang terhubung. Seret kotak crop untuk mengubah posisi atau seret sudut mana pun untuk mengatur zoom, sementara rasio dan megapixel output tetap.
 
 ### `(Deno) Multi Image Loader`
 
@@ -81,6 +97,24 @@ Loader satu-kabel untuk beberapa gambar referensi pada workflow bawaan MiniMax H
 Node ini mempertahankan pengalaman upload, paste, drag-and-drop, Input Folder, pengurutan kartu, dan clear yang sama seperti `(Deno) Multi Image Loader`. Hingga 9 referensi berurutan dikirim melalui satu socket khusus `ref_images`, sementara ukuran dan rasio aspek asli tiap gambar disimpan terpisah tanpa resize, crop, atau padding. Urutan kartu sesuai dengan `<Picture 1>`, `<Picture 2>`, dan seterusnya; gambar yang sama juga tersedia lewat output `image_list` untuk langsung dihubungkan ke input `image` pada `(Deno) Local LLM Loader`.
 
 Node pendamping `(Deno) MiniMax H3 Reference to Video` hanya menyatukan input gambar; input Autogrow bawaan untuk video referensi, audio pasangan video, dan audio mandiri tetap dipertahankan. Kedua node MiniMax H3 ini membutuhkan ComfyUI 0.30.0 atau lebih baru. Lihat [workflow contoh multi-reference MiniMax H3](workflows/minimax-h3-multi-reference.json).
+
+### `(Deno) MiniMax H3 Acc LoRA Loader`
+
+Memuat [MiniMax-H3-Acc-LoRAs](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs) resmi Alibaba PAI secara langsung tanpa mengonversi atau menggandakan file safetensors.
+
+1. Unduh file resmi `Acc-8Step.safetensors` untuk FL2VA atau Ref2VA, lalu letakkan di folder biasa `ComfyUI/models/loras/` atau folder khusus `ComfyUI/models/minimax_h3_acc_loras/`.
+2. Hubungkan model diffusion MiniMax H3 native yang sesuai ke `model`; model penuh dan varian `*_pruned_*` dari Comfy-Org didukung.
+3. Pilih Acc-LoRA yang sesuai: FL2VA untuk FL2VA/T2VA, atau Ref2VA untuk Ref2VA.
+4. Hubungkan satu-satunya output `model` node ini ke jalur guider biasa.
+5. Susun jalur sampling dengan node standar ComfyUI. Titik awal yang disarankan adalah `BasicScheduler: simple, steps: 8` dan `KSamplerSelect: euler`, terhubung ke `SamplerCustomAdvanced`.
+
+Node menerapkan bobot LoRA statis dan 32 output head PDD checkpoint yang bergantung pada waktu. Saat sampling, node membaca batas sigma aktual dari ComfyUI dan secara otomatis menggabungkan head PDD untuk interval tersebut. Dengan demikian, sampler, scheduler, dan langkah tetap dikontrol lewat node ComfyUI biasa. Konfigurasi resmi Simple/Euler 8 langkah tetap menjadi konfigurasi yang dilatih dan direkomendasikan. Kamu dapat memilih 4 hingga 12 langkah Simple Scheduler tanpa mengubah loader ini; schedule menurun lain atau pass sigma terpisah untuk workflow latent upscale tersedia untuk eksperimen, bukan jaminan peningkatan kualitas. Pertahankan sigma shift video/audio MiniMax H3 native pada `12.0 / 3.0` dan kekuatan LoRA pada `1.0`.
+
+Model penuh yang tidak dipangkas, termasuk varian INT8 native ComfyUI, menerapkan seluruh adapter melalui jalur LoRA ComfyUI yang mendukung kuantisasi. Untuk model curve-pruned, loader mencari checkpoint MiniMax H3 penuh yang sesuai dan sudah ada di `models/diffusion_models/`, membaca hanya bagian FP32 time-embedder yang kecil, lalu menghitung bridge di memori untuk menyesuaikan seluruh 50 pembaruan AdaLN LoRA berlebar penuh ke curve terpangkas selebar 8. Seluruh checkpoint tidak dimuat untuk perhitungan ini. Jika checkpoint penuh yang sesuai tidak terpasang, loader tetap dapat dipakai dalam mode kompatibilitas: memberi satu peringatan, melewati 50 pembaruan AdaLN tersebut, dan tetap menerapkan seluruh pembaruan LoRA lainnya serta head PDD.
+
+Workflow UI standar dengan loader tiga output v0.7.92–v0.7.94 yang aktif akan dimigrasikan saat dibuka di canvas ComfyUI. Sambungan model tetap dipertahankan, sedangkan sambungan sampler dan sigmas lama dipindahkan ke node standar yang dapat diedit, yaitu `KSamplerSelect: euler` dan `BasicScheduler: simple, steps: 8`. Simpan workflow UI sekali setelah dibuka. Workflow satu output saat ini tidak diubah. Node yang dibisukan atau di-bypass, tata letak kustom yang tidak dikenal, dan graph yang rusak dibiarkan tetap. JSON prompt API mentah tidak menjalankan migrasi frontend ini; ekspor kembali dari workflow UI yang telah dimigrasikan. Jika file sudah disimpan setelah kehilangan sambungan sampler/sigmas lama, hubungkan kembali node standar tersebut secara manual.
+
+Bobot LoRA dan workflow tidak disertakan bersama Deno Custom Nodes. Unduh bobot dari Alibaba, lalu susun atau sesuaikan workflow ComfyUI native milikmu.
 
 ### Workflow referensi audio MiniMax H3 R2V
 
@@ -252,9 +286,11 @@ Sumber STRING multiline kecil untuk menyimpan system prompt, user prompt, templa
 
 Node untuk memanggil LLM lokal yang sudah berjalan di PC dari ComfyUI dan memakai review text dari LLM untuk meneruskan atau memblokir hasil sebelum disimpan.
 
-Fitur utama: memanggil model Ollama, LM Studio, llama.cpp, vLLM, server Custom OpenAI-compatible, llama-swap, atau Unsloth Studio; membatasi alamat ke `127.0.0.1` / `localhost`; me-refresh daftar model tiap provider; menghentikan request yang sedang berjalan; memakai API management llama-swap / Unsloth Studio untuk unload manual atau setelah proses; memproses prompt batch secara berurutan dalam satu eksekusi node; melampirkan IMAGE ke model vision; menampilkan Thinking / Result; menjadi gate IMAGE / AUDIO sebelum node Save; menyetujui sekali hasil review saat ini atau menjalankan ulang hanya jalur sebelum reviewer. Result akhir disimpan di metadata PNG / workflow dan dipulihkan saat dibuka kembali; Thinking / reasoning tidak disimpan.
+Fitur utama: memanggil model Ollama, LM Studio, llama.cpp, vLLM, server Custom OpenAI-compatible, llama-swap, atau Unsloth Studio; menggunakan `127.0.0.1` / `localhost` secara default dan dapat mengizinkan alamat LAN privat `IP:port` yang tepat melalui `DENO_LOCAL_LLM_ALLOWED_HOSTS`; me-refresh daftar model tiap provider; menghentikan request yang sedang berjalan; memakai API management llama-swap / Unsloth Studio untuk unload manual atau setelah proses; memproses prompt batch secara berurutan dalam satu eksekusi node; melampirkan IMAGE ke model vision; menampilkan Thinking / Result; menjadi gate IMAGE / AUDIO sebelum node Save; menyetujui sekali hasil review saat ini atau menjalankan ulang hanya jalur sebelum reviewer. Result akhir disimpan di metadata PNG / workflow dan dipulihkan saat dibuka kembali; Thinking / reasoning tidak disimpan.
 
 Provider `Unsloth` hanya untuk server Unsloth Studio dengan alamat default `http://127.0.0.1:8888/v1`. Jika GGUF dari Unsloth dijalankan di LM Studio, pilih `LM Studio`, bukan `Unsloth`. Sebelum memulai ComfyUI, set environment variable `DENO_LOCAL_LLM_UNSLOTH_API_KEY`; key tidak disimpan di workflow atau metadata PNG.
+
+LM Studio jarak jauh: provider khusus `LM Studio` saat ini memakai `http://127.0.0.1:1234/v1`. Untuk menghubungi LM Studio di PC lain milikmu dalam LAN tepercaya yang sama, aktifkan **Serve on Local Network** di PC tersebut, tetapkan allowlist yang tepat sebelum memulai ComfyUI (misalnya `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`), restart ComfyUI, lalu pilih `Custom` dengan `http://192.168.1.50:1234/v1` sebagai Custom Server URL. Allowlist hanya menerima pasangan IP privat dan port yang tepat, dan tidak disimpan dalam workflow atau metadata PNG. Konektor Custom tidak mengirim token autentikasi atau memakai helper unload khusus LM Studio: batasi akses port server hanya dari PC ComfyUI melalui firewall host dan kelola model jarak jauh dari LM Studio.
 
 Jika LM Studio menolak field kontrol reasoning opsional sebelum mulai menghasilkan output, node mencoba satu kali lagi tanpa field itu. Setelahnya, perilaku reasoning ditentukan oleh server dan model yang dipilih.
 
@@ -266,11 +302,14 @@ Node ini dibuat untuk mengurangi gesekan setup yang berulang dalam pekerjaan Com
 
 ## Search Tips
 
-Cari `Deno Custom Nodes` terlebih dahulu di ComfyUI Manager. Di GitHub, Manager, dan Registry, kamu juga dapat memakai `deno custom nodes`, `ideogram director`, `minimax h3`, `audio transcript`, `whisper`, `text encoder unload`, `clip unload`, `dynamic vram`, `vram barrier`, `multi lora`, `ltx 2.5`, `ltx model loader`, `local llm loader`, `local llm reviewer`, `prompt text`, `ollama`, `lm studio`, `llama.cpp`, `vllm`, `llama-swap`, `unsloth studio`, `bernini conditioning`, `image compare`, `video compare`, `video preview`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `error help`, `workflow diagnostics`.
+- Di Manager, cari `Deno Custom Nodes` untuk menemukan package ini.
+- Di canvas, cari `(Deno)` untuk memfilter node paket ini, atau nama tertentu seperti `Resize Box`.
+- Gunakan tombol hijau `i` pada node untuk membaca bantuan tanpa meninggalkan canvas.
 
 ## Install
 
-Cara yang direkomendasikan: cari `Deno Custom Nodes` di ComfyUI Manager, instal, lalu restart ComfyUI.
+<details>
+<summary>Instalasi dan pembaruan manual</summary>
 
 Untuk instalasi manual, clone repository di dalam folder `custom_nodes` ComfyUI lalu instal dependency dengan Python yang sama dengan yang digunakan untuk menjalankan ComfyUI:
 
@@ -281,6 +320,20 @@ python -m pip install -r requirements.txt
 ```
 
 Untuk update manual, jalankan `git pull --ff-only` di folder repository, instal ulang `requirements.txt` dengan Python yang sama, lalu restart ComfyUI. Instalasi melalui ComfyUI Manager / Registry menangani dependency package secara otomatis.
+
+</details>
+
+## License
+
+Kamu dapat menggunakan, mempelajari, memodifikasi, dan mendistribusikan ulang repo ini di bawah GPL-3.0.
+
+Node, dokumen, contoh, workflow, dan aset proyek milik DENO di repo ini dirilis dengan GNU GPL v3.0 (`GPL-3.0-only`). Penggunaan komersial diizinkan, tetapi versi modifikasi yang kamu distribusikan harus mengikuti GPL-3.0 dan mempertahankan pemberitahuan lisensi serta hak cipta yang diperlukan.
+
+Model, checkpoint, LoRA, library, tool, dan layanan pihak ketiga tetap mengikuti lisensi dan ketentuannya masing-masing. Jika sebuah workflow memakai model atau aset tertentu, periksa dan ikuti lisensi tersebut sebelum membagikan atau menjual output.
+
+## Release Notes
+
+Lihat perubahan di [CHANGELOG.md](../CHANGELOG.md).
 
 ## Links
 

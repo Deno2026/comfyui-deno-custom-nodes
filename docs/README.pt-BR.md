@@ -6,19 +6,27 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-Você pode usar, estudar, modificar e redistribuir este repo sob GPL-3.0.
+Nós práticos do ComfyUI para preparar imagens e vídeos, carregar modelos e organizar o canvas.
 
-Os nós, documentos, exemplos, workflows e assets do projeto pertencentes à DENO neste repo são publicados sob GNU GPL v3.0 (`GPL-3.0-only`). Uso comercial é permitido, mas versões modificadas distribuídas devem seguir a GPL-3.0 e manter os avisos de licença e copyright exigidos.
+[GPL-3.0](../LICENSE)
 
-Modelos, checkpoints, LoRAs, bibliotecas, ferramentas e serviços de terceiros continuam com suas próprias licenças e termos. Se um workflow usa um modelo ou asset específico, confira e siga essa licença antes de compartilhar ou vender resultados.
+- **Preparar e comparar imagens:** [Resize Box, carregadores e nós de comparação](#deno-resize-box).
+- **Criar workflows de geração:** [MiniMax H3](#deno-minimax-h3-multi-reference-image-loader), [LTX](#deno-ltx-model-loader) e [LLMs locais](#deno-local-llm-loader--deno-local-llm-reviewer).
+- **Organizar o canvas e os resultados:** [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools) e [ferramentas no navegador](#web-tools).
 
-Deno Custom Nodes é um pacote de nós personalizados para ComfyUI, feito para deixar fluxos reais de imagem, vídeo, LTX, RTX e preparação de modelos mais rápidos, claros e práticos no uso diário.
+## Quick Start
+
+Comece com o ComfyUI já instalado.
+
+1. Abra o ComfyUI Manager e pesquise `Deno Custom Nodes`.
+2. Instale o pacote e reinicie o ComfyUI.
+3. Clique duas vezes em uma área vazia do canvas, pesquise `(Deno) Resize Box` e adicione o nó.
+4. Escolha `Preset Ratio` e os megapixels para definir `width` / `height` de saída.
+5. Adicione `Load Image`, selecione ou envie uma imagem e conecte a saída `IMAGE` à entrada `image` do Resize Box. Conecte a saída `image` do Resize Box a `Preview Image` e clique em `Run` para ver o resultado.
+
+[Todos os nós](#included-nodes) · [Ferramentas web](#web-tools) · [Visual Fold](#deno-visual-fold) · [Floating Tools](#deno-floating-tools) · [Instalação manual](#install) · [Licença](#license)
 
 A maioria dos nós Deno inclui um pequeno botão verde `i` para abrir uma ajuda rápida sem sair do canvas do ComfyUI. Se uma nova versão do Deno Custom Nodes estiver disponível, o botão fica amarelo e mostra um pequeno selo `!`.
-
-## Release Notes
-
-As atualizações públicas ficam registradas em [CHANGELOG.md](../CHANGELOG.md) em formato curto.
 
 ## Web Tools
 
@@ -30,11 +38,11 @@ Ferramentas que rodam direto no navegador.
 
 ## DENO Visual Fold
 
-![DENO Visual Fold](images/deno-visual-fold.webp)
+[![DENO Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
 
 DENO Visual Fold é uma ajuda visual para organizar grafos grandes do ComfyUI. Dobrar nós ou grupos não muda a lógica do workflow.
 
-Ao selecionar dois ou mais nós, aparece um botão verde `Fold` perto do canto superior direito do canvas. Ao clicar, os nós selecionados ficam compactados em um grupo visual e podem voltar com `Unfold`. Ao selecionar um grupo comum do ComfyUI, `Fold Group` dobra os nós dentro do grupo; com vários grupos selecionados também aparecem ações de alinhamento.
+Ao selecionar dois ou mais nós, aparece um botão verde `Fold` na barra de seleção nativa do ComfyUI. Ao clicar, os nós selecionados ficam compactados em um grupo visual e podem voltar com `Unfold`. Ao selecionar um grupo comum do ComfyUI, `Fold Group` dobra os nós dentro do grupo; com vários grupos selecionados também aparecem ações de alinhamento.
 
 Diferente do Subgraph, o Visual Fold não move nós para um grafo filho. Ele serve apenas para organização visual, útil quando você quer manter nós `Get` / `Set` ou a estrutura pai-filho visível no grafo principal.
 
@@ -54,9 +62,15 @@ Floating Tools não instala, atualiza, reinicia, repara nem modifica workflows.
 
 Construtor visual de prompts para Ideogram 4, feito para editar captions JSON estruturadas e layouts bbox dentro do canvas do ComfyUI.
 
-![Deno Ideogram Director](images/ideogram-director.png)
+[![Ideogram Director — Demo](images/ideogram-director-video-thumbnail.jpg)](https://youtu.be/Z8s27skkIDM)
 
-Principais recursos: desenhar e editar regiões bbox, importar prompts JSON do Local LLM Loader ou de outra fonte STRING, pedir confirmação antes de substituir um board existente, rejeitar claramente JSON inválido, usar galerias de presets de estilo/layout e ler ou editar descrições no seu idioma com Language view, mantendo a saída final em inglês pronto para o modelo e preservando exatamente as palavras literais de caixas TEXT, como placas, logos e títulos.
+- Desenhe e edite regiões bbox; desative temporariamente cada caixa sem excluí-la nem alterar a ordem.
+- Clique duas vezes em uma bbox para editar perto do ponteiro, ou use `Alt`+clique repetidamente em uma sobreposição para percorrer as caixas por baixo.
+- Importe prompts JSON do Local LLM Loader ou de outra fonte STRING, confirme antes de substituir um board e rejeite claramente JSON inválido.
+- As entradas STRING opcionais Summary e Background substituem esses campos do board durante a execução; sem conexão, é usado o texto salvo.
+- Use galerias de presets de estilo/layout e Language view para editar descrições no seu idioma. A saída final continua em inglês pronto para o modelo e as palavras de caixas TEXT, como placas, logos e títulos, são preservadas exatamente.
+- Saídas: `prompt`, `width`, `height`, `seed`, `bboxes`.
+- `bboxes` conecta tanto a `BBOX` padrão quanto a entradas `BOUNDING_BOX`, por exemplo `Ideogram4_MultiLora_BoundingBoxNode_Fedor`. O número de linhas de regiões desse nó acompanha as caixas ativas do Director sem acrescentar campos salvos ao Director. A sincronização atual apenas conta caixas e não acompanha sua identidade: revise as atribuições LoRA depois de excluir ou reordenar uma caixa intermediária.
 
 ### `(Deno) Resize Box`
 
@@ -64,7 +78,9 @@ Nó de resolução e redimensionamento de imagem para ComfyUI.
 
 ![Deno Resize Box](images/resize-box.jpg)
 
-Principais recursos: presets de proporção, entrada manual, cálculo por megapixels, alinhamento `divisible_by`, modos Center Crop, Crop Position arrastável e Fit, preview de proporção e, em Crop Position, a imagem de origem semitransparente recortada exatamente no quadro de saída e movida ao arrastar, saídas `image`, `width`, `height`.
+Principais recursos: `Preset Ratio` / `Manual Input`, presets de proporção, cálculo por megapixels, alinhamento `divisible_by`, `Center Crop (Fill)`, `Crop Position (Fill)` com zoom e proporção fixa, `Fit (Letterbox/Pillarbox)`, interpolação `lanczos` por padrão e saídas `image`, `width`, `height`.
+
+`Crop Position (Fill)` mostra a imagem de origem completa. Arraste o quadro de recorte para reposicioná-lo ou qualquer canto para ajustar o zoom, mantendo fixos a proporção e os megapixels de saída.
 
 ### `(Deno) Multi Image Loader`
 
@@ -81,6 +97,24 @@ Carregador de imagens de referência com uma única conexão para o workflow nat
 Mantém a mesma experiência de upload, paste, drag-and-drop, Input Folder, reordenação de cartões e limpeza do `(Deno) Multi Image Loader`. Envia até 9 referências ordenadas por um socket `ref_images`, preservando separadamente as dimensões e proporções originais de cada imagem, sem resize, crop ou padding. A ordem dos cartões corresponde a `<Picture 1>`, `<Picture 2>` e seguintes; as mesmas imagens também saem como `image_list` para conexão direta à entrada `image` do `(Deno) Local LLM Loader`.
 
 O nó incluído `(Deno) MiniMax H3 Reference to Video` apenas reúne as imagens em uma entrada; as entradas Autogrow nativas de vídeo de referência, áudio associado ao vídeo e áudio independente continuam disponíveis. Esses dois nós MiniMax H3 exigem ComfyUI 0.30.0 ou mais recente. Consulte o [workflow de exemplo MiniMax H3 com múltiplas referências](workflows/minimax-h3-multi-reference.json).
+
+### `(Deno) MiniMax H3 Acc LoRA Loader`
+
+Carrega diretamente os [MiniMax-H3-Acc-LoRAs](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs) oficiais da Alibaba PAI, sem converter nem duplicar o arquivo safetensors.
+
+1. Baixe o arquivo oficial `Acc-8Step.safetensors` de FL2VA ou Ref2VA e coloque-o na pasta habitual `ComfyUI/models/loras/` ou na pasta dedicada `ComfyUI/models/minimax_h3_acc_loras/`.
+2. Conecte a `model` um modelo de difusão nativo MiniMax H3 compatível; são aceitos modelos completos e variantes `*_pruned_*` da Comfy-Org.
+3. Selecione o Acc-LoRA correspondente: FL2VA para FL2VA/T2VA ou Ref2VA para Ref2VA.
+4. Conecte a única saída `model` do nó ao caminho habitual do guider.
+5. Monte o caminho de amostragem com nós padrão do ComfyUI. Recomenda-se começar com `BasicScheduler: simple, steps: 8` e `KSamplerSelect: euler`, conectados a `SamplerCustomAdvanced`.
+
+O nó aplica os pesos LoRA estáticos e as 32 cabeças de saída PDD dependentes do tempo do checkpoint. Durante a amostragem, lê os limites sigma reais fornecidos pelo ComfyUI e funde automaticamente as cabeças PDD para esses intervalos. Assim, o sampler, o scheduler e os passos continuam sendo controlados nos nós habituais do ComfyUI. A configuração oficial Simple/Euler de 8 passos continua sendo a recomendada e a usada no treinamento. Você pode selecionar de 4 a 12 passos no Simple Scheduler sem mudar este loader; outros schedules descendentes ou passes sigma divididos para workflows de ampliação de latentes estão disponíveis para experimentação, sem garantia de melhoria da qualidade. Mantenha os deslocamentos sigma nativos de vídeo/áudio do MiniMax H3 em `12.0 / 3.0` e a força LoRA em `1.0`.
+
+Os modelos completos sem poda, incluindo as variantes INT8 nativas do ComfyUI, aplicam o adaptador completo pelo caminho LoRA do ComfyUI compatível com quantização. Para um modelo curve-pruned, o loader procura um checkpoint MiniMax H3 completo compatível já instalado em `models/diffusion_models/`, lê apenas a pequena seção FP32 time-embedder e calcula em memória uma ponte que adapta todas as 50 atualizações AdaLN LoRA de largura completa à curva podada de largura 8. Não carrega o checkpoint completo para esse cálculo. Se não houver um checkpoint completo compatível, continua utilizável em modo de compatibilidade: avisa uma vez, ignora essas 50 atualizações AdaLN e aplica todas as demais atualizações LoRA e cabeças PDD.
+
+Os workflows UI padrão com o loader de três saídas de v0.7.92–v0.7.94 ativo são migrados ao serem abertos no canvas do ComfyUI. As conexões do modelo são mantidas, e as antigas conexões sampler e sigmas passam para nós padrão editáveis `KSamplerSelect: euler` e `BasicScheduler: simple, steps: 8`. Salve o workflow UI uma vez depois de abri-lo. Os workflows atuais de uma saída não mudam. Nós silenciados ou em bypass, layouts personalizados desconhecidos e grafos malformados ficam intactos. O JSON de prompts API não executa essa migração frontend; exporte-o novamente a partir do workflow UI migrado. Se o arquivo já tiver sido salvo depois de perder as conexões sampler/sigmas, reconecte manualmente esses nós padrão.
+
+O Deno Custom Nodes não inclui pesos LoRA nem workflows para este loader. Baixe os pesos da Alibaba e crie ou adapte seu próprio workflow nativo do ComfyUI.
 
 ### Workflow MiniMax H3 R2V com referência de áudio
 
@@ -252,9 +286,11 @@ Pequena fonte STRING multiline para manter system prompts, user prompts, templat
 
 Nós para chamar pelo ComfyUI LLMs locais que já estejam rodando no PC e usar um review text do LLM para liberar ou bloquear resultados antes que sejam salvos.
 
-Principais recursos: chama modelos Ollama, LM Studio, llama.cpp, vLLM, servidores Custom OpenAI-compatible, llama-swap ou Unsloth Studio; limita endereços a `127.0.0.1` / `localhost`; atualiza listas de modelos por provider; interrompe requests em andamento; usa APIs de gerenciamento do llama-swap / Unsloth Studio para unload manual ou após a execução; processa prompt batches em sequência dentro de uma única execução; anexa IMAGE a modelos de visão; mostra Thinking / Result; controla IMAGE / AUDIO antes de nós Save; aprova uma vez o resultado atual ou executa novamente apenas o caminho anterior ao reviewer. O Result final é salvo nos metadados PNG / workflow e restaurado ao reabrir; Thinking / reasoning não é salvo.
+Principais recursos: chama modelos Ollama, LM Studio, llama.cpp, vLLM, servidores Custom OpenAI-compatible, llama-swap ou Unsloth Studio; usa `127.0.0.1` / `localhost` por padrão e permite autorizar um endereço privado LAN `IP:port` exato com `DENO_LOCAL_LLM_ALLOWED_HOSTS`; atualiza listas de modelos por provider; interrompe requests em andamento; usa APIs de gerenciamento do llama-swap / Unsloth Studio para unload manual ou após a execução; processa prompt batches em sequência dentro de uma única execução; anexa IMAGE a modelos de visão; mostra Thinking / Result; controla IMAGE / AUDIO antes de nós Save; aprova uma vez o resultado atual ou executa novamente apenas o caminho anterior ao reviewer. O Result final é salvo nos metadados PNG / workflow e restaurado ao reabrir; Thinking / reasoning não é salvo.
 
 O provider `Unsloth` é exclusivo do Unsloth Studio e usa por padrão `http://127.0.0.1:8888/v1`. Se você executar no LM Studio um GGUF obtido do Unsloth, selecione `LM Studio`, não `Unsloth`. Antes de iniciar o ComfyUI é preciso definir a variável de ambiente `DENO_LOCAL_LLM_UNSLOTH_API_KEY`; a chave não é salva em workflows nem metadados PNG.
+
+LM Studio remoto: o provider dedicado `LM Studio` usa atualmente `http://127.0.0.1:1234/v1`. Para conectar ao LM Studio em outro PC seu na mesma LAN de confiança, ative **Serve on Local Network** nesse PC, defina uma lista exata de destinos permitidos antes de iniciar o ComfyUI (por exemplo `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`), reinicie o ComfyUI e selecione `Custom`, com `http://192.168.1.50:1234/v1` como Custom Server URL. A lista só aceita pares exatos de IP privado e porta e não é salva em workflows nem metadados PNG. O conector Custom não envia tokens de autenticação nem usa as funções de liberação de memória específicas do LM Studio: limite o acesso à porta do servidor ao PC do ComfyUI no firewall do host e gerencie o modelo remoto no LM Studio.
 
 Se o LM Studio rejeitar o campo opcional de controle de reasoning antes de iniciar a geração, o nó tenta novamente uma vez sem esse campo. Depois disso, o comportamento de reasoning depende do server e model selecionados.
 
@@ -266,11 +302,14 @@ Esses nós reduzem atritos repetidos no trabalho real com ComfyUI. O objetivo n�
 
 ## Search Tips
 
-Pesquise primeiro `Deno Custom Nodes` no ComfyUI Manager. No GitHub, Manager e Registry também funcionam `deno custom nodes`, `ideogram director`, `minimax h3`, `audio transcript`, `whisper`, `text encoder unload`, `clip unload`, `dynamic vram`, `vram barrier`, `multi lora`, `ltx 2.5`, `ltx model loader`, `local llm loader`, `local llm reviewer`, `prompt text`, `ollama`, `lm studio`, `llama.cpp`, `vllm`, `llama-swap`, `unsloth studio`, `bernini conditioning`, `image compare`, `video compare`, `video preview`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `error help`, `workflow diagnostics`.
+- No Manager, pesquise `Deno Custom Nodes` para encontrar o pacote.
+- No canvas, pesquise `(Deno)` para filtrar seus nós ou um nome específico, como `Resize Box`.
+- Use o botão verde `i` de um nó para consultar a ajuda sem sair do canvas.
 
 ## Install
 
-Método recomendado: pesquise `Deno Custom Nodes` no ComfyUI Manager, instale e reinicie o ComfyUI.
+<details>
+<summary>Instalação e atualização manual</summary>
 
 Para uma instalação manual, clone o repositório dentro da pasta `custom_nodes` do ComfyUI e instale as dependências com o mesmo Python que inicia o ComfyUI:
 
@@ -281,6 +320,20 @@ python -m pip install -r requirements.txt
 ```
 
 Para atualizar manualmente, execute `git pull --ff-only` dentro da pasta do repositório, reinstale `requirements.txt` com o mesmo Python e reinicie o ComfyUI. Instalações pelo ComfyUI Manager / Registry tratam automaticamente as dependências do pacote.
+
+</details>
+
+## License
+
+Você pode usar, estudar, modificar e redistribuir este repo sob GPL-3.0.
+
+Os nós, documentos, exemplos, workflows e assets do projeto pertencentes à DENO neste repo são publicados sob GNU GPL v3.0 (`GPL-3.0-only`). Uso comercial é permitido, mas versões modificadas distribuídas devem seguir a GPL-3.0 e manter os avisos de licença e copyright exigidos.
+
+Modelos, checkpoints, LoRAs, bibliotecas, ferramentas e serviços de terceiros continuam com suas próprias licenças e termos. Se um workflow usa um modelo ou asset específico, confira e siga essa licença antes de compartilhar ou vender resultados.
+
+## Release Notes
+
+Consulte as mudanças em [CHANGELOG.md](../CHANGELOG.md).
 
 ## Links
 

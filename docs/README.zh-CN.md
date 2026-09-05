@@ -6,19 +6,27 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-你可以在 GPL-3.0 下使用、学习、修改和再分发这个 repo。
+用于准备图像和视频、加载模型与整理画布的实用 ComfyUI 自定义节点。
 
-本 repo 中由 DENO 拥有的节点、文档、示例、工作流和项目内素材采用 GNU GPL v3.0 (`GPL-3.0-only`) 发布。可以用于商业用途，但分发修改版本时必须遵循 GPL-3.0，并保留所需的许可证和版权声明。
+[GPL-3.0](../LICENSE)
 
-第三方模型、checkpoint、LoRA、库、工具和服务仍然适用各自的许可证和使用条款。如果某个工作流使用了特定模型或素材，请在分享或销售输出前确认并遵守对应许可证。
+- **准备和比较图像：**[Resize Box、图像加载器与比较节点](#deno-resize-box)。
+- **搭建生成工作流：**[MiniMax H3](#deno-minimax-h3-multi-reference-image-loader)、[LTX](#deno-ltx-model-loader) 与[本地 LLM](#deno-local-llm-loader--deno-local-llm-reviewer)。
+- **整理画布和输出：**[Visual Fold](#deno-visual-fold)、[Floating Tools](#deno-floating-tools) 与[浏览器工具](#web-tools)。
 
-Deno Custom Nodes 是一组面向 ComfyUI 实际制作流程的自定义节点，帮助图像、视频、LTX、RTX、模型准备等重复任务变得更快、更清晰、更适合日常使用。
+## Quick Start
+
+请先安装好 ComfyUI，再按以下步骤开始。
+
+1. 打开 ComfyUI Manager，搜索 `Deno Custom Nodes`。
+2. 安装软件包，然后重启 ComfyUI。
+3. 双击画布空白处，搜索并添加 `(Deno) Resize Box`。
+4. 选择 `Preset Ratio` 和 megapixels，设置输出的 `width` / `height`。
+5. 添加 `Load Image`，选择或上传一张图像，将其 `IMAGE` 输出连接到 Resize Box 的 `image` 输入。将 Resize Box 的 `image` 输出连接到 `Preview Image`，点击 `Run` 查看缩放结果。
+
+[全部节点](#included-nodes) · [浏览器工具](#web-tools) · [Visual Fold](#deno-visual-fold) · [Floating Tools](#deno-floating-tools) · [手动安装](#install) · [许可证](#license)
 
 大多数 Deno 节点都带有一个小的绿色 `i` 按钮，可以在不离开 ComfyUI 画布的情况下查看节点说明。如果有新的 Deno Custom Nodes 版本，按钮会变成黄色并显示一个小 `!` 徽标。
-
-## Release Notes
-
-公开更新记录在 [CHANGELOG.md](../CHANGELOG.md) 中保持简洁。
 
 ## Web Tools
 
@@ -30,11 +38,11 @@ Deno Custom Nodes 是一组面向 ComfyUI 实际制作流程的自定义节点�
 
 ## DENO Visual Fold
 
-![DENO Visual Fold](images/deno-visual-fold.webp)
+[![DENO Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
 
 DENO Visual Fold 是用于整理大型 ComfyUI 图的视觉辅助功能。折叠节点或组不会改变工作流逻辑。
 
-选择两个或更多节点时，画布右上附近会出现绿色 `Fold` 按钮。点击后，所选节点会折叠成一个紧凑的视觉组，并可用 `Unfold` 恢复。选择一个普通 ComfyUI 组时，可以用 `Fold Group` 折叠组内节点；选择多个组时，还会出现对齐操作。
+选择两个或更多节点时，ComfyUI 原生选择工具栏中会出现绿色 `Fold` 按钮。点击后，所选节点会折叠成一个紧凑的视觉组，并可用 `Unfold` 恢复。选择一个普通 ComfyUI 组时，可以用 `Fold Group` 折叠组内节点；选择多个组时，还会出现对齐操作。
 
 ComfyUI Subgraph 会把节点移动到子图中，而 Visual Fold 只做视觉整理。当你希望 `Get` / `Set` 节点或父子图结构仍留在主图中时，它更适合。
 
@@ -54,9 +62,15 @@ Floating Tools 不会安装、更新、重启、修复或修改工作流。
 
 用于在 ComfyUI 画布中编辑结构化 JSON 描述和 bbox 布局的 Ideogram 4 可视化提示词构建器。
 
-![Deno Ideogram Director](images/ideogram-director.png)
+[![Ideogram Director — Demo](images/ideogram-director-video-thumbnail.jpg)](https://youtu.be/Z8s27skkIDM)
 
-主要功能：绘制和编辑 bbox 区域；从 Local LLM Loader 或其他 STRING 来源导入 JSON 提示词；替换现有画板前先确认；明确拒绝格式错误的 JSON；提供 style / layout 预设图库；通过 Language 视图用你的语言阅读和编辑场景说明，同时最终输出保持为模型可用的英语，并原样保留招牌、Logo、标题等 TEXT 框中的文字。
+- 直接绘制和编辑 bbox 区域，并可临时禁用单个 box，无需删除或改变顺序。
+- 双击 bbox 可在指针附近编辑；在重叠处反复 `Alt`+单击，可轮流选中下方的 box。
+- 从 Local LLM Loader 或其他 STRING 来源导入 JSON 提示词，支持替换现有画板前确认，并明确拒绝格式错误的 JSON。
+- 可选的 Summary / Background STRING 输入会在本次运行时覆盖对应画板字段；未连接时继续使用保存的文本。
+- 提供 style / layout 预设图库和 Language 视图，可用自己的语言编辑说明。最终输出保持为模型可用的英语，招牌、Logo、标题等 TEXT 框内的文字保持原样。
+- 输出：`prompt`、`width`、`height`、`seed`、`bboxes`。
+- `bboxes` 可连接标准 `BBOX` 和 `Ideogram4_MultiLora_BoundingBoxNode_Fedor` 等节点的 `BOUNDING_BOX` 输入。该节点的区域行数跟随 Director 启用的 box 数量，无需增加 Director 保存字段。目前仅同步数量、不跟踪 box 身份，因此删除或重排中间的 box 后，请检查各 LoRA 行的分配。
 
 ### `(Deno) Resize Box`
 
@@ -64,7 +78,9 @@ ComfyUI 的分辨率辅助与图像缩放节点。
 
 ![Deno Resize Box](images/resize-box.jpg)
 
-主要功能：比例预设、手动输入、基于百万像素的尺寸计算、`divisible_by` 对齐、Center Crop、可拖动的 Crop Position 与 Fit 缩放、节点内比例预览；Crop Position 会将已连接的源图以半透明方式仅显示在实际输出框内，并可拖动图像调整可见位置；输出 `image`、`width`、`height`。
+主要功能：`Preset Ratio` / `Manual Input`、常用比例预设、基于百万像素的尺寸计算、`divisible_by` 对齐、`Center Crop (Fill)`、可锁定比例缩放的 `Crop Position (Fill)`、`Fit (Letterbox/Pillarbox)`、默认 `lanczos` 插值，以及 `image`、`width`、`height` 输出。
+
+`Crop Position (Fill)` 显示连接的完整源图。拖动裁剪框可调整位置，拖动任意角点可缩放裁剪范围，输出比例和百万像素数保持不变。
 
 ### `(Deno) Multi Image Loader`
 
@@ -81,6 +97,24 @@ ComfyUI 的分辨率辅助与图像缩放节点。
 它保留与 `(Deno) Multi Image Loader` 相同的上传、粘贴、拖放、Input Folder、卡片排序与清除操作。最多通过一个专用 `ref_images` 接口传入 9 张有序参考图；每张图的原始尺寸和宽高比都会单独保留，不做缩放、裁剪或填充。卡片顺序对应 `<Picture 1>`、`<Picture 2>` 等编号，相同图片还会通过 `image_list` 输出，可直接连接到 `(Deno) Local LLM Loader` 的 `image` 输入。
 
 配套的 `(Deno) MiniMax H3 Reference to Video` 只把图片输入合并为一个接口，原生的参考视频、视频音频和独立音频 Autogrow 输入保持不变。这两个 MiniMax H3 节点需要 ComfyUI 0.30.0 或更高版本。完整配置可查看 [MiniMax H3 多参考图示例工作流](workflows/minimax-h3-multi-reference.json)。
+
+### `(Deno) MiniMax H3 Acc LoRA Loader`
+
+直接加载 Alibaba PAI 官方的 [MiniMax-H3-Acc-LoRAs](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs)，无需转换或复制 safetensors 文件。
+
+1. 下载官方 FL2VA 或 Ref2VA 的 `Acc-8Step.safetensors`，放入常规的 `ComfyUI/models/loras/` 或专用的 `ComfyUI/models/minimax_h3_acc_loras/` 文件夹。
+2. 将匹配的原生 MiniMax H3 diffusion model 连接到 `model`；支持完整模型和 Comfy-Org 的 `*_pruned_*` 版本。
+3. 选择匹配的 Acc-LoRA：FL2VA/T2VA 使用 FL2VA，Ref2VA 使用 Ref2VA。
+4. 将本节点唯一的 `model` 输出接入正常的 guider 路径。
+5. 使用 ComfyUI 标准节点搭建采样路径。推荐从 `BasicScheduler: simple, steps: 8` 与 `KSamplerSelect: euler` 开始，将它们连接到 `SamplerCustomAdvanced`。
+
+节点应用静态 LoRA 权重以及 checkpoint 的32个随时间变化的 PDD 输出头。采样时，它读取 ComfyUI 提供的实际 sigma 边界，并自动融合对应区间的 PDD 输出头，因此 sampler、scheduler 和步数仍由常规 ComfyUI 节点控制。官方8步 Simple/Euler 是训练时使用的配置，也是推荐配置。无需更换 loader 即可选择4至12步的 Simple Scheduler；其他降序 schedule 或用于 latent upscale 的分段 sigma pass 可用于实验，但不保证提升质量。请保持原生 MiniMax H3 的 video/audio sigma shift 为 `12.0 / 3.0`，LoRA strength 为 `1.0`。
+
+对于未裁剪的完整模型，包括原生 ComfyUI INT8 版本，节点通过 ComfyUI 常规的量化感知 LoRA 路径应用完整 adapter。对于 curve-pruned 模型，它会在 `models/diffusion_models/` 中寻找匹配的未裁剪 MiniMax H3 checkpoint，仅读取其中较小的 FP32 time-embedder 部分，在内存中计算 bridge，将全部50项完整宽度的 AdaLN LoRA 更新转换到裁剪后的8维 curve。该计算不会加载整个 checkpoint。未安装匹配的完整 checkpoint 时，loader 仍可在兼容模式中使用：警告一次，跳过这50项 AdaLN 更新，并继续应用其余全部 LoRA 更新和 PDD 输出头。
+
+使用 v0.7.92–v0.7.94 三输出 loader 保存的标准、启用状态的 UI workflow，会在 ComfyUI 画布加载时迁移。现有 model 连线保持不变，旧 sampler 和 sigmas 连线移到可编辑的标准 `KSamplerSelect: euler` 与 `BasicScheduler: simple, steps: 8` 节点。打开后请保存一次 UI workflow。当前单输出 workflow 不会改变。静音或 bypass 节点、未知的自定义布局和格式损坏的 graph 会保持原样。原始 API prompt JSON 不会执行此 frontend 迁移，请从迁移后的 UI workflow 重新导出。如果文件已在旧 sampler / sigmas 连线消失后保存，请手动重新连接这些标准节点。
+
+Deno Custom Nodes 不附带 LoRA 权重或工作流。请从 Alibaba 下载权重，并自行搭建或调整原生 ComfyUI workflow。
 
 ### MiniMax H3 R2V 音频参考工作流
 
@@ -252,9 +286,11 @@ Negative preset 不是输出模式，而是自动填充下方 negative prompt �
 
 用于从 ComfyUI 调用已经在本机运行的本地 LLM，并用 LLM 生成的 review text 决定保存前结果通过或阻止的节点。
 
-主要功能：调用 Ollama、LM Studio、llama.cpp、vLLM、Custom OpenAI-compatible server、llama-swap 或 Unsloth Studio 模型；仅允许 `127.0.0.1` / `localhost` 的本地安全限制；刷新各 provider 的模型列表；停止正在运行的请求；通过 llama-swap / Unsloth Studio 管理 API 手动或在运行后卸载；在一次节点运行中顺序处理 prompt batch；向 vision 模型附加 IMAGE；预览 Thinking / Result；在 Save 节点前 gate IMAGE / AUDIO；一次性批准当前 review 结果；或只重跑 reviewer 前的路径。Local LLM 节点的最终 Result 会写入 PNG / workflow metadata，重新打开时恢复到节点中，而 Thinking / reasoning 不会保存。
+主要功能：调用 Ollama、LM Studio、llama.cpp、vLLM、Custom OpenAI-compatible server、llama-swap 或 Unsloth Studio 模型；默认使用 `127.0.0.1` / `localhost`，也可通过 `DENO_LOCAL_LLM_ALLOWED_HOSTS` 明确允许私有局域网的精确 `IP:port`；刷新各 provider 的模型列表；停止正在运行的请求；通过 llama-swap / Unsloth Studio 管理 API 手动或在运行后卸载；在一次节点运行中顺序处理 prompt batch；向 vision 模型附加 IMAGE；预览 Thinking / Result；在 Save 节点前 gate IMAGE / AUDIO；一次性批准当前 review 结果；或只重跑 reviewer 前的路径。Local LLM 节点的最终 Result 会写入 PNG / workflow metadata，重新打开时恢复到节点中，而 Thinking / reasoning 不会保存。
 
 `Unsloth` provider 仅用于 Unsloth Studio server，默认地址是 `http://127.0.0.1:8888/v1`。若在 LM Studio 中运行来自 Unsloth 的 GGUF，请选择 `LM Studio` 而非 `Unsloth`。使用前需要在启动 ComfyUI 之前设置 `DENO_LOCAL_LLM_UNSLOTH_API_KEY` 环境变量；该 key 不会保存到 workflow 或 PNG metadata。
+
+远程 LM Studio：专用 `LM Studio` provider 当前使用 `http://127.0.0.1:1234/v1`。若要调用同一可信局域网内自己另一台 PC 上的 LM Studio，请在该 PC 启用 **Serve on Local Network**，在启动 ComfyUI 前设置精确允许列表（例如 `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`），重启 ComfyUI，然后选择 `Custom`，将 Custom Server URL 设为 `http://192.168.1.50:1234/v1`。允许列表仅接受精确匹配的私有 IP 与端口，不会保存到 workflow 或 PNG metadata。Custom 连接器当前不发送认证 token，也不使用 LM Studio 专用的卸载功能，因此请用服务器 PC 的防火墙将该端口的访问限制为 ComfyUI PC，并在 LM Studio 中管理远程模型。
 
 如果 LM Studio 在开始生成前拒绝可选的 reasoning-control 字段，节点会去掉该字段并重试一次。之后的 reasoning 行为由所选 server 与 model 的默认设置决定。
 
@@ -266,11 +302,14 @@ Negative preset 不是输出模式，而是自动填充下方 negative prompt �
 
 ## Search Tips
 
-请优先在 ComfyUI Manager 中搜索 `Deno Custom Nodes`。在 GitHub、Manager 与 Registry 中还可使用：`deno custom nodes`、`ideogram director`、`minimax h3`、`audio transcript`、`whisper`、`text encoder unload`、`clip unload`、`dynamic vram`、`vram barrier`、`multi lora`、`ltx 2.5`、`ltx model loader`、`local llm loader`、`local llm reviewer`、`prompt text`、`ollama`、`lm studio`、`llama.cpp`、`vllm`、`llama-swap`、`unsloth studio`、`bernini conditioning`、`image compare`、`video compare`、`video preview`、`visual fold`、`floating tools`、`free vram`、`comfyui stable`、`error help`、`workflow diagnostics`。
+- 在 Manager 中查找软件包时，搜索 `Deno Custom Nodes`。
+- 在画布中搜索 `(Deno)` 可筛选本包节点，也可直接搜索 `Resize Box` 等节点名。
+- 点击节点的绿色 `i` 按钮，即可就地查看使用说明。
 
 ## Install
 
-推荐方法：在 ComfyUI Manager 中搜索 `Deno Custom Nodes` 并安装，然后重启 ComfyUI。
+<details>
+<summary>手动安装和更新</summary>
 
 手动安装时，请在 ComfyUI 的 `custom_nodes` 文件夹中 clone，并使用启动 ComfyUI 的同一个 Python 安装依赖：
 
@@ -281,6 +320,20 @@ python -m pip install -r requirements.txt
 ```
 
 手动更新时，在仓库文件夹中运行 `git pull --ff-only`，再用同一个 Python 重新安装 `requirements.txt`，最后重启 ComfyUI。通过 ComfyUI Manager / Registry 安装时，软件包依赖会自动处理。
+
+</details>
+
+## License
+
+你可以在 GPL-3.0 下使用、学习、修改和再分发这个 repo。
+
+本 repo 中由 DENO 拥有的节点、文档、示例、工作流和项目内素材采用 GNU GPL v3.0 (`GPL-3.0-only`) 发布。可以用于商业用途，但分发修改版本时必须遵循 GPL-3.0，并保留所需的许可证和版权声明。
+
+第三方模型、checkpoint、LoRA、库、工具和服务仍然适用各自的许可证和使用条款。如果某个工作流使用了特定模型或素材，请在分享或销售输出前确认并遵守对应许可证。
+
+## Release Notes
+
+更新内容请见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ## Links
 

@@ -6,19 +6,27 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-この repo は GPL-3.0 のもとで利用、学習、変更、再配布できます。
+画像・動画の準備、モデルの読み込み、キャンバスの整理を手助けする ComfyUI カスタムノード集です。
 
-この repo に含まれる DENO 所有のノード、ドキュメント、サンプル、ワークフロー、プロジェクト内アセットは GNU GPL v3.0 (`GPL-3.0-only`) で公開されています。商用利用も可能ですが、変更版を配布する場合は GPL-3.0 に従い、必要なライセンス表示と著作権表示を保持してください。
+[GPL-3.0](../LICENSE)
 
-外部モデル、チェックポイント、LoRA、ライブラリ、ツール、サービスには、それぞれのライセンスと利用条件があります。特定のモデルやアセットを使うワークフローを共有または販売する場合は、そのライセンスを確認して従ってください。
+- **画像を準備・比較する:** [Resize Box、画像ローダー、比較ノード](#deno-resize-box)。
+- **生成ワークフローを組む:** [MiniMax H3](#deno-minimax-h3-multi-reference-image-loader)、[LTX](#deno-ltx-model-loader)、[ローカル LLM](#deno-local-llm-loader--deno-local-llm-reviewer)。
+- **キャンバスと出力を整理する:** [Visual Fold](#deno-visual-fold)、[Floating Tools](#deno-floating-tools)、[ブラウザツール](#web-tools)。
 
-Deno Custom Nodes は、ComfyUI の実制作でよく繰り返す画像、動画、LTX、RTX、モデル準備の作業を、より速く、分かりやすく、日常的に使いやすくするためのカスタムノード集です。
+## Quick Start
+
+ComfyUI がインストール済みの環境で始めてください。
+
+1. ComfyUI Manager を開き、`Deno Custom Nodes` を検索します。
+2. パッケージをインストールし、ComfyUI を再起動します。
+3. キャンバスの空いている場所をダブルクリックし、`(Deno) Resize Box` を検索して追加します。
+4. `Preset Ratio` と megapixels を選び、出力の `width` / `height` を設定します。
+5. `Load Image` を追加して画像を選択またはアップロードし、その `IMAGE` 出力を Resize Box の `image` 入力へ接続します。Resize Box の `image` 出力を `Preview Image` へ接続し、`Run` でリサイズ結果を確認します。
+
+[全ノード](#included-nodes) · [ブラウザツール](#web-tools) · [Visual Fold](#deno-visual-fold) · [Floating Tools](#deno-floating-tools) · [手動インストール](#install) · [ライセンス](#license)
 
 多くの Deno ノードには、キャンバスを離れずに説明を確認できる小さな緑色の `i` ボタンがあります。新しい Deno Custom Nodes バージョンがある場合、このボタンは黄色になり、小さな `!` バッジを表示します。
-
-## Release Notes
-
-公開アップデートは [CHANGELOG.md](../CHANGELOG.md) に短く記録します。
 
 ## Web Tools
 
@@ -30,11 +38,11 @@ Deno Custom Nodes は、ComfyUI の実制作でよく繰り返す画像、動画
 
 ## DENO Visual Fold
 
-![DENO Visual Fold](images/deno-visual-fold.webp)
+[![DENO Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
 
 DENO Visual Fold は、大きな ComfyUI グラフを視覚的に整理するための機能です。ノードやグループを折りたたんでも、ワークフローのロジックは変更されません。
 
-2つ以上のノードを選択すると、キャンバス右上付近に緑色の `Fold` ボタンが表示されます。クリックすると選択したノードが1つのコンパクトな視覚グループとして折りたたまれ、`Unfold` で戻せます。通常の ComfyUI グループを1つ選んだ場合は `Fold Group` を使えます。複数グループを選ぶと整列アクションも表示されます。
+2つ以上のノードを選択すると、ComfyUI 標準の選択ツールバーに緑色の `Fold` ボタンが表示されます。クリックすると選択したノードが1つのコンパクトな視覚グループとして折りたたまれ、`Unfold` で戻せます。通常の ComfyUI グループを1つ選んだ場合は `Fold Group` を使えます。複数グループを選ぶと整列アクションも表示されます。
 
 Subgraph はノードを子グラフへ移動しますが、Visual Fold は単なる視覚整理です。`Get` / `Set` ノードや親子グラフ構造をメイン画面に残したい時に便利です。
 
@@ -54,9 +62,15 @@ Floating Tools はインストール、更新、再起動、修復、ワーク�
 
 構造化 JSON caption と bbox レイアウトを ComfyUI キャンバス上で編集する、Ideogram 4 向けの視覚的プロンプトビルダーです。
 
-![Deno Ideogram Director](images/ideogram-director.png)
+[![Ideogram Director — Demo](images/ideogram-director-video-thumbnail.jpg)](https://youtu.be/Z8s27skkIDM)
 
-主な機能: bbox 領域の描画と編集、Local LLM Loader または他の STRING ソースからの JSON prompt 取り込み、既存ボードを置き換える前の確認、不正な JSON の明確な拒否、style / layout preset gallery、説明を自分の言語で読み書きしながら最終出力は生成用英語に保ち、看板やロゴなど TEXT box の文字列はそのまま維持する Language view。
+- bbox 領域を描画・編集し、順序を変えずに個別の box を一時無効化できます。
+- bbox をダブルクリックするとポインターの近くで編集でき、重なった位置を `Alt`+クリックで繰り返し選ぶと下の box を順に切り替えられます。
+- Local LLM Loader などの STRING ソースから JSON prompt を読み込み、既存 board の置換確認と不正な JSON の明確な拒否に対応します。
+- 任意の Summary / Background STRING 入力は、その実行時だけ対応する board 欄を上書きします。未接続時は保存された文章を使います。
+- style / layout preset gallery と Language view で説明を自分の言語で編集できます。最終出力は生成用英語を保ち、看板やロゴ、見出しなど TEXT box 内の文字列はそのまま維持します。
+- 出力: `prompt`, `width`, `height`, `seed`, `bboxes`。
+- `bboxes` は標準 `BBOX` と、`Ideogram4_MultiLora_BoundingBoxNode_Fedor` などの `BOUNDING_BOX` 入力に接続できます。同ノードの region 行数は Director の有効 box 数に同期し、Director の保存 field は増えません。現在は個数だけの同期で box 自体の識別は追跡しないため、途中の box を削除・並べ替えた後は LoRA 行の割り当てを確認してください。
 
 ### `(Deno) Resize Box`
 
@@ -64,7 +78,9 @@ ComfyUI 用の解像度補助と画像リサイズノードです。
 
 ![Deno Resize Box](images/resize-box.jpg)
 
-主な機能: 比率プリセット、手入力、メガピクセル計算、`divisible_by` 整列、Center Crop・ドラッグ可能な Crop Position・Fit リサイズ、ノード内の比率プレビュー、Crop Position では接続した元画像を半透明で実際の出力フレーム内だけに表示し、画像のドラッグで表示位置を調整、`image`, `width`, `height` 出力。
+主な機能: `Preset Ratio` / `Manual Input`、比率プリセット、メガピクセル計算、`divisible_by` 整列、`Center Crop (Fill)`、比率固定でズーム可能な `Crop Position (Fill)`、`Fit (Letterbox/Pillarbox)`、既定の `lanczos` 補間、`image`, `width`, `height` 出力。
+
+`Crop Position (Fill)` は接続した元画像全体を表示します。crop 枠をドラッグして位置を変え、四隅のいずれかをドラッグしてズームできます。出力比率とメガピクセル数は維持されます。
 
 ### `(Deno) Multi Image Loader`
 
@@ -81,6 +97,24 @@ ComfyUI 標準の MiniMax H3 Reference to Video ワークフロー向けに、�
 `(Deno) Multi Image Loader` と同じ upload、paste、drag-and-drop、Input Folder、カード並べ替え、削除の操作感を保ちます。最大9枚を専用の `ref_images` socket から渡し、各画像の元のサイズと縦横比を resize、crop、padding せず個別に保持します。カード順は `<Picture 1>`, `<Picture 2>` の順に対応し、同じ画像を `(Deno) Local LLM Loader` の `image` 入力へ接続できる `image_list` としても出力します。
 
 付属の `(Deno) MiniMax H3 Reference to Video` は画像入力だけを1本にまとめ、標準の reference video、video audio、standalone audio の Autogrow 入力は維持します。この2つの MiniMax H3 ノードには ComfyUI 0.30.0 以降が必要です。全体構成は [MiniMax H3 複数参照サンプルワークフロー](workflows/minimax-h3-multi-reference.json) で確認できます。
+
+### `(Deno) MiniMax H3 Acc LoRA Loader`
+
+Alibaba PAI 公式の [MiniMax-H3-Acc-LoRAs](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs) を、safetensors ファイルの変換や複製なしで直接読み込みます。
+
+1. 公式 FL2VA または Ref2VA の `Acc-8Step.safetensors` をダウンロードし、通常の `ComfyUI/models/loras/` または専用の `ComfyUI/models/minimax_h3_acc_loras/` に置きます。
+2. 対応する標準 MiniMax H3 diffusion model を `model` に接続します。full モデルと Comfy-Org の `*_pruned_*` 版に対応しています。
+3. FL2VA/T2VA には FL2VA、Ref2VA には Ref2VA の Acc-LoRA を選びます。
+4. このノードの単一 `model` 出力を通常の guider 経路に接続します。
+5. sampling 経路は ComfyUI 標準ノードで組みます。最初は `BasicScheduler: simple, steps: 8` と `KSamplerSelect: euler` を `SamplerCustomAdvanced` に接続する構成を推奨します。
+
+このノードは静的な LoRA 重みと checkpoint の32個の時間依存 PDD 出力 head を適用します。sampling 時に ComfyUI が渡す実際の sigma 境界を読み、その区間に合わせて PDD head を自動で融合するため、sampler・scheduler・step は通常の ComfyUI ノードで調整できます。公式の8-step Simple/Euler が学習時の構成であり、推奨設定です。loader を変更せず Simple Scheduler の4〜12 steps を選べますが、その他の降順 schedule や latent upscale 用の分割 sigma pass は実験用で、品質向上を保証するものではありません。標準 MiniMax H3 の video/audio sigma shift は `12.0 / 3.0`、LoRA strength は `1.0` を維持してください。
+
+標準 ComfyUI INT8 版を含む非 pruned の full モデルでは、ComfyUI の量子化対応 LoRA 経路で adapter 全体を適用します。curve-pruned モデルでは、`models/diffusion_models/` にある対応する非 pruned MiniMax H3 checkpoint を探し、その小さな FP32 time-embedder 部分だけを読み、50個すべての full-width AdaLN LoRA 更新を幅8の pruned curve に写す bridge をメモリー内で計算します。この計算のために checkpoint 全体を読み込むことはありません。対応する full checkpoint がない場合も互換モードで使用でき、1回警告して50個の AdaLN 更新を省略し、それ以外の LoRA 更新と PDD head を適用します。
+
+v0.7.92〜v0.7.94 の3出力 loader で保存した標準の有効な UI workflow は、ComfyUI キャンバスで開く際に移行されます。既存の model 接続を維持し、旧 sampler / sigmas 接続を編集可能な標準 `KSamplerSelect: euler` と `BasicScheduler: simple, steps: 8` に移します。開いた後に UI workflow を一度保存してください。現在の1出力 workflow は変更しません。mute / bypass ノード、未知のカスタム構成、不正な graph は変更しません。raw API prompt JSON にはこの frontend 移行が適用されないため、移行後の UI workflow から再エクスポートしてください。旧 sampler / sigmas 接続が消えた状態で既に保存したファイルは、標準ノードを手動で接続し直してください。
+
+LoRA 重みとワークフローは Deno Custom Nodes に同梱されません。Alibaba から重みをダウンロードし、標準 ComfyUI workflow を自分で組むか調整してください。
 
 ### MiniMax H3 R2V 音声参照ワークフロー
 
@@ -252,9 +286,11 @@ system prompt、user prompt、template、JSON などの長い文章を独立し�
 
 PC 上ですでに動作しているローカル LLM を ComfyUI から呼び出し、LLM の review text で保存前の結果を通すか止めるためのノードです。
 
-主な機能: Ollama、LM Studio、llama.cpp、vLLM、Custom OpenAI-compatible server、llama-swap、Unsloth Studio のローカルモデル呼び出し、`127.0.0.1` / `localhost` 専用の安全制限、provider 別 model list の更新、実行中 request の中止、llama-swap / Unsloth Studio の management API による手動または実行後 unload、prompt batch の順次処理、vision model への IMAGE 添付、Thinking / Result preview、Save node 前の IMAGE / AUDIO gate、現在の review 結果の1回承認、reviewer より前の経路だけの再実行。Local LLM node の最終 Result は PNG / workflow metadata に保存され、再度開くと node 内に復元されますが、Thinking / reasoning は保存されません。
+主な機能: Ollama、LM Studio、llama.cpp、vLLM、Custom OpenAI-compatible server、llama-swap、Unsloth Studio のローカルモデル呼び出し、既定では `127.0.0.1` / `localhost` を使い、`DENO_LOCAL_LLM_ALLOWED_HOSTS` で private LAN の正確な `IP:port` を明示許可できる server 制限、provider 別 model list の更新、実行中 request の中止、llama-swap / Unsloth Studio の management API による手動または実行後 unload、prompt batch の順次処理、vision model への IMAGE 添付、Thinking / Result preview、Save node 前の IMAGE / AUDIO gate、現在の review 結果の1回承認、reviewer より前の経路だけの再実行。Local LLM node の最終 Result は PNG / workflow metadata に保存され、再度開くと node 内に復元されますが、Thinking / reasoning は保存されません。
 
 `Unsloth` provider は Unsloth Studio server 専用で、既定 URL は `http://127.0.0.1:8888/v1` です。Unsloth の GGUF を LM Studio で動かす場合は `Unsloth` ではなく `LM Studio` を選びます。使用には ComfyUI 起動前に `DENO_LOCAL_LLM_UNSLOTH_API_KEY` 環境変数の設定が必要で、この key は workflow や PNG metadata に保存されません。
+
+別 PC の LM Studio: 専用の `LM Studio` provider は現在 `http://127.0.0.1:1234/v1` を使用します。同じ信頼できる LAN 内の自分の PC に接続する場合は、接続先で **Serve on Local Network** を有効にし、ComfyUI 起動前に正確な許可先（例: `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`）を設定して再起動します。その後 `Custom` を選び、Custom Server URL に `http://192.168.1.50:1234/v1` を指定してください。許可リストは private IP と port の完全一致だけに対応し、workflow / PNG metadata には保存されません。Custom 接続は認証 token を送信せず、LM Studio 専用 unload helper も使いません。接続先 firewall で server port の接続元を ComfyUI PC に制限し、リモートモデルは LM Studio 側で管理してください。
 
 LM Studio が生成開始前に任意の reasoning-control field を拒否した場合、node はその field を除いて1回だけ再試行します。その後の reasoning は選択した server と model の既定動作に従います。
 
@@ -266,11 +302,14 @@ LM Studio が生成開始前に任意の reasoning-control field を拒否した
 
 ## Search Tips
 
-まず ComfyUI Manager で `Deno Custom Nodes` を検索してください。GitHub、Manager、Registry では `deno custom nodes`, `ideogram director`, `minimax h3`, `audio transcript`, `whisper`, `text encoder unload`, `clip unload`, `dynamic vram`, `vram barrier`, `multi lora`, `ltx 2.5`, `ltx model loader`, `local llm loader`, `local llm reviewer`, `prompt text`, `ollama`, `lm studio`, `llama.cpp`, `vllm`, `llama-swap`, `unsloth studio`, `bernini conditioning`, `image compare`, `video compare`, `video preview`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `error help`, `workflow diagnostics` などでも検索できます。
+- Manager でパッケージを探すときは `Deno Custom Nodes` を検索します。
+- キャンバスでは `(Deno)` で絞り込むか、`Resize Box` など目的のノード名を検索します。
+- ノードの緑色の `i` ボタンから、その場で使い方を確認できます。
 
 ## Install
 
-推奨方法: ComfyUI Manager で `Deno Custom Nodes` を検索してインストールし、ComfyUI を再起動します。
+<details>
+<summary>手動インストールと更新</summary>
 
 手動インストールでは、ComfyUI の `custom_nodes` フォルダー内で clone し、ComfyUI を起動しているものと同じ Python で依存関係をインストールします。
 
@@ -281,6 +320,20 @@ python -m pip install -r requirements.txt
 ```
 
 手動更新では repository folder で `git pull --ff-only` を実行し、同じ Python で `requirements.txt` をもう一度インストールしてから ComfyUI を再起動します。ComfyUI Manager / Registry のインストールでは package dependency が自動で処理されます。
+
+</details>
+
+## License
+
+この repo は GPL-3.0 のもとで利用、学習、変更、再配布できます。
+
+この repo に含まれる DENO 所有のノード、ドキュメント、サンプル、ワークフロー、プロジェクト内アセットは GNU GPL v3.0 (`GPL-3.0-only`) で公開されています。商用利用も可能ですが、変更版を配布する場合は GPL-3.0 に従い、必要なライセンス表示と著作権表示を保持してください。
+
+外部モデル、チェックポイント、LoRA、ライブラリ、ツール、サービスには、それぞれのライセンスと利用条件があります。特定のモデルやアセットを使うワークフローを共有または販売する場合は、そのライセンスを確認して従ってください。
+
+## Release Notes
+
+更新内容は [CHANGELOG.md](../CHANGELOG.md) を参照してください。
 
 ## Links
 

@@ -6,19 +6,32 @@
 
 ![Deno Custom Nodes banner](images/deno-custom-nodes-banner.jpg)
 
-이 repo는 GPL-3.0에 따라 사용, 학습, 수정, 재배포할 수 있습니다.
+이미지 불러오기·크기 조절, 영상 비교, 모델 워크플로 구성을 돕는 실용 ComfyUI 노드 모음입니다.
 
-이 repo에 포함된 DENO 소유 노드, 문서, 예시, 워크플로우, 프로젝트 내 에셋은 GNU GPL v3.0 (`GPL-3.0-only`)으로 배포됩니다. 상업적 이용도 가능하지만, 수정본을 배포할 때는 GPL-3.0을 따라야 하며 필요한 라이선스와 저작권 고지를 유지해야 합니다.
+- **미디어 준비:** 이미지 로더, Resize Box, 이미지·영상 비교 도구.
+- **생성 워크플로 구성:** Ideogram, MiniMax H3, LTX, RTX 영상 도구, 로컬 LLM 연동.
+- **캔버스 정리:** Visual Fold와 선택형 Floating Tools.
 
-외부 모델, 체크포인트, LoRA, 라이브러리, 도구, 서비스는 각각의 라이선스와 이용 조건을 따릅니다. 특정 모델이나 에셋을 사용하는 워크플로우라면 공유하거나 판매하기 전에 해당 라이선스를 확인해 주세요.
+[빠른 시작](#quick-start) · [노드 목록](#included-nodes) · [브라우저 도구](#web-tools) · [최신 릴리스](https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/latest) · [GPL-3.0-only](#license)
 
-실제 ComfyUI 작업에서 반복되는 이미지, 비디오, LTX, RTX, 모델 설치 흐름을 더 빠르고 편하게 만들기 위한 Deno 커스텀 노드 모음입니다.
+## Quick Start
+
+ComfyUI가 설치되어 정상 실행되는 환경에서 시작하세요.
+
+1. **ComfyUI Manager**에서 `Deno Custom Nodes`를 검색해 설치합니다.
+2. ComfyUI를 다시 시작하고 브라우저 페이지를 새로고침합니다.
+3. 캔버스의 빈 곳을 더블클릭하고 `(Deno) Resize Box`를 검색해 추가합니다.
+4. 기본 `Load Image` 노드를 추가하고 이미지를 선택합니다. 이 노드를 Resize Box에 연결하고, Resize Box의 `image` 출력을 `Preview Image`에 연결합니다. 크기를 선택한 뒤 실행하면 조절된 이미지를 확인할 수 있습니다.
+
+이 첫 예제에는 생성 모델이 필요하지 않습니다. 모델별 노드와 RTX 노드의 추가 요구사항은 아래 설명을 확인하세요. Manager를 사용하지 않는 경우에는 [수동 설치](#install)를 참고하세요.
+
+### 다음 작업 선택
+
+- **미디어 준비·비교:** [Resize Box](#deno-resize-box), [Multi Image Loader](#deno-multi-image-loader), [Video Compare](#deno-video-compare)에서 시작하세요.
+- **모델로 생성:** [Ideogram Director](#deno-ideogram-director), [MiniMax H3](#deno-minimax-h3-multi-reference-image-loader), [LTX Model Loader](#deno-ltx-model-loader)의 요구사항과 예제를 확인하세요.
+- **정리·브라우저 작업:** [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools), 설치 없는 [웹 도구](#web-tools)를 사용하세요.
 
 대부분의 Deno 노드는 ComfyUI 캔버스를 벗어나지 않고 도움말을 볼 수 있는 작은 초록색 `i` 버튼을 포함합니다. 새 Deno Custom Nodes 버전이 있으면 버튼이 노란색으로 바뀌고 작은 `!` 배지가 표시됩니다.
-
-## Release Notes
-
-공개 업데이트 내역은 [CHANGELOG.md](../CHANGELOG.md)에 짧게 정리합니다.
 
 ## Web Tools
 
@@ -30,11 +43,13 @@
 
 ## DENO Visual Fold
 
-![DENO Visual Fold](images/deno-visual-fold.webp)
+[![DENO Visual Fold 데모 미리보기](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
+
+미리보기를 클릭하면 전체 데모를 볼 수 있습니다.
 
 DENO Visual Fold는 큰 ComfyUI 그래프를 시각적으로 정리하는 기능입니다. 여러 노드 또는 그룹을 접어도 워크플로우 로직은 바뀌지 않습니다.
 
-두 개 이상의 노드를 선택하면 캔버스 오른쪽 위 근처에 초록색 `Fold` 버튼이 나타납니다. 누르면 선택한 노드가 하나의 시각적 그룹처럼 접히고, `Unfold`로 다시 펼칠 수 있습니다. 일반 ComfyUI 그룹 하나를 선택하면 `Fold Group`으로 그룹 안의 노드를 접을 수 있고, 여러 그룹을 선택하면 정렬 버튼도 함께 나타납니다.
+두 개 이상의 노드를 선택하면 ComfyUI의 기본 선택 툴바에 초록색 `Fold` 버튼이 나타납니다. 누르면 선택한 노드가 하나의 시각적 그룹처럼 접히고, `Unfold`로 다시 펼칠 수 있습니다. 일반 ComfyUI 그룹 하나를 선택하면 `Fold Group`으로 그룹 안의 노드를 접을 수 있고, 여러 그룹을 선택하면 정렬 버튼도 함께 나타납니다.
 
 ComfyUI Subgraph는 노드를 하위 그래프로 이동시키는 기능입니다. Visual Fold는 그와 달리 정리 목적의 시각 기능입니다. `Get` / `Set` 노드나 부모-자식 그래프 구조를 그대로 보이게 두고 싶을 때 유용합니다.
 
@@ -307,11 +322,16 @@ LM Studio 호환 참고: LM Studio가 생성 출력을 시작하기 전에 선�
 
 ## Search Tips
 
-GitHub, ComfyUI Manager, Registry에서 `deno custom nodes`, `ideogram`, `ideogram 4`, `ideogram director`, `json prompt`, `bbox`, `bounding boxes`, `layout prompt`, `rtx video super resolution`, `nvidia vfx`, `image compare`, `video compare`, `video preview`, `video to gif`, `gif webp`, `ltx 2.3`, `ltx model loader`, `ltx tiled`, `ltx tiled sampler`, `ltx spatial upscaler`, `ltx multi lora`, `prompt guide`, `system prompt`, `local llm loader`, `local llm prompt`, `local llm reviewer`, `prompt only`, `final prompt`, `ai reviewer`, `media reviewer`, `audio review gate`, `ollama`, `lm studio`, `llama.cpp`, `vllm`, `llama-swap`, `unsloth`, `unsloth studio`, `minimax h3`, `audio transcript`, `whisper`, `text encoder unload`, `clip unload`, `dynamic vram`, `vram barrier`, `bernini`, `bernini prompt guide`, `bernini conditioning`, `comfyui bernini`, `kj bernini`, `reference video edit`, `wan-2.2`, `wan2.2`, `visual fold`, `floating tools`, `free vram`, `comfyui stable`, `stable update check`, `error help`, `comfyui error help`, `sos report`, `gpt gemini report`, `workflow diagnostics` 같은 키워드로 찾을 수 있습니다.
+- ComfyUI Manager와 Registry에서는 `Deno Custom Nodes`를 검색하세요.
+- 캔버스에서는 `(Deno)` 또는 `Resize Box` 같은 노드 이름을 검색하세요.
+- 필요한 도구와 요구사항은 [노드 목록](#included-nodes)에서 찾을 수 있습니다.
 
 ## Install
 
-권장 방법: ComfyUI Manager에서 `Deno Custom Nodes`를 검색해 설치한 뒤 ComfyUI를 다시 시작합니다.
+권장하는 Manager 설치 방법은 [빠른 시작](#quick-start)을 참고하세요.
+
+<details>
+<summary>수동 설치와 업데이트</summary>
 
 수동 설치는 ComfyUI의 `custom_nodes` 폴더 안에서 clone하고, ComfyUI를 실행하는 동일한 Python으로 의존성을 설치합니다.
 
@@ -322,6 +342,18 @@ python -m pip install -r requirements.txt
 ```
 
 수동 업데이트는 저장소 폴더에서 `git pull --ff-only`를 실행하고, 같은 Python으로 `requirements.txt`를 다시 설치한 뒤 ComfyUI를 재시작하세요. ComfyUI Manager/Registry 설치는 패키지 의존성을 자동으로 처리합니다.
+
+</details>
+
+## License
+
+DENO 소유 노드, 문서, 예시, 워크플로우, 프로젝트 내 에셋은 GNU GPL v3.0 (`GPL-3.0-only`)으로 배포됩니다. [GPL-3.0 조건](../LICENSE)에 따라 사용, 학습, 수정, 재배포할 수 있으며 상업적 이용도 가능합니다. 수정본을 배포할 때는 GPL-3.0을 따르고 필요한 라이선스와 저작권 고지를 유지해야 합니다.
+
+외부 모델, 체크포인트, LoRA, 라이브러리, 도구, 서비스는 각각의 라이선스와 이용 조건을 따릅니다. 특정 모델이나 에셋을 사용하거나 그 결과물을 공유·판매하기 전에 해당 조건을 확인하세요.
+
+## Release Notes
+
+업데이트 내용은 [최신 릴리스](https://github.com/Deno2026/comfyui-deno-custom-nodes/releases/latest)와 [CHANGELOG.md](../CHANGELOG.md)에서 확인할 수 있습니다.
 
 ## Links
 
