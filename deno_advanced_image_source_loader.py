@@ -1,16 +1,15 @@
 import hashlib
-import http.client
 import io
 import ipaddress
 import os
 import socket
 import urllib.error
 import urllib.parse
-import urllib.request
 from typing import List
 
 import numpy as np
 import torch
+import urllib3
 from aiohttp import web
 from PIL import Image, ImageOps
 from server import PromptServer
@@ -42,57 +41,6 @@ ADVANCED_RESIZE_METHODS = list(dict.fromkeys([
     "Top Crop (Fill)",
     "Bottom Crop (Fill)",
 ]))
-
-
-class _DenoNoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-def _pinned_remote_connection(connection_type, addresses):
-    def create_socket(_address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
-        last_error = None
-        for _family, _sock_type, _proto, _canonname, sockaddr in addresses:
-            try:
-                # The standard library owns socket setup and failure cleanup.
-                # Its target is the validated numeric IP, never the URL hostname.
-                return socket.create_connection(
-                    (sockaddr[0], sockaddr[1]), timeout=timeout, source_address=source_address,
-                )
-            except OSError as exc:
-                last_error = exc
-        raise last_error or OSError("No validated remote image address.")
-
-    def create_connection(host, **kwargs):
-        connection = connection_type(host, **kwargs)
-        # Keep the original host on HTTPConnection: it owns the Host header
-        # and, for HTTPS, certificate hostname verification and TLS SNI.
-        connection._create_connection = create_socket
-        return connection
-
-    return create_connection
-
-
-class _DenoPinnedHTTPHandler(urllib.request.HTTPHandler):
-    def http_open(self, request):
-        return self.do_open(
-            _pinned_remote_connection(http.client.HTTPConnection, request._deno_remote_addresses),
-            request,
-        )
-
-
-class _DenoPinnedHTTPSHandler(urllib.request.HTTPSHandler):
-    def https_open(self, request):
-        return self.do_open(
-            _pinned_remote_connection(http.client.HTTPSConnection, request._deno_remote_addresses),
-            request, context=self._context,
-        )
-
-
-_REMOTE_IMAGE_OPENER = urllib.request.build_opener(
-    urllib.request.ProxyHandler({}), _DenoNoRedirectHandler,
-    _DenoPinnedHTTPHandler, _DenoPinnedHTTPSHandler,
-)
 
 
 def _is_loopback_request(request) -> bool:
@@ -291,59 +239,97 @@ def _resolve_remote_image_addresses(source: str):
     return addr_infos
 
 
+def _open_remote_image_response(source: str, addresses):
+    parsed = urllib.parse.urlsplit(source)
+    hostname = parsed.hostname
+    authority = f"[{hostname}]" if ":" in hostname else hostname
+    if parsed.port is not None:
+        authority += f":{parsed.port}"
+    path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+    headers = {
+        "Host": authority,
+        "User-Agent": "DENO-ComfyUI-Custom-Nodes/0.4",
+    }
+    last_error = None
+    for _family, _sock_type, _proto, _canonname, sockaddr in addresses:
+        # Connect to a validated IP while the original hostname still owns
+        # HTTP routing, TLS SNI and certificate hostname verification.
+        if parsed.scheme.lower() == "https":
+            pool = urllib3.HTTPSConnectionPool(
+                sockaddr[0], port=sockaddr[1], server_hostname=hostname,
+                assert_hostname=hostname, cert_reqs="CERT_REQUIRED",
+            )
+        else:
+            pool = urllib3.HTTPConnectionPool(sockaddr[0], port=sockaddr[1])
+        response = None
+        try:
+            response = pool.urlopen(
+                "GET", path, headers=headers, assert_same_host=False,
+                redirect=False, retries=False, preload_content=False,
+                decode_content=False, timeout=REMOTE_IMAGE_TIMEOUT_SECONDS,
+            )
+            return pool, response
+        except urllib3.exceptions.ConnectTimeoutError as exc:
+            # Includes NewConnectionError. Once an HTTP response arrives, do
+            # not retry another IP for its status, body or TLS validation.
+            last_error = exc
+        except urllib3.exceptions.HTTPError as exc:
+            raise urllib.error.URLError(exc) from exc
+        finally:
+            if response is None:
+                pool.close()
+    raise urllib.error.URLError(last_error or "No validated remote image address.")
+
+
 def _read_remote_image_bytes(source: str) -> bytes:
     current_source = source
-    response = None
     for _redirect_count in range(REMOTE_IMAGE_MAX_REDIRECTS + 1):
         addresses = _resolve_remote_image_addresses(current_source)
         if not addresses:
             label = "redirect target" if _redirect_count else "URL"
             raise ValueError(f"Remote image {label} is not allowed.")
-        request = urllib.request.Request(
-            current_source,
-            headers={"User-Agent": "DENO-ComfyUI-Custom-Nodes/0.4"},
-            method="GET",
-        )
-        request._deno_remote_addresses = addresses
+        pool, response = _open_remote_image_response(current_source, addresses)
         try:
-            response = _REMOTE_IMAGE_OPENER.open(request, timeout=REMOTE_IMAGE_TIMEOUT_SECONDS)
-            break
-        except urllib.error.HTTPError as exc:
-            if exc.code not in {301, 302, 303, 307, 308}:
-                raise
+            if response.status in {301, 302, 303, 307, 308}:
+                redirect_target = response.headers.get("Location")
+                if not redirect_target:
+                    raise ValueError("Remote image redirect did not include a Location header.")
+                current_source = urllib.parse.urljoin(current_source, redirect_target)
+                continue
+            if not 200 <= response.status < 300:
+                raise urllib.error.HTTPError(
+                    current_source, response.status, response.reason, response.headers, None,
+                )
+            content_type = str(response.headers.get("Content-Type", "")).lower()
+            if content_type and not (
+                content_type.startswith("image/")
+                or content_type.startswith("application/octet-stream")
+                or content_type.startswith("binary/octet-stream")
+            ):
+                raise ValueError(f"Remote URL did not return an image content type: {content_type}")
 
-            redirect_target = exc.headers.get("Location")
-            exc.close()
-            if not redirect_target:
-                raise ValueError("Remote image redirect did not include a Location header.")
-
-            current_source = urllib.parse.urljoin(current_source, redirect_target)
-    else:
-        raise ValueError("Remote image redirected too many times.")
-
-    if response is None:
-        raise ValueError("Remote image request failed.")
-
-    with response:
-        content_type = str(response.headers.get("Content-Type", "")).lower()
-        if content_type and not (
-            content_type.startswith("image/")
-            or content_type.startswith("application/octet-stream")
-            or content_type.startswith("binary/octet-stream")
-        ):
-            raise ValueError(f"Remote URL did not return an image content type: {content_type}")
-
-        chunks = []
-        total = 0
-        while True:
-            chunk = response.read(1024 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > REMOTE_IMAGE_MAX_BYTES:
-                raise ValueError("Remote image is too large.")
-            chunks.append(chunk)
-        return b"".join(chunks)
+            chunks = []
+            total = 0
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > REMOTE_IMAGE_MAX_BYTES:
+                    raise ValueError("Remote image is too large.")
+                chunks.append(chunk)
+            return b"".join(chunks)
+        except urllib3.exceptions.HTTPError as exc:
+            raise urllib.error.URLError(exc) from exc
+        finally:
+            try:
+                try:
+                    response.close()
+                finally:
+                    response.release_conn()
+            finally:
+                pool.close()
+    raise ValueError("Remote image redirected too many times.")
 
 
 def _open_image_source(source: str) -> Image.Image | None:

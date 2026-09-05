@@ -2777,30 +2777,20 @@ def test_advanced_image_source_loader_skips_unreadable_external_folder():
     assert sources == []
 
 
-def test_advanced_remote_image_redirect_revalidates_target():
+def test_advanced_remote_image_redirect_revalidates_target(monkeypatch):
     load_package()
     advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
 
-    class RedirectToLocalhostOpener:
-        def open(self, request, timeout):
-            raise urllib.error.HTTPError(
-                request.full_url,
-                302,
-                "Found",
-                {"Location": "http://127.0.0.1/private.png"},
-                None,
-            )
-
-    original_opener = advanced._REMOTE_IMAGE_OPENER
-    advanced._REMOTE_IMAGE_OPENER = RedirectToLocalhostOpener()
-    try:
-        try:
-            advanced._read_remote_image_bytes("http://8.8.8.8/image.png")
-            assert False, "redirect to localhost should be rejected"
-        except ValueError as exc:
-            assert "redirect target" in str(exc)
-    finally:
-        advanced._REMOTE_IMAGE_OPENER = original_opener
+    response = types.SimpleNamespace(
+        status=302,
+        headers={"Location": "http://127.0.0.1/private.png"},
+        close=lambda: None,
+        release_conn=lambda: None,
+    )
+    pool = types.SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(advanced, "_open_remote_image_response", lambda *_args: (pool, response))
+    with pytest.raises(ValueError, match="redirect target"):
+        advanced._read_remote_image_bytes("http://8.8.8.8/image.png")
 
 
 def test_ltx_sequencer_declares_sync_controls():

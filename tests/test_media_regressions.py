@@ -1,6 +1,5 @@
 """Network-free URL boundary checks and CPU video comparison regressions."""
 
-import http.client
 import io
 import ipaddress
 import socket
@@ -11,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
+import urllib3
 
 from test_image_resize_node import load_package
 
@@ -49,9 +49,11 @@ class FakeSocket:
         self.connections = connections
         self.requests = requests
         self.closed = False
+        self.timeout_values = []
 
     def settimeout(self, timeout):
         self.timeout = timeout
+        self.timeout_values.append(timeout)
 
     def setsockopt(self, *args):
         pass
@@ -66,6 +68,9 @@ class FakeSocket:
 
     def makefile(self, *_args):
         return io.BytesIO(self.response)
+
+    def getpeercert(self):
+        return self.peer_certificate
 
     def close(self):
         self.closed = True
@@ -82,6 +87,33 @@ def fake_transport(monkeypatch, responses):
 
     monkeypatch.setattr(socket, "socket", new_socket)
     return connections, requests, sockets
+
+
+def fake_tls(monkeypatch, certificate_hostname):
+    calls = []
+
+    def wrap_socket(context, sock, *, server_hostname, **_kwargs):
+        calls.append((server_hostname, context.verify_mode))
+        sock.peer_certificate = {"subjectAltName": [("DNS", certificate_hostname)]}
+        return sock
+
+    monkeypatch.setattr(ssl.SSLContext, "wrap_socket", wrap_socket)
+    return calls
+
+
+def track_pools(monkeypatch):
+    pools = []
+
+    def factory(pool_type):
+        def create(*args, **kwargs):
+            pool = pool_type(*args, **kwargs)
+            pools.append(pool)
+            return pool
+        return create
+
+    for name in ("HTTPConnectionPool", "HTTPSConnectionPool"):
+        monkeypatch.setattr(urllib3, name, factory(getattr(urllib3, name)))
+    return pools
 
 
 IMAGE_RESPONSE = b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 5\r\n\r\nimage"
@@ -110,34 +142,35 @@ def test_remote_image_connects_only_to_validated_dns_answer(advanced, monkeypatc
     wire_request = b"".join(requests)
     assert b"Host: public.test:8188\r\n" in wire_request
     assert b"GET /image.png?x=1 HTTP/1.1\r\n" in wire_request
+    assert advanced.REMOTE_IMAGE_MAX_BYTES == 64 * 1024 * 1024
+    assert all(sock.timeout_values and set(sock.timeout_values) == {20} for sock in sockets)
     assert all(sock.closed for sock in sockets)
 
 
-def test_https_pins_address_but_preserves_hostname_verification(advanced, monkeypatch):
+@pytest.mark.parametrize("certificate_hostname,allowed", [
+    ("images.public.test", True), ("wrong.public.test", False),
+])
+def test_https_pins_address_but_preserves_hostname_verification(
+    advanced, monkeypatch, certificate_hostname, allowed,
+):
     monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *_args, **_kw:
-                        numeric_dns_answer(host, port) or [answer("8.8.8.8", port)])
-    connections, requests, _sockets = fake_transport(monkeypatch, [IMAGE_RESPONSE])
-    tls_calls = []
-    handler = next(h for h in advanced._REMOTE_IMAGE_OPENER.handlers
-                   if isinstance(h, advanced._DenoPinnedHTTPSHandler))
-    # Python 3.11 creates the default TLS context in HTTPSConnection; newer
-    # urllib versions may create it in HTTPSHandler instead.
-    context = advanced._pinned_remote_connection(http.client.HTTPSConnection, [])(
-        "images.public.test", context=handler._context,
-    )._context
-    assert context.check_hostname is True
-    assert context.verify_mode == ssl.CERT_REQUIRED
-
-    def wrap_socket(sock, *, server_hostname):
-        tls_calls.append(server_hostname)
-        return sock
-
-    monkeypatch.setattr(context, "wrap_socket", wrap_socket)
-    monkeypatch.setattr(handler, "_context", context)
-    assert advanced._read_remote_image_bytes("https://images.public.test/image.png") == b"image"
-    assert connections == [("8.8.8.8", 443)]
-    assert tls_calls == ["images.public.test"]
-    assert b"Host: images.public.test\r\n" in b"".join(requests)
+                        numeric_dns_answer(host, port) or
+                        [answer("8.8.8.8", port), answer("1.1.1.1", port)])
+    connections, requests, sockets = fake_transport(monkeypatch, [IMAGE_RESPONSE])
+    tls_calls = fake_tls(monkeypatch, certificate_hostname)
+    pools = track_pools(monkeypatch)
+    if allowed:
+        assert advanced._read_remote_image_bytes("https://images.public.test:8443/image.png") == b"image"
+        assert b"Host: images.public.test:8443\r\n" in b"".join(requests)
+    else:
+        with pytest.raises(urllib.error.URLError) as failure:
+            advanced._read_remote_image_bytes("https://images.public.test:8443/image.png")
+        assert isinstance(failure.value.reason, urllib3.exceptions.SSLError)
+        assert requests == []
+    assert connections == [("8.8.8.8", 8443)]
+    assert tls_calls == [("images.public.test", ssl.CERT_REQUIRED)]
+    assert all(sock.closed for sock in sockets)
+    assert all(pool.pool is None for pool in pools)
 
 
 @pytest.mark.parametrize("target_address,allowed", [("1.1.1.1", True), ("127.0.0.1", False)])
@@ -154,11 +187,8 @@ def test_remote_redirect_resolves_and_pins_each_target(advanced, monkeypatch, ta
     monkeypatch.setattr(socket, "getaddrinfo", resolve)
     redirect = b"HTTP/1.1 302 Found\r\nLocation: https://other.test/image.png\r\nContent-Length: 0\r\n\r\n"
     connections, _requests, sockets = fake_transport(monkeypatch, [redirect, IMAGE_RESPONSE])
-    handler = next(h for h in advanced._REMOTE_IMAGE_OPENER.handlers
-                   if isinstance(h, advanced._DenoPinnedHTTPSHandler))
-    context = ssl.create_default_context()
-    monkeypatch.setattr(context, "wrap_socket", lambda sock, **_kw: sock)
-    monkeypatch.setattr(handler, "_context", context)
+    fake_tls(monkeypatch, "other.test")
+    pools = track_pools(monkeypatch)
     if allowed:
         assert advanced._read_remote_image_bytes("http://public.test/image.png") == b"image"
         assert connections == [("8.8.8.8", 80), ("1.1.1.1", 443)]
@@ -168,6 +198,7 @@ def test_remote_redirect_resolves_and_pins_each_target(advanced, monkeypatch, ta
         assert connections == [("8.8.8.8", 80)]
     assert calls == ["public.test", "other.test"]
     assert all(sock.closed for sock in sockets)
+    assert all(pool.pool is None for pool in pools)
 
 
 @pytest.mark.parametrize("addresses", [[], ["127.0.0.1"], ["8.8.8.8", "10.0.0.1"], ["::1"], ["100.64.0.1"]])
@@ -197,16 +228,100 @@ def test_remote_tries_validated_addresses_and_releases_failed_transports(
     responses.append(IMAGE_RESPONSE if last_address_succeeds else
                      TimeoutError("last address timed out"))
     connections, requests, sockets = fake_transport(monkeypatch, responses)
+    pools = track_pools(monkeypatch)
     if last_address_succeeds:
         assert advanced._read_remote_image_bytes("http://public.test/image.png") == b"image"
         assert b"Host: public.test\r\n" in b"".join(requests)
     else:
-        with pytest.raises(urllib.error.URLError, match="last address timed out"):
+        with pytest.raises(urllib.error.URLError) as failure:
             advanced._read_remote_image_bytes("http://public.test/image.png")
+        assert isinstance(failure.value.reason, urllib3.exceptions.ConnectTimeoutError)
         assert requests == []
     assert dns_calls == [("public.test", 80)]
     assert connections == [("8.8.8.8", 80), ("1.1.1.1", 80)]
     assert len(sockets) == 2
+    assert all(sock.closed for sock in sockets)
+    assert all(pool.pool is None for pool in pools)
+
+
+def test_remote_http_error_does_not_retry_another_validated_ip(advanced, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *_args, **_kw:
+                        numeric_dns_answer(host, port) or
+                        [answer("8.8.8.8", port), answer("1.1.1.1", port)])
+    response = b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\n\r\n"
+    connections, _requests, sockets = fake_transport(monkeypatch, [response])
+    pools = track_pools(monkeypatch)
+    with pytest.raises(urllib.error.HTTPError) as failure:
+        advanced._read_remote_image_bytes("http://public.test/image.png")
+    assert failure.value.code == 503
+    assert connections == [("8.8.8.8", 80)]
+    assert len(pools) == 1
+    assert all(sock.closed for sock in sockets)
+    assert all(pool.pool is None for pool in pools)
+
+
+@pytest.mark.parametrize("response,exception,match", [
+    (b"HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n",
+     ValueError, "Location header"),
+    (b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\n\r\nimage",
+     ValueError, "content type"),
+    (IMAGE_RESPONSE, ValueError, "too large"),
+    (b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 6\r\n\r\nimage",
+     urllib.error.URLError, "IncompleteRead"),
+])
+def test_remote_rejections_release_partial_responses(
+    advanced, monkeypatch, response, exception, match,
+):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *_args, **_kw:
+                        numeric_dns_answer(host, port) or
+                        [answer("8.8.8.8", port), answer("1.1.1.1", port)])
+    if match == "too large":
+        monkeypatch.setattr(advanced, "REMOTE_IMAGE_MAX_BYTES", 4)
+    connections, _requests, sockets = fake_transport(monkeypatch, [response])
+    pools = track_pools(monkeypatch)
+    with pytest.raises(exception, match=match):
+        advanced._read_remote_image_bytes("http://public.test/image.png")
+    assert connections == [("8.8.8.8", 80)]
+    assert all(sock.closed for sock in sockets)
+    assert all(pool.pool is None for pool in pools)
+
+
+def test_remote_redirect_limit_is_bounded_and_releases_every_response(advanced, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *_args, **_kw:
+                        numeric_dns_answer(host, port) or [answer("8.8.8.8", port)])
+    redirect = b"HTTP/1.1 302 Found\r\nLocation: /next.png\r\nContent-Length: 0\r\n\r\n"
+    connections, _requests, sockets = fake_transport(monkeypatch, [redirect] * 6)
+    pools = track_pools(monkeypatch)
+    with pytest.raises(ValueError, match="too many times"):
+        advanced._read_remote_image_bytes("http://public.test/image.png")
+    assert advanced.REMOTE_IMAGE_MAX_REDIRECTS == 5
+    assert len(connections) == len(pools) == 6
+    assert all(sock.closed for sock in sockets)
+    assert all(pool.pool is None for pool in pools)
+
+
+def test_remote_relative_redirect_preserves_origin_and_query(advanced, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *_args, **_kw:
+                        numeric_dns_answer(host, port) or [answer("8.8.8.8", port)])
+    redirect = b"HTTP/1.1 302 Found\r\nLocation: ../next.png?x=2\r\nContent-Length: 0\r\n\r\n"
+    _connections, requests, sockets = fake_transport(monkeypatch, [redirect, IMAGE_RESPONSE])
+    assert advanced._read_remote_image_bytes("http://public.test/images/image.png?x=1") == b"image"
+    wire = b"".join(requests)
+    assert b"GET /images/image.png?x=1 HTTP/1.1\r\n" in wire
+    assert b"GET /next.png?x=2 HTTP/1.1\r\n" in wire
+    assert wire.count(b"Host: public.test\r\n") == 2
+    assert all(sock.closed for sock in sockets)
+
+
+def test_remote_ipv6_url_preserves_bracketed_host_and_port(advanced, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *_args, **_kw:
+                        numeric_dns_answer(host, port))
+    connections, requests, sockets = fake_transport(monkeypatch, [IMAGE_RESPONSE])
+    assert advanced._read_remote_image_bytes(
+        "http://[2001:4860:4860::8888]:8188/image.png",
+    ) == b"image"
+    assert connections == [("2001:4860:4860::8888", 8188, 0, 0)]
+    assert b"Host: [2001:4860:4860::8888]:8188\r\n" in b"".join(requests)
     assert all(sock.closed for sock in sockets)
 
 

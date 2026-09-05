@@ -189,7 +189,9 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     classifiers = pyproject["project"]["classifiers"]
     assert "Operating System :: OS Independent" in classifiers
     assert "License :: OSI Approved :: GNU General Public License v3 (GPLv3)" in classifiers
-    assert pyproject["project"]["dependencies"] == ["openai-whisper>=20250625"]
+    assert pyproject["project"]["dependencies"] == [
+        "openai-whisper>=20250625", "urllib3>=2.7,<3",
+    ]
     requirements = [
         line.strip()
         for line in (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
@@ -592,7 +594,7 @@ def test_packaged_files_contain_no_scanner_trigger_literals():
     rules = _comfyignore_rules()
     triggers = (
         "subprocess.Popen(", "os.system(", "os.popen(", ".connect(",
-        "socket.socket(",
+        "socket.socket(", "socket.create_connection(",
     )
     # Inspect package text, including extensionless files. Tests are excluded
     # from the install package, so this rule's own examples are not shipped.

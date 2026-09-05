@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.103 - 2026-09-05
+
+- Moved URL image loading to urllib3's HTTP client, using its supported public-IP connection and original-host HTTPS verification options. Per-redirect address validation, direct connections, timeouts, response size limits, and saved workflows are preserved.
+- Supersedes v0.7.101 and v0.7.102, whose socket connection APIs were flagged by the Registry. Includes the fixes and internal optimizations listed under v0.7.101.
+
 ## 0.7.102 - 2026-09-05
 
 - Replaced URL image loading's manual socket management with the standard-library connection helper. Validated public IPs, original HTTP Host and HTTPS certificate checks, redirect validation, timeouts, and saved workflows are unchanged.
