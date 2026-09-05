@@ -586,18 +586,16 @@ def _is_excluded(rel_path, rules):
 
 
 def test_packaged_files_contain_no_scanner_trigger_literals():
-    # Simulate the published package (repo minus .comfyignore) and assert no
-    # shipped text file carries the exact YARA-trigger literals that flagged
-    # 0.6.x/0.7.x. This is the durable net so the flag cannot silently return.
+    # A regression check for source patterns observed in Registry reports.
+    # The Registry's scanner is private; this is not an equivalent scan or
+    # a guarantee that the service will activate a release.
     rules = _comfyignore_rules()
-    # Exact literals the scanner flagged us on, plus the obvious siblings.
-    # The scanner is a context-free substring matcher: a comment, a
-    # docstring, even THIS file's own rule text would trip it, so anything
-    # shipped must be free of these literals (tests/ is .comfyignore'd).
-    triggers = ("subprocess.Popen(", "os.system(", "os.popen(", ".connect(")
-    # Blacklist binaries only; everything else (incl. extensionless files
-    # like .comfyignore / LICENSE) is treated as scannable text, mirroring
-    # what the Registry scanner actually does.
+    triggers = (
+        "subprocess.Popen(", "os.system(", "os.popen(", ".connect(",
+        "socket.socket(",
+    )
+    # Inspect package text, including extensionless files. Tests are excluded
+    # from the install package, so this rule's own examples are not shipped.
     binary_ext = {
         ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".bmp",
         ".zip", ".gz", ".tar", ".7z", ".pyc", ".pyd", ".so", ".dll",

@@ -52,24 +52,15 @@ class _DenoNoRedirectHandler(urllib.request.HTTPRedirectHandler):
 def _pinned_remote_connection(connection_type, addresses):
     def create_socket(_address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
         last_error = None
-        for family, sock_type, proto, _canonname, sockaddr in addresses:
-            sock = None
+        for _family, _sock_type, _proto, _canonname, sockaddr in addresses:
             try:
-                sock = socket.socket(family, sock_type, proto)
-                if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
-                    sock.settimeout(timeout)
-                if source_address:
-                    sock.bind(source_address)
-                # sockaddr came from the validated DNS answer. Passing its IP
-                # directly to the socket avoids a second hostname resolution.
-                error = sock.connect_ex(sockaddr)
-                if error:
-                    raise OSError(error, os.strerror(error))
-                return sock
+                # The standard library owns socket setup and failure cleanup.
+                # Its target is the validated numeric IP, never the URL hostname.
+                return socket.create_connection(
+                    (sockaddr[0], sockaddr[1]), timeout=timeout, source_address=source_address,
+                )
             except OSError as exc:
                 last_error = exc
-                if sock is not None:
-                    sock.close()
         raise last_error or OSError("No validated remote image address.")
 
     def create_connection(host, **kwargs):

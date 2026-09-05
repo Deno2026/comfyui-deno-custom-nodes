@@ -2,9 +2,11 @@
 
 import http.client
 import io
+import ipaddress
 import socket
 import ssl
 import sys
+import urllib.error
 from types import SimpleNamespace
 
 import pytest
@@ -32,6 +34,15 @@ def answer(address, port):
     return (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, port))
 
 
+def numeric_dns_answer(host, port):
+    """Model getaddrinfo parsing a numeric IP without a hostname DNS query."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    return [answer(str(address), port)]
+
+
 class FakeSocket:
     def __init__(self, response, connections, requests):
         self.response = response
@@ -45,9 +56,10 @@ class FakeSocket:
     def setsockopt(self, *args):
         pass
 
-    def connect_ex(self, address):
+    def connect(self, address):
         self.connections.append(address)
-        return 0
+        if isinstance(self.response, OSError):
+            raise self.response
 
     def sendall(self, data):
         self.requests.append(data)
@@ -78,8 +90,13 @@ IMAGE_RESPONSE = b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length:
 @pytest.mark.parametrize("address", ["8.8.8.8", "2001:4860:4860::8888"])
 def test_remote_image_connects_only_to_validated_dns_answer(advanced, monkeypatch, address):
     dns_calls = []
+    numeric_calls = []
 
-    def rebinding_dns(host, port, **_kwargs):
+    def rebinding_dns(host, port, *_args, **_kwargs):
+        numeric = numeric_dns_answer(host, port)
+        if numeric is not None:
+            numeric_calls.append((host, port))
+            return numeric
         dns_calls.append((host, port))
         return [answer(address if len(dns_calls) == 1 else "127.0.0.1", port)]
 
@@ -88,6 +105,7 @@ def test_remote_image_connects_only_to_validated_dns_answer(advanced, monkeypatc
     connections, requests, sockets = fake_transport(monkeypatch, [IMAGE_RESPONSE])
     assert advanced._read_remote_image_bytes("http://public.test:8188/image.png?x=1") == b"image"
     assert dns_calls == [("public.test", 8188)]
+    assert numeric_calls == [(address, 8188)]
     assert connections == [answer(address, 8188)[4]]
     wire_request = b"".join(requests)
     assert b"Host: public.test:8188\r\n" in wire_request
@@ -96,7 +114,8 @@ def test_remote_image_connects_only_to_validated_dns_answer(advanced, monkeypatc
 
 
 def test_https_pins_address_but_preserves_hostname_verification(advanced, monkeypatch):
-    monkeypatch.setattr(socket, "getaddrinfo", lambda _host, port, **_kw: [answer("8.8.8.8", port)])
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *_args, **_kw:
+                        numeric_dns_answer(host, port) or [answer("8.8.8.8", port)])
     connections, requests, _sockets = fake_transport(monkeypatch, [IMAGE_RESPONSE])
     tls_calls = []
     handler = next(h for h in advanced._REMOTE_IMAGE_OPENER.handlers
@@ -125,7 +144,10 @@ def test_https_pins_address_but_preserves_hostname_verification(advanced, monkey
 def test_remote_redirect_resolves_and_pins_each_target(advanced, monkeypatch, target_address, allowed):
     calls = []
 
-    def resolve(host, port, **_kwargs):
+    def resolve(host, port, *_args, **_kwargs):
+        numeric = numeric_dns_answer(host, port)
+        if numeric is not None:
+            return numeric
         calls.append(host)
         return [answer("8.8.8.8" if host == "public.test" else target_address, port)]
 
@@ -155,6 +177,37 @@ def test_remote_rejects_empty_or_nonpublic_dns_answers_without_connecting(advanc
     with pytest.raises(ValueError, match="not allowed"):
         advanced._read_remote_image_bytes("http://public.test/image.png")
     assert connections == []
+
+
+@pytest.mark.parametrize("last_address_succeeds", [True, False])
+def test_remote_tries_validated_addresses_and_releases_failed_transports(
+    advanced, monkeypatch, last_address_succeeds,
+):
+    dns_calls = []
+
+    def resolve(host, port, *_args, **_kwargs):
+        numeric = numeric_dns_answer(host, port)
+        if numeric is not None:
+            return numeric
+        dns_calls.append((host, port))
+        return [answer("8.8.8.8", port), answer("1.1.1.1", port)]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    responses = [ConnectionRefusedError("first address unavailable")]
+    responses.append(IMAGE_RESPONSE if last_address_succeeds else
+                     TimeoutError("last address timed out"))
+    connections, requests, sockets = fake_transport(monkeypatch, responses)
+    if last_address_succeeds:
+        assert advanced._read_remote_image_bytes("http://public.test/image.png") == b"image"
+        assert b"Host: public.test\r\n" in b"".join(requests)
+    else:
+        with pytest.raises(urllib.error.URLError, match="last address timed out"):
+            advanced._read_remote_image_bytes("http://public.test/image.png")
+        assert requests == []
+    assert dns_calls == [("public.test", 80)]
+    assert connections == [("8.8.8.8", 80), ("1.1.1.1", 80)]
+    assert len(sockets) == 2
+    assert all(sock.closed for sock in sockets)
 
 
 @requires_real_torch

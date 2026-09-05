@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.102 - 2026-09-05
+
+- Replaced URL image loading's manual socket management with the standard-library connection helper. Validated public IPs, original HTTP Host and HTTPS certificate checks, redirect validation, timeouts, and saved workflows are unchanged.
+- Supersedes v0.7.101, which the Registry flagged for its direct socket creation pattern. Includes all v0.7.101 fixes below.
+
 ## 0.7.101 - 2026-09-05
 
 - Preserved edits made while Ideogram Director view translation is pending, and restored surviving Visual Fold members when their representative node is deleted or an orphaned fold is reopened.
