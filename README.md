@@ -215,6 +215,7 @@ Main features:
 - supports external local folder paths outside the ComfyUI `input` folder
 - supports folder tiles, nested-folder browsing, and a `Parent` button
 - supports `URL / Path` input for web image URLs, absolute local image paths, and local folder paths
+- web image URLs use direct HTTP(S) connections to public addresses; private addresses and environment-proxy routing are not supported
 - supports upload, drag-and-drop, paste, and browser folder upload where the browser allows it
 - includes a visible `Paste` button plus normal Ctrl+V image paste
 - click thumbnails to disable/enable sources without deleting them
@@ -259,10 +260,10 @@ Main features:
 - `video_a` / `video_b` (IMAGE batches) and optional `audio_a` / `audio_b` (AUDIO, e.g. from VHS *Load Video*)
 - modes: `Slider`, `Side by Side`, `Difference`, `Toggle` (freeze-frame A/B flip), plus `Swap`
 - hover-move slider, click = play/pause, scrub bar, frame step, speed, loop; hover the preview to hear the selected side
-- shared timeline: both sides play over the same duration, so an upscale (same frame count) stays frame-locked while an FPS-interpolation result (e.g. RIFE 24 to 48) just looks smoother at the same length
+- shared timeline: input A's frame count and selected FPS define the duration (B is used if A is absent). Both preview sides and the saved output use this duration, including after `Swap`; B is sampled across its full sequence to match A's output frame count. An FPS-interpolation result can still look smoother in the preview at the same length.
 - node resizes to the clip aspect; wheel and middle-drag are passed to the ComfyUI canvas
 - `🏷 Output Badges` toggle: optionally adds A/B + resolution badges to the saved output (off by default; the in-node preview always shows them)
-- `comparison`: full-resolution **lossless** IMAGE output of the chosen mode (Slider / Side by Side / Difference / Toggle), ready to wire into a save/encode node such as VHS *Video Combine*
+- `comparison`: full-resolution **lossless** IMAGE output of the chosen mode (Slider / Side by Side / Difference / Toggle), ready to wire into a save/encode node such as VHS *Video Combine* at the selected FPS. `Toggle` outputs the selected A/B side throughout the sequence.
 
 Too heavy to run the node? Use the no-install browser tool: **https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/** (also linked at the bottom of the node).
 

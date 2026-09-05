@@ -116,4 +116,35 @@ assert.equal(repeated.splitWidget.value, 0.37, "state and widget should remain s
 assert.equal(repeated.state.dom, originalDom, "a second hydration should not rebuild the DOM");
 assert.equal(createdElements, 0, "saved-widget hydration should not allocate DOM elements");
 
+let timeWrites = 0;
+let timeText = "";
+const timeDisplay = {
+  get textContent() { return timeText; },
+  set textContent(value) { timeWrites += 1; timeText = value; },
+};
+const renderNode = {
+  __dvp: {
+    frameCount: 0, dur: 40, t: 0, panX: 0, panY: 0, zoom: 1,
+    dom: {
+      canvas: { width: 1000, height: 500 },
+      ctx: { clearRect() {}, fillRect() {} },
+      stage: { getBoundingClientRect() { return { width: 1000, height: 500 }; } },
+      cwrap: { style: {} }, fill: { style: {} }, head: { style: {} },
+      time: timeDisplay,
+    },
+  },
+};
+for (let i = 0; i < 600; i += 1) context.render(renderNode);
+assert.equal(timeText, "00:00.00 / 00:40.00", "paused playback keeps its displayed time");
+assert.equal(timeWrites, 1, "paused playback must not repeatedly replace its time text node");
+renderNode.__dvp.t = 1.25;
+context.render(renderNode);
+assert.equal(timeText, "00:01.25 / 00:40.00", "seeking updates the label on the next render");
+assert.equal(timeWrites, 2);
+assert.equal(renderNode.__dvp.dom.head.style.left, "3.125%", "the timeline keeps updating");
+renderNode.__dvp.dur = 80;
+context.render(renderNode);
+assert.equal(timeText, "00:01.25 / 01:20.00", "a new duration updates the label immediately");
+assert.equal(timeWrites, 3);
+
 console.log("video_compare_split_position_harness passed");

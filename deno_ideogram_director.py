@@ -12,6 +12,7 @@ are guarded behind a try/except import so this module stays importable for stati
 checks and unit tests outside a running ComfyUI.
 """
 
+import asyncio
 import json
 import hashlib
 import math
@@ -1111,7 +1112,8 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
             libretranslate_url = ""
         is_queue_preflight = data.get("purpose") == "queue_preflight"
         try:
-            translated, changed, sent, display = _translate_caption_for_view(
+            translated, changed, sent, display = await asyncio.to_thread(
+                _translate_caption_for_view,
                 caption,
                 source,
                 target,

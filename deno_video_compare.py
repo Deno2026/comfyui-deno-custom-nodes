@@ -118,6 +118,9 @@ def _composite_frames(mode, video_a, video_b, split_position, swap, toggle_image
 
     a = None if video_a is None or len(video_a) <= 0 else video_a.float()
     b = None if video_b is None or len(video_b) <= 0 else video_b.float()
+    # Input A owns the selected-fps timeline even when the display is swapped,
+    # matching the preview and its audio duration. B is the fallback if absent.
+    output_count = len(a) if a is not None else (len(b) if b is not None else 0)
 
     if swap:
         a, b = b, a
@@ -132,20 +135,16 @@ def _composite_frames(mode, video_a, video_b, split_position, swap, toggle_image
 
     count_a = int(a.shape[0])
     count_b = int(b.shape[0])
-    n = min(count_a, count_b)
+    n = output_count
     if count_a == count_b:
         # Keep the long-standing equal-batch path bit-for-bit direct.
         a = a[:n]
         b = b[:n]
     else:
-        # The output length remains the shorter batch for saved-workflow and
-        # downstream compatibility, but the longer clip now spans its whole
-        # timeline instead of silently dropping every frame after ``n``.
-        # Keep the shorter clip on its direct slice and resample only the
-        # longer side. For a one-frame output _sample_indices returns [0],
-        # preserving the historical first-frame result.
-        a = a[_sample_indices(count_a, n)] if count_a > n else a[:n]
-        b = b[_sample_indices(count_b, n)] if count_b > n else b[:n]
+        # Stretch either displayed side over the shared A timeline. Preserve
+        # direct samples for the anchor and include the other side's endpoints.
+        a = a[_sample_indices(count_a, n)] if count_a != n else a[:n]
+        b = b[_sample_indices(count_b, n)] if count_b != n else b[:n]
 
     if mode == "Side by Side":
         h = max(int(a.shape[1]), int(b.shape[1]))
@@ -163,13 +162,7 @@ def _composite_frames(mode, video_a, video_b, split_position, swap, toggle_image
         return (a - b).abs().clamp(0.0, 1.0)
 
     if mode == "Toggle":
-        # blink comparator: swap the whole frame A<->B a few times a second
-        blink = max(1, int(round(float(fps) * 0.4)))
-        out = a.clone()
-        idx = torch.arange(n)
-        show_b = ((idx // blink) % 2) == (0 if toggle_image == "B" else 1)
-        out[show_b] = b[show_b]
-        return out
+        return b if toggle_image == "B" else a
 
     # Slider (default): left part = A, right part = B, DENO green divider.
     split_col = max(1, min(w - 1, int(round(w * float(split_position)))))

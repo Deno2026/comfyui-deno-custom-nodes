@@ -1304,7 +1304,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             retryReviewer._denoReviewerAutoRetryAttempt = 3;
             const limitResult = api.maybeAutoRetryReviewer(retryReviewer, {{ passed: false }});
             assert(limitResult === false, "Auto-rerun must stop after 3 failed attempts");
-            assert(seedGenerator.widgets[0].value === 201, "Retry limit must not increment seed again");
+            assert(seedGenerator.widgets[0].value === 200, "Retry limit must cancel and restore the still-unsent timer seed");
             assert(
                 String(retryReviewer.__denoLocalLLMGateState.reason || "").includes("Blocked after 3 auto retries"),
                 "Retry limit must show a clear blocked message"
@@ -1314,7 +1314,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             api.setReviewerSeedTarget(retryReviewer, "999:seed");
             const missingManualRetryResult = api.maybeAutoRetryReviewer(retryReviewer, {{ passed: false }});
             assert(missingManualRetryResult === false, "Auto-rerun must stop when the selected manual seed target is missing");
-            assert(seedGenerator.widgets[0].value === 201, "Missing manual seed target must not fall back to generation seed");
+            assert(seedGenerator.widgets[0].value === 200, "Missing manual seed target must not fall back to generation seed");
             assert(
                 String(retryReviewer.__denoLocalLLMGateState.reason || "").includes("selected seed target"),
                 "Missing manual seed target must explain that the selected seed was not found"

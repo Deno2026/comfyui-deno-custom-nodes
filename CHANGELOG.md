@@ -6,6 +6,17 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.101 - 2026-09-05
+
+- Preserved edits made while Ideogram Director view translation is pending, and restored surviving Visual Fold members when their representative node is deleted or an orphaned fold is reopened.
+- Fixed Local LLM Reviewer approval of negated phrases such as "isn't OK" and "not fully approved". Canceled Auto Retry requests now stop before submission, preserve unrelated manual runs, and restore an unsent seed change only when the user has not edited it.
+- Kept ComfyUI responsive during slow model-list, model-unload, and Director translation requests by moving provider I/O off the server event loop.
+- Matched Video Compare output to the preview: Toggle keeps the selected A/B side, and output duration follows the original input A's frame count and selected FPS, even after Swap. B is sampled over that duration; B becomes the timing source when A is absent. Save/encode nodes should use the same selected FPS.
+- Fixed Video Preview encoding with audio rates unsupported by AAC, including 192 kHz, by resampling to a supported rate while preserving timing.
+- Applied LTX Audio/Video LoRA strength correctly to diff and full-matrix LoKr patches without modifying cached adapters. Tiled samplers now pass through the original latent when the sigma schedule has no sampling steps.
+- Fixed URL image loading's DNS-rebinding gap by connecting to the validated public IP while preserving HTTPS hostname checks. URL loading now uses direct HTTP(S) connections and does not use environment proxies.
+- Reduced temporary memory use during image normalization and video preview encoding, and avoided redundant video-player text updates. Existing node IDs, input/output order, and saved workflow schemas are unchanged.
+
 ## 0.7.100 - 2026-08-31
 
 - Extended `(Deno) Ideogram Director`'s existing `bboxes` output to connect to both `BBOX` and `BOUNDING_BOX` consumers, and exposed its active box count through a transient, non-serialized frontend bridge for `Ideogram4_MultiLora_BoundingBoxNode_Fedor`. Existing output order, saved `caption_data`, widgets, and BBOX links are unchanged.

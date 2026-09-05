@@ -115,13 +115,14 @@ class DenoLTXMultiLoraLoader:
     FUNCTION = "load_multi_lora"
     CATEGORY = "Deno/LTX"
 
-    def _apply_av_scaling(self, loaded, audio_scale: float, video_scale: float):
+    def _av_patch_groups(self, loaded, audio_scale: float, video_scale: float):
+        """Group native patches by strength without changing cached adapters."""
         if abs(audio_scale - 1.0) < 1e-9 and abs(video_scale - 1.0) < 1e-9:
-            return loaded
+            return {1.0: loaded}
 
-        keys_to_delete = []
+        groups = {}
 
-        for key, value in list(loaded.items()):
+        for key, value in loaded.items():
             key_str = _normalize_lora_key(key)
             if "audio_to_video_attn" in key_str:
                 multiplier = audio_scale
@@ -135,33 +136,9 @@ class DenoLTXMultiLoraLoader:
                 multiplier = 1.0
 
             if abs(multiplier) < 1e-9:
-                keys_to_delete.append(key)
                 continue
-
-            if abs(multiplier - 1.0) < 1e-9:
-                continue
-
-            if hasattr(value, "weights"):
-                weights_list = list(value.weights)
-                alpha = weights_list[2]
-                if alpha is None:
-                    # ComfyUI's LoRAAdapter.calculate_weight treats alpha=None
-                    # as an effective scale of 1.0, but a numeric alpha as
-                    # alpha / rank. Seeding alpha with rank * multiplier makes
-                    # it resolve back to exactly `multiplier` (not the
-                    # rank-times-too-weak multiplier / rank).
-                    try:
-                        rank = int(weights_list[1].shape[0])
-                    except Exception:
-                        rank = 1
-                    weights_list[2] = rank * multiplier
-                else:
-                    weights_list[2] = alpha * multiplier
-                value.weights = tuple(weights_list)
-
-        for key in keys_to_delete:
-            loaded.pop(key, None)
-        return loaded
+            groups.setdefault(multiplier, {})[key] = value
+        return groups
 
     def _resolve_slot_count(self, active_loras: int) -> int:
         return max(0, min(int(active_loras), MAX_LORA_SLOTS))
@@ -238,15 +215,17 @@ class DenoLTXMultiLoraLoader:
             lora_converted = comfy.lora_convert.convert_lora(lora_sd)
             loaded = comfy.lora.load_lora(lora_converted, key_map)
 
-            loaded = self._apply_av_scaling(loaded, audio_scale=audio_scale, video_scale=video_scale)
+            patch_groups = self._av_patch_groups(loaded, audio_scale=audio_scale, video_scale=video_scale)
 
             if current_model is not None:
                 patched_model = current_model.clone()
-                patched_model.add_patches(loaded, strength)
+                for multiplier, patches in patch_groups.items():
+                    patched_model.add_patches(patches, strength * multiplier)
                 current_model = patched_model
             if current_clip is not None:
                 patched_clip = current_clip.clone()
-                patched_clip.add_patches(loaded, strength)
+                for multiplier, patches in patch_groups.items():
+                    patched_clip.add_patches(patches, strength * multiplier)
                 current_clip = patched_clip
 
         return (current_model, current_clip)

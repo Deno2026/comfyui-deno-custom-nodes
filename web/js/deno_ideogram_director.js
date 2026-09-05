@@ -347,6 +347,9 @@
       return;
     }
     const wrapped = async function (...args) {
+      // Reviewer retries may be canceled while an asynchronous preflight is open.
+      const canQueue = args[3];
+      if (typeof canQueue === "function" && !canQueue()) return false;
       for (const node of Array.from(directorNodes)) {
         const guard = node?._idd?.preflightIncomingPromptBeforeQueue;
         if (typeof guard !== "function") continue;
@@ -356,12 +359,16 @@
           console.error("[Director] queue preflight failed", err);
           shouldStop = true;
         }
+        if (typeof canQueue === "function" && !canQueue()) return false;
         if (shouldStop) {
           try { app?.canvas?.setDirty?.(true, true); } catch (e) {}
           return { prompt_id: null, deno_ideogram_director: "preflight_waiting" };
         }
       }
-      return await original.apply(this, args);
+      if (typeof canQueue === "function" && !canQueue()) return false;
+      return typeof canQueue?.enqueue === "function"
+        ? await canQueue.enqueue(original, this, args)
+        : await original.apply(this, args);
     };
     wrapped._denoIddQueuePromptHook = true;
     wrapped._denoIddOriginalQueuePrompt = original;
@@ -1853,8 +1860,8 @@
             paintHistory();
           });
         }
-        function snapshot() {
-          return JSON.stringify({ boxes, stylePalette, styleMode, selId: selectedId,
+        function snapshot(includeSelection = true) {
+          return JSON.stringify({ boxes, stylePalette, styleMode, selId: includeSelection ? selectedId : undefined,
             hld: summary.value, bg: bgArea.value, aes: aesIn.value, lig: ligIn.value,
             med: medIn.value, photo: photoIn.value, art: artIn.value, bdropDim, resultDim, bdT, railWide });
         }
@@ -2707,6 +2714,10 @@
           });
         }
         let viewTranslateSeq = 0;
+        function viewTranslationState() {
+          return JSON.stringify({ board: snapshot(false), width: getW("width"), height: getW("height"),
+            aspectRatio: getW("aspect_ratio"), includeAspectRatio: getW("include_aspect_ratio") });
+        }
         async function translateCaptionToEnglishForOutput(cap, offerFallback = true, retryLabel = "the English output", routeOptions = {}) {
           const viewSource = getViewLanguage();
           if (viewSource === ENGLISH_PROMPT) return cap;
@@ -2771,6 +2782,7 @@
             return true;
           }
           const seq = ++viewTranslateSeq;
+          const boardState = viewTranslationState();
           const oldText = translateBtn.textContent;
           translateBtn.textContent = "Translating...";
           translateBtn.classList.add("on");
@@ -2779,6 +2791,11 @@
             const enabledStates = boxes.map((b) => b.enabled !== false);
             const translated = await translateCaptionViaRoute(assembleCaption(true), target, source);
             if (seq !== viewTranslateSeq) return false;
+            if (target !== getViewLanguage() || boardState !== viewTranslationState()) {
+              paintTranslate();
+              translateBtn.title = "The board changed during translation. Your edits were kept; refresh translation to retry.";
+              return false;
+            }
             applyImportedCaption(withCurrentUiColors(translated.caption));
             boxes.forEach((b, i) => { b.enabled = enabledStates[i] !== false; });
             selectedId = null;
@@ -2787,6 +2804,10 @@
             translateBtn.title = "View translated to " + (translated.data.language || target) + ". Output stays English.";
             return true;
           } catch (err) {
+            if (seq !== viewTranslateSeq || target !== getViewLanguage() || boardState !== viewTranslationState()) {
+              if (seq === viewTranslateSeq) paintTranslate();
+              return false;
+            }
             console.error("[Director] view translation failed", err);
             const payload = err && err.payload ? err.payload : { engine: getTranslationEngine(), reason: String(err && err.message || err || "") };
             translateBtn.textContent = oldText || "View";
@@ -5511,10 +5532,11 @@
           renderBoxes(); renderPalette(); renderElements(); layoutStage(); applyBackdrop(); fitTopBarAfterRestore();
           undoStack.length = 0; redoStack.length = 0; lastSnap = snapshot();   // fresh undo baseline per load
         }
-        chain(node, "onConfigure", function () { setTimeout(hydrate, 0); });
+        chain(node, "onConfigure", function () { ++viewTranslateSeq; setTimeout(hydrate, 0); });
         setTimeout(hydrate, 30);
 
         chain(node, "onRemoved", function () {
+          ++viewTranslateSeq;
           publishDirectorActiveBoxes(node, []);
           directorNodes.delete(node);
           closeOwnedBodyOverlays();

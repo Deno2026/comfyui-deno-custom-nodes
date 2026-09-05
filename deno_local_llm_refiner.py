@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import http.client
@@ -2189,17 +2190,20 @@ def _word_found(text: str, words: List[str]) -> Optional[str]:
 
 def _negated_word_found(text: str, words: List[str]) -> Optional[str]:
     lowered = str(text or "").lower()
+    # Normalize straight/curly contractions before checking the scope of "not".
+    lowered = re.sub(r"([a-z]+)n['\u2019]t\b", r"\1 not", lowered)
+    modifiers = (
+        r"(?:(?:a|an|the|be|been|being|yet|really|quite|fully|entirely|"
+        r"completely|actually|necessarily|sufficiently|currently|already|even)\s+)*"
+    )
     for word in words:
         needle = str(word or "").strip().lower()
         if not needle:
             continue
         escaped = re.escape(needle)
         patterns = (
-            rf"\bnot\s+(?!(?:only|just)\b)(?:(?:a|an|the)\s+)?(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
-            rf"\b(?:cannot|can't|cant)\s+(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
-            rf"\b(?:do|does|did|would|should|could|can|is|are|was|were|have|has|had)\s+not\s+(?:(?:a|an|the)\s+)?(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
-            rf"\bnever\s+(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
-            rf"\b(?:unable|refuse(?:d|s)?|decline(?:d|s)?|fail(?:ed|s)?)\s+to\s+(?:be\s+)?{escaped}(?![A-Za-z0-9_])",
+            rf"\b(?:not|never|cannot|cant)\s+(?!(?:only|just)\b){modifiers}{escaped}(?![A-Za-z0-9_])",
+            rf"\b(?:unable|refuse(?:d|s)?|decline(?:d|s)?|fail(?:ed|s)?)\s+to\s+{modifiers}{escaped}(?![A-Za-z0-9_])",
         )
         if any(re.search(pattern, lowered) for pattern in patterns):
             return str(word).strip()
@@ -2219,8 +2223,10 @@ def _judge_review_text(
     reason = _extract_review_reason(parsed, review_text)
 
     if isinstance(parsed, dict):
+        has_verdict = False
         for key in ("verdict", "status", "result", "decision"):
             if key in parsed:
+                has_verdict = True
                 value = str(parsed.get(key) or "").strip()
                 negated_pass_hit = _negated_word_found(value, pass_tokens)
                 pass_hit = _word_found(value, pass_tokens)
@@ -2234,6 +2240,10 @@ def _judge_review_text(
         for key in ("ok", "pass", "passed", "accepted", "save"):
             if isinstance(parsed.get(key), bool):
                 return bool(parsed[key]), "OK" if parsed[key] else "FAIL", reason or f"Reviewer field {key}={parsed[key]}."
+        if has_verdict:
+            # A reason mentioning an approval token cannot override an unclear verdict.
+            should_pass = str(unclear_result or "").strip() == "Pass"
+            return should_pass, "OK" if should_pass else "FAIL", "Reviewer answer was unclear."
 
     reject_hit = _word_found(review_text, reject_tokens)
     negated_pass_hit = _negated_word_found(review_text, pass_tokens)
@@ -3367,7 +3377,7 @@ async def _handle_list_models(request):
         payload = await request.json()
         provider = payload.get("provider", PROVIDER_OLLAMA)
         server_url = payload.get("server_url", "")
-        models = list_local_llm_models(provider, server_url)
+        models = await asyncio.to_thread(list_local_llm_models, provider, server_url)
         return _json_response({"models": models})
     except Exception as exc:
         return _json_response({"models": [], "error": str(exc)}, status=400)
@@ -3379,7 +3389,7 @@ async def _handle_unload_model(request):
         provider = payload.get("provider", PROVIDER_OLLAMA)
         server_url = payload.get("server_url", "")
         model = payload.get("model", "")
-        result = unload_local_llm_model(provider, server_url, model)
+        result = await asyncio.to_thread(unload_local_llm_model, provider, server_url, model)
         status = 200 if result.get("ok") else 409
         return _json_response(result, status=status)
     except Exception as exc:

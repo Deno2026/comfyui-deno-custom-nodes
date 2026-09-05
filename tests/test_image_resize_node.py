@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1876,6 +1876,39 @@ def test_rtx_vfx_import_stops_if_another_nvvfx_path_is_already_loaded():
             vfx_module.loaded_nvvfx_module_paths,
             vfx_module.read_rtx_vfx_runtime_path,
         ) = originals
+
+
+@pytest.mark.parametrize("loader", ["multi", "advanced"])
+@pytest.mark.parametrize("orientation", [1, 6])
+def test_image_loaders_preserve_all_rgb_values_and_exif(monkeypatch, tmp_path, loader, orientation):
+    package = load_package()
+    values = np.arange(16 * 32, dtype=np.uint8).reshape(16, 32)
+    pixels = np.stack([np.roll(values, offset, axis=1) for offset in range(4)], axis=-1)
+    image = Image.fromarray(pixels)
+    exif = image.getexif()
+    exif[274] = orientation
+    image_path = tmp_path / "rgba.png"
+    image.save(image_path, exif=exif)
+    original_file = image_path.read_bytes()
+    with Image.open(image_path) as decoded:
+        expected = np.asarray(ImageOps.exif_transpose(decoded).convert("RGB")).astype(np.float32) / 255.0
+
+    module_name = "deno_multi_image_board" if loader == "multi" else "deno_advanced_image_source_loader"
+    module = sys.modules[f"{package.__name__}.{module_name}"]
+    # Capture the decoded array before tensor wrapping/resizing, also in CPU-only CI.
+    monkeypatch.setattr(module, "torch", types.SimpleNamespace(from_numpy=np.asarray))
+    if loader == "multi":
+        monkeypatch.setattr(module, "_resize_tensor", lambda image, *args: image)
+        result = module.DenoMultiImageLoader()._load_single_image(
+            str(image_path), 0, 0, "nearest", "Stretch"
+        )
+    else:
+        result = module._image_source_to_tensor(str(image_path))
+
+    assert result.dtype == np.float32
+    assert result.shape == (1, *expected.shape)
+    assert result.tobytes() == expected.tobytes()
+    assert image_path.read_bytes() == original_file
 
 
 def test_multi_image_loader_returns_batch_and_int_dimensions():
@@ -7164,7 +7197,7 @@ def test_ltx_sequencer_noop_preserves_original_latent_metadata_and_identity():
         assert result[2]["custom_metadata"] is sentinel
 
 
-def test_video_compare_unequal_batches_sample_only_the_longer_full_timeline():
+def test_video_compare_unequal_batches_preserve_a_timeline_and_resample_b():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_video_compare"]
     torch = sys.modules.get("torch")
@@ -7180,7 +7213,8 @@ def test_video_compare_unequal_batches_sample_only_the_longer_full_timeline():
     assert torch.equal(long_b[:, 0, 1, 0], torch.tensor([0.0, 1.0]))
 
     long_a = module._composite_frames("Side by Side", long, short, 0.5, False, "B", 24.0)
-    assert torch.equal(long_a[:, 0, 0, 0], torch.tensor([0.0, 1.0]))
+    assert tuple(long_a.shape) == (4, 1, 2, 3)
+    assert torch.equal(long_a[:, 0, 0, 0], torch.tensor([0.0, 0.25, 0.5, 1.0]))
 
     single = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
     one_frame = module._composite_frames("Side by Side", single, long, 0.5, False, "B", 24.0)

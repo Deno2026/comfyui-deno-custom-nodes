@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import OrderedDict
 import json
 import re
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -172,7 +173,9 @@ LIBRETRANSLATE_DEFAULT_URL = "https://libretranslate.com"
 _DISPLAY_TO_CODE = {display: code for code, display in LANG_DISPLAY.items()}
 _CACHE: OrderedDict[tuple[str, str, str, str, str], str] = OrderedDict()
 _CACHE_LIMIT = 512
+_CACHE_LOCK = threading.Lock()
 _last_call = [0.0]
+_CALL_LOCK = threading.Lock()
 _USER_AGENT = (
     "deno-comfyui-translate/1 "
     "(+https://github.com/Deno2026/comfyui-deno-custom-nodes)"
@@ -248,17 +251,19 @@ def short_exception_message(exc: Exception | None, limit: int = 180) -> str:
 
 
 def _cache_get(key):
-    if key not in _CACHE:
-        return None
-    value = _CACHE.pop(key)
-    _CACHE[key] = value
-    return value
+    with _CACHE_LOCK:
+        if key not in _CACHE:
+            return None
+        value = _CACHE.pop(key)
+        _CACHE[key] = value
+        return value
 
 
 def _cache_set(key, value):
-    _CACHE[key] = value
-    while len(_CACHE) > _CACHE_LIMIT:
-        _CACHE.popitem(last=False)
+    with _CACHE_LOCK:
+        _CACHE[key] = value
+        while len(_CACHE) > _CACHE_LIMIT:
+            _CACHE.popitem(last=False)
 
 
 def _request_gtx(text, src, tgt, timeout=10.0):
@@ -429,11 +434,13 @@ def translate_text(
         attempt_count = 3
     last_exc = None
     for attempt in range(attempt_count):
-        gap = time.monotonic() - _last_call[0]
-        if gap < 0.15:
-            time.sleep(0.15 - gap)
-        try:
+        # Only serialize the request spacing; network I/O can proceed concurrently.
+        with _CALL_LOCK:
+            gap = time.monotonic() - _last_call[0]
+            if gap < 0.15:
+                time.sleep(0.15 - gap)
             _last_call[0] = time.monotonic()
+        try:
             translated = _request_translation(
                 text,
                 src_code,

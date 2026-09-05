@@ -1413,6 +1413,9 @@ class _LegacyVideoStepFusedTiledSampler:
     ):
         latent = latent_image.copy()
         source = self._validate_samples(latent["samples"])
+        if sigmas.shape[-1] < 2:
+            # No sampling interval: preserve the original samples and metadata.
+            return latent_image, latent_image
         source = self._fix_channels(guider, latent, source)
         latent["samples"] = source
 
@@ -1720,11 +1723,13 @@ class DenoLTXAVStepFusedTiledSampler:
                 "Deno LTX AV Step-Fused Tiled Sampler currently only supports "
                 "audio_mode='freeze'."
             )
-        _reject_unsupported_guider(guider)
-        _reject_incompatible_outer_wrappers(guider)
-
         latent = latent_image.copy()
         video, audio = self._validate_av_samples(latent["samples"])
+        if sigmas.shape[-1] < 2:
+            # An empty/one-value schedule has no prediction or denoised x0.
+            return latent_image, latent_image
+        _reject_unsupported_guider(guider)
+        _reject_incompatible_outer_wrappers(guider)
         _require_finite_tensor(audio, "AV input audio")
         video = self._fix_video_channels(guider, latent, video)
         source = _make_nested_latent([video, audio])

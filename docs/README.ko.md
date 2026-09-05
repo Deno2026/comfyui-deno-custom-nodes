@@ -166,6 +166,8 @@ Dynamic VRAM은 메모리 압력에 따라 weight를 옮기므로 text encoder �
 
 외부 폴더, 로컬 경로, 웹 이미지 URL, 혼합 크기 이미지 리스트가 필요한 워크플로우용 고급 이미지 소스 로더입니다.
 
+웹 이미지 URL은 공개 주소로 직접 HTTP(S) 연결합니다. 내부 주소와 환경 프록시를 통한 연결은 지원하지 않습니다.
+
 ![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
 
 주요 기능: ComfyUI `input` 폴더와 외부 로컬 폴더 지원, URL/Path 입력, 업로드와 붙여넣기, 썸네일 enable/disable, 드래그 정렬, masonry 스타일 갤러리, 재귀 폴더 로드, 배치 텐서와 `image_list` 출력. 비활성 이미지는 삭제하지 않은 채 알아볼 수 있는 밝기로 유지되고, 갤러리는 기존 캔버스와 Nodes 2.0에서 노드 높이에 맞춰 유동적으로 배치됩니다.
@@ -183,6 +185,8 @@ ComfyUI 캔버스 안에서 두 이미지를 빠르게 비교하는 A/B 비교 �
 업스케일과 FPS 보간 결과를 ComfyUI 캔버스 안에서 확인하기 위한 비디오 A/B 비교 노드입니다.
 
 주요 기능: `video_a`, `video_b`, 선택적 `audio_a`, `audio_b`, Slider/Side by Side/Difference/Toggle 모드, 재생/일시정지, 스크럽바, 프레임 스텝, 속도, 루프, 출력 배지 토글, `comparison` 이미지 출력.
+
+미리보기와 저장 출력의 길이는 원래 A의 프레임 수와 선택한 FPS를 기준으로 하며, A가 없으면 B를 기준으로 합니다. B는 A의 출력 프레임 수에 맞춰 전체 구간에서 샘플링됩니다. `Swap`은 시간 기준을 바꾸지 않으며, `Toggle` 출력은 선택한 A/B를 전체 구간에 유지합니다. 저장 노드에도 같은 FPS를 사용하세요.
 
 설치가 부담스러우면 브라우저 도구를 사용할 수 있습니다: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/
 

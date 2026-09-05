@@ -1,4 +1,5 @@
 import hashlib
+import http.client
 import io
 import ipaddress
 import os
@@ -48,7 +49,59 @@ class _DenoNoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_REMOTE_IMAGE_OPENER = urllib.request.build_opener(_DenoNoRedirectHandler)
+def _pinned_remote_connection(connection_type, addresses):
+    def create_socket(_address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
+        last_error = None
+        for family, sock_type, proto, _canonname, sockaddr in addresses:
+            sock = None
+            try:
+                sock = socket.socket(family, sock_type, proto)
+                if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                    sock.settimeout(timeout)
+                if source_address:
+                    sock.bind(source_address)
+                # sockaddr came from the validated DNS answer. Passing its IP
+                # directly to the socket avoids a second hostname resolution.
+                error = sock.connect_ex(sockaddr)
+                if error:
+                    raise OSError(error, os.strerror(error))
+                return sock
+            except OSError as exc:
+                last_error = exc
+                if sock is not None:
+                    sock.close()
+        raise last_error or OSError("No validated remote image address.")
+
+    def create_connection(host, **kwargs):
+        connection = connection_type(host, **kwargs)
+        # Keep the original host on HTTPConnection: it owns the Host header
+        # and, for HTTPS, certificate hostname verification and TLS SNI.
+        connection._create_connection = create_socket
+        return connection
+
+    return create_connection
+
+
+class _DenoPinnedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, request):
+        return self.do_open(
+            _pinned_remote_connection(http.client.HTTPConnection, request._deno_remote_addresses),
+            request,
+        )
+
+
+class _DenoPinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, request):
+        return self.do_open(
+            _pinned_remote_connection(http.client.HTTPSConnection, request._deno_remote_addresses),
+            request, context=self._context,
+        )
+
+
+_REMOTE_IMAGE_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}), _DenoNoRedirectHandler,
+    _DenoPinnedHTTPHandler, _DenoPinnedHTTPSHandler,
+)
 
 
 def _is_loopback_request(request) -> bool:
@@ -217,48 +270,50 @@ def _is_remote_image_url(source: str) -> bool:
     return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
 
 
-def _is_safe_remote_image_url(source: str) -> bool:
-    parsed = urllib.parse.urlparse(str(source or "").strip())
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-        return False
-    if parsed.username or parsed.password:
-        return False
-
+def _resolve_remote_image_addresses(source: str):
     try:
+        parsed = urllib.parse.urlparse(str(source or "").strip())
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return []
+        if parsed.username or parsed.password:
+            return []
         addr_infos = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        return False
+    except (OSError, ValueError):
+        return []
 
     for addr_info in addr_infos:
         ip_text = addr_info[4][0]
         try:
             address = ipaddress.ip_address(ip_text)
         except ValueError:
-            return False
+            return []
         if (
-            address.is_private
+            not address.is_global
+            or address.is_private
             or address.is_loopback
             or address.is_link_local
             or address.is_multicast
             or address.is_reserved
             or address.is_unspecified
         ):
-            return False
-    return True
+            return []
+    return addr_infos
 
 
 def _read_remote_image_bytes(source: str) -> bytes:
-    if not _is_safe_remote_image_url(source):
-        raise ValueError("Remote image URL is not allowed.")
-
     current_source = source
     response = None
     for _redirect_count in range(REMOTE_IMAGE_MAX_REDIRECTS + 1):
+        addresses = _resolve_remote_image_addresses(current_source)
+        if not addresses:
+            label = "redirect target" if _redirect_count else "URL"
+            raise ValueError(f"Remote image {label} is not allowed.")
         request = urllib.request.Request(
             current_source,
             headers={"User-Agent": "DENO-ComfyUI-Custom-Nodes/0.4"},
             method="GET",
         )
+        request._deno_remote_addresses = addresses
         try:
             response = _REMOTE_IMAGE_OPENER.open(request, timeout=REMOTE_IMAGE_TIMEOUT_SECONDS)
             break
@@ -267,12 +322,11 @@ def _read_remote_image_bytes(source: str) -> bytes:
                 raise
 
             redirect_target = exc.headers.get("Location")
+            exc.close()
             if not redirect_target:
                 raise ValueError("Remote image redirect did not include a Location header.")
 
             current_source = urllib.parse.urljoin(current_source, redirect_target)
-            if not _is_safe_remote_image_url(current_source):
-                raise ValueError("Remote image redirect target is not allowed.")
     else:
         raise ValueError("Remote image redirected too many times.")
 
@@ -378,7 +432,8 @@ def _image_source_to_tensor(source: str) -> torch.Tensor | None:
 
     try:
         image = ImageOps.exif_transpose(image).convert("RGB")
-        image_np = np.asarray(image).astype(np.float32) / 255.0
+        image_np = np.asarray(image).astype(np.float32)
+        image_np /= 255.0
         return torch.from_numpy(image_np)[None, ...]
     except Exception as exc:
         print(f"[DenoAdvancedImageSourceLoader] Failed to load {source}: {exc}")

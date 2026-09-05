@@ -679,6 +679,7 @@ function foldNodes(nodes, options = {}) {
   const groupId = `deno-fold-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
   ordered.forEach((node, index) => {
+    installFoldRemovalCleanup(node);
     node.properties = node.properties || {};
     const meta = baseMeta(node, groupId, index, ordered.length, anchor.id, baseX, baseY);
     meta.label = normalizeFoldLabel(options.label);
@@ -716,12 +717,16 @@ function groupFor(node) {
 }
 
 function unfoldGroup(node) {
-  const group = groupFor(node);
+  restoreFoldGroup(groupFor(node));
+}
+
+function restoreFoldGroup(group, { anchor = null, select = true } = {}) {
   if (!group.length) return;
 
-  const anchorMeta = group.find((candidate) => foldMeta(candidate)?.index === 0)?.properties?.[META_KEY]
+  const anchorMeta = foldMeta(anchor)
+    || group.find((candidate) => foldMeta(candidate)?.index === 0)?.properties?.[META_KEY]
     || foldMeta(group[0]);
-  const currentAnchor = group.find((candidate) => candidate.id === anchorMeta?.anchorId)
+  const currentAnchor = anchor || group.find((candidate) => candidate.id === anchorMeta?.anchorId)
     || group.find((candidate) => foldMeta(candidate)?.index === 0)
     || group[0];
   const dx = Number(currentAnchor?.pos?.[0] || 0) - Number(anchorMeta?.basePos?.[0] || 0);
@@ -746,10 +751,22 @@ function unfoldGroup(node) {
     delete item.properties[META_KEY];
   }
   const restoredGroup = restoreGroupSnapshot(sourceGroup, dx, dy);
-  if (!selectGroup(restoredGroup)) {
+  if (select && !selectGroup(restoredGroup)) {
     selectMany(group);
   }
   dirty();
+}
+
+function installFoldRemovalCleanup(node) {
+  if (!node || node.__denoVisualFoldRemovalPatched) return;
+  const original = node.onRemoved;
+  node.onRemoved = function (...args) {
+    if (foldMeta(this)?.index === 0 && (!this.graph || this.graph === appGraph())) {
+      restoreFoldGroup(groupFor(this).filter((item) => item !== this), { anchor: this, select: false });
+    }
+    return original?.apply(this, args);
+  };
+  node.__denoVisualFoldRemovalPatched = true;
 }
 
 function renameFoldGroup(node) {
@@ -1582,14 +1599,25 @@ function selectionActionClientRect() {
 }
 
 function refreshFoldedLooks() {
-  const anchors = graphNodes().filter((node) => foldMeta(node)?.index === 0);
-  for (const anchor of anchors) {
+  const groups = new Map();
+  for (const node of graphNodes()) {
+    const meta = foldMeta(node);
+    if (!meta?.groupId) continue;
+    if (!groups.has(meta.groupId)) groups.set(meta.groupId, []);
+    groups.get(meta.groupId).push(node);
+  }
+  for (const group of groups.values()) {
+    const anchor = group.find((node) => foldMeta(node)?.index === 0);
+    if (!anchor) {
+      restoreFoldGroup(group, { select: false });
+      continue;
+    }
     const anchorMeta = foldMeta(anchor);
     if (!anchorMeta) continue;
     const visualBasePos = [...(anchor.pos || anchorMeta.basePos || [0, 0])];
     applyFoldLook(anchor, anchorMeta, visualBasePos, true);
 
-    for (const item of groupFor(anchor)) {
+    for (const item of group) {
       const meta = foldMeta(item);
       if (!meta || meta.index === 0) continue;
       applyFoldLook(item, meta, visualBasePos, false);
@@ -1905,6 +1933,7 @@ function patchMotionSync() {
 function patchExistingNodes() {
   for (const node of graphNodes()) {
     patchMenuTarget(node);
+    installFoldRemovalCleanup(node);
   }
 }
 
@@ -1948,5 +1977,10 @@ app.registerExtension({
   },
   nodeCreated(node) {
     patchMenuTarget(node);
+    installFoldRemovalCleanup(node);
+  },
+  afterConfigureGraph() {
+    patchExistingNodes();
+    refreshFoldedLooks();
   },
 });

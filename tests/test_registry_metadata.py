@@ -605,8 +605,15 @@ def test_packaged_files_contain_no_scanner_trigger_literals():
         ".webm", ".pdf", ".bin", ".npz", ".safetensors",
     }
     offenders = []
+    excluded_directories = [rule for rule in rules if rule.endswith("/")]
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
-        dirnames[:] = [d for d in dirnames if d != ".git"]
+        dirnames[:] = [
+            name for name in dirnames
+            if name != ".git" and not _is_excluded(
+                (Path(dirpath) / name).relative_to(REPO_ROOT).as_posix(),
+                excluded_directories,
+            )
+        ]
         for name in filenames:
             abs_path = Path(dirpath) / name
             rel = abs_path.relative_to(REPO_ROOT).as_posix()

@@ -893,7 +893,8 @@ function render(node) {
   const r = tl.dur > 0 ? tl.t / tl.dur : 0;
   d.fill.style.width = (r * 100) + "%";
   d.head.style.left = (r * 100) + "%";
-  d.time.textContent = fmt(tl.t) + " / " + fmt(tl.dur);
+  const timeLabel = fmt(tl.t) + " / " + fmt(tl.dur);
+  if (d.time.textContent !== timeLabel) d.time.textContent = timeLabel;
 }
 
 /* ---------- node sizing (same math as the original) ---------- */

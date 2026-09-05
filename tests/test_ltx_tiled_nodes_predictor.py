@@ -1335,6 +1335,50 @@ def test_av_sampler_rejects_missing_callback_x0(monkeypatch, fake_comfy_latent_u
         )
 
 
+@pytest.mark.parametrize("sigma_values", [[], [0.0]])
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("tiles", [1, 2])
+def test_sampler_no_interval_preserves_latent_without_runtime_work(sigma_values, legacy, tiles, monkeypatch):
+    def unexpected_runtime_work(*_args, **_kwargs):
+        raise AssertionError("A no-op schedule must not initialize sampling")
+
+    for function in ("_comfy_sample", "_comfy_model_management", "_latent_preview", "_comfy_samplers"):
+        monkeypatch.setattr(f"deno_ltx_tiled_nodes.{function}", unexpected_runtime_work)
+    video = torch.arange(1 * 2 * 3 * 6 * 4, dtype=torch.float32).reshape(1, 2, 3, 6, 4)
+    audio = torch.ones((1, 1, 4, 4))
+    samples = video if legacy else _FakeNestedTensor([video, audio])
+    metadata = object()
+    latent = {
+        "samples": samples, "noise_mask": object(), "batch_index": [3],
+        "downscale_ratio_spacial": 32, "downscale_ratio_temporal": 8,
+        "custom_metadata": metadata,
+    }
+    output, denoised = DenoLTXAVStepFusedTiledSampler().sample(
+        object(), object(), object(), torch.tensor(sigma_values), latent,
+        horizontal_tiles=tiles, vertical_tiles=tiles, overlap=1,
+        _deno_legacy_video_compat=legacy,
+    )
+    assert output is latent and denoised is latent
+    assert output["samples"] is samples
+    assert output["custom_metadata"] is metadata
+
+
+def test_av_sampler_still_rejects_missing_tiled_hook_with_sampling_interval(monkeypatch, fake_comfy_latent_utils):
+    _patch_av_sampler_runtime(monkeypatch)
+
+    class GuiderWithoutHook(_FakeSamplerGuider):
+        def sample(self, _noise, source, *_args, **_kwargs):
+            return source
+
+    video = torch.zeros((1, 2, 3, 6, 4))
+    audio = torch.ones((1, 1, 4, 4))
+    with pytest.raises(RuntimeError, match="did not invoke ComfyUI's conditional-batch"):
+        DenoLTXAVStepFusedTiledSampler().sample(
+            _FakeNoise(), GuiderWithoutHook(), object(), torch.tensor([1.0, 0.0]),
+            {"samples": _FakeNestedTensor([video, audio])}, overlap=2,
+        )
+
+
 def test_av_sampler_rejects_packed_x0_extra_elements(monkeypatch, fake_comfy_latent_utils):
     _patch_av_sampler_runtime(monkeypatch)
     video = torch.zeros((1, 2, 3, 6, 4))

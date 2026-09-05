@@ -173,6 +173,11 @@ let reviewerTooltipOwnerFrame = 0;
 const progressListenerApis = new WeakSet();
 const localLLMQueuePromptApis = new WeakSet();
 const localLLMAppQueuePromptApps = new WeakSet();
+const reviewerTrackedQueueItems = new WeakMap();
+const reviewerRetryByQueueItem = new WeakMap();
+const reviewerRetryByPromptBundle = new WeakMap();
+const reviewerEnqueuingRetryByApp = new WeakMap();
+const reviewerProcessingRetryByApp = new WeakMap();
 let progressListenerRetryScheduled = false;
 const localLLMStateByNode = new WeakMap();
 const localLLMDialogTokenByNode = new WeakMap();
@@ -550,6 +555,7 @@ function installLocalLLMNodeCleanup(node) {
     node.__denoLocalLLMNodeCleanupInstalled = true;
     const previousOnRemoved = node.onRemoved;
     node.onRemoved = function (...args) {
+        resetReviewerAutoRetry(this);
         invalidateLocalLLMAsyncAction(this, "node removed");
         closeLocalLLMOwnedUi(this);
         return previousOnRemoved?.apply(this, args);
@@ -1037,6 +1043,7 @@ app.registerExtension({
 
             const onConfigure = nodeType.prototype.onConfigure;
             nodeType.prototype.onConfigure = function () {
+                resetReviewerAutoRetry(this);
                 const result = onConfigure?.apply(this, arguments);
                 queueMicrotask(() => setupGateNode(this));
                 return result;
@@ -1456,10 +1463,12 @@ function installReviewerGraphToPromptHook() {
     reviewerGraphPromptHookInstalled = true;
     app["graphToPrompt"] = async function (...args) {
         const sourceGraph = args[0] || this?.rootGraph || safeAppGraph();
+        const retry = this?.processingQueue ? reviewerProcessingRetryByApp.get(this) : null;
         const result = await originalGraphToPrompt.apply(this, args);
+        if (retry && result && typeof result === "object") reviewerRetryByPromptBundle.set(result, retry);
         rememberLocalLLMPromptBundleGraph(result, sourceGraph);
         migrateLocalLLMPromptInputNames(result?.output);
-        applyReviewerSubmitModes(result?.output);
+        applyReviewerSubmitModes(result?.output, retry);
         return result;
     };
 }
@@ -1477,11 +1486,23 @@ function installLocalLLMApiQueuePromptHook(targetApi = api) {
     }
     targetApi.queuePrompt = async function (...args) {
         const promptBundle = args?.[1];
+        const retry = promptBundle && reviewerRetryByPromptBundle.get(promptBundle);
+        if (retry && !retry.canQueue()) {
+            retry.cancelled = true;
+            retry.finish(false);
+            return { prompt_id: null, node_errors: {} };
+        }
+        if (retry) retry.dispatched = true;
         const submittedGraph = localLLMGraphByPromptBundle.get(promptBundle) || null;
         if (submittedGraph) {
             invalidateLocalLLMAsyncActionsForGraph(submittedGraph, "queue API submitted");
         }
-        const result = await originalQueuePrompt.apply(this, args);
+        let result;
+        try {
+            result = await originalQueuePrompt.apply(this, args);
+        } finally {
+            retry?.finish(Boolean(result?.prompt_id));
+        }
         if (submittedGraph && result?.prompt_id) {
             rememberLocalLLMPromptGraph(result.prompt_id, submittedGraph);
         }
@@ -1503,16 +1524,68 @@ function installLocalLLMAppQueuePromptHook(targetApp = app) {
         return false;
     }
     targetApp.queuePrompt = function (...args) {
+        const canQueue = args[3];
+        if (typeof canQueue === "function" && !canQueue()) return false;
         const submittedGraph = this?.rootGraph || targetApp.rootGraph || safeAppGraph();
         // app.queuePrompt is the earliest queue boundary. Invalidate read-only
         // Refresh work before graphToPrompt serializes provider/model widgets.
         // Stop and Unload requests keep running; only their stale UI ownership
         // token changes.
         invalidateLocalLLMAsyncActionsForGraph(submittedGraph, "queue submitted");
-        return originalQueuePrompt.apply(this, args);
+        const result = typeof canQueue?.enqueue === "function"
+            ? canQueue.enqueue(originalQueuePrompt, this, args)
+            : originalQueuePrompt.apply(this, args);
+        if (!result || typeof result.then !== "function") return result;
+        return result.catch((error) => {
+            finishUndispatchedReviewerQueueItems(targetApp);
+            throw error;
+        }).finally(() => {
+            if (!targetApp.processingQueue) finishUndispatchedReviewerQueueItems(targetApp);
+        });
     };
     localLLMAppQueuePromptApps.add(targetApp);
     return true;
+}
+
+function trackReviewerQueueItems(targetApp) {
+    const items = targetApp?.queueItems;
+    if (!Array.isArray(items)) return false;
+    if (reviewerTrackedQueueItems.has(items)) return true;
+    const originalPush = items.push;
+    const originalPop = items.pop;
+    const pendingRetries = new Set();
+    // Native queue processing is serial; associate the guard with its exact request,
+    // including when auth or prompt serialization yields to another workflow.
+    Object.defineProperty(items, "push", { configurable: true, writable: true, value: function (...requests) {
+        const retry = reviewerEnqueuingRetryByApp.get(targetApp);
+        if (retry) for (const request of requests) {
+            if (request && typeof request === "object") {
+                retry.queuedItem = true;
+                pendingRetries.add(retry);
+                retry.completion.then(() => pendingRetries.delete(retry));
+                reviewerRetryByQueueItem.set(request, retry);
+            }
+        }
+        return originalPush.apply(this, requests);
+    } });
+    Object.defineProperty(items, "pop", { configurable: true, writable: true, value: function () {
+        const previous = reviewerProcessingRetryByApp.get(targetApp);
+        if (previous && !previous.dispatched) previous.finish(false);
+        const request = originalPop.call(this);
+        reviewerProcessingRetryByApp.set(targetApp, request && reviewerRetryByQueueItem.get(request));
+        return request;
+    } });
+    reviewerTrackedQueueItems.set(items, pendingRetries);
+    return true;
+}
+
+function finishUndispatchedReviewerQueueItems(targetApp) {
+    const current = reviewerProcessingRetryByApp.get(targetApp);
+    if (current && !current.dispatched) current.finish(false);
+    for (const retry of reviewerTrackedQueueItems.get(targetApp.queueItems) || []) {
+        if (!retry.dispatched) retry.finish(false);
+    }
+    reviewerProcessingRetryByApp.delete(targetApp);
 }
 
 function normalizeLocalLLMSeedMode(value) {
@@ -2112,7 +2185,7 @@ function reviewerNodeIndex() {
     return index;
 }
 
-function applyReviewerSubmitModes(output) {
+function applyReviewerSubmitModes(output, retry = null) {
     if (!output) {
         return;
     }
@@ -2127,11 +2200,14 @@ function applyReviewerSubmitModes(output) {
             index = reviewerNodeIndex();
         }
         const node = index.get(String(id));
-        if (node?._denoReviewerSubmitMode === REVIEWER_SUBMIT_REGENERATE) {
+        const submitMode = retry
+            ? (String(retry.node.id) === String(id) ? REVIEWER_SUBMIT_REGENERATE : null)
+            : node?._denoReviewerSubmitMode;
+        if (submitMode === REVIEWER_SUBMIT_REGENERATE) {
             applyReviewerRegenerateMode(output, id, entry);
             return;
         }
-        if (node?._denoReviewerSubmitMode === REVIEWER_SUBMIT_APPROVE_ONCE) {
+        if (submitMode === REVIEWER_SUBMIT_APPROVE_ONCE) {
             applyReviewerApproveOnceMode(output, id, entry, node);
             return;
         }
@@ -2938,6 +3014,15 @@ function setReviewerAutoRetryEnabled(node, enabled) {
 function resetReviewerAutoRetry(node) {
     if (!node) {
         return;
+    }
+    const pending = node._denoReviewerAutoRetryPending;
+    node._denoReviewerAutoRetryPending = null;
+    if (pending) {
+        window.clearTimeout?.(pending.timer);
+        if (!pending.dispatched) {
+            restoreReviewerRetrySeed(pending.seedChange);
+            pending.finish?.(false);
+        }
     }
     node._denoReviewerAutoRetryActive = false;
     node._denoReviewerAutoRetryAttempt = 0;
@@ -3837,22 +3922,27 @@ function clearOtherReviewerSubmitModes(targetNode) {
     }
 }
 
-async function queueReviewerWithMode(node, mode) {
-    if (!node) {
+async function queueReviewerWithMode(node, mode, canQueue = null) {
+    if (!node || (canQueue && !canQueue())) {
         return false;
     }
-    clearOtherReviewerSubmitModes(node);
-    node._denoReviewerSubmitMode = mode;
+    const perRequest = Boolean(canQueue?.perRequest);
+    if (!perRequest) {
+        clearOtherReviewerSubmitModes(node);
+        node._denoReviewerSubmitMode = mode;
+    }
     node._denoReviewerQueueBlockReason = "";
     let clearLater = false;
     try {
         if (typeof app?.queuePrompt === "function") {
-            const result = await app.queuePrompt(0, 1);
+            const result = canQueue ? await canQueue.enqueue(app.queuePrompt, app, [0, 1, undefined, canQueue])
+                : await app.queuePrompt(0, 1);
             node._denoReviewerQueueBlockReason = reviewerQueueBlockReason(result);
             return reviewerQueueResultAccepted(result);
         }
         if (typeof app?.extensionManager?.queuePrompt === "function") {
-            const result = await app.extensionManager.queuePrompt(0, 1);
+            const result = canQueue ? await app.extensionManager.queuePrompt(0, 1, undefined, canQueue)
+                : await app.extensionManager.queuePrompt(0, 1);
             node._denoReviewerQueueBlockReason = reviewerQueueBlockReason(result);
             return reviewerQueueResultAccepted(result);
         }
@@ -3861,7 +3951,7 @@ async function queueReviewerWithMode(node, mode) {
             const label = `${button.getAttribute?.("aria-label") || ""} ${button.textContent || ""}`.trim();
             return /(^|\s)Run(\s|$)/i.test(label) && !button.disabled;
         });
-        if (runButton) {
+        if (runButton && !canQueue) {
             runButton.click();
             clearLater = true;
             window.setTimeout(() => {
@@ -3872,9 +3962,10 @@ async function queueReviewerWithMode(node, mode) {
             return true;
         }
     } catch (error) {
+        canQueue?.failed?.();
         console.warn("[Deno Local LLM Reviewer] Regenerate request failed", error);
     } finally {
-        if (!clearLater && node._denoReviewerSubmitMode === mode) {
+        if (!perRequest && !clearLater && node._denoReviewerSubmitMode === mode) {
             node._denoReviewerSubmitMode = null;
         }
     }
@@ -3942,6 +4033,13 @@ function maybeAutoRetryReviewer(node, gateInfo) {
     if (node._denoReviewerAutoRetryBusy) {
         return false;
     }
+    const graph = safeAppGraph();
+    const nodeGraph = node.graph || graph;
+    if (!graph || !localLLMCandidateGraphs().includes(nodeGraph)
+        || !localLLMGraphNodes(nodeGraph).includes(node)) {
+        resetReviewerAutoRetry(node);
+        return false;
+    }
     if (!node._denoReviewerAutoRetryActive) {
         node._denoReviewerAutoRetryActive = true;
         node._denoReviewerAutoRetryAttempt = 0;
@@ -3974,9 +4072,38 @@ function maybeAutoRetryReviewer(node, gateInfo) {
         node,
         `Auto retry ${nextAttempt}/${REVIEWER_AUTO_RETRY_MAX}: ${seedChange.label} ${seedChange.oldSeed} -> ${seedChange.newSeed}.`
     );
-    window.setTimeout(async () => {
+    const pending = { graph, node, seedChange, timer: null, dispatched: false, cancelled: false, queuedItem: false };
+    pending.completion = new Promise((resolve) => { pending.finish = resolve; });
+    node._denoReviewerAutoRetryPending = pending;
+    const canQueue = () => node._denoReviewerAutoRetryPending === pending && reviewerAutoRetryEnabled(node)
+        && safeAppGraph() === graph && (!node.graph || node.graph === nodeGraph)
+        && localLLMGraphNodes(nodeGraph).includes(node);
+    pending.canQueue = canQueue;
+    const tracksNativeQueue = trackReviewerQueueItems(app);
+    canQueue.perRequest = tracksNativeQueue;
+    canQueue.failed = () => pending.finish(false);
+    canQueue.enqueue = (callback, owner, args) => {
+        if (!canQueue()) return false;
+        const previous = reviewerEnqueuingRetryByApp.get(app);
+        reviewerEnqueuingRetryByApp.set(app, pending);
+        try { return callback.apply(owner, args); }
+        finally {
+            if (previous) reviewerEnqueuingRetryByApp.set(app, previous);
+            else reviewerEnqueuingRetryByApp.delete(app);
+        }
+    };
+    pending.timer = window.setTimeout(async () => {
+        if (node._denoReviewerAutoRetryPending !== pending) return;
+        if (!canQueue()) {
+            resetReviewerAutoRetry(node);
+            return;
+        }
         try {
-            const queued = await queueReviewerWithMode(node, REVIEWER_SUBMIT_REGENERATE);
+            const result = await queueReviewerWithMode(node, REVIEWER_SUBMIT_REGENERATE, canQueue);
+            if (tracksNativeQueue && !app.processingQueue && !pending.dispatched) pending.finish(false);
+            const queued = tracksNativeQueue && pending.queuedItem ? await pending.completion : result && !pending.cancelled;
+            if (!tracksNativeQueue && queued) pending.dispatched = true;
+            if (node._denoReviewerAutoRetryPending !== pending) return;
             if (!queued) {
                 restoreReviewerRetrySeed(seedChange);
                 node.__denoLocalLLMGateState = {
@@ -3994,7 +4121,10 @@ function maybeAutoRetryReviewer(node, gateInfo) {
                 refreshGateNode(node);
             }
         } finally {
-            node._denoReviewerAutoRetryBusy = false;
+            if (node._denoReviewerAutoRetryPending === pending) {
+                node._denoReviewerAutoRetryPending = null;
+                node._denoReviewerAutoRetryBusy = false;
+            }
         }
     }, 150);
     return true;

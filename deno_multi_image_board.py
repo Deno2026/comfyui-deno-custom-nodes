@@ -592,7 +592,8 @@ class DenoMultiImageLoader:
         try:
             image = Image.open(resolved_path)
             image = ImageOps.exif_transpose(image).convert("RGB")
-            image_np = np.asarray(image).astype(np.float32) / 255.0
+            image_np = np.asarray(image).astype(np.float32)
+            image_np /= 255.0
             image_tensor = torch.from_numpy(image_np)[None, ...]
             image_tensor = _resize_tensor(image_tensor, width, height, resize_method, interpolation)
             return image_tensor

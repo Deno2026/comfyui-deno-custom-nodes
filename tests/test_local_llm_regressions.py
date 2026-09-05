@@ -2651,8 +2651,14 @@ def test_local_llm_input_types_never_queries_lm_studio_during_prompt_validation(
         "not approved",
         "cannot approve",
         "not a PASS",
+        "This result isn't OK.",
+        "I don't approve this image.",
+        "This image isn’t fully approved.",
+        "This is not really OK.",
+        "The result has not been fully approved.",
         '{"verdict":"NOT OK","reason":"subject is missing"}',
         '{"status":"not approved","reason":"quality is too low"}',
+        '{"verdict":"not fully approved","reason":"the requested subject is missing"}',
     ],
 )
 def test_ai_review_gate_rejects_negated_approval_phrases(review):
@@ -2668,12 +2674,28 @@ def test_ai_review_gate_rejects_negated_approval_phrases(review):
     assert isinstance(result["result"][0], module.ExecutionBlocker)
 
 
+@pytest.mark.parametrize("verdict", ["uncertain", "pending", ""])
+def test_ai_review_gate_does_not_use_reason_as_an_unclear_structured_verdict(verdict):
+    package = load_package()
+    gate = package.DenoAIReviewGate()
+    review = json.dumps({"verdict": verdict, "reason": "I cannot decide whether to approve."})
+
+    rejected = gate.gate(review=review, image=object())
+    assert rejected["ui"]["deno_llm_gate"][0]["passed"] is False
+    allowed = gate.gate(review=review, unclear_result="Pass", image=object())
+    assert allowed["ui"]["deno_llm_gate"][0]["passed"] is True
+
+
 def test_ai_review_gate_keeps_explicit_positive_and_manual_approval_paths():
     package = load_package()
     gate = package.DenoAIReviewGate()
     image = object()
 
-    for review in ("OK", "PASS", "APPROVE", "APPROVED", "not only OK but excellent"):
+    for review in (
+        "OK", "PASS", "APPROVE", "APPROVED", "not only OK but excellent",
+        "not just OK but excellent", '{"verdict":"OK","reason":"No missing subject."}',
+        '{"passed":true}',
+    ):
         result = gate.gate(review=review, image=image)
         assert result["ui"]["deno_llm_gate"][0]["passed"] is True
         assert result["result"][0] is image

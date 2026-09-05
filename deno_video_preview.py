@@ -200,7 +200,15 @@ def _prepare_audio_stream(av, container, audio):
         samples = np.ascontiguousarray(
             wf.clamp(-1.0, 1.0).cpu().numpy().astype(np.float32)
         )  # [C, N] planar -> fltp
-        astream = container.add_stream("aac", rate=sample_rate)
+        supported_rates = av.codec.Codec("aac", "w").audio_rates
+        if not supported_rates:
+            raise ValueError("AAC encoder did not report supported sample rates.")
+        output_rate = min(supported_rates, key=lambda rate: abs(rate - sample_rate))
+        # Keep each input frame's original sample rate and timestamps below.
+        # PyAV's audio encoder resamples to the stream rate, preserving duration.
+        # A supported rate must be chosen before the first video packet causes
+        # libav to open every codec in the container (192 kHz is not valid AAC).
+        astream = container.add_stream("aac", rate=output_rate)
         astream.bit_rate = 192000
         return {
             "stream": astream,
@@ -339,10 +347,9 @@ class DenoVideoPreview:
                 if audio is not None else None
             )
 
-            frames = images[..., :3].clamp(0.0, 1.0)
             for index in range(batch):
                 arr = (
-                    frames[index, :out_h, :out_w]
+                    images[index, :out_h, :out_w, :3].clamp(0.0, 1.0)
                     .mul(255.0).round().to(torch.uint8).cpu().numpy()
                 )
                 vframe = av.VideoFrame.from_ndarray(
