@@ -6,6 +6,8 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+- MiniMax H3 Acc Loader now names an already-converted ComfyUI LoRA as such and points to LoraLoaderModelOnly, instead of reporting it as a checkpoint with missing PDD heads.
+
 ## 0.7.103 - 2026-09-05
 
 - Moved URL image loading to urllib3's HTTP client, using its supported public-IP connection and original-host HTTPS verification options. Per-redirect address validation, direct connections, timeouts, response size limits, and saved workflows are preserved.

@@ -25,6 +25,7 @@ from deno_minimax_h3_pdd_core import (
     parse_config,
     select_model_compatible_pairs,
     shifted_sigmas,
+    validate_checkpoint,
     validate_model_adaln_layout,
     validate_sigma_schedule,
 )
@@ -229,6 +230,52 @@ def test_audio_factor_is_finite_and_positive():
     value = audio_inner_velocity_factor(1.0, 0.9882352941, VIDEO_SHIFT, AUDIO_SHIFT)
     assert value > 0.0
     assert math.isfinite(value)
+
+
+ACC_METADATA = {
+    "pdd_num_steps": "32",
+    "pdd_block_size": "4",
+    "lora_rank": "64",
+    "lora_alpha": "64.0",
+    "lora_targets": "to_q,to_k,to_v,to_out.0,ff.net.0.proj,ff.net.2,adaln_proj.linear",
+}
+
+
+def _converted_comfy_state():
+    """Key shape of an Acc LoRA already rewritten for the built-in ComfyUI loader."""
+
+    return {
+        "diffusion_model.blocks.0.attn.qkv_proj.lora_A.weight": object(),
+        "diffusion_model.blocks.0.attn.qkv_proj.lora_B.weight": object(),
+        "diffusion_model.blocks.0.adaln_proj.linear.diff_b": object(),
+    }
+
+
+def test_converted_comfy_lora_is_named_rather_than_reported_as_missing_heads():
+    metadata = dict(ACC_METADATA, converted_layout="comfyui_minimax_h3")
+    with pytest.raises(ValueError) as excinfo:
+        validate_checkpoint(_converted_comfy_state(), metadata)
+    message = str(excinfo.value)
+    assert "comfyui_minimax_h3" in message
+    assert "LoraLoaderModelOnly" in message
+    assert "missing PDD heads" not in message
+
+
+def test_converted_comfy_lora_is_detected_without_the_metadata_marker():
+    with pytest.raises(ValueError) as excinfo:
+        validate_checkpoint(_converted_comfy_state(), ACC_METADATA)
+    message = str(excinfo.value)
+    assert "lora_A.weight" in message
+    assert "LoraLoaderModelOnly" in message
+
+
+def test_original_layout_still_reports_its_own_missing_heads():
+    state = {
+        "transformer_blocks.0.to_q.lora_down": object(),
+        "transformer_blocks.0.to_q.lora_up": object(),
+    }
+    with pytest.raises(ValueError, match="missing PDD heads"):
+        validate_checkpoint(state, ACC_METADATA)
 
 
 def test_pruned_compatibility_skips_only_full_width_adaln_pairs():

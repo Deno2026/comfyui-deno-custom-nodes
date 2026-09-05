@@ -36,6 +36,24 @@ SUPPORTED_TARGETS = {
     "adaln_proj.linear",
 }
 
+CONVERTED_LORA_SUFFIXES = (".lora_A.weight", ".lora_B.weight")
+
+
+def converted_layout_reason(
+    state: Mapping[str, torch.Tensor],
+    metadata: Mapping[str, str] | None,
+) -> str | None:
+    """Name the evidence that a file was already rewritten into ComfyUI LoRA layout."""
+
+    layout = (metadata or {}).get("converted_layout")
+    if layout:
+        return f"metadata says converted_layout={layout!r}"
+    for key in state:
+        if key.endswith(CONVERTED_LORA_SUFFIXES):
+            return f"tensors use ComfyUI LoRA names such as {key!r}"
+    return None
+
+
 _TRANSFORMER = re.compile(r"^transformer_blocks\.(\d+)\.(.+)$")
 _REFINER = re.compile(r"^token_refiner\.refiner_blocks\.(\d+)\.(.+)$")
 
@@ -172,10 +190,21 @@ def validate_checkpoint(
     state: Mapping[str, torch.Tensor],
     metadata: Mapping[str, str] | None,
 ) -> tuple[PDDConfig, dict[str, tuple[torch.Tensor, torch.Tensor]]]:
+    converted = converted_layout_reason(state, metadata)
+    if converted:
+        raise ValueError(
+            f"This file is an already-converted MiniMax H3 LoRA ({converted}), not an "
+            "original Acc checkpoint: its PDD heads are baked into ordinary LoRA weights. "
+            "Load it with the built-in LoraLoaderModelOnly node instead."
+        )
+
     config = parse_config(metadata)
     missing = sorted(HEAD_KEYS - set(state))
     if missing:
-        raise ValueError(f"MiniMax H3 Acc checkpoint is missing PDD heads: {missing}")
+        raise ValueError(
+            f"MiniMax H3 Acc checkpoint is missing PDD heads: {missing}. "
+            "Every original Acc checkpoint carries all four head banks."
+        )
 
     expected_heads = {
         "proj_out.weight": (config.num_steps, 96, 5376),
