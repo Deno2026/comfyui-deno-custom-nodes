@@ -32,25 +32,25 @@ ComfyUI がインストール済みの環境で始めてください。
 
 ブラウザで直接使えるツールです。
 
-- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 2つの動画をスライダー、横並び、差分、トグル表示で比較します。
-- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 短いクリップをトリム、クロップ、リサイズして GIF または軽量 WebP に書き出します。
-- [DENO Discord向け動画 / 画像圧縮](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 動画や画像を縮小し、可能な限り Discord 向けに 10MB 以下で保存します。UI は韓国語のみです。
+- [Deno Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 2つの動画をスライダー、横並び、差分、トグル表示で比較します。
+- [Deno Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 短いクリップをトリム、クロップ、リサイズして GIF または軽量 WebP に書き出します。
+- [Deno Discord向け動画 / 画像圧縮](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 動画や画像を縮小し、可能な限り Discord 向けに 10MB 以下で保存します。UI は韓国語のみです。
 
-## DENO Visual Fold
+## Deno Visual Fold
 
-[![DENO Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
+[![Deno Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
 
-DENO Visual Fold は、大きな ComfyUI グラフを視覚的に整理するための機能です。ノードやグループを折りたたんでも、ワークフローのロジックは変更されません。
+Deno Visual Fold は、大きな ComfyUI グラフを視覚的に整理するための機能です。ノードやグループを折りたたんでも、ワークフローのロジックは変更されません。
 
 2つ以上のノードを選択すると、ComfyUI 標準の選択ツールバーに緑色の `Fold` ボタンが表示されます。クリックすると選択したノードが1つのコンパクトな視覚グループとして折りたたまれ、`Unfold` で戻せます。通常の ComfyUI グループを1つ選んだ場合は `Fold Group` を使えます。複数グループを選ぶと整列アクションも表示されます。
 
 Subgraph はノードを子グラフへ移動しますが、Visual Fold は単なる視覚整理です。`Get` / `Set` ノードや親子グラフ構造をメイン画面に残したい時に便利です。
 
-## DENO Floating Tools
+## Deno Floating Tools
 
-DENO Floating Tools は `Settings > DENO > Tools` にある任意の補助機能で、初期状態では無効です。
+Deno Floating Tools は `Settings > DENO > Tools` にある任意の補助機能で、初期状態では無効です。
 
-有効にすると、ComfyUI 画面に小さなドラッグ可能な DENO アイコンが追加されます。パネルから ComfyUI 標準のメモリー解放機能で VRAM を解放し、現在と最新の ComfyUI Stable バージョンを読み取り専用で確認し、実行エラー時には Error Help レポートを開けます。
+有効にすると、ComfyUI 画面に小さなドラッグ可能な Deno アイコンが追加されます。パネルから ComfyUI 標準のメモリー解放機能で VRAM を解放し、現在と最新の ComfyUI Stable バージョンを読み取り専用で確認し、実行エラー時には Error Help レポートを開けます。
 
 Error Help は、現在のワークフロー、Python 実行ファイルと環境、パッケージ、GPU、直近の traceback / log、カスタムノードの概要を GPT / Gemini 向けレポートにまとめます。レポート画面を先に開く読み取り専用機能で、`Copy Report` を押した時だけコピーします。token、cookie、password、private key、URL 認証情報などの一般的な秘密情報はコピー前にマスクされます。
 
@@ -327,7 +327,7 @@ python -m pip install -r requirements.txt
 
 この repo は GPL-3.0 のもとで利用、学習、変更、再配布できます。
 
-この repo に含まれる DENO 所有のノード、ドキュメント、サンプル、ワークフロー、プロジェクト内アセットは GNU GPL v3.0 (`GPL-3.0-only`) で公開されています。商用利用も可能ですが、変更版を配布する場合は GPL-3.0 に従い、必要なライセンス表示と著作権表示を保持してください。
+この repo に含まれる Deno 所有のノード、ドキュメント、サンプル、ワークフロー、プロジェクト内アセットは GNU GPL v3.0 (`GPL-3.0-only`) で公開されています。商用利用も可能ですが、変更版を配布する場合は GPL-3.0 に従い、必要なライセンス表示と著作権表示を保持してください。
 
 外部モデル、チェックポイント、LoRA、ライブラリ、ツール、サービスには、それぞれのライセンスと利用条件があります。特定のモデルやアセットを使うワークフローを共有または販売する場合は、そのライセンスを確認して従ってください。
 

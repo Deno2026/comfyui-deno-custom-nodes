@@ -32,25 +32,25 @@ La mayoría de los nodos Deno incluyen un pequeño botón verde `i` para ver ayu
 
 Herramientas que puedes abrir directamente en el navegador.
 
-- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - compara dos videos renderizados con slider, lado a lado, diferencia y vista toggle.
-- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - recorta, ajusta tamaño y exporta clips cortos como GIF o WebP ligero.
-- [DENO Compresor de video / imagen para Discord](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - reduce videos o imágenes y los guarda, cuando es posible, por debajo de 10 MB para compartirlos en Discord. La interfaz está disponible solo en coreano.
+- [Deno Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - compara dos videos renderizados con slider, lado a lado, diferencia y vista toggle.
+- [Deno Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - recorta, ajusta tamaño y exporta clips cortos como GIF o WebP ligero.
+- [Deno Compresor de video / imagen para Discord](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - reduce videos o imágenes y los guarda, cuando es posible, por debajo de 10 MB para compartirlos en Discord. La interfaz está disponible solo en coreano.
 
-## DENO Visual Fold
+## Deno Visual Fold
 
-[![DENO Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
+[![Deno Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
 
-DENO Visual Fold ayuda a ordenar visualmente grafos grandes de ComfyUI. Puedes plegar nodos o grupos sin cambiar la lógica del workflow.
+Deno Visual Fold ayuda a ordenar visualmente grafos grandes de ComfyUI. Puedes plegar nodos o grupos sin cambiar la lógica del workflow.
 
 Al seleccionar dos o más nodos aparece un botón verde `Fold` en la barra de selección nativa de ComfyUI. Al pulsarlo, los nodos se compactan como un grupo visual y puedes restaurarlos con `Unfold`. Si seleccionas un grupo normal de ComfyUI, `Fold Group` pliega los nodos dentro del grupo; con varios grupos también aparecen acciones de alineación.
 
 A diferencia de Subgraph, Visual Fold no mueve nodos a un grafo hijo. Es una función visual para ordenar, útil cuando quieres mantener nodos `Get` / `Set` o la estructura padre-hijo visible en el grafo principal.
 
-## DENO Floating Tools
+## Deno Floating Tools
 
-DENO Floating Tools es un asistente opcional en `Settings > DENO > Tools`. Está desactivado por defecto.
+Deno Floating Tools es un asistente opcional en `Settings > DENO > Tools`. Está desactivado por defecto.
 
-Al activarlo, añade un pequeño icono DENO arrastrable a la pantalla de ComfyUI. El panel puede liberar VRAM mediante el endpoint de limpieza de memoria integrado de ComfyUI, mostrar en modo de solo lectura el estado de la versión actual y más reciente de ComfyUI Stable, y abrir un informe de Error Help cuando falla una ejecución.
+Al activarlo, añade un pequeño icono Deno arrastrable a la pantalla de ComfyUI. El panel puede liberar VRAM mediante el endpoint de limpieza de memoria integrado de ComfyUI, mostrar en modo de solo lectura el estado de la versión actual y más reciente de ComfyUI Stable, y abrir un informe de Error Help cuando falla una ejecución.
 
 Error Help crea un informe preparado para GPT / Gemini con el workflow actual, el ejecutable y tipo de entorno de Python, versiones de paquetes, GPU, contexto reciente de traceback / log y un resumen de custom nodes. Es de solo lectura, abre primero una ventana de informe y solo copia al pulsar `Copy Report`. Antes de copiar, oculta secretos habituales como tokens, cookies, contraseñas, claves privadas y credenciales en URLs.
 
@@ -327,7 +327,7 @@ Para actualizar manualmente, ejecuta `git pull --ff-only` dentro de la carpeta d
 
 Puedes usar, estudiar, modificar y redistribuir este repo bajo GPL-3.0.
 
-Los nodos, documentos, ejemplos, workflows y recursos del proyecto que pertenecen a DENO se publican bajo GNU GPL v3.0 (`GPL-3.0-only`). El uso comercial está permitido, pero las versiones modificadas que distribuyas deben seguir GPL-3.0 y conservar los avisos de licencia y copyright requeridos.
+Los nodos, documentos, ejemplos, workflows y recursos del proyecto que pertenecen a Deno se publican bajo GNU GPL v3.0 (`GPL-3.0-only`). El uso comercial está permitido, pero las versiones modificadas que distribuyas deben seguir GPL-3.0 y conservar los avisos de licencia y copyright requeridos.
 
 Los modelos, checkpoints, LoRAs, bibliotecas, herramientas y servicios de terceros mantienen sus propias licencias y condiciones. Si un workflow usa un modelo o recurso específico, revisa y respeta esa licencia antes de compartir o vender resultados.
 

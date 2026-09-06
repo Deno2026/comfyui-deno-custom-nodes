@@ -32,25 +32,25 @@
 
 这些工具可以直接在浏览器中运行。
 
-- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 用滑块、并排、差异和切换视图比较两个渲染视频。
-- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 裁剪、截取、缩放短视频，并导出为 GIF 或更小的 WebP。
-- [DENO Discord 视频 / 图片压缩](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 缩小视频或图片，并尽可能保存为 10MB 以下、适合 Discord 分享的文件。界面仅提供韩语。
+- [Deno Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 用滑块、并排、差异和切换视图比较两个渲染视频。
+- [Deno Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 裁剪、截取、缩放短视频，并导出为 GIF 或更小的 WebP。
+- [Deno Discord 视频 / 图片压缩](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 缩小视频或图片，并尽可能保存为 10MB 以下、适合 Discord 分享的文件。界面仅提供韩语。
 
-## DENO Visual Fold
+## Deno Visual Fold
 
-[![DENO Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
+[![Deno Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
 
-DENO Visual Fold 是用于整理大型 ComfyUI 图的视觉辅助功能。折叠节点或组不会改变工作流逻辑。
+Deno Visual Fold 是用于整理大型 ComfyUI 图的视觉辅助功能。折叠节点或组不会改变工作流逻辑。
 
 选择两个或更多节点时，ComfyUI 原生选择工具栏中会出现绿色 `Fold` 按钮。点击后，所选节点会折叠成一个紧凑的视觉组，并可用 `Unfold` 恢复。选择一个普通 ComfyUI 组时，可以用 `Fold Group` 折叠组内节点；选择多个组时，还会出现对齐操作。
 
 ComfyUI Subgraph 会把节点移动到子图中，而 Visual Fold 只做视觉整理。当你希望 `Get` / `Set` 节点或父子图结构仍留在主图中时，它更适合。
 
-## DENO Floating Tools
+## Deno Floating Tools
 
-DENO Floating Tools 是位于 `Settings > DENO > Tools` 的可选辅助功能，默认关闭。
+Deno Floating Tools 是位于 `Settings > DENO > Tools` 的可选辅助功能，默认关闭。
 
-启用后，ComfyUI 画面中会出现一个可拖动的小型 DENO 图标。面板可通过 ComfyUI 内置的内存清理接口释放 VRAM，以只读方式显示当前与最新的 ComfyUI Stable 版本状态，并在运行失败时打开 Error Help 报告。
+启用后，ComfyUI 画面中会出现一个可拖动的小型 Deno 图标。面板可通过 ComfyUI 内置的内存清理接口释放 VRAM，以只读方式显示当前与最新的 ComfyUI Stable 版本状态，并在运行失败时打开 Error Help 报告。
 
 Error Help 会生成适合交给 GPT / Gemini 的报告，其中包含当前工作流、Python 可执行文件与环境类型、软件包版本、GPU 信息、最近的 traceback / log 以及自定义节点摘要。它只读并先打开报告窗口，只有点击 `Copy Report` 才会复制。token、cookie、password、private key 和 URL 凭据等常见敏感信息会在复制前遮蔽。
 
@@ -327,7 +327,7 @@ python -m pip install -r requirements.txt
 
 你可以在 GPL-3.0 下使用、学习、修改和再分发这个 repo。
 
-本 repo 中由 DENO 拥有的节点、文档、示例、工作流和项目内素材采用 GNU GPL v3.0 (`GPL-3.0-only`) 发布。可以用于商业用途，但分发修改版本时必须遵循 GPL-3.0，并保留所需的许可证和版权声明。
+本 repo 中由 Deno 拥有的节点、文档、示例、工作流和项目内素材采用 GNU GPL v3.0 (`GPL-3.0-only`) 发布。可以用于商业用途，但分发修改版本时必须遵循 GPL-3.0，并保留所需的许可证和版权声明。
 
 第三方模型、checkpoint、LoRA、库、工具和服务仍然适用各自的许可证和使用条款。如果某个工作流使用了特定模型或素材，请在分享或销售输出前确认并遵守对应许可证。
 
