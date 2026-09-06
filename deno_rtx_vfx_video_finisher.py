@@ -25,9 +25,11 @@ from .deno_rtx_vfx_easy_upscale import (
     _fit_frame_to_target_aspect,
     _import_vfx,
     _quality_attr,
+    _run_vfx_frame,
     _safe_cuda_device_index,
     _safe_divisible_by,
     _target_size,
+    _vfx_output_width,
 )
 
 FIRST_PASS_CHOICES = ["Off", "Denoise", "Deblur"]
@@ -47,7 +49,7 @@ def _maybe_vfx_effect(VideoSuperRes, enabled, mode, device_index, out_width, out
         return
     quality = getattr(VideoSuperRes.QualityLevel, _quality_attr(mode))
     with _create_vfx_effect(VideoSuperRes, quality, device_index, mode) as effect:
-        effect.output_width = int(out_width)
+        effect.output_width = _vfx_output_width(out_width)
         effect.output_height = int(out_height)
         effect.load()
         yield effect
@@ -221,15 +223,17 @@ class DenoRTXVFXVideoFinisher:
                         )
 
                         if first_effect is not None:
-                            first_result = first_effect.run(frame)
-                            frame = torch.from_dlpack(first_result.image).clone()
+                            frame = _run_vfx_frame(
+                                first_effect, frame, int(source_width), int(source_height), same_size=True,
+                            )
 
                         if second_effect is not None:
                             frame = _fit_frame_to_target_aspect(
                                 frame, int(target_width), int(target_height), resize_method
                             )
-                            second_result = second_effect.run(frame)
-                            frame = torch.from_dlpack(second_result.image).clone()
+                            frame = _run_vfx_frame(
+                                second_effect, frame, int(target_width), int(target_height),
+                            )
 
                         enhanced = frame.permute(1, 2, 0).contiguous()
                         # clamp in the source (float32) precision first, then a

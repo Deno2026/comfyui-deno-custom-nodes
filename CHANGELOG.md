@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.104 - 2026-09-06
+
+- Added a DENO compatibility workaround for NVIDIA VFX output corruption at non-aligned widths, including the diagonal color bands reported with Megapixels sizing. RTX Video Super Resolution and its 2 Pass node now align the internal native output width and restore the exact requested output size.
+- Preserved Denoise/Deblur dimensions with temporary edge padding, including the first stage of 2 Pass. Existing node settings, saved workflows, batch order, output dtype/device, and already aligned processing paths are unchanged.
+
 ## 0.7.103 - 2026-09-05
 
 - Moved URL image loading to urllib3's HTTP client, using its supported public-IP connection and original-host HTTPS verification options. Per-redirect address validation, direct connections, timeouts, response size limits, and saved workflows are preserved.
