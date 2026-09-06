@@ -6,6 +6,8 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.105 - 2026-09-07
+
 - MiniMax H3 Acc Loader now distinguishes a declared H3 conversion from other unsupported LoRA layouts and explains how to select an original Acc checkpoint. Guidance for compatible converted PDD LoRAs includes the required ComfyUI PDD support and built-in LoRA loader.
 
 ## 0.7.104 - 2026-09-06
