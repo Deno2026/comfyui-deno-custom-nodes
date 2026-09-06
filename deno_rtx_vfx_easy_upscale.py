@@ -197,6 +197,33 @@ def _fit_frame_to_target_aspect(frame, target_width: int, target_height: int, re
     return F.pad(frame, (pad_left, pad_right, 0, 0), mode="constant", value=0.0).contiguous()
 
 
+def _vfx_output_width(width: int) -> int:
+    # nvidia-vfx 0.1.0.1 can corrupt output rows at widths not divisible by 8.
+    # Align only the native buffer; public output sizes remain unchanged.
+    return ((int(width) + 7) // 8) * 8
+
+
+def _run_vfx_frame(effect, frame, target_width: int, target_height: int, same_size: bool = False):
+    if same_size:
+        # Denoise/Deblur require matching input/output dimensions. Replicate
+        # the right edge temporarily, then remove only those padded columns.
+        pad_width = _vfx_output_width(target_width) - int(target_width)
+        if pad_width:
+            frame = F.pad(frame, (0, pad_width, 0, 0), mode="replicate").contiguous()
+
+    # NVIDIA owns this buffer and may reuse it on the next run or free it on
+    # close. Take ownership before cropping, resizing, or running another pass.
+    enhanced = torch.from_dlpack(effect.run(frame).image).clone()
+    if same_size:
+        return enhanced[:, :, :int(target_width)].contiguous()
+    if int(enhanced.shape[2]) != int(target_width):
+        enhanced = F.interpolate(
+            enhanced.unsqueeze(0), size=(int(target_height), int(target_width)),
+            mode="bilinear", align_corners=False,
+        )[0]
+    return enhanced
+
+
 def _import_vfx():
     runtime_path = prefer_rtx_vfx_runtime_path()
     loaded_path = current_nvvfx_package_path()
@@ -451,7 +478,7 @@ class DenoRTXVFXEasyUpscale:
 
         with torch.inference_mode():
             with _create_vfx_effect(VideoSuperRes, quality, device_index, mode) as effect:
-                effect.output_width = int(target_width)
+                effect.output_width = _vfx_output_width(target_width)
                 effect.output_height = int(target_height)
                 effect.load()
 
@@ -459,8 +486,9 @@ class DenoRTXVFXEasyUpscale:
                     frame = images[index, :, :, :3].to(device=cuda_device, dtype=torch.float32).permute(2, 0, 1).contiguous()
                     if not _same_size_only(mode):
                         frame = _fit_frame_to_target_aspect(frame, int(target_width), int(target_height), resize_method)
-                    result = effect.run(frame)
-                    enhanced = torch.from_dlpack(result.image).clone().permute(1, 2, 0).contiguous()
+                    enhanced = _run_vfx_frame(
+                        effect, frame, int(target_width), int(target_height), _same_size_only(mode),
+                    ).permute(1, 2, 0).contiguous()
                     # clamp in float32 then a single cast for storage (avoids
                     # the slow CPU-float16 clamp path in Low RAM mode).
                     out[index].copy_(

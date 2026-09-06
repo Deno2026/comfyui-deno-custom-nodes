@@ -1565,22 +1565,10 @@ def test_deno_video_compare_contract_and_frontend_copy():
 
 
 def test_deno_video_compare_runtime_semantics_when_torch_available():
-    saved_torch_modules = {name: sys.modules.get(name) for name in ("torch", "torch.nn", "torch.nn.functional")}
-    for name in saved_torch_modules:
-        sys.modules.pop(name, None)
-
-    try:
-        import torch
-    except Exception:
-        # ImportError on CI (no torch); RuntimeError if torch is re-imported
-        # in a shared multi-test process — skip rather than fail the suite.
-        for name, module in saved_torch_modules.items():
-            if module is not None:
-                sys.modules[name] = module
-        return
+    import torch
 
     if not hasattr(torch, "zeros"):
-        return
+        pytest.skip("Video comparison runtime semantics require real torch.")
 
     fp_previous = sys.modules.get("folder_paths")
     tmpdir = tempfile.mkdtemp()
@@ -1624,11 +1612,13 @@ def test_deno_video_compare_runtime_semantics_when_torch_available():
         assert float((divider[..., 2] - (132 / 255)).abs().max()) < 1e-5
 
         # burn_labels stamps the saved output; off must leave it untouched
+        label_a = torch.zeros((2, 64, 128, 3), dtype=torch.float32)
+        label_b = torch.ones_like(label_a) * 0.6
         on = node.compare_videos(
-            "Side by Side", 0.5, "B", False, 24.0, True, video_a=video_a, video_b=video_b
+            "Side by Side", 0.5, "B", False, 24.0, True, video_a=label_a, video_b=label_b
         )["result"][0]
         off = node.compare_videos(
-            "Side by Side", 0.5, "B", False, 24.0, False, video_a=video_a, video_b=video_b
+            "Side by Side", 0.5, "B", False, 24.0, False, video_a=label_a, video_b=label_b
         )["result"][0]
         assert tuple(on.shape) == tuple(off.shape)
         assert float((on - off).abs().sum()) > 0.0

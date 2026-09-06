@@ -32,25 +32,25 @@ Sebagian besar node Deno memiliki tombol hijau kecil `i` untuk membuka bantuan c
 
 Alat berikut bisa dibuka langsung di browser.
 
-- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - membandingkan dua video render dengan slider, side-by-side, difference, dan toggle.
-- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - memotong, crop, resize, lalu mengekspor klip pendek sebagai GIF atau WebP kecil.
-- [DENO Kompresi video / gambar untuk Discord](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - mengecilkan video atau gambar dan, jika memungkinkan, menyimpannya di bawah 10 MB agar mudah dibagikan lewat Discord. Antarmukanya hanya tersedia dalam bahasa Korea.
+- [Deno Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - membandingkan dua video render dengan slider, side-by-side, difference, dan toggle.
+- [Deno Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - memotong, crop, resize, lalu mengekspor klip pendek sebagai GIF atau WebP kecil.
+- [Deno Kompresi video / gambar untuk Discord](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - mengecilkan video atau gambar dan, jika memungkinkan, menyimpannya di bawah 10 MB agar mudah dibagikan lewat Discord. Antarmukanya hanya tersedia dalam bahasa Korea.
 
-## DENO Visual Fold
+## Deno Visual Fold
 
-[![DENO Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
+[![Deno Visual Fold](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
 
-DENO Visual Fold adalah alat visual untuk merapikan graph ComfyUI yang besar. Melipat node atau group tidak mengubah logika workflow.
+Deno Visual Fold adalah alat visual untuk merapikan graph ComfyUI yang besar. Melipat node atau group tidak mengubah logika workflow.
 
 Saat memilih dua node atau lebih, tombol hijau `Fold` muncul pada toolbar pemilihan bawaan ComfyUI. Klik tombol itu untuk melipat node terpilih menjadi satu group visual yang ringkas, lalu gunakan `Unfold` untuk membukanya kembali. Jika memilih satu group ComfyUI biasa, `Fold Group` melipat node di dalam group tersebut; jika memilih beberapa group, aksi align juga muncul.
 
 Berbeda dari Subgraph, Visual Fold tidak memindahkan node ke child graph. Ini hanya untuk kerapian visual, berguna saat node `Get` / `Set` atau struktur parent-child tetap ingin terlihat di graph utama.
 
-## DENO Floating Tools
+## Deno Floating Tools
 
-DENO Floating Tools adalah helper opsional di `Settings > DENO > Tools`. Fitur ini nonaktif secara default.
+Deno Floating Tools adalah helper opsional di `Settings > DENO > Tools`. Fitur ini nonaktif secara default.
 
-Saat diaktifkan, sebuah ikon DENO kecil yang bisa diseret muncul di layar ComfyUI. Panelnya dapat membebaskan VRAM melalui endpoint pembersihan memori bawaan ComfyUI, menampilkan status read-only untuk versi ComfyUI Stable yang sedang dipakai dan yang terbaru, serta membuka laporan Error Help saat sebuah eksekusi gagal.
+Saat diaktifkan, sebuah ikon Deno kecil yang bisa diseret muncul di layar ComfyUI. Panelnya dapat membebaskan VRAM melalui endpoint pembersihan memori bawaan ComfyUI, menampilkan status read-only untuk versi ComfyUI Stable yang sedang dipakai dan yang terbaru, serta membuka laporan Error Help saat sebuah eksekusi gagal.
 
 Error Help membuat laporan siap pakai untuk GPT / Gemini yang berisi workflow saat ini, executable dan jenis environment Python, versi package, detail GPU, konteks traceback / log terbaru, dan ringkasan custom node. Fitur ini read-only, membuka jendela laporan terlebih dahulu, dan hanya menyalin saat kamu menekan `Copy Report`. Rahasia umum seperti token, cookie, password, private key, dan kredensial URL disamarkan sebelum disalin.
 
@@ -327,7 +327,7 @@ Untuk update manual, jalankan `git pull --ff-only` di folder repository, instal 
 
 Kamu dapat menggunakan, mempelajari, memodifikasi, dan mendistribusikan ulang repo ini di bawah GPL-3.0.
 
-Node, dokumen, contoh, workflow, dan aset proyek milik DENO di repo ini dirilis dengan GNU GPL v3.0 (`GPL-3.0-only`). Penggunaan komersial diizinkan, tetapi versi modifikasi yang kamu distribusikan harus mengikuti GPL-3.0 dan mempertahankan pemberitahuan lisensi serta hak cipta yang diperlukan.
+Node, dokumen, contoh, workflow, dan aset proyek milik Deno di repo ini dirilis dengan GNU GPL v3.0 (`GPL-3.0-only`). Penggunaan komersial diizinkan, tetapi versi modifikasi yang kamu distribusikan harus mengikuti GPL-3.0 dan mempertahankan pemberitahuan lisensi serta hak cipta yang diperlukan.
 
 Model, checkpoint, LoRA, library, tool, dan layanan pihak ketiga tetap mengikuti lisensi dan ketentuannya masing-masing. Jika sebuah workflow memakai model atau aset tertentu, periksa dan ikuti lisensi tersebut sebelum membagikan atau menjual output.
 

@@ -37,27 +37,27 @@ ComfyUI가 설치되어 정상 실행되는 환경에서 시작하세요.
 
 브라우저에서 바로 실행할 수 있는 도구입니다.
 
-- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 두 렌더 영상을 슬라이더, 나란히 보기, 차이 보기, 토글 방식으로 비교합니다.
-- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 짧은 영상을 자르고, 크롭하고, 리사이즈해서 GIF 또는 작은 WebP로 내보냅니다.
-- [DENO 디스코드용 영상 / 이미지 압축](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 영상이나 이미지를 줄여 가능하면 10MB 이하 디스코드용 파일로 저장합니다.
+- [Deno Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - 두 렌더 영상을 슬라이더, 나란히 보기, 차이 보기, 토글 방식으로 비교합니다.
+- [Deno Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - 짧은 영상을 자르고, 크롭하고, 리사이즈해서 GIF 또는 작은 WebP로 내보냅니다.
+- [Deno 디스코드용 영상 / 이미지 압축](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 영상이나 이미지를 줄여 가능하면 10MB 이하 디스코드용 파일로 저장합니다.
 
-## DENO Visual Fold
+## Deno Visual Fold
 
-[![DENO Visual Fold 데모 미리보기](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
+[![Deno Visual Fold 데모 미리보기](images/deno-visual-fold-preview.webp)](images/deno-visual-fold.webp)
 
 미리보기를 클릭하면 전체 데모를 볼 수 있습니다.
 
-DENO Visual Fold는 큰 ComfyUI 그래프를 시각적으로 정리하는 기능입니다. 여러 노드 또는 그룹을 접어도 워크플로우 로직은 바뀌지 않습니다.
+Deno Visual Fold는 큰 ComfyUI 그래프를 시각적으로 정리하는 기능입니다. 여러 노드 또는 그룹을 접어도 워크플로우 로직은 바뀌지 않습니다.
 
 두 개 이상의 노드를 선택하면 ComfyUI의 기본 선택 툴바에 초록색 `Fold` 버튼이 나타납니다. 누르면 선택한 노드가 하나의 시각적 그룹처럼 접히고, `Unfold`로 다시 펼칠 수 있습니다. 일반 ComfyUI 그룹 하나를 선택하면 `Fold Group`으로 그룹 안의 노드를 접을 수 있고, 여러 그룹을 선택하면 정렬 버튼도 함께 나타납니다.
 
 ComfyUI Subgraph는 노드를 하위 그래프로 이동시키는 기능입니다. Visual Fold는 그와 달리 정리 목적의 시각 기능입니다. `Get` / `Set` 노드나 부모-자식 그래프 구조를 그대로 보이게 두고 싶을 때 유용합니다.
 
-## DENO Floating Tools
+## Deno Floating Tools
 
-DENO Floating Tools는 `Settings > DENO > Tools`에서 직접 켜는 선택 기능이며 기본값은 꺼짐입니다.
+Deno Floating Tools는 `Settings > DENO > Tools`에서 직접 켜는 선택 기능이며 기본값은 꺼짐입니다.
 
-활성화하면 ComfyUI 화면에 작은 DENO 아이콘이 나타납니다. 이 패널에서 ComfyUI 기본 메모리 정리 endpoint를 이용해 VRAM을 비우고, 현재 ComfyUI Stable과 최신 공개 버전을 읽기 전용으로 비교하며, 실행 실패 시 GPT/Gemini에 전달할 Error Help 보고서를 열 수 있습니다.
+활성화하면 ComfyUI 화면에 작은 Deno 아이콘이 나타납니다. 이 패널에서 ComfyUI 기본 메모리 정리 endpoint를 이용해 VRAM을 비우고, 현재 ComfyUI Stable과 최신 공개 버전을 읽기 전용으로 비교하며, 실행 실패 시 GPT/Gemini에 전달할 Error Help 보고서를 열 수 있습니다.
 
 Error Help는 현재 워크플로, Python 환경과 패키지 버전, GPU 정보, 최근 traceback·로그 문맥, 커스텀 노드 요약을 먼저 별도 창에 보여줍니다. 사용자가 `Copy Report`를 눌렀을 때만 복사하며 token, cookie, password, private key, URL credential처럼 흔한 비밀 값은 복사 전에 가립니다.
 
@@ -109,7 +109,7 @@ ComfyUI 순정 MiniMax H3 Reference to Video용 한 줄 연결 다중 참조 이
 
 함께 제공되는 `(Deno) MiniMax H3 Reference to Video`는 이미지 입력만 한 단자로 바꾸고, 참조 비디오·비디오 오디오·단독 오디오의 순정 Autogrow 입력은 그대로 유지합니다. 일반 `IMAGE` 배치는 모든 이미지가 같은 가로·세로 크기여야 하므로 혼합 원본 크기 보존에는 사용할 수 없습니다. 추가된 `image_list`는 동일 크기 배치가 아니라 각 원본을 분리해 유지하는 리스트 출력입니다. H3 내부의 `ref_image_size` 처리는 실행 시 비율을 유지한 채 참조 이미지를 축소할 수 있습니다.
 
-이 두 MiniMax H3 노드는 ComfyUI 0.30.0 이상이 필요합니다. 순정 H3 전체 구성에서 여러 `Load Image` 노드만 DENO 한 줄 로더로 교체한 [MiniMax H3 다중 참조 예제 워크플로](workflows/minimax-h3-multi-reference.json)를 함께 제공합니다.
+이 두 MiniMax H3 노드는 ComfyUI 0.30.0 이상이 필요합니다. 순정 H3 전체 구성에서 여러 `Load Image` 노드만 Deno 한 줄 로더로 교체한 [MiniMax H3 다중 참조 예제 워크플로](workflows/minimax-h3-multi-reference.json)를 함께 제공합니다.
 
 ### `(Deno) MiniMax H3 Acc LoRA Loader`
 
@@ -351,7 +351,7 @@ python -m pip install -r requirements.txt
 
 ## License
 
-DENO 소유 노드, 문서, 예시, 워크플로우, 프로젝트 내 에셋은 GNU GPL v3.0 (`GPL-3.0-only`)으로 배포됩니다. [GPL-3.0 조건](../LICENSE)에 따라 사용, 학습, 수정, 재배포할 수 있으며 상업적 이용도 가능합니다. 수정본을 배포할 때는 GPL-3.0을 따르고 필요한 라이선스와 저작권 고지를 유지해야 합니다.
+Deno 소유 노드, 문서, 예시, 워크플로우, 프로젝트 내 에셋은 GNU GPL v3.0 (`GPL-3.0-only`)으로 배포됩니다. [GPL-3.0 조건](../LICENSE)에 따라 사용, 학습, 수정, 재배포할 수 있으며 상업적 이용도 가능합니다. 수정본을 배포할 때는 GPL-3.0을 따르고 필요한 라이선스와 저작권 고지를 유지해야 합니다.
 
 외부 모델, 체크포인트, LoRA, 라이브러리, 도구, 서비스는 각각의 라이선스와 이용 조건을 따릅니다. 특정 모델이나 에셋을 사용하거나 그 결과물을 공유·판매하기 전에 해당 조건을 확인하세요.
 

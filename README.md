@@ -1,10 +1,8 @@
 # Deno Custom Nodes
 
-[English](README.md) | [한국어](docs/README.ko.md) | [日本語](docs/README.ja.md) | [简体中文](docs/README.zh-CN.md) | [Español](docs/README.es.md) | [Português](docs/README.pt-PT.md) | [Português (Brasil)](docs/README.pt-BR.md) | [Bahasa Indonesia](docs/README.id.md)
+[English](README.md) | [Korean](docs/README.ko.md) | [Japanese](docs/README.ja.md) | [Simplified Chinese](docs/README.zh-CN.md) | [Spanish](docs/README.es.md) | [Portuguese (Portugal)](docs/README.pt-PT.md) | [Portuguese (Brazil)](docs/README.pt-BR.md) | [Indonesian](docs/README.id.md)
 
 [YouTube Channel](https://www.youtube.com/@Denoise-AI)
-
-![Deno Custom Nodes banner](docs/images/deno-custom-nodes-banner.jpg)
 
 Practical ComfyUI nodes for loading and resizing images, comparing video results, and building model workflows.
 
@@ -32,23 +30,21 @@ This first example needs no generation model. Individual model and RTX nodes hav
 - **Organize or work in a browser:** try [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools), or the no-install [Web Tools](#web-tools).
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
-The pack also includes lightweight frontend/browser helpers such as **DENO Visual Fold**, optional **DENO Floating Tools** for Free VRAM, ComfyUI Stable update checks, and GPT/Gemini-ready Error Help reports, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the 한국어 전용 **디스코드용 영상 / 이미지 압축** page.
+The pack also includes lightweight frontend/browser helpers such as **Deno Visual Fold**, optional **Deno Floating Tools** for Free VRAM, ComfyUI Stable update checks, and GPT/Gemini-ready Error Help reports, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the **Discord Media Compressor** page (Korean-only interface).
 
 ## Web Tools
 
 Run these directly in your browser:
 
-- [DENO Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - compare two rendered videos with slider, side-by-side, difference, and toggle views.
-- [DENO Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - trim, crop, resize, and export short clips as GIF or smaller WebP files.
-- [DENO 디스코드용 영상 / 이미지 압축](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - 영상이나 이미지를 줄여 가능하면 10MB 이하 디스코드용 파일로 저장합니다.
+- [Deno Video Compare](https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/) - compare two rendered videos with slider, side-by-side, difference, and toggle views.
+- [Deno Video to GIF/WebP](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-gif/) - trim, crop, resize, and export short clips as GIF or smaller WebP files.
+- [Deno Discord Media Compressor](https://deno2026.github.io/comfyui-deno-custom-nodes/video-to-discord/) - compress videos or images for sharing on Discord, aiming for files below 10 MB when possible. The tool's interface is Korean-only.
 
-## DENO Visual Fold
+## Deno Visual Fold
 
-[![DENO Visual Fold demo preview](docs/images/deno-visual-fold-preview.webp)](docs/images/deno-visual-fold.webp)
+[Watch the Visual Fold demo (recorded with Korean browser controls)](docs/images/deno-visual-fold.webp).
 
-Click the preview to open the full demo.
-
-DENO Visual Fold is a visual-only cleanup helper for large ComfyUI graphs. It is enabled automatically when the latest Deno Custom Nodes package is installed or updated.
+Deno Visual Fold is a visual-only cleanup helper for large ComfyUI graphs. It is enabled automatically when the latest Deno Custom Nodes package is installed or updated.
 
 Select two or more nodes and the native ComfyUI selection toolbar shows a readable green `Fold` badge. Click it to collapse the selected nodes into one compact visual group; use `Unfold` to restore them.
 
@@ -56,11 +52,11 @@ You can also select one normal ComfyUI group and use `Fold Group` to collapse th
 
 This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph, which can be powerful, but it may not be ideal when a workflow depends on keeping `Get` / `Set` nodes or parent-child graph structure visible in the main graph. Visual Fold is meant for simple visual organization only. It does not turn the selected nodes into a subgraph or change the workflow logic.
 
-## DENO Floating Tools
+## Deno Floating Tools
 
-DENO Floating Tools is an optional helper under `Settings > DENO > Tools`. It is off by default.
+Deno Floating Tools is an optional helper under `Settings > DENO > Tools`. It is off by default.
 
-When enabled, it adds a small draggable DENO icon to the ComfyUI screen. The panel can free ComfyUI VRAM through ComfyUI's built-in memory cleanup endpoint, show read-only current/latest status for the ComfyUI Stable core release, and open an Error Help report when a run fails.
+When enabled, it adds a small draggable Deno icon to the ComfyUI screen. The panel can free ComfyUI VRAM through ComfyUI's built-in memory cleanup endpoint, show read-only current/latest status for the ComfyUI Stable core release, and open an Error Help report when a run fails.
 
 Error Help creates a GPT/Gemini-ready report with the current workflow, Python executable and environment type, package versions, GPU details, recent traceback/log context, and custom node summary. It is read-only, opens a report window first, and copies only when you click `Copy Report`. Common secrets such as tokens, cookies, passwords, private keys, and URL credentials are masked before copy.
 
@@ -147,7 +143,7 @@ Main features:
 
 The dedicated H3 socket is intentional: a normal ComfyUI `IMAGE` batch requires one shared width and height, so it cannot preserve mixed reference sizes. The additional `image_list` is a list output rather than a same-size batch, so the original dimensions, order, and aspect ratios remain separate when reused by list-aware nodes. MiniMax H3 may still downscale references during its normal `ref_image_size` processing while preserving their aspect ratio.
 
-These two MiniMax H3 nodes require ComfyUI 0.30.0 or newer. See the portable [MiniMax H3 multi-reference workflow](docs/workflows/minimax-h3-multi-reference.json) for the complete native H3 pipeline with the two stock `Load Image` nodes replaced by the one-cable DENO loader.
+These two MiniMax H3 nodes require ComfyUI 0.30.0 or newer. See the portable [MiniMax H3 multi-reference workflow](docs/workflows/minimax-h3-multi-reference.json) for the complete native H3 pipeline with the two stock `Load Image` nodes replaced by the one-cable Deno loader.
 
 ### `(Deno) MiniMax H3 Acc LoRA Loader`
 
@@ -307,7 +303,7 @@ Beginner install flow:
 7. Wait for the green `INSTALL COMPLETE` message.
 8. Restart ComfyUI completely, then use `(Deno) RTX Video Super Resolution` again.
 
-For the full beginner-friendly visual walkthrough, open the [DENO RTX VFX install page](https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/).
+For the full beginner-friendly visual walkthrough, open the [Deno RTX VFX install page](https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/).
 If a tutorial video tells you to open the `tools` folder after installing from ComfyUI Manager, open `tools/OPEN_INSTALL_GUIDE.txt`; it points to the same current install page.
 
 Official NVIDIA references:
@@ -343,7 +339,7 @@ Main features:
 - installer verifies that NVIDIA's `VideoSuperRes` effect can actually be created after install
 - if NVIDIA VFX reports an unsupported runtime feature, the node shows a readable GPU/driver/runtime-path message instead of a raw stack trace
 - if NVIDIA Broadcast/NGX VFX DLLs from another RTX node are already loaded, the node reports that native runtime conflict separately from GPU/driver support
-- if another Broadcast-based RTX node works while DENO fails, treat it as a native runtime conflict, not proof that the DENO install is broken
+- if another Broadcast-based RTX node works while Deno fails, treat it as a native runtime conflict, not proof that the Deno install is broken
 - keeps the installer BAT and ZIP on GitHub instead of inside the Manager package, while the node UI provides a `How to install` button that opens the visual web install page plus a `Copy steps` helper
 - keeps a small `tools/OPEN_INSTALL_GUIDE.txt` file in Manager installs so the `tools` folder still exists for users following older tutorial videos
 - exposes four clear effect buttons: Video SR, High Bitrate, Denoise, and Deblur
@@ -446,7 +442,7 @@ Creator preset link guide:
 
 ![Hugging Face link guide](docs/images/easy-model-download-helper-huggingface-link.png)
 
-![Civitai page URL guide](docs/images/easy-model-download-helper-civitai-link.png)
+[Civitai model-page example (includes Chinese model text)](docs/images/easy-model-download-helper-civitai-link.png).
 
 ![Civitai preset editor guide](docs/images/easy-model-download-helper-civitai-node.png)
 
@@ -491,7 +487,7 @@ Main features:
 
 KJ-style Bernini prompt helper that combines positive and negative prompt encoding into one beginner-friendly node.
 
-![Deno Bernini Prompt Guide](docs/images/bernini-prompt-guide.jpg)
+[Bernini Prompt Guide screenshot (includes a Chinese negative-prompt example)](docs/images/bernini-prompt-guide.jpg).
 
 Main features:
 
@@ -573,7 +569,7 @@ For a manual update, run `git pull --ff-only`, reinstall `requirements.txt` with
 
 ## License
 
-DENO-owned nodes, docs, examples, workflows, and project-local assets in this repo are released under GNU GPL v3.0 (`GPL-3.0-only`). You may use, study, modify, and redistribute them, including commercially, under the [GPL-3.0 terms](LICENSE). Distributed modified versions must follow GPL-3.0 and preserve the required license and copyright notices.
+Deno-owned nodes, docs, examples, workflows, and project-local assets in this repo are released under GNU GPL v3.0 (`GPL-3.0-only`). You may use, study, modify, and redistribute them, including commercially, under the [GPL-3.0 terms](LICENSE). Distributed modified versions must follow GPL-3.0 and preserve the required license and copyright notices.
 
 Third-party models, checkpoints, LoRAs, libraries, tools, and services keep their own licenses and terms. Check the applicable license before using, sharing, or selling outputs from a specific model or asset.
 
@@ -583,6 +579,7 @@ See the [latest release](https://github.com/Deno2026/comfyui-deno-custom-nodes/r
 
 ## Links
 
+- [Original project banner (Korean UI)](docs/images/deno-custom-nodes-banner.jpg)
 - YouTube: https://www.youtube.com/@Denoise-AI
 - GitHub: https://github.com/Deno2026/comfyui-deno-custom-nodes
 - Registry: https://registry.comfy.org/publishers/deno2026/nodes/deno-custom-nodes
