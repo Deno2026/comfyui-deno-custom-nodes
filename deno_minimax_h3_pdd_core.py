@@ -36,6 +36,24 @@ SUPPORTED_TARGETS = {
     "adaln_proj.linear",
 }
 
+CONVERTED_LORA_SUFFIXES = (".lora_A.weight", ".lora_B.weight")
+
+
+def converted_layout_reason(
+    state: Mapping[str, torch.Tensor],
+    metadata: Mapping[str, str] | None,
+) -> str | None:
+    """Describe a declared conversion or tensor layout unsupported by this loader."""
+
+    layout = (metadata or {}).get("converted_layout")
+    if layout:
+        return f"metadata says converted_layout={layout!r}"
+    for key in state:
+        if key.endswith(CONVERTED_LORA_SUFFIXES):
+            return f"tensors use LoRA names such as {key!r}"
+    return None
+
+
 _TRANSFORMER = re.compile(r"^transformer_blocks\.(\d+)\.(.+)$")
 _REFINER = re.compile(r"^token_refiner\.refiner_blocks\.(\d+)\.(.+)$")
 
@@ -172,10 +190,28 @@ def validate_checkpoint(
     state: Mapping[str, torch.Tensor],
     metadata: Mapping[str, str] | None,
 ) -> tuple[PDDConfig, dict[str, tuple[torch.Tensor, torch.Tensor]]]:
+    converted = converted_layout_reason(state, metadata)
+    if converted:
+        original_guidance = "Use an original Alibaba MiniMax H3 Acc checkpoint with this node."
+        if (metadata or {}).get("converted_layout") == "comfyui_minimax_h3":
+            raise ValueError(
+                f"This file declares a converted MiniMax H3 LoRA layout ({converted}). "
+                f"{original_guidance} To use a compatible converted PDD LoRA, update "
+                "ComfyUI to a version with MiniMax H3 PDD support (ComfyUI PR #15908) "
+                "and use the built-in LoraLoaderModelOnly node."
+            )
+        raise ValueError(
+            f"Unsupported LoRA layout for MiniMax H3 Acc Loader ({converted}). "
+            f"{original_guidance}"
+        )
+
     config = parse_config(metadata)
     missing = sorted(HEAD_KEYS - set(state))
     if missing:
-        raise ValueError(f"MiniMax H3 Acc checkpoint is missing PDD heads: {missing}")
+        raise ValueError(
+            f"MiniMax H3 Acc checkpoint is missing PDD heads: {missing}. "
+            "Every original Acc checkpoint carries all four head banks."
+        )
 
     expected_heads = {
         "proj_out.weight": (config.num_steps, 96, 5376),

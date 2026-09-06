@@ -6,6 +6,8 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+- MiniMax H3 Acc Loader now distinguishes a declared H3 conversion from other unsupported LoRA layouts and explains how to select an original Acc checkpoint. Guidance for compatible converted PDD LoRAs includes the required ComfyUI PDD support and built-in LoRA loader.
+
 ## 0.7.104 - 2026-09-06
 
 - Added a DENO compatibility workaround for NVIDIA VFX output corruption at non-aligned widths, including the diagonal color bands reported with Megapixels sizing. RTX Video Super Resolution and its 2 Pass node now align the internal native output width and restore the exact requested output size.
