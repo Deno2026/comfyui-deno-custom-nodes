@@ -43,14 +43,14 @@ def converted_layout_reason(
     state: Mapping[str, torch.Tensor],
     metadata: Mapping[str, str] | None,
 ) -> str | None:
-    """Name the evidence that a file was already rewritten into ComfyUI LoRA layout."""
+    """Describe a declared conversion or tensor layout unsupported by this loader."""
 
     layout = (metadata or {}).get("converted_layout")
     if layout:
         return f"metadata says converted_layout={layout!r}"
     for key in state:
         if key.endswith(CONVERTED_LORA_SUFFIXES):
-            return f"tensors use ComfyUI LoRA names such as {key!r}"
+            return f"tensors use LoRA names such as {key!r}"
     return None
 
 
@@ -192,10 +192,17 @@ def validate_checkpoint(
 ) -> tuple[PDDConfig, dict[str, tuple[torch.Tensor, torch.Tensor]]]:
     converted = converted_layout_reason(state, metadata)
     if converted:
+        original_guidance = "Use an original Alibaba MiniMax H3 Acc checkpoint with this node."
+        if (metadata or {}).get("converted_layout") == "comfyui_minimax_h3":
+            raise ValueError(
+                f"This file declares a converted MiniMax H3 LoRA layout ({converted}). "
+                f"{original_guidance} To use a compatible converted PDD LoRA, update "
+                "ComfyUI to a version with MiniMax H3 PDD support (ComfyUI PR #15908) "
+                "and use the built-in LoraLoaderModelOnly node."
+            )
         raise ValueError(
-            f"This file is an already-converted MiniMax H3 LoRA ({converted}), not an "
-            "original Acc checkpoint: its PDD heads are baked into ordinary LoRA weights. "
-            "Load it with the built-in LoraLoaderModelOnly node instead."
+            f"Unsupported LoRA layout for MiniMax H3 Acc Loader ({converted}). "
+            f"{original_guidance}"
         )
 
     config = parse_config(metadata)

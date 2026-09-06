@@ -258,15 +258,48 @@ def test_converted_comfy_lora_is_named_rather_than_reported_as_missing_heads():
     message = str(excinfo.value)
     assert "comfyui_minimax_h3" in message
     assert "LoraLoaderModelOnly" in message
+    assert "original Alibaba MiniMax H3 Acc checkpoint" in message
+    assert "compatible converted PDD LoRA" in message
+    assert "ComfyUI PR #15908" in message
+    assert "baked" not in message
     assert "missing PDD heads" not in message
 
 
-def test_converted_comfy_lora_is_detected_without_the_metadata_marker():
+def test_unmarked_lora_layout_does_not_claim_h3_conversion_or_loader_compatibility():
     with pytest.raises(ValueError) as excinfo:
         validate_checkpoint(_converted_comfy_state(), ACC_METADATA)
     message = str(excinfo.value)
+    assert message.startswith("Unsupported LoRA layout")
     assert "lora_A.weight" in message
-    assert "LoraLoaderModelOnly" in message
+    assert "original Alibaba MiniMax H3 Acc checkpoint" in message
+    assert "LoraLoaderModelOnly" not in message
+
+
+@pytest.mark.parametrize(
+    "state,metadata",
+    [
+        ({"base_model.model.layers.0.self_attn.q_proj.lora_A.weight": object()}, None),
+        (
+            {"diffusion_model.double_blocks.0.img_attn.qkv.lora_B.weight": object()},
+            ACC_METADATA,
+        ),
+        ({}, {"converted_layout": "some_other_architecture"}),
+        (
+            _converted_comfy_state(),
+            dict(ACC_METADATA, converted_layout="comfyui_minimax_h3_unknown"),
+        ),
+    ],
+)
+def test_unrelated_or_unknown_lora_layouts_get_neutral_original_checkpoint_guidance(
+    state, metadata
+):
+    with pytest.raises(ValueError) as excinfo:
+        validate_checkpoint(state, metadata)
+    message = str(excinfo.value)
+    assert message.startswith("Unsupported LoRA layout")
+    assert "original Alibaba MiniMax H3 Acc checkpoint" in message
+    assert "LoraLoaderModelOnly" not in message
+    assert "baked" not in message
 
 
 def test_original_layout_still_reports_its_own_missing_heads():
@@ -276,6 +309,28 @@ def test_original_layout_still_reports_its_own_missing_heads():
     }
     with pytest.raises(ValueError, match="missing PDD heads"):
         validate_checkpoint(state, ACC_METADATA)
+
+
+@requires_real_torch
+def test_complete_original_checkpoint_still_validates_without_changing_tensors():
+    zero = torch.zeros(1)
+    state = {
+        "proj_out.weight": zero.expand(32, 96, 5376),
+        "proj_out.bias": zero.expand(32, 96),
+        "audio_proj_out.weight": zero.expand(32, 32, 5376),
+        "audio_proj_out.bias": zero.expand(32, 32),
+        "transformer_blocks.0.to_q.lora_down": zero.expand(64, 5376),
+        "transformer_blocks.0.to_q.lora_up": zero.expand(5376, 64),
+    }
+    original_state = dict(state)
+    config, pairs = validate_checkpoint(state, ACC_METADATA)
+    assert config == parse_config(ACC_METADATA)
+    assert set(pairs) == {"transformer_blocks.0.to_q"}
+    down, up = pairs["transformer_blocks.0.to_q"]
+    assert down is state["transformer_blocks.0.to_q.lora_down"]
+    assert up is state["transformer_blocks.0.to_q.lora_up"]
+    assert state.keys() == original_state.keys()
+    assert all(state[key] is tensor for key, tensor in original_state.items())
 
 
 def test_pruned_compatibility_skips_only_full_width_adaln_pairs():
