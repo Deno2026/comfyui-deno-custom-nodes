@@ -6,6 +6,10 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.106 - 2026-09-10
+
+- Removed the inline image preview from `(Deno) RTX Video Super Resolution` so an unrelated cached image cannot appear inside the node. View processed images through a connected Preview Image or Image Compare node.
+
 ## 0.7.105 - 2026-09-07
 
 - MiniMax H3 Acc Loader now distinguishes a declared H3 conversion from other unsupported LoRA layouts and explains how to select an original Acc checkpoint. Guidance for compatible converted PDD LoRAs includes the required ComfyUI PDD support and built-in LoRA loader.

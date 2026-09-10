@@ -353,6 +353,7 @@ Main features:
 - `Denoise` and `Deblur` keep the original size and hide resize controls, matching NVIDIA's same-size VSR modes
 - shows resize controls only when they apply to the selected effect
 - Easy Upscale outputs: `images`
+- The node shows controls only. Connect its `images` output to Preview Image or Image Compare to view the processed result.
 
 ### `(Deno) RTX Video Super Resolution (2 Pass)`
 

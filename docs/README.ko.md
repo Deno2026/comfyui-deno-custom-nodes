@@ -208,6 +208,8 @@ ComfyUI 캔버스 안에서 두 이미지를 빠르게 비교하는 A/B 비교 �
 
 NVIDIA RTX Video Super Resolution을 ComfyUI 안에서 간단히 시도할 수 있는 선택형 Windows/NVIDIA RTX 도우미 노드입니다.
 
+노드 안에는 조작부만 표시합니다. 처리한 이미지는 `images` 출력을 Preview Image 또는 Image Compare에 연결해 확인하세요.
+
 ![Deno RTX Video Super Resolution](images/rtx-vfx-easy-upscale-node.png)
 
 초보자 흐름: `deno-custom-nodes` 설치 또는 업데이트, ComfyUI 시작, 노드 추가 후 한 번 실행, NVIDIA VFX가 없다는 안내가 나오면 ComfyUI를 완전히 종료, `How to install` 버튼의 설치 가이드 순서대로 진행, BAT에서 경로를 확인하고 `Y`, 완료 후 ComfyUI 재시작.

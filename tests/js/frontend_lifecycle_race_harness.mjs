@@ -358,4 +358,60 @@ const berniniSource = readSource("web/js/deno_bernini_prompt_guide.js");
 assert.match(berniniSource, /existing\?\.__denoClose/);
 assert.match(berniniSource, /clearTimeout\(listenerTimer\)/);
 
+// RTX is a processing node: a cached input preview must never become its output UI.
+const rtxExtension = loadExtension("web/js/deno_rtx_vfx_easy_upscale.js");
+class FakeRtxNode {}
+let nativeRtxPreviewCalls = 0;
+FakeRtxNode.prototype.onDrawBackground = function () {
+  nativeRtxPreviewCalls += 1;
+  this.imgs = [{ src: "unrelated-cached-input.png" }];
+};
+await rtxExtension.beforeRegisterNodeDef(FakeRtxNode, { name: "DenoRTXVFXEasyUpscale" });
+const freshRtxNode = new FakeRtxNode();
+freshRtxNode.onDrawBackground();
+assert.equal(freshRtxNode.hideOutputImages, true, "RTX must hide previews in the Vue renderer");
+assert.equal(freshRtxNode.imgs, undefined, "a fresh RTX node must not load a cached preview");
+assert.equal(nativeRtxPreviewCalls, 0, "RTX must not run the native canvas preview loader");
+
+const restoredRtxNode = new FakeRtxNode();
+const rtxInput = { name: "images", link: 154 };
+const rtxOutput = { name: "images", type: "IMAGE", links: [156] };
+const rtxMode = { name: "mode", value: "Deblur Medium" };
+const rtxControls = { name: "rtx_vfx_controls" };
+let rtxPreviewCleanupCalls = 0;
+Object.assign(restoredRtxNode, {
+  inputs: [rtxInput], outputs: [rtxOutput],
+  images: [{ filename: "unrelated-cached-input.png", type: "input" }],
+  imgs: [{ src: "unrelated-cached-input.png" }],
+  preview: ["blob:old-preview"], imageIndex: 0,
+  widgets: [rtxMode, rtxControls,
+    ...["$$canvas-image-preview", "$$comfy_animation_preview"].map((name) => ({
+      name, onRemove() { rtxPreviewCleanupCalls += 1; },
+    })),
+  ],
+});
+restoredRtxNode.onDrawBackground();
+restoredRtxNode.onDrawBackground();
+assert.equal(restoredRtxNode.imgs, undefined);
+assert.equal(restoredRtxNode.images, undefined);
+assert.equal(restoredRtxNode.preview, undefined);
+assert.equal(restoredRtxNode.imageIndex, null);
+assert.equal(rtxPreviewCleanupCalls, 2, "each stale preview widget must be disposed once");
+assert.deepEqual(restoredRtxNode.widgets, [rtxMode, rtxControls], "retain the control widgets and their order");
+assert.equal(restoredRtxNode.inputs[0], rtxInput, "retain the image input link");
+assert.equal(restoredRtxNode.outputs[0], rtxOutput, "retain downstream image links");
+assert.equal(rtxMode.value, "Deblur Medium", "retain the saved effect");
+restoredRtxNode.imgs = [{ src: "late-preview-load.png" }];
+restoredRtxNode.onDrawBackground();
+assert.equal(restoredRtxNode.imgs, undefined, "a late image load must not restore the preview");
+
+for (const name of ["PreviewImage", "DenoRTXVFXVideoFinisher"]) {
+  class OtherImageNode {}
+  const originalDraw = () => "other preview";
+  OtherImageNode.prototype.onDrawBackground = originalDraw;
+  await rtxExtension.beforeRegisterNodeDef(OtherImageNode, { name });
+  assert.equal(OtherImageNode.prototype.onDrawBackground, originalDraw, `${name}: preserve its preview behavior`);
+  assert.equal(OtherImageNode.prototype.hideOutputImages, undefined);
+}
+
 console.log("frontend_lifecycle_race_harness passed");

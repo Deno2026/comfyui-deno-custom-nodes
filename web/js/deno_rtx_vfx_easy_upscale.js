@@ -116,6 +116,14 @@ app.registerExtension({
             return;
         }
 
+        // Vue uses hideOutputImages; the classic canvas loads previews in
+        // onDrawBackground even when that flag is set. This processing node
+        // intentionally replaces that native preview handler.
+        nodeType.prototype.hideOutputImages = true;
+        nodeType.prototype.onDrawBackground = function () {
+            suppressImagePreview(this);
+        };
+
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             const result = onNodeCreated?.apply(this, arguments);
@@ -141,6 +149,7 @@ function setupEasyUpscaleNode(node) {
         return;
     }
 
+    suppressImagePreview(node);
     prepareBackendWidgets(node);
     ensureSingleImageOutput(node);
     ensureEasyControlPanel(node);
@@ -171,6 +180,25 @@ function setupEasyUpscaleNode(node) {
     node.__denoRtxVfxResize = () => resizeNodeToContent(node, MIN_EASY_WIDTH, minEasyHeight(node));
     node.__denoRtxVfxRefresh();
     node.__denoRtxVfxResize();
+}
+
+function suppressImagePreview(node) {
+    node.hideOutputImages = true;
+    node.imgs = undefined;
+    node.images = undefined;
+    node.preview = undefined;
+    node.imageIndex = null;
+    node.overIndex = null;
+
+    // Dispose only ComfyUI's automatic preview widgets, including ones left
+    // behind by an earlier load. Image tensors and other nodes are untouched.
+    for (let index = (node.widgets?.length || 0) - 1; index >= 0; index -= 1) {
+        const widget = node.widgets[index];
+        if (widget.name === "$$canvas-image-preview" || widget.name === "$$comfy_animation_preview") {
+            widget.onRemove?.();
+            node.widgets.splice(index, 1);
+        }
+    }
 }
 
 function ensureEasyControlPanel(node) {
