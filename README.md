@@ -1,5 +1,9 @@
 # Deno Custom Nodes
 
+<p align="center">
+  <img src="docs/images/deno-custom-nodes-banner.jpg" alt="Deno Custom Nodes" width="100%">
+</p>
+
 [English](README.md) | [Korean](docs/README.ko.md) | [Japanese](docs/README.ja.md) | [Simplified Chinese](docs/README.zh-CN.md) | [Spanish](docs/README.es.md) | [Portuguese (Portugal)](docs/README.pt-PT.md) | [Portuguese (Brazil)](docs/README.pt-BR.md) | [Indonesian](docs/README.id.md)
 
 [YouTube Channel](https://www.youtube.com/@Denoise-AI)
