@@ -6,6 +6,8 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+- Added optional API-key authentication for the dedicated `LM Studio` provider: when `DENO_LOCAL_LLM_LM_STUDIO_API_KEY` is set in the ComfyUI host environment before startup, the node sends it as a Bearer token on model list, chat, and unload requests, and the key is never stored in a workflow or PNG metadata. Without the variable, requests stay unauthenticated; an LM Studio HTTP 401 now shows a hint naming the variable.
+
 ## 0.7.106 - 2026-09-10
 
 - Removed the inline image preview from `(Deno) RTX Video Super Resolution` so an unrelated cached image cannot appear inside the node. View processed images through a connected Preview Image or Image Compare node.
