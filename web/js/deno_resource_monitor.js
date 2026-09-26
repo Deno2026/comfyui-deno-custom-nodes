@@ -735,7 +735,11 @@ function reconcileMonitor() {
     if (document.getElementById(CRYSTOOLS_ROOT_ID)) crystoolsState = { known: true, loaded: true };
     observeMenu();
     const showMeters = force || (meterMode === MODE_AUTO && crystoolsState.known && !crystoolsState.loaded);
-    const showCleanup = cleanupMode === CLEANUP_SHOW || (cleanupMode === MODE_AUTO && !existingCleanupVisible());
+    // Without Crystools, the complete DENO bar is the default even if another
+    // extension also provides cleanup. Never remove or replace that control.
+    const noCrystools = crystoolsState.known && !crystoolsState.loaded;
+    const showCleanup = cleanupMode === CLEANUP_SHOW
+        || (cleanupMode === MODE_AUTO && (noCrystools || !existingCleanupVisible()));
     const previouslyHadCleanup = cleanupEnabled;
     metersEnabled = showMeters;
     cleanupEnabled = showCleanup;
@@ -789,7 +793,7 @@ app.registerExtension({
             id: SETTING_CLEANUP_MODE,
             name: "DENO memory cleanup button",
             category: ["DENO", "Tools", "Resource Monitor"],
-            tooltip: "Auto adds a cleanup button only when no visible full model-and-cache cleanup button exists in the top bar. Show always adds DENO's button; Off hides it. Independent of resource meters.",
+            tooltip: "Auto shows DENO cleanup when Crystools is absent. With Crystools loaded, it adds the button only when no visible full-cleanup button exists. Existing buttons are left unchanged. Show always adds DENO's button; Off hides it.",
             type: "combo",
             options: [MODE_AUTO, CLEANUP_SHOW, MODE_OFF],
             defaultValue: MODE_AUTO,

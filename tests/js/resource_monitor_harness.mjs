@@ -376,15 +376,61 @@ for (const crystools of ["absent", "present", "hidden", "registered-only"]) {
     const originalCleanup = h.existingCleanup && serialize(h.existingCleanup);
     await h.boot();
     const wantMeters = crystools === "absent";
-    const wantButton = !["full", "command"].includes(cleanup);
+    const wantButton = crystools === "absent" || !["full", "command"].includes(cleanup);
     assert.equal(h.meters().length, wantMeters ? 5 : 0, `${crystools}/${cleanup}: meter ownership`);
-    assert.equal(Boolean(h.button()), wantButton, `${crystools}/${cleanup}: independent cleanup fallback`);
+    assert.equal(Boolean(h.button()), wantButton, `${crystools}/${cleanup}: full DENO base UI or Crystools cleanup fallback`);
     assert.equal(Boolean(h.root()), wantMeters || wantButton, `${crystools}/${cleanup}: empty bars are absent`);
     if (!wantMeters) assert.equal(h.count("/deno/resource-monitor"), 0, "button-only mode must not poll hardware");
     if (h.crystoolsRoot) assert.equal(serialize(h.crystoolsRoot), originalCrystools, "Auto must preserve existing Crystools DOM");
     if (h.existingCleanup) assert.equal(serialize(h.existingCleanup), originalCleanup, "Auto must preserve existing cleanup DOM");
     assert.deepEqual(h.settingWrites, [], "Auto must not rewrite user settings");
   }
+}
+
+// Without Crystools the default DENO UI includes its own cleanup control, even
+// when a legacy/native control appears later. Existing controls remain untouched.
+{
+  const h = makeHarness();
+  await h.boot();
+  const ownedRoot = h.root();
+  const ownedButton = h.button();
+  assert.ok(ownedButton);
+  const counterpart = h.addCleanup();
+  const originalNative = serialize(counterpart);
+  const assertFullDenoUi = () => {
+    assert.equal(h.root(), ownedRoot);
+    assert.equal(h.button(), ownedButton, "native cleanup visibility must not replace DENO's default control when Crystools is absent");
+    assert.equal(h.meters().length, 5);
+    assert.equal(counterpart.parentElement, h.host, "the existing native cleanup control keeps its own parent");
+    assert.deepEqual(h.settingWrites, []);
+  };
+  await h.advance(500);
+  assertFullDenoUi();
+  assert.equal(serialize(counterpart), originalNative);
+  counterpart.style.display = "none";
+  await h.advance(500);
+  assertFullDenoUi();
+  counterpart.style.removeProperty("display");
+  await h.advance(500);
+  assertFullDenoUi();
+  assert.equal(serialize(counterpart), originalNative, "DENO does not alter the restored native cleanup control");
+  await h.setSetting(CLEANUP, "Off");
+  assert.equal(h.button(), null, "an explicit cleanup Off still overrides the default full DENO UI");
+  assert.equal(h.meters().length, 5);
+  assert.equal(serialize(counterpart), originalNative);
+  await h.setSetting(CLEANUP, "Auto");
+  assert.ok(h.button(), "returning to Auto restores DENO's own cleanup despite a visible native control");
+}
+
+// Unknown Crystools detection keeps the conservative cleanup fallback rather
+// than assuming absence and duplicating an already available native control.
+{
+  const h = makeHarness({ cleanup: "full" });
+  h.responders.set("/extensions", async () => response({}, 503));
+  await h.boot();
+  assert.equal(h.meters().length, 0);
+  assert.equal(h.button(), null);
+  assert.equal(h.count("/deno/resource-monitor"), 0);
 }
 
 // Late legacy attachment, disappearing buttons, hidden ancestors and host remounts.

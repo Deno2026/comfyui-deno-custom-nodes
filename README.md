@@ -74,10 +74,12 @@ Deno Resource Monitor adds compact CPU, RAM, GPU, VRAM, and GPU temperature mete
 | --- | --- | --- |
 | Crystools loaded, existing full-cleanup button visible | Keep Crystools unchanged | Keep the existing button |
 | Crystools loaded, full-cleanup button missing | Keep Crystools unchanged | Add only the DENO button |
-| No Crystools, existing full-cleanup button visible | Add DENO meters | Keep the existing button |
+| No Crystools, existing full-cleanup button visible | Add DENO meters | Add the DENO button; keep the existing button too |
 | Neither available | Add DENO meters | Add the DENO button |
 
-Auto leaves other extensions' settings, elements, and event handlers alone. It also respects Crystools that a user intentionally hid, and does not start DENO hardware polling while Crystools is registered. If extension detection fails, Auto conservatively withholds the meters. Desktop/portable labels and Manager startup flags alone do not decide button visibility: the actual visible top bar does. A model-unload-only button is not equivalent to full model-and-execution-cache cleanup.
+When Crystools is absent, the complete DENO bar (meters and cleanup button) is the default, regardless of other cleanup buttons. Only when Crystools is present does Auto use an existing visible full-cleanup button instead of adding DENO's. Explicit Off settings still take priority.
+
+Auto leaves other extensions' settings, elements, and event handlers alone. It also respects Crystools that a user intentionally hid, and does not start DENO hardware polling while Crystools is registered. If extension detection fails, Auto conservatively withholds the meters. Desktop/portable labels and Manager startup flags alone do not decide the result: Crystools presence comes first, then the actual visible top bar. A model-unload-only button is not equivalent to full model-and-execution-cache cleanup.
 
 `DENO resource monitor` offers `Auto / DENO / Off`; `DENO` explicitly replaces Crystools' meters. `DENO memory cleanup button` separately offers `Auto / Show / Off`. Set both to `Off` to disable both additions. Cleanup uses ComfyUI's built-in `/free` endpoint and is blocked when the queue is busy, its status is unknown, or manual unloading is disabled in ComfyUI settings. The notification acknowledges the request, not a guaranteed amount of released VRAM. It does not delete model files or disk caches.
 
