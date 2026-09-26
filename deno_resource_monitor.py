@@ -8,6 +8,7 @@ always-running broadcast thread.  See THIRD_PARTY_NOTICES.md.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from typing import Any, Optional
@@ -21,9 +22,9 @@ _UNSET = object()
 def _number(value: Any) -> Optional[float]:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
-    if number != number:  # NaN
+    if not math.isfinite(number):
         return None
     return number
 

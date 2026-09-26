@@ -121,14 +121,16 @@ def test_resource_monitor_frontend_coexists_with_crystools_by_default():
     assert 'defaultValue: MODE_AUTO' in script
     assert 'api.fetchApi("/extensions"' in script
     assert 'crystools-monitors-root' in script
-    assert 'if (!crystools.known || crystools.loaded)' in script
+    assert 'crystoolsState.known && !crystoolsState.loaded' in script
     assert 'destroyMonitor();' in script
+    assert 'DENO.ResourceMonitor.CleanupMode' in script
+    assert 'existingCleanupVisible()' in script
     assert 'api.fetchApi("/deno/resource-monitor"' in script
     assert 'document.visibilityState === "hidden"' in script
     assert 'JSON.stringify({ unload_models: true, free_memory: true })' in script
     assert 'api.fetchApi("/queue"' in script
     assert 'Comfy.Memory.AllowManualUnload' in script
-    assert 'mdi mdi-vacuum-outline' in script
+    assert 'mdi mdi-vacuum"' in script
 
 
 def test_resource_monitor_has_no_permanent_backend_broadcast_thread():

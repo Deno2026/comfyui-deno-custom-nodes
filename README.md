@@ -68,11 +68,22 @@ Floating Tools does not install, update, restart, repair, or modify workflows.
 
 ## Deno Resource Monitor
 
-Deno Resource Monitor shows compact live CPU, RAM, GPU, VRAM, and GPU temperature meters in the ComfyUI top bar. Its adjacent memory button unloads ComfyUI models and clears the execution cache through ComfyUI's built-in `/free` endpoint, and stays disabled while the queue is busy.
+Deno Resource Monitor adds compact CPU, RAM, GPU, VRAM, and GPU temperature meters and a model/cache cleanup button to the ComfyUI top bar. The two features are independent and default to **Auto** under `Settings > DENO > Tools > Resource Monitor`.
 
-The default `Settings > DENO > Tools > Resource Monitor > Auto` mode protects existing Crystools users: when ComfyUI actually loads Crystools, the DENO monitor does not start or poll hardware. When Crystools is absent or disabled, the DENO monitor appears automatically. Choose `DENO` to explicitly use the DENO bar instead, or `Off` to hide it.
+| Existing setup | Resource meters in Auto | Cleanup button in Auto |
+| --- | --- | --- |
+| Crystools loaded, existing full-cleanup button visible | Keep Crystools unchanged | Keep the existing button |
+| Crystools loaded, full-cleanup button missing | Keep Crystools unchanged | Add only the DENO button |
+| No Crystools, existing full-cleanup button visible | Add DENO meters | Keep the existing button |
+| Neither available | Add DENO meters | Add the DENO button |
 
-The monitor samples only while its browser tab is visible and does not run a permanent background broadcast thread. Resource-monitor behavior and NVIDIA metric selection are adapted from the MIT-licensed ComfyUI-Crystools project; see [Third-Party Notices](THIRD_PARTY_NOTICES.md).
+Auto leaves other extensions' settings, elements, and event handlers alone. It also respects Crystools that a user intentionally hid, and does not start DENO hardware polling while Crystools is registered. If extension detection fails, Auto conservatively withholds the meters. Desktop/portable labels and Manager startup flags alone do not decide button visibility: the actual visible top bar does. A model-unload-only button is not equivalent to full model-and-execution-cache cleanup.
+
+`DENO resource monitor` offers `Auto / DENO / Off`; `DENO` explicitly replaces Crystools' meters. `DENO memory cleanup button` separately offers `Auto / Show / Off`. Set both to `Off` to disable both additions. Cleanup uses ComfyUI's built-in `/free` endpoint and is blocked when the queue is busy, its status is unknown, or manual unloading is disabled in ComfyUI settings. The notification acknowledges the request, not a guaranteed amount of released VRAM. It does not delete model files or disk caches.
+
+GPU readings currently use NVIDIA NVML; unsupported or unavailable GPU fields are hidden, while CPU/RAM and cleanup remain usable. On multi-GPU systems the bar shows NVIDIA GPU index 0 (or the first available GPU), not necessarily the GPU selected for generation. The monitor samples only while its browser tab is visible and does not run a permanent broadcast thread. Button-only mode makes no DENO telemetry requests. Resource-monitor behavior and NVIDIA metric selection are adapted from MIT-licensed ComfyUI-Crystools; see [Third-Party Notices](THIRD_PARTY_NOTICES.md).
+
+When the window is narrow or the top bar is crowded, only the DENO controls move to a compact row beneath it; existing controls stay in place. Widening the window returns DENO to the top bar when there is room.
 
 ## Included Nodes
 

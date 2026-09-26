@@ -65,11 +65,22 @@ Floating Tools 자체는 설치, 업데이트, 재시작, 복구 또는 워크�
 
 ## Deno Resource Monitor
 
-Deno Resource Monitor는 ComfyUI 상단에 CPU, RAM, GPU, VRAM, GPU 온도를 작게 실시간 표시합니다. 옆의 메모리 정리 버튼은 ComfyUI 기본 `/free` endpoint로 모델과 실행 캐시를 함께 비우며, 생성 큐가 실행 중일 때는 비활성화됩니다.
+Deno Resource Monitor는 ComfyUI 상단에 CPU, RAM, GPU, VRAM, GPU 온도와 모델·캐시 정리 버튼을 제공합니다. 수치 표시와 정리 버튼은 **서로 독립적**이며, `Settings > DENO > Tools > Resource Monitor`에서 각각 기본값인 `Auto`로 동작합니다.
 
-기본값인 `Settings > DENO > Tools > Resource Monitor > Auto`는 기존 Crystools 사용자를 보호합니다. ComfyUI가 Crystools를 실제로 로드한 경우 DENO 모니터는 생성되지 않고 하드웨어 조회도 시작하지 않습니다. Crystools가 없거나 비활성화되어 있으면 DENO 모니터가 자동으로 나타납니다. DENO 바를 명시적으로 사용하려면 `DENO`, 모두 숨기려면 `Off`를 선택할 수 있습니다.
+| 기존 환경 | Auto 수치 표시 | Auto 정리 버튼 |
+| --- | --- | --- |
+| Crystools와 기존 전체 정리 버튼이 보임 | Crystools 그대로 유지 | 기존 버튼 그대로 유지 |
+| Crystools는 있고 전체 정리 버튼은 없음 | Crystools 그대로 유지 | DENO 버튼만 추가 |
+| Crystools는 없고 기존 전체 정리 버튼은 보임 | DENO 계기판 추가 | 기존 버튼 그대로 유지 |
+| 둘 다 없음 | DENO 계기판 추가 | DENO 버튼 추가 |
 
-모니터는 브라우저 탭이 보일 때만 수치를 조회하며 상시 백그라운드 방송 스레드를 실행하지 않습니다. 리소스 항목과 NVIDIA 측정 방식은 MIT 라이선스의 ComfyUI-Crystools를 바탕으로 조정했으며 고지는 [Third-Party Notices](../THIRD_PARTY_NOTICES.md)에 있습니다.
+Auto는 다른 확장의 설정·요소·클릭 동작을 바꾸지 않습니다. 사용자가 일부러 숨긴 Crystools도 존중하며, Crystools 확장이 등록돼 있으면 DENO 하드웨어 조회를 시작하지 않습니다. 확장 확인에 실패한 경우에도 중복 방지를 위해 계기판을 켜지 않습니다. 데스크탑·포터블 이름이나 Manager 실행 옵션만으로 추측하지 않고, 실제 상단에 전체 정리 버튼이 보이는지 확인합니다. 모델만 해제하는 버튼은 모델·실행 캐시를 함께 비우는 버튼과 구분합니다.
+
+`DENO resource monitor`는 `Auto / DENO / Off`를 제공합니다. `DENO`는 사용자가 명시적으로 Crystools 계기판 대신 DENO를 선택하는 옵션입니다. `DENO memory cleanup button`은 별도로 `Auto / Show / Off`를 제공합니다. 두 기능을 모두 끄려면 각각 `Off`로 설정하세요. 정리는 ComfyUI 기본 `/free` 요청을 사용하며, 생성·대기 큐가 있거나 큐 상태를 확인할 수 없거나 ComfyUI에서 수동 메모리 해제를 금지한 경우 실행하지 않습니다. 알림은 정리 요청 접수를 뜻하며 특정 VRAM 감소량을 보장하지 않습니다. 모델 파일이나 디스크 캐시는 삭제하지 않습니다.
+
+현재 GPU 수치는 NVIDIA NVML을 사용합니다. 지원되지 않거나 읽을 수 없는 GPU 항목은 숨기고 CPU·RAM과 정리 버튼은 사용할 수 있습니다. 여러 GPU가 있으면 NVIDIA GPU index 0(없으면 첫 번째로 확인된 GPU)을 표시하므로 생성에 선택한 GPU와 다를 수 있습니다. 수치는 탭이 보일 때만 조회하고 상시 방송 스레드는 실행하지 않습니다. 정리 버튼만 표시되는 상태에서는 DENO 하드웨어 조회가 발생하지 않습니다. 리소스 항목과 NVIDIA 측정 방식은 MIT 라이선스의 ComfyUI-Crystools를 바탕으로 조정했으며 고지는 [Third-Party Notices](../THIRD_PARTY_NOTICES.md)에 있습니다.
+
+창이 좁거나 상단 공간이 부족하면 DENO 표시만 그 아래 별도 줄로 내려갑니다. 기존 버튼은 그대로 두며, 창을 넓혀 공간이 생기면 DENO도 다시 상단에 붙습니다.
 
 ## Included Nodes
 

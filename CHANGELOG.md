@@ -6,7 +6,7 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
-- Added an automatic DENO top-bar resource monitor for CPU, RAM, GPU, VRAM, and GPU temperature, plus queue-safe model and execution-cache cleanup. Auto mode stays completely inactive when Crystools is loaded, so existing Crystools installations keep their current UI and polling behavior.
+- Added an automatic DENO top-bar resource monitor with independent queue-safe model/cache cleanup. Auto preserves Crystools and existing visible full-cleanup buttons, adding only what is missing across Desktop/portable top bars. Button-only mode does not poll hardware; unavailable metrics are not shown as zero.
 
 ## 0.7.106 - 2026-09-10
 
