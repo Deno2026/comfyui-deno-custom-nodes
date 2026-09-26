@@ -70,6 +70,8 @@ Floating Tools does not install, update, restart, repair, or modify workflows.
 
 Deno Resource Monitor adds compact CPU, RAM, GPU, VRAM, and GPU temperature meters and a model/cache cleanup button to the ComfyUI top bar. The two features are independent and default to **Auto** under `Settings > DENO > Tools > Resource Monitor`.
 
+The meters match Crystools' default horizontal appearance: 60 × 30 px bars, 5 px gaps, the same label/value placement and colors, and a temperature fill that changes from green to red. DENO's cleanup button stays alongside them; narrow windows use the separate compact row without moving existing toolbar controls.
+
 | Existing setup | Resource meters in Auto | Cleanup button in Auto |
 | --- | --- | --- |
 | Crystools loaded, existing full-cleanup button visible | Keep Crystools unchanged | Keep the existing button |

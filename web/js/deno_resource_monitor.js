@@ -71,16 +71,19 @@ function installStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID;
+    // Horizontal meter appearance adapted from MIT-licensed Crystools 1.27.4.
+    // Keep DENO selectors/lifecycle separate; see THIRD_PARTY_NOTICES.md.
     style.textContent = `
         #${ROOT_ID} {
             display: flex;
             align-items: center;
             flex: 0 0 auto;
-            gap: 3px;
+            gap: 5px;
             height: 30px;
             min-width: 0;
-            font-family: var(--font-family, Arial, sans-serif);
-            color: var(--input-text, #eee);
+            font-family: inherit;
+            line-height: normal;
+            color: inherit;
         }
         #${ROOT_ID}.deno-resource-monitor-error .deno-resource-meter {
             opacity: 0.58;
@@ -104,48 +107,51 @@ function installStyles() {
         #${ROOT_ID} .deno-resource-meter {
             --deno-resource-color: #a3a6ad;
             position: relative;
-            width: 55px;
+            width: 60px;
             height: 30px;
-            flex: 0 0 55px;
+            flex: 0 0 60px;
             overflow: hidden;
-            border-radius: 3px;
+            border-radius: 0;
             background: var(--comfy-input-bg, #202024);
-            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+            cursor: crosshair;
+        }
+        #${ROOT_ID} .deno-resource-meter:first-child {
+            border-top-left-radius: 4px;
+            border-bottom-left-radius: 4px;
+        }
+        #${ROOT_ID} .deno-resource-meter:not(:has(~ .deno-resource-meter:not(.deno-resource-unavailable))) {
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
         }
         #${ROOT_ID} .deno-resource-fill {
             position: absolute;
             inset: 0 auto 0 0;
             width: 0%;
             background: var(--deno-resource-color);
-            opacity: 0.72;
-            transition: width 300ms ease-out;
-        }
-        #${ROOT_ID} .deno-resource-meter[data-key="temperature"] .deno-resource-fill {
-            background: linear-gradient(90deg, #3abf78 0%, #e1bd46 62%, #ef665b 100%);
-            opacity: 0.82;
+            box-shadow: inset 2px 2px 10px rgba(0, 0, 0, 0.2);
+            transition: width 0.5s;
         }
         #${ROOT_ID} .deno-resource-label,
         #${ROOT_ID} .deno-resource-value {
             position: absolute;
             z-index: 1;
-            line-height: 1;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+            line-height: normal;
             pointer-events: none;
         }
         #${ROOT_ID} .deno-resource-label {
-            left: 4px;
-            bottom: 3px;
-            font-size: 9px;
-            font-weight: 500;
-            color: rgba(240, 238, 232, 0.82);
+            left: 3px;
+            bottom: 2px;
+            font-size: 10px;
+            font-weight: 100;
         }
         #${ROOT_ID} .deno-resource-value {
-            top: 3px;
-            right: 4px;
-            font-size: 10px;
-            font-variant-numeric: tabular-nums;
-            font-weight: 650;
-            color: #f5f3ee;
+            top: 2px;
+            right: 2px;
+            width: 100%;
+            text-align: right;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--input-text, #ddd);
         }
         #${ROOT_ID} .deno-resource-meter.deno-resource-unavailable {
             display: none;
@@ -239,11 +245,11 @@ function addMeters() {
     if (meterElements.size) return;
     const fragment = document.createDocumentFragment();
     fragment.append(
-        createMeter("cpu", "CPU", "#83a67a"),
-        createMeter("ram", "RAM", "#47b95d"),
-        createMeter("gpu", "GPU", "#3f91e8"),
-        createMeter("vram", "VRAM", "#596fe1"),
-        createMeter("temperature", "Temp", "#3abf78"),
+        createMeter("cpu", "CPU", "#0AA015"),
+        createMeter("ram", "RAM", "#07630D"),
+        createMeter("gpu", "GPU", "#0C86F4"),
+        createMeter("vram", "VRAM", "#176EC7"),
+        createMeter("temperature", "Temp", "#00ff00"),
     );
     rootEl.insertBefore(fragment, freeButtonEl);
     // GPU fields stay absent until the backend supplies actual readings.
@@ -373,13 +379,16 @@ function setMeter(key, value, title, options = {}) {
     const unavailable = !available && options.hideWhenUnavailable === true;
     const availabilityChanged = refs.meter.classList.contains("deno-resource-unavailable") !== unavailable;
     refs.meter.classList.toggle("deno-resource-unavailable", unavailable);
-    refs.fill.style.width = `${available ? percent : 0}%`;
+    refs.fill.style.width = `${available ? Math.floor(percent) : 0}%`;
+    if (key === "temperature") {
+        refs.fill.style.backgroundColor = `color-mix(in srgb, #ff0000 ${available ? percent : 0}%, #00ff00)`;
+    }
     refs.valueEl.textContent = available
-        ? `${Math.round(displayValue)}${options.symbol || "%"}`
+        ? `${Math.floor(displayValue)}${options.symbol || "%"}`
         : "--";
     refs.meter.title = title || "Metric unavailable";
     if (available) {
-        refs.meter.setAttribute("aria-valuenow", String(Math.round(percent)));
+        refs.meter.setAttribute("aria-valuenow", String(Math.floor(percent)));
         refs.meter.setAttribute("aria-valuetext", refs.valueEl.textContent);
     } else {
         refs.meter.removeAttribute("aria-valuenow");
@@ -397,7 +406,7 @@ function updateSnapshot(snapshot) {
     const ramUsed = bytesToGiB(snapshot?.ram_used);
     const ramTotal = bytesToGiB(snapshot?.ram_total);
     const cpuPercent = clampedPercent(snapshot?.cpu_percent);
-    setMeter("cpu", cpuPercent, cpuPercent === null ? "CPU usage unavailable" : `CPU ${Math.round(cpuPercent)}%`);
+    setMeter("cpu", cpuPercent, cpuPercent === null ? "CPU usage unavailable" : `CPU ${Math.floor(cpuPercent)}%`);
     setMeter(
         "ram",
         snapshot?.ram_percent,
@@ -423,7 +432,7 @@ function updateSnapshot(snapshot) {
         "temperature",
         gpu?.temperature,
         finiteNumber(gpu?.temperature) !== null
-            ? `${gpuName} ${Math.round(finiteNumber(gpu.temperature))}°C`
+            ? `${gpuName} ${Math.floor(finiteNumber(gpu.temperature))}°C`
             : `${gpuName} temperature unavailable`,
         { symbol: "°", rawValue: true, hideWhenUnavailable: true },
     );

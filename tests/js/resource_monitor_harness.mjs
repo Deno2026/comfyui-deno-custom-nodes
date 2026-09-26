@@ -368,6 +368,17 @@ function serialize(node) {
     children: node.children.map(serialize) });
 }
 
+function cssDeclarations(css, selector) {
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selectors]) => selectors.split(",").some((candidate) => candidate.trim() === selector));
+  assert.ok(rules.length, `the installed stylesheet must contain ${selector}`);
+  return Object.fromEntries(rules.flatMap((rule) => rule[2].split(";")).filter((declaration) => declaration.includes(":"))
+    .map((declaration) => {
+      const separator = declaration.indexOf(":");
+      return [declaration.slice(0, separator).trim(), declaration.slice(separator + 1).trim().replace(/\s+/g, " ")];
+    }));
+}
+
 // Existing visible and user-hidden Crystools retain ownership of resource display.
 for (const crystools of ["absent", "present", "hidden", "registered-only"]) {
   for (const cleanup of ["absent", "full", "outline", "hidden", "command"]) {
@@ -668,18 +679,63 @@ for (const crystools of ["absent", "present"]) {
   await h.boot();
   for (const meter of h.meters()) {
     assert.equal(meter.getAttribute("aria-valuenow"), null, `${meter.dataset.key}: unavailable metric has no number`);
-    assert.notEqual(meter.querySelector(".deno-resource-value").textContent, "0%");
-    assert.notEqual(meter.querySelector(".deno-resource-value").textContent, "0°");
+    assert.equal(meter.querySelector(".deno-resource-value").textContent, "--", "missing readings retain a truthful placeholder");
+    assert.equal(meter.classList.contains("deno-resource-unavailable"), ["gpu", "vram", "temperature"].includes(meter.dataset.key), "only unavailable GPU fields hide while CPU/RAM retain their placeholder");
+  }
+}
+
+// Preserve the familiar Crystools meter dimensions, typography and palette.
+// Read only selected declarations from the stylesheet actually installed by setup.
+{
+  const h = makeHarness();
+  await h.boot();
+  const css = h.document.getElementById("deno-resource-monitor-style").textContent;
+  const properties = [
+    [`#${ROOT}`, { gap: "5px" }],
+    [`#${ROOT} .deno-resource-meter`, { width: "60px", height: "30px" }],
+    [`#${ROOT} .deno-resource-meter:first-child`, { "border-top-left-radius": "4px", "border-bottom-left-radius": "4px" }],
+    [`#${ROOT} .deno-resource-meter:not(:has(~ .deno-resource-meter:not(.deno-resource-unavailable)))`, { "border-top-right-radius": "4px", "border-bottom-right-radius": "4px" }],
+    [`#${ROOT} .deno-resource-label`, { "font-size": "10px", "font-weight": "100", bottom: "2px", left: "3px" }],
+    [`#${ROOT} .deno-resource-value`, { "font-size": "11px", "font-weight": "500", top: "2px", right: "2px" }],
+  ];
+  for (const [selector, expected] of properties) {
+    const actual = cssDeclarations(css, selector);
+    for (const [property, value] of Object.entries(expected)) {
+      assert.equal(actual[property], value, `${selector}: ${property} must match the established meter appearance`);
+    }
+  }
+  const meters = new Map(h.meters().map((meter) => [meter.dataset.key, meter]));
+  for (const [key, color] of Object.entries({ cpu: "#0AA015", ram: "#07630D", gpu: "#0C86F4", vram: "#176EC7" })) {
+    assert.equal(meters.get(key).style.getPropertyValue("--deno-resource-color").toUpperCase(), color);
+  }
+}
+
+// Fractional measurements use the same integer floor for the text and bar.
+{
+  const h = makeHarness({ metrics: { ...sample, cpu_percent: 37.9, ram_percent: 62.5,
+    gpus: [{ ...sample.gpus[0], gpu_percent: 99.9, vram_percent: 0.9, temperature: 54.9 }] } });
+  await h.boot();
+  const expected = { cpu: 37, ram: 62, gpu: 99, vram: 0, temperature: 54 };
+  for (const meter of h.meters()) {
+    const value = expected[meter.dataset.key];
+    const suffix = meter.dataset.key === "temperature" ? "°" : "%";
+    assert.equal(meter.querySelector(".deno-resource-value").textContent, `${value}${suffix}`);
+    assert.equal(meter.querySelector(".deno-resource-fill").style.width, `${value}%`);
+    assert.equal(meter.getAttribute("aria-valuenow"), String(value));
   }
 }
 
 // Temperature is a reading rather than a percentage; valid zero stays available.
-for (const temperature of [105, -5, 0]) {
+for (const temperature of [105, -5, 0, 54.9, 105.8, -5.2]) {
   const h = makeHarness({ metrics: { ...sample, cpu_percent: 150,
     gpus: [{ ...sample.gpus[0], gpu_percent: 0, temperature }] } });
   await h.boot();
   const meters = new Map(h.meters().map((meter) => [meter.dataset.key, meter]));
-  assert.equal(meters.get("temperature").querySelector(".deno-resource-value").textContent, `${temperature}°`, "temperature must retain its actual value outside percent bounds");
+  const temperatureFill = meters.get("temperature").querySelector(".deno-resource-fill");
+  const boundedTemperature = Math.min(100, Math.max(0, temperature));
+  assert.equal(meters.get("temperature").querySelector(".deno-resource-value").textContent, `${Math.floor(temperature)}°`, "temperature is floored for display but not clamped to percentage bounds");
+  assert.equal(temperatureFill.style.width, `${Math.floor(boundedTemperature)}%`, "temperature fill stays within the meter");
+  assert.equal(temperatureFill.style.backgroundColor, `color-mix(in srgb, #ff0000 ${boundedTemperature}%, #00ff00)`, "temperature uses the established red/green mix with a bounded proportion");
   assert.equal(meters.get("cpu").getAttribute("aria-valuenow"), "100", "percentage meters remain bounded");
   assert.equal(meters.get("gpu").getAttribute("aria-valuenow"), "0", "a genuine measured zero remains available");
   assert.equal(meters.get("gpu").classList.contains("deno-resource-unavailable"), false);

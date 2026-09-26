@@ -2,8 +2,9 @@
 
 ## ComfyUI-Crystools resource monitor
 
-The DENO Resource Monitor adapts the resource categories and NVIDIA NVML
-metric selection used by
+The DENO Resource Monitor adapts the resource categories, NVIDIA NVML
+metric selection, and horizontal meter styling (dimensions, typography,
+colors, fill shadow, and temperature color mixing) used by
 [ComfyUI-Crystools](https://github.com/crystian/ComfyUI-Crystools). Its
 frontend integration, on-demand request lifecycle, responsive layout,
 Crystools coexistence behavior, and memory cleanup control are DENO-owned

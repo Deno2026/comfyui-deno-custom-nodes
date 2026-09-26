@@ -67,6 +67,8 @@ Floating Tools 자체는 설치, 업데이트, 재시작, 복구 또는 워크�
 
 Deno Resource Monitor는 ComfyUI 상단에 CPU, RAM, GPU, VRAM, GPU 온도와 모델·캐시 정리 버튼을 제공합니다. 수치 표시와 정리 버튼은 **서로 독립적**이며, `Settings > DENO > Tools > Resource Monitor`에서 각각 기본값인 `Auto`로 동작합니다.
 
+계기판은 Crystools의 기본 가로형 외관과 맞췄습니다. 각 칸은 60 × 30 px, 간격은 5 px이며 항목명·숫자의 위치와 색상, 초록에서 빨강으로 바뀌는 온도 막대도 동일한 기준을 사용합니다. DENO 정리 버튼은 옆에 유지하고, 좁은 창에서는 기존 도구를 옮기지 않고 DENO만 별도 줄에 표시합니다.
+
 | 기존 환경 | Auto 수치 표시 | Auto 정리 버튼 |
 | --- | --- | --- |
 | Crystools와 기존 전체 정리 버튼이 보임 | Crystools 그대로 유지 | 기존 버튼 그대로 유지 |
