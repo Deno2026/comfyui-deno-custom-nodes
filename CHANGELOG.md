@@ -6,6 +6,8 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+- Added an automatic DENO top-bar resource monitor for CPU, RAM, GPU, VRAM, and GPU temperature, plus queue-safe model and execution-cache cleanup. Auto mode stays completely inactive when Crystools is loaded, so existing Crystools installations keep their current UI and polling behavior.
+
 ## 0.7.106 - 2026-09-10
 
 - Removed the inline image preview from `(Deno) RTX Video Super Resolution` so an unrelated cached image cannot appear inside the node. View processed images through a connected Preview Image or Image Compare node.

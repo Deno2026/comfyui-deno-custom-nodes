@@ -4,7 +4,7 @@ description = "DENO RTX node pack for ComfyUI: MiniMax H3 multi-reference image 
 version = "0.7.106"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
-dependencies = ["openai-whisper>=20250625", "urllib3>=2.7,<3"]
+dependencies = ["openai-whisper>=20250625", "nvidia-ml-py>=12", "psutil>=5.9", "urllib3>=2.7,<3"]
 keywords = [
   "comfyui",
   "comfyui-custom-nodes",
@@ -78,6 +78,7 @@ keywords = [
   "llm-debug-report",
   "python-environment-report",
   "free-vram",
+  "resource-monitor",
   "comfyui-stable",
   "portable-comfyui",
   "vllm",

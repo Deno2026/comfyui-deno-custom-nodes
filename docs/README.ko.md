@@ -63,6 +63,14 @@ Error Help는 현재 워크플로, Python 환경과 패키지 버전, GPU 정보
 
 Floating Tools 자체는 설치, 업데이트, 재시작, 복구 또는 워크플로 수정을 실행하지 않습니다.
 
+## Deno Resource Monitor
+
+Deno Resource Monitor는 ComfyUI 상단에 CPU, RAM, GPU, VRAM, GPU 온도를 작게 실시간 표시합니다. 옆의 메모리 정리 버튼은 ComfyUI 기본 `/free` endpoint로 모델과 실행 캐시를 함께 비우며, 생성 큐가 실행 중일 때는 비활성화됩니다.
+
+기본값인 `Settings > DENO > Tools > Resource Monitor > Auto`는 기존 Crystools 사용자를 보호합니다. ComfyUI가 Crystools를 실제로 로드한 경우 DENO 모니터는 생성되지 않고 하드웨어 조회도 시작하지 않습니다. Crystools가 없거나 비활성화되어 있으면 DENO 모니터가 자동으로 나타납니다. DENO 바를 명시적으로 사용하려면 `DENO`, 모두 숨기려면 `Off`를 선택할 수 있습니다.
+
+모니터는 브라우저 탭이 보일 때만 수치를 조회하며 상시 백그라운드 방송 스레드를 실행하지 않습니다. 리소스 항목과 NVIDIA 측정 방식은 MIT 라이선스의 ComfyUI-Crystools를 바탕으로 조정했으며 고지는 [Third-Party Notices](../THIRD_PARTY_NOTICES.md)에 있습니다.
+
 ## Included Nodes
 
 ### `(Deno) Ideogram Director`

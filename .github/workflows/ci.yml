@@ -17,7 +17,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check frontend syntax
-        run: node --check web/js/deno_extra_nodes.js
+        run: |
+          node --check web/js/deno_extra_nodes.js
+          node --check web/js/deno_resource_monitor.js
 
       - name: Run LTX Sequencer frontend harness
         run: node tests/js/ltx_sequencer_input_slots_harness.mjs

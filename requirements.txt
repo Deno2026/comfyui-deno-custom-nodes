@@ -1,2 +1,4 @@
 openai-whisper>=20250625
+nvidia-ml-py>=12
+psutil>=5.9
 urllib3>=2.7,<3

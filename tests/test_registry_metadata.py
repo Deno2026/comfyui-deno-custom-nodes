@@ -178,6 +178,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "workflow-diagnostics",
         "gpt-gemini-report",
         "free-vram",
+        "resource-monitor",
         "comfyui-stable",
         "portable-comfyui",
         "unsloth",
@@ -190,7 +191,10 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "Operating System :: OS Independent" in classifiers
     assert "License :: OSI Approved :: GNU General Public License v3 (GPLv3)" in classifiers
     assert pyproject["project"]["dependencies"] == [
-        "openai-whisper>=20250625", "urllib3>=2.7,<3",
+        "openai-whisper>=20250625",
+        "nvidia-ml-py>=12",
+        "psutil>=5.9",
+        "urllib3>=2.7,<3",
     ]
     requirements = [
         line.strip()

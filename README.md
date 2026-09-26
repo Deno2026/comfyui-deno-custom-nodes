@@ -66,6 +66,14 @@ Error Help creates a GPT/Gemini-ready report with the current workflow, Python e
 
 Floating Tools does not install, update, restart, repair, or modify workflows.
 
+## Deno Resource Monitor
+
+Deno Resource Monitor shows compact live CPU, RAM, GPU, VRAM, and GPU temperature meters in the ComfyUI top bar. Its adjacent memory button unloads ComfyUI models and clears the execution cache through ComfyUI's built-in `/free` endpoint, and stays disabled while the queue is busy.
+
+The default `Settings > DENO > Tools > Resource Monitor > Auto` mode protects existing Crystools users: when ComfyUI actually loads Crystools, the DENO monitor does not start or poll hardware. When Crystools is absent or disabled, the DENO monitor appears automatically. Choose `DENO` to explicitly use the DENO bar instead, or `Off` to hide it.
+
+The monitor samples only while its browser tab is visible and does not run a permanent background broadcast thread. Resource-monitor behavior and NVIDIA metric selection are adapted from the MIT-licensed ComfyUI-Crystools project; see [Third-Party Notices](THIRD_PARTY_NOTICES.md).
+
 ## Included Nodes
 
 ### `(Deno) Ideogram Director`

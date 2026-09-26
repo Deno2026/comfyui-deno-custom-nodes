@@ -649,4 +649,13 @@ try:
 except Exception as exc:
     logging.warning("[DENO] SOS report route unavailable: %s: %s", type(exc).__name__, exc)
 
+try:
+    try:
+        from .deno_resource_monitor import register_deno_resource_monitor_routes
+    except ImportError:
+        from deno_resource_monitor import register_deno_resource_monitor_routes
+    register_deno_resource_monitor_routes()
+except Exception as exc:
+    logging.warning("[DENO] Resource Monitor route unavailable: %s: %s", type(exc).__name__, exc)
+
 WEB_DIRECTORY = "./web/js"
