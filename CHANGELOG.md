@@ -6,6 +6,8 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.107 - 2026-09-27
+
 - Added an automatic DENO top-bar resource monitor with independent queue-safe model/cache cleanup. Without Crystools, Auto shows the complete DENO bar by default, even when another cleanup button exists. With Crystools, it preserves the existing monitor and only supplements missing full-cleanup controls. Existing buttons remain untouched. Button-only mode does not poll hardware; unavailable metrics are not shown as zero.
 - Matched the DENO meters to Crystools' default horizontal appearance, including bar size, spacing, typography, colors, and temperature color mixing; retained the independent cleanup button and narrow-window layout.
 
