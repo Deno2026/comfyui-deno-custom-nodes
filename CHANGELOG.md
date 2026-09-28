@@ -6,6 +6,13 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.108 - 2026-09-29
+
+- Added click-to-enable/disable thumbnails to Multi Image Loader and MiniMax H3 Multi Reference Image, matching Advanced Image Source Loader. Disabled images stay in the gallery and saved workflow while being excluded from execution.
+- All three loaders now renumber enabled cards immediately in output order. Toggling, reordering, and removing cards keeps the displayed numbers and enabled count in sync; disabled cards show no output number.
+- Preserved existing saved workflows and H3 reference image dimensions. Disabled image paths no longer affect validation, cache checks, or output sizing. A loader with no enabled or connected images gives a clear error.
+- Kept the Disabled label inside narrow portrait reference cards.
+
 ## 0.7.107 - 2026-09-27
 
 - Added an automatic DENO top-bar resource monitor with independent queue-safe model/cache cleanup. Without Crystools, Auto shows the complete DENO bar by default, even when another cleanup button exists. With Crystools, it preserves the existing monitor and only supplements missing full-cleanup controls. Existing buttons remain untouched. Button-only mode does not poll hardware; unavailable metrics are not shown as zero.
