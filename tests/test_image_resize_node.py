@@ -2017,6 +2017,104 @@ def test_minimax_h3_reference_loader_hashes_order_and_file_contents(monkeypatch,
     assert ordered_hash != changed_hash
 
 
+@pytest.mark.parametrize("node_name", ["DenoMultiImageLoader", "DenoMiniMaxH3ReferenceImageLoader"])
+def test_image_loaders_validate_only_enabled_paths_and_preserve_legacy_default(node_name, monkeypatch, tmp_path):
+    package = load_package()
+    loader_cls = package.NODE_CLASS_MAPPINGS[node_name]
+    monkeypatch.setattr(sys.modules["folder_paths"], "get_input_directory", lambda: str(tmp_path))
+    Image.new("RGB", (4, 3), color=(10, 20, 30)).save(tmp_path / "keep.png")
+    (tmp_path / "unreadable.png").write_bytes(b"not an image")
+
+    disabled = "missing.png\nunreadable.png"
+    paths = "missing.png\nkeep.png\nunreadable.png"
+    spec = loader_cls.INPUT_TYPES()["optional"]["disabled_image_paths"]
+    assert spec[0] == "STRING"
+    assert spec[1]["default"] == ""
+    assert spec[1]["multiline"] is True
+    assert spec[1]["hidden"] is True
+    assert loader_cls.VALIDATE_INPUTS("keep.png") is True
+    assert loader_cls.VALIDATE_INPUTS(paths, disabled_image_paths=disabled) is True
+    assert "missing or unreadable" in loader_cls.VALIDATE_INPUTS(paths)
+    assert "No images are selected" in loader_cls.VALIDATE_INPUTS(paths, disabled_image_paths=paths)
+
+
+@pytest.mark.parametrize("node_name", ["DenoMultiImageLoader", "DenoMiniMaxH3ReferenceImageLoader"])
+def test_image_loaders_cache_depends_only_on_enabled_order_and_contents(node_name, monkeypatch, tmp_path):
+    package = load_package()
+    loader_cls = package.NODE_CLASS_MAPPINGS[node_name]
+    monkeypatch.setattr(sys.modules["folder_paths"], "get_input_directory", lambda: str(tmp_path))
+    for name, color in [("first.png", (10, 20, 30)), ("skip.png", (40, 50, 60)), ("last.png", (70, 80, 90))]:
+        Image.new("RGB", (4, 3), color=color).save(tmp_path / name)
+
+    kwargs = {}
+    if node_name == "DenoMultiImageLoader":
+        kwargs = dict(mode="Manual Input", ratio_preset="16:9", megapixels=1.0, width=64, height=64,
+                      divisible_by="32", interpolation="nearest", resize_method="Center Crop (Fill)")
+    paths = "first.png\nskip.png\nmissing.png\nlast.png"
+    disabled = "skip.png\nmissing.png"
+    active_hash = loader_cls.IS_CHANGED(paths, disabled_image_paths=disabled, **kwargs)
+    assert active_hash == loader_cls.IS_CHANGED("first.png\nlast.png", **kwargs)
+    Image.new("RGB", (4, 3), color=(100, 110, 120)).save(tmp_path / "skip.png")
+    assert active_hash == loader_cls.IS_CHANGED(paths, disabled_image_paths=disabled, **kwargs)
+    assert active_hash != loader_cls.IS_CHANGED(paths, disabled_image_paths="missing.png", **kwargs)
+    assert active_hash != loader_cls.IS_CHANGED("last.png\nfirst.png", **kwargs)
+    Image.new("RGB", (4, 3), color=(130, 140, 150)).save(tmp_path / "first.png")
+    assert active_hash != loader_cls.IS_CHANGED(paths, disabled_image_paths=disabled, **kwargs)
+
+
+def test_multi_image_loader_outputs_enabled_order_and_uses_first_enabled_ratio(monkeypatch, tmp_path):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_multi_image_board"]
+    loader = package.NODE_CLASS_MAPPINGS["DenoMultiImageLoader"]()
+    monkeypatch.setattr(sys.modules["folder_paths"], "get_input_directory", lambda: str(tmp_path))
+    Image.new("RGB", (8, 4), color=(10, 20, 30)).save(tmp_path / "first.png")
+    Image.new("RGB", (8, 4), color=(70, 80, 90)).save(tmp_path / "last.png")
+    monkeypatch.setattr(module.torch, "from_numpy", lambda array: array, raising=False)
+    monkeypatch.setattr(module.torch, "cat", lambda images, dim: np.concatenate(images, axis=dim), raising=False)
+    resize_dimensions = []
+
+    def resize_image(image, width, height, resize_method, interpolation):
+        resize_dimensions.append((width, height))
+        return image
+
+    monkeypatch.setattr(module, "_resize_tensor", resize_image)
+    kwargs = dict(mode="Keep Input Ratio", ratio_preset="16:9", megapixels=0.01, width=64, height=64,
+                  divisible_by="1", interpolation="nearest", resize_method="Center Crop (Fill)")
+    paths = "missing.png\nfirst.png\nother-missing.png\nlast.png"
+    batch, width, height = loader.load_images(
+        paths, disabled_image_paths="missing.png\nother-missing.png", **kwargs
+    )
+    assert batch.shape == (2, 4, 8, 3)
+    np.testing.assert_allclose(batch[:, 0, 0], np.array([[10, 20, 30], [70, 80, 90]]) / 255.0)
+    assert (width, height) == module._compute_keep_input_ratio_dims(8, 4, 0.01, 1)
+    assert resize_dimensions == [(width, height), (width, height)]
+    with pytest.raises(RuntimeError, match="No images are selected"):
+        loader.load_images(paths, disabled_image_paths=paths, **kwargs)
+
+
+def test_minimax_reference_loader_outputs_enabled_order_and_preserves_duplicates(monkeypatch, tmp_path):
+    package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_minimax_h3_reference"]
+    loader_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceImageLoader"]
+    monkeypatch.setattr(sys.modules["folder_paths"], "get_input_directory", lambda: str(tmp_path))
+    Image.new("RGB", (8, 4), color=(10, 20, 30)).save(tmp_path / "wide.png")
+    Image.new("RGB", (3, 9), color=(70, 80, 90)).save(tmp_path / "tall.png")
+    monkeypatch.setattr(module.torch, "from_numpy", lambda array: array, raising=False)
+    paths = "missing.png\nwide.png\ntall.png\nwide.png"
+    bundle, image_list = loader_cls().load_reference_images(paths, disabled_image_paths="missing.png")
+    assert [image.shape for image in bundle] == [(1, 4, 8, 3), (1, 9, 3, 3), (1, 4, 8, 3)]
+    assert all(bundle[index] is image_list[index] for index in range(3))
+    np.testing.assert_allclose(bundle[0][0, 0, 0], np.array([10, 20, 30]) / 255.0)
+    np.testing.assert_allclose(bundle[1][0, 0, 0], np.array([70, 80, 90]) / 255.0)
+    with pytest.raises(RuntimeError, match="No images are selected"):
+        loader_cls().load_reference_images(paths, disabled_image_paths=paths)
+
+    ten_paths = "\n".join(["missing.png", *["wide.png"] * 9])
+    assert loader_cls.VALIDATE_INPUTS(ten_paths, disabled_image_paths="missing.png") is True
+    assert len(loader_cls().load_reference_images(ten_paths, disabled_image_paths="missing.png")[0]) == 9
+    assert "at most 9" in loader_cls.VALIDATE_INPUTS(ten_paths)
+
+
 def test_minimax_h3_wrapper_replaces_only_image_autogrow_with_one_bundle_socket():
     package = load_package()
     wrapper_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceToVideo"]
@@ -2290,6 +2388,7 @@ def test_multi_image_loader_validate_inputs_only_bypasses_needed_saved_combos():
         "divisible_by",
         "interpolation",
         "resize_method",
+        "disabled_image_paths",
     ]
     assert all(parameter.kind is not inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
 

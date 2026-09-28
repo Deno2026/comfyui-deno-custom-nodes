@@ -58,6 +58,7 @@ NODE_INPUT_TOOLTIPS = {
     },
     "DenoMultiImageLoader": {
         "image_paths": "Selected image file list managed by the node UI.",
+        "disabled_image_paths": "Saved skipped images. Click thumbnails to toggle; enabled images are numbered in output order.",
         "mode": "Choose how each image is resized before the batch output is built.",
         "ratio_preset": "Target aspect ratio used in Preset Ratio mode.",
         "megapixels": "Target total image size in megapixels for automatic sizing modes.",
@@ -69,6 +70,7 @@ NODE_INPUT_TOOLTIPS = {
     },
     "DenoMiniMaxH3ReferenceImageLoader": {
         "image_paths": "Ordered MiniMax H3 reference-image list managed by the node UI.",
+        "disabled_image_paths": "Saved skipped references. Only enabled cards map to Picture 1, Picture 2, and so on.",
     },
     "DenoMiniMaxH3ReferenceToVideo": {
         # These complete the legacy object_info metadata contract. The V3

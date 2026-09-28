@@ -214,13 +214,18 @@ function setupAdvancedImageSourceLoader(node) {
         countLabel.textContent = `${enabledCount}/${paths.length} enabled`;
     }
 
-    function applyCardDisabledState(card, isDisabled) {
+    function applyCardDisabledState(card, isDisabled, outputIndex = 0) {
         if (!card) {
             return;
         }
         card.dataset.denoDisabled = isDisabled ? "true" : "false";
         card.style.background = isDisabled ? "rgba(7, 12, 9, 0.92)" : "rgba(13, 31, 20, 0.9)";
         card.setAttribute("aria-pressed", String(!isDisabled));
+        const badge = card.querySelector("[data-deno-output-index]");
+        if (badge) {
+            badge.textContent = isDisabled ? "" : String(outputIndex);
+            badge.style.display = isDisabled ? "none" : "flex";
+        }
         const image = card.querySelector("[data-deno-card-image]");
         if (image) {
             image.style.opacity = isDisabled ? "0.78" : "1";
@@ -243,7 +248,10 @@ function setupAdvancedImageSourceLoader(node) {
         ) {
             return false;
         }
-        cards.forEach((card) => applyCardDisabledState(card, disabled.has(card.dataset.path)));
+        let outputIndex = 0;
+        cards.forEach((card) => applyCardDisabledState(
+            card, disabled.has(card.dataset.path), disabled.has(card.dataset.path) ? 0 : ++outputIndex
+        ));
         updateEnabledCount(paths, disabled);
         scheduleMasonryRefresh();
         return true;
@@ -287,6 +295,7 @@ function setupAdvancedImageSourceLoader(node) {
         const disabled = new Set(getDisabledPaths());
         updateEnabledCount(paths, disabled);
         grid.replaceChildren(...paths.map((path, index) => buildCard(path, index, disabled.has(path))));
+        syncDisabledCardStates(paths, disabled);
         scheduleMasonryRefresh();
     }
 
@@ -360,7 +369,7 @@ function setupAdvancedImageSourceLoader(node) {
         `;
 
         const badge = document.createElement("div");
-        badge.textContent = String(index + 1);
+        badge.dataset.denoOutputIndex = "true";
         badge.style.cssText = `
             position: absolute;
             left: 6px;

@@ -225,6 +225,13 @@ def _split_paths(image_paths: str) -> List[str]:
     return [line.strip() for line in (image_paths or "").splitlines() if line.strip()]
 
 
+def _filter_disabled_sources(sources: List[str], disabled_image_paths: str) -> List[str]:
+    disabled = set(_split_paths(disabled_image_paths))
+    if not disabled:
+        return sources
+    return [source for source in sources if source not in disabled]
+
+
 def _format_path_preview(paths: List[str]) -> str:
     preview = ", ".join(paths[:3])
     if len(paths) > 3:
@@ -246,10 +253,10 @@ def _image_file_error(path: str, path_resolver=None) -> str | None:
     return None
 
 
-def _selected_image_errors(image_paths: str, path_resolver=None) -> List[str]:
+def _selected_image_errors(image_paths: str, path_resolver=None, disabled_image_paths: str = "") -> List[str]:
     return [
         path
-        for path in _split_paths(image_paths)
+        for path in _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths)
         if _image_file_error(path, path_resolver=path_resolver) is not None
     ]
 
@@ -257,7 +264,7 @@ def _selected_image_errors(image_paths: str, path_resolver=None) -> List[str]:
 def _no_selected_images_message() -> str:
     return (
         "[DenoMultiImageLoader] No images are selected. "
-        "Add at least one image with Upload or Input Folder, then run the workflow again."
+        "Enable an image or add one with Upload or Input Folder, then run the workflow again."
     )
 
 
@@ -485,7 +492,8 @@ def _interpolate_tensor(image_nchw: torch.Tensor, height: int, width: int, inter
 class DenoMultiImageLoader:
     DESCRIPTION = (
         "Minor-upgrade multi image loader for ComfyUI with drag reorder, "
-        "paste/upload support, and stable batch output.\n"
+        "paste/upload support, and stable batch output. Click thumbnails to enable or disable images. "
+        "Only enabled images are output in card order; their badges update to 1, 2, 3, and so on.\n"
         "YouTube: https://www.youtube.com/@Denoise-AI"
     )
 
@@ -502,7 +510,10 @@ class DenoMultiImageLoader:
                 "divisible_by": (DIVISIBLE_BY_VALUES, {"default": "32"}),
                 "interpolation": (IMAGE_INTERPOLATION_MODES, {"default": "lanczos"}),
                 "resize_method": (RESIZE_METHODS, {"default": "Center Crop (Fill)"}),
-            }
+            },
+            "optional": {
+                "disabled_image_paths": ("STRING", {"default": "", "multiline": True, "hidden": True}),
+            },
         }
 
     RETURN_TYPES = ("IMAGE", "INT", "INT")
@@ -519,6 +530,7 @@ class DenoMultiImageLoader:
         divisible_by=None,
         interpolation=None,
         resize_method=None,
+        disabled_image_paths="",
     ):
         for result in (
             validate_combo_choice("mode", mode, ["Keep Input Ratio", "Preset Ratio", "Manual Input"]),
@@ -531,9 +543,9 @@ class DenoMultiImageLoader:
         ratio_result = validate_active_ratio_preset(mode, ratio_preset)
         if ratio_result is not True:
             return ratio_result
-        if not _split_paths(image_paths):
+        if not _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths):
             return _no_selected_images_message()
-        failed_paths = _selected_image_errors(image_paths)
+        failed_paths = _selected_image_errors(image_paths, disabled_image_paths=disabled_image_paths)
         if failed_paths:
             return (
                 "[DenoMultiImageLoader] Selected image file(s) are missing or unreadable before execution: "
@@ -554,6 +566,7 @@ class DenoMultiImageLoader:
         divisible_by,
         interpolation,
         resize_method,
+        disabled_image_paths="",
     ):
         hasher = hashlib.sha256()
         hasher.update(b"deno_multi_image_loader_v2")
@@ -561,7 +574,7 @@ class DenoMultiImageLoader:
             hasher.update(str(value).encode("utf-8", "surrogatepass"))
             hasher.update(b"\0")
 
-        for path in _split_paths(image_paths):
+        for path in _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths):
             hasher.update(path.encode("utf-8", "surrogatepass"))
             hasher.update(b"\0")
             resolved_path = _resolve_path(path)
@@ -612,8 +625,9 @@ class DenoMultiImageLoader:
         divisible_by,
         interpolation: str,
         resize_method: str,
+        disabled_image_paths: str = "",
     ):
-        paths = _split_paths(image_paths)
+        paths = _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths)
         if not paths:
             raise RuntimeError(_no_selected_images_message())
 

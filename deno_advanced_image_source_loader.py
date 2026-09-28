@@ -18,6 +18,7 @@ from .deno_multi_image_board import (
     IMAGE_INTERPOLATION_MODES,
     INPUT_BROWSER_IMAGE_EXTENSIONS,
     _compute_keep_input_ratio_dims,
+    _filter_disabled_sources,
     _resize_tensor,
     _resolve_external_path as _resolve_path,
     _split_paths,
@@ -417,13 +418,6 @@ def _image_source_to_tensor(source: str) -> torch.Tensor | None:
         return None
 
 
-def _filter_disabled_sources(sources: List[str], disabled_image_paths: str) -> List[str]:
-    disabled = set(_split_paths(disabled_image_paths))
-    if not disabled:
-        return sources
-    return [source for source in sources if source not in disabled]
-
-
 def _format_source_preview(sources: List[str]) -> str:
     preview = ", ".join(str(source) for source in sources[:3])
     if len(sources) > 3:
@@ -515,7 +509,9 @@ def _split_input_image_batch(images) -> List[torch.Tensor]:
 class DenoAdvancedImageSourceLoader:
     DESCRIPTION = (
         "Advanced image source loader for users who need external folders, "
-        "absolute file paths, web URLs, batch output, and mixed-size image-list output.\n"
+        "absolute file paths, web URLs, batch output, and mixed-size image-list output. "
+        "Click thumbnails to enable or disable sources. Disabled sources are skipped; "
+        "enabled source badges update to 1, 2, 3, and so on in card order.\n"
         "Use the standard Multi Image Loader for simpler input-folder workflows.\n"
         "YouTube: https://www.youtube.com/@Denoise-AI"
     )

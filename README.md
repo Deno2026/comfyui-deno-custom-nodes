@@ -140,6 +140,8 @@ Main features:
 
 - scrollable fixed-height gallery instead of endlessly growing node height
 - drag reorder with stable placeholder insertion
+- click thumbnails to disable/enable images without deleting them; only enabled images are output, numbered 1, 2, 3… in card order, with counts and numbers updating immediately
+- disabled images and their positions remain saved with the workflow; enable at least one image to run
 - upload button, drag-and-drop upload, and paste image support
 - `Input Folder` browser for reusing existing ComfyUI `input` images
 - input subfolder browsing with folder tiles, double-click navigation, and a `Parent` button
@@ -163,7 +165,8 @@ Main features:
 - up to 9 ordered reference images through one dedicated socket
 - keeps each decoded image's own dimensions and aspect ratio without resize, crop, pad, or letterbox processing
 - displays each preview card at the source image's own aspect ratio, so mixed landscape and portrait references stay fully visible without preview cropping
-- card order maps directly to `<Picture 1>`, `<Picture 2>`, and so on
+- click thumbnails to disable/enable references; enabled cards are immediately renumbered to match `<Picture 1>`, `<Picture 2>`, and so on, and only those images reach both outputs
+- disabled references stay saved in their card positions and still occupy one of the 9 gallery slots; enable at least one reference to run
 - connects to the single `ref_images` input on `(Deno) MiniMax H3 Reference to Video`
 - also exposes the same ordered sources as an `image_list` output that connects directly to `(Deno) Local LLM Loader`'s `image` input
 - the H3 node keeps ComfyUI's native reference-video, paired-video-audio, and standalone-audio Autogrow inputs
@@ -243,6 +246,7 @@ Main features:
 - includes a visible `Paste` button plus normal Ctrl+V image paste
 - click thumbnails to disable/enable sources without deleting them
 - disabled sources stay readable and remain saved with the workflow until re-enabled or removed
+- only enabled cards receive sequential output numbers; toggling or reordering updates those numbers immediately
 - drag thumbnail cards to reorder output sequence
 - the gallery follows the node's available height in both the classic canvas and Nodes 2.0
 - thumbnails use a masonry-style flow so mixed portrait/landscape references are easier to scan

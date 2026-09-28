@@ -78,7 +78,7 @@ app.registerExtension({
                 legacyDefaultHeight: LOADER_MIN_SIZE[1],
                 layoutVersion: H3_REFERENCE_LOADER_LAYOUT_VERSION,
                 layoutVersionProperty: H3_REFERENCE_LOADER_LAYOUT_VERSION_PROPERTY,
-                hint: "Original size and aspect ratio are preserved and shown without preview cropping. Card order maps to <Picture 1>, <Picture 2>, and so on.",
+                hint: "Click thumbnails to enable/disable; drag cards to reorder. Enabled numbers map to <Picture 1>, <Picture 2>, and so on. Original size and aspect ratio are preserved.",
             });
         }
         if (nodeData.name === SEQUENCER_NODE) {
@@ -865,12 +865,16 @@ function installLoaderCanvasNavigation(root) {
 
 function setupMultiImageLoader(node, options = {}) {
     const pathsWidget = getWidget(node, "image_paths");
+    const disabledWidget = getWidget(node, "disabled_image_paths");
     if (!pathsWidget || node.__denoLoaderReady) {
         return;
     }
 
     node.__denoLoaderReady = true;
     hideSerializedWidget(pathsWidget);
+    if (disabledWidget) {
+        hideSerializedWidget(disabledWidget);
+    }
     const outputSizeHintEnabled = options.outputSizeHint !== false;
     const sequencerNotificationsEnabled = options.notifySequencers !== false;
     const maxImages = Number.isFinite(Number(options.maxImages))
@@ -930,8 +934,8 @@ function setupMultiImageLoader(node, options = {}) {
     const hint = document.createElement("div");
     hint.style.cssText = "color:#7dcf92; font:11px sans-serif; opacity:0.85;";
     hint.textContent = options.hint || (inputFolderBtn
-        ? "Drag files, press Ctrl+V, use Upload, or add existing input-folder images."
-        : "Drag files, press Ctrl+V, or use Upload. Drag cards to reorder.");
+        ? "Click thumbnails to enable/disable; drag cards to reorder. Add images with Upload, Ctrl+V, or Input Folder."
+        : "Click thumbnails to enable/disable; drag cards to reorder. Add images with Upload, Ctrl+V, or file drop.");
 
     const grid = document.createElement("div");
     grid.dataset.denoLoaderGalleryLayout = preserveCardAspectRatio ? "source-aspect-v1" : "uniform-grid-v1";
@@ -990,6 +994,9 @@ function setupMultiImageLoader(node, options = {}) {
     let draggedCard = null;
     let placeholder = null;
     let isReordering = false;
+    let suppressToggleUntil = 0;
+    let renderedPathsValue = null;
+    let renderedDisabledValue = null;
 
     for (const currentWidget of node.widgets || []) {
         if (currentWidget.__denoLoaderWrapped) {
@@ -1012,14 +1019,66 @@ function setupMultiImageLoader(node, options = {}) {
             .filter(Boolean);
     }
 
+    function getDisabledPaths() {
+        return (disabledWidget?.value || "").split("\n").map((entry) => entry.trim()).filter(Boolean);
+    }
+
+    function getEnabledPaths() {
+        const disabled = new Set(getDisabledPaths());
+        return getPaths().filter((path) => !disabled.has(path));
+    }
+
+    function syncEnabledCardStates() {
+        const paths = getPaths();
+        const disabled = new Set(getDisabledPaths());
+        let outputIndex = 0;
+        for (const card of Array.from(grid.children).filter((child) => child.dataset?.path)) {
+            const isDisabled = disabled.has(card.dataset.path);
+            card.dataset.denoDisabled = String(isDisabled);
+            card.setAttribute("aria-pressed", String(!isDisabled));
+            card.title = `${card.dataset.path}\nClick to ${isDisabled ? "enable" : "disable"}`;
+            card.querySelector("img").style.opacity = isDisabled ? "0.78" : "1";
+            card.querySelector("[data-deno-disabled-pill]").style.display = isDisabled ? "block" : "none";
+            const badge = card.querySelector("[data-deno-output-index]");
+            badge.textContent = isDisabled ? "" : String(++outputIndex);
+            badge.style.display = isDisabled ? "none" : "block";
+        }
+        const count = paths.filter((path) => !disabled.has(path)).length;
+        countLabel.textContent = `${count}/${paths.length} enabled`;
+        countLabel.title = maxImages === null ? "Enabled images / saved images" : `Up to ${maxImages} saved reference images`;
+        if (node._denoImageCount !== count) {
+            node._denoImageCount = count;
+            if (sequencerNotificationsEnabled) {
+                notifyConnectedSequencers(node, count);
+            }
+        }
+        renderedPathsValue = pathsWidget.value;
+        renderedDisabledValue = disabledWidget?.value;
+    }
+
+    function setDisabledPaths(paths) {
+        if (!disabledWidget) {
+            showLoaderToast("Restart ComfyUI and refresh this page to enable image toggles.");
+            return;
+        }
+        const currentPaths = new Set(getPaths());
+        disabledWidget.value = [...new Set(paths)].filter((path) => currentPaths.has(path)).join("\n");
+        disabledWidget.callback?.(disabledWidget.value);
+        syncEnabledCardStates();
+        node.setDirtyCanvas?.(true, true);
+        app.graph?.setDirtyCanvas?.(true, true);
+        refreshOutputSizeHint();
+    }
+
     function setPaths(paths) {
         const deduped = paths.filter(Boolean);
         pathsWidget.value = deduped.join("\n");
-        pathsWidget.callback?.(pathsWidget.value);
-        node._denoImageCount = deduped.length;
-        if (sequencerNotificationsEnabled) {
-            notifyConnectedSequencers(node, deduped.length);
+        if (disabledWidget) {
+            const currentPaths = new Set(deduped);
+            disabledWidget.value = getDisabledPaths().filter((path) => currentPaths.has(path)).join("\n");
+            disabledWidget.callback?.(disabledWidget.value);
         }
+        pathsWidget.callback?.(pathsWidget.value);
         node.setDirtyCanvas?.(true, true);
         app.graph?.setDirtyCanvas?.(true, true);
         render();
@@ -1052,7 +1111,7 @@ function setupMultiImageLoader(node, options = {}) {
         const requestId = (node.__denoOutputSizeRequestId || 0) + 1;
         node.__denoOutputSizeRequestId = requestId;
 
-        const paths = getPaths();
+        const paths = getEnabledPaths();
         const size = await calculateLoaderOutputSize(node, paths);
         if (node.__denoOutputSizeRequestId !== requestId) {
             return;
@@ -1083,6 +1142,8 @@ function setupMultiImageLoader(node, options = {}) {
     function buildCard(path, index) {
         const card = document.createElement("div");
         card.draggable = true;
+        card.tabIndex = 0;
+        card.setAttribute("role", "button");
         card.dataset.path = path;
         card.dataset.denoLoaderCardLayout = preserveCardAspectRatio ? "source-aspect-v1" : "uniform-grid-v1";
         const initialCardLayout = resolveLoaderAspectCardLayout(1, 1, cardPreviewHeight);
@@ -1130,7 +1191,7 @@ function setupMultiImageLoader(node, options = {}) {
         image.style.cssText = `display:block; width:100%; height:100%; object-fit:${preserveCardAspectRatio ? "contain" : "cover"}; pointer-events:none;`;
 
         const badge = document.createElement("div");
-        badge.textContent = String(index + 1);
+        badge.dataset.denoOutputIndex = "true";
         badge.style.cssText = `
             position:absolute; left:0; bottom:0;
             background:rgba(0,0,0,0.72); color:#d7ffe3;
@@ -1138,9 +1199,20 @@ function setupMultiImageLoader(node, options = {}) {
             border-top-right-radius:8px;
         `;
 
+        const disabledPill = document.createElement("div");
+        disabledPill.dataset.denoDisabledPill = "true";
+        disabledPill.textContent = "Disabled";
+        disabledPill.style.cssText = `
+            position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
+            padding:4px 9px; border:1px solid rgba(255,255,255,0.34); border-radius:999px;
+            background:rgba(0,0,0,0.46); color:#dfffea; font:800 11px sans-serif;
+            pointer-events:none;
+        `;
+
         const remove = document.createElement("button");
         remove.type = "button";
         remove.textContent = "x";
+        remove.title = "Remove";
         remove.style.cssText = `
             position:absolute; top:6px; right:6px;
             width:22px; height:22px; border:none; border-radius:999px;
@@ -1153,6 +1225,21 @@ function setupMultiImageLoader(node, options = {}) {
             nextPaths.splice(index, 1);
             setPaths(nextPaths);
         };
+
+        card.onclick = (event) => {
+            if (isReordering || Date.now() < suppressToggleUntil || event.defaultPrevented) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            const disabled = getDisabledPaths();
+            setDisabledPaths(disabled.includes(path) ? disabled.filter((entry) => entry !== path) : [...disabled, path]);
+        };
+        card.addEventListener("keydown", (event) => {
+            if (event.target === card && (event.key === "Enter" || event.key === " ")) {
+                card.onclick(event);
+            }
+        });
 
         card.addEventListener("contextmenu", (event) => {
             event.preventDefault();
@@ -1173,6 +1260,7 @@ function setupMultiImageLoader(node, options = {}) {
         });
 
         card.addEventListener("dragend", () => {
+            suppressToggleUntil = Date.now() + 250;
             card.style.opacity = "1";
             if (placeholder?.parentElement && draggedCard) {
                 placeholder.parentElement.insertBefore(draggedCard, placeholder);
@@ -1205,7 +1293,7 @@ function setupMultiImageLoader(node, options = {}) {
             grid.insertBefore(placeholder, insertAfter ? card.nextSibling : card);
         });
 
-        card.append(image, remove, badge);
+        card.append(image, remove, badge, disabledPill);
         return card;
     }
 
@@ -1260,21 +1348,20 @@ function setupMultiImageLoader(node, options = {}) {
 
     function render() {
         const paths = getPaths();
-        countLabel.textContent = maxImages === null
-            ? `${paths.length} image${paths.length === 1 ? "" : "s"}`
-            : `${paths.length} / ${maxImages} images`;
         grid.replaceChildren(...paths.map((path, index) => buildCard(path, index)));
+        syncEnabledCardStates();
     }
 
     function syncLoaderStateFromWidget() {
-        const count = getPaths().length;
-        const visibleCardCount = Array.from(grid.children).filter((child) => child.dataset?.path).length;
-        if (node._denoImageCount !== count || (!isReordering && visibleCardCount !== count)) {
-            node._denoImageCount = count;
-            if (sequencerNotificationsEnabled) {
-                notifyConnectedSequencers(node, count);
+        if (isReordering) {
+            return;
+        }
+        if (renderedPathsValue !== pathsWidget.value || renderedDisabledValue !== disabledWidget?.value) {
+            if (renderedPathsValue !== pathsWidget.value) {
+                render();
+            } else {
+                syncEnabledCardStates();
             }
-            render();
             refreshOutputSizeHint();
         }
     }

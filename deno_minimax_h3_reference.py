@@ -13,6 +13,7 @@ from comfy_api.latest import io
 from comfy_extras.nodes_minimax_h3 import MiniMaxH3ReferenceToVideo
 
 from .deno_multi_image_board import (
+    _filter_disabled_sources,
     _format_path_preview,
     _hash_file_contents,
     _resolve_input_path,
@@ -38,7 +39,7 @@ _H3_DESCRIPTION = _with_version_prefix(
 def _no_reference_images_message() -> str:
     return (
         "[DenoMiniMaxH3ReferenceImageLoader] No images are selected. "
-        "Add at least one image with Upload or Input Folder, then run the workflow again."
+        "Enable an image or add one with Upload or Input Folder, then run the workflow again."
     )
 
 
@@ -46,7 +47,7 @@ def _too_many_reference_images_message(count: int) -> str:
     return (
         "[DenoMiniMaxH3ReferenceImageLoader] MiniMax H3 supports at most "
         f"{MINIMAX_H3_MAX_REFERENCE_IMAGES} reference images, but {count} are selected. "
-        "Remove the extra images and run the workflow again."
+        "Disable or remove the extra images and run the workflow again."
     )
 
 
@@ -70,7 +71,8 @@ def _load_reference_image(path: str) -> torch.Tensor:
 class DenoMiniMaxH3ReferenceImageLoader:
     DESCRIPTION = (
         "Load up to 9 ordered MiniMax H3 reference images through one cable. "
-        "Each image keeps its own decoded size and aspect ratio; card order maps to "
+        "Each image keeps its own decoded size and aspect ratio. Click thumbnails to enable or disable them. "
+        "Only enabled images are output in card order; their badges map to "
         "<Picture 1>, <Picture 2>, and so on. The optional IMAGE list output can "
         "reuse the same ordered sources in nodes such as DENO Local LLM Loader."
     )
@@ -80,7 +82,10 @@ class DenoMiniMaxH3ReferenceImageLoader:
         return {
             "required": {
                 "image_paths": ("STRING", {"default": "", "multiline": True, "hidden": True}),
-            }
+            },
+            "optional": {
+                "disabled_image_paths": ("STRING", {"default": "", "multiline": True, "hidden": True}),
+            },
         }
 
     RETURN_TYPES = (MINIMAX_H3_REFERENCE_IMAGES_TYPE, "IMAGE")
@@ -90,14 +95,16 @@ class DenoMiniMaxH3ReferenceImageLoader:
     CATEGORY = "Deno/Image"
 
     @classmethod
-    def VALIDATE_INPUTS(cls, image_paths):
-        paths = _split_paths(image_paths)
+    def VALIDATE_INPUTS(cls, image_paths, disabled_image_paths=""):
+        paths = _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths)
         if not paths:
             return _no_reference_images_message()
         if len(paths) > MINIMAX_H3_MAX_REFERENCE_IMAGES:
             return _too_many_reference_images_message(len(paths))
 
-        failed_paths = _selected_image_errors(image_paths, path_resolver=_resolve_input_path)
+        failed_paths = _selected_image_errors(
+            image_paths, path_resolver=_resolve_input_path, disabled_image_paths=disabled_image_paths
+        )
         if failed_paths:
             return (
                 "[DenoMiniMaxH3ReferenceImageLoader] Selected image file(s) are missing or unreadable "
@@ -107,10 +114,10 @@ class DenoMiniMaxH3ReferenceImageLoader:
         return True
 
     @classmethod
-    def IS_CHANGED(cls, image_paths):
+    def IS_CHANGED(cls, image_paths, disabled_image_paths=""):
         hasher = hashlib.sha256()
         hasher.update(b"deno_minimax_h3_reference_image_loader_v1\0")
-        for path in _split_paths(image_paths):
+        for path in _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths):
             hasher.update(path.encode("utf-8", "surrogatepass"))
             hasher.update(b"\0")
             resolved_path = _resolve_input_path(path)
@@ -124,8 +131,8 @@ class DenoMiniMaxH3ReferenceImageLoader:
             hasher.update(b"\0")
         return hasher.hexdigest()
 
-    def load_reference_images(self, image_paths: str):
-        paths = _split_paths(image_paths)
+    def load_reference_images(self, image_paths: str, disabled_image_paths: str = ""):
+        paths = _filter_disabled_sources(_split_paths(image_paths), disabled_image_paths)
         if not paths:
             raise RuntimeError(_no_reference_images_message())
         if len(paths) > MINIMAX_H3_MAX_REFERENCE_IMAGES:
