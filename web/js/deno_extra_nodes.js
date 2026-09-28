@@ -1204,8 +1204,9 @@ function setupMultiImageLoader(node, options = {}) {
         disabledPill.textContent = "Disabled";
         disabledPill.style.cssText = `
             position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
-            padding:4px 9px; border:1px solid rgba(255,255,255,0.34); border-radius:999px;
-            background:rgba(0,0,0,0.46); color:#dfffea; font:800 11px sans-serif;
+            padding:4px ${preserveCardAspectRatio ? "3px" : "9px"}; border:1px solid rgba(255,255,255,0.34); border-radius:999px;
+            max-width:calc(100% - 4px); box-sizing:border-box;
+            background:rgba(0,0,0,0.46); color:#dfffea; font:800 ${preserveCardAspectRatio ? "9px" : "11px"} sans-serif;
             pointer-events:none;
         `;
 
