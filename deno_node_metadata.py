@@ -73,11 +73,11 @@ NODE_INPUT_TOOLTIPS = {
         "disabled_image_paths": "Saved skipped references. Only enabled cards map to Picture 1, Picture 2, and so on.",
     },
     "DenoMiniMaxH3ReferenceToVideo": {
-        # These complete the legacy object_info metadata contract. The V3
-        # define_schema path keeps upstream H3 tooltips/layout unchanged.
+        # Shared by legacy object_info and V3 define_schema; the upstream
+        # input layout and required/optional status remain unchanged.
         "clip": "MiniMax H3 text/image encoder used to tokenize the prompt and references.",
-        "vae": "MiniMax H3 video VAE used to encode reference images and videos.",
-        "audio_vae": "MiniMax H3 audio VAE used to encode reference audio.",
+        "vae": "Encodes reference images/videos into latents. Optional when supported by native H3: without it, references use only the text/vision encoder. Downstream video decoding still needs its VAE.",
+        "audio_vae": "Encodes the actual reference sound; paired video audio also needs vae. Optional when supported by native H3: without it, only Audio labels remain, not the sound. This does not disable generated audio; downstream audio decoding still needs its VAE.",
         "prompt": "Prompt for the generated video. Refer to loaded images as <Picture 1>, <Picture 2>, and so on.",
         "width": "Generated video width in pixels.",
         "height": "Generated video height in pixels.",
@@ -334,7 +334,7 @@ NODE_OUTPUT_TOOLTIPS = {
         "The same ordered sources as a mixed-size IMAGE list for nodes such as DENO Local LLM Loader.",
     ),
     "DenoMiniMaxH3ReferenceToVideo": (
-        "Positive MiniMax H3 conditioning containing the ordered image, video, and audio references.",
+        "Positive MiniMax H3 conditioning from the prompt and reference encoders connected to this node.",
         "Empty MiniMax H3 audio/video latent for sampling.",
     ),
     "DenoMiniMaxH3AccLoader": (

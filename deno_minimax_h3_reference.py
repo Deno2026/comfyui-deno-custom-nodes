@@ -32,7 +32,9 @@ _H3_REFERENCE_IMAGES_TOOLTIP = _H3_INPUT_TOOLTIPS["ref_images"]
 
 _H3_DESCRIPTION = _with_version_prefix(
     "Use one ordered DENO reference-image bundle plus the stock MiniMax H3 "
-    "reference video and audio slots. Prompt tags remain <Picture i>, <Video k>, and <Audio j>."
+    "reference video and audio slots. Prompt tags remain <Picture i>, <Video k>, and <Audio j>. "
+    "VAE inputs may be left disconnected when supported by your ComfyUI version. "
+    "Connect audio_vae to encode reference sound."
 )
 
 
@@ -240,13 +242,13 @@ class DenoMiniMaxH3ReferenceToVideo(io.ComfyNode):
     def execute(
         cls,
         clip,
-        vae,
-        audio_vae,
         prompt,
         width,
         height,
         length,
         ref_image_size="match",
+        vae=None,
+        audio_vae=None,
         ref_images=None,
         ref_videos=None,
         ref_video_audios=None,

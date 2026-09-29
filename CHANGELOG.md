@@ -6,6 +6,11 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 ## Unreleased
 
+## 0.7.109 - 2026-09-30
+
+- Followed ComfyUI's optional-VAE support in MiniMax H3 Reference to Video: supported ComfyUI versions can now run the DENO node with either or both reference VAEs disconnected. Existing workflows with both VAEs connected keep their behavior.
+- Clarified reference encoding and output decoding in the node tooltips and English/Korean usage guides.
+
 ## 0.7.108 - 2026-09-29
 
 - Added click-to-enable/disable thumbnails to Multi Image Loader and MiniMax H3 Multi Reference Image, matching Advanced Image Source Loader. Disabled images stay in the gallery and saved workflow while being excluded from execution.

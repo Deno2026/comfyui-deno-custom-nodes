@@ -66,9 +66,10 @@ def install_ltx_stub():
     nodes_lt.LTXVAddGuide = LTXVAddGuide
 
     class MiniMaxInput:
-        def __init__(self, input_id, tooltip=None):
+        def __init__(self, input_id, tooltip=None, optional=False):
             self.id = input_id
             self.tooltip = tooltip
+            self.optional = optional
 
     class MiniMaxOutput:
         def __init__(self, display_name=None, tooltip=None):
@@ -77,15 +78,15 @@ def install_ltx_stub():
             self.tooltip = tooltip
 
     class MiniMaxSchema:
-        def __init__(self):
+        def __init__(self, vaes_optional=True):
             self.node_id = "MiniMaxH3ReferenceToVideo"
             self.display_name = "MiniMax H3 Reference to Video"
             self.category = "model/conditioning/minimax"
             self.description = "Stock MiniMax H3 reference conditioning."
             self.inputs = [
                 MiniMaxInput("clip"),
-                MiniMaxInput("vae"),
-                MiniMaxInput("audio_vae"),
+                MiniMaxInput("vae", optional=vaes_optional),
+                MiniMaxInput("audio_vae", optional=vaes_optional),
                 MiniMaxInput("prompt"),
                 MiniMaxInput("width"),
                 MiniMaxInput("height"),
@@ -104,10 +105,11 @@ def install_ltx_stub():
         FUNCTION = "EXECUTE_NORMALIZED"
         RETURN_TYPES = ("CONDITIONING", "LATENT")
         RETURN_NAMES = ("positive", "LATENT")
+        VAES_OPTIONAL = True
 
         @classmethod
         def define_schema(cls):
-            return MiniMaxSchema()
+            return MiniMaxSchema(vaes_optional=cls.VAES_OPTIONAL)
 
         @classmethod
         def INPUT_TYPES(cls):
@@ -122,11 +124,9 @@ def install_ltx_stub():
                     }
                 },
             )
-            return {
+            input_types = {
                 "required": {
                     "clip": ("CLIP", {}),
-                    "vae": ("VAE", {}),
-                    "audio_vae": ("VAE", {}),
                     "prompt": ("STRING", {"multiline": True, "dynamicPrompts": True}),
                     "width": ("INT", {"default": 1344, "min": 32, "max": 16384, "step": 32}),
                     "height": ("INT", {"default": 768, "min": 32, "max": 16384, "step": 32}),
@@ -140,6 +140,9 @@ def install_ltx_stub():
                     "ref_audios": autogrow("AUDIO", "ref_audio_"),
                 },
             }
+            vae_group = "optional" if cls.VAES_OPTIONAL else "required"
+            input_types[vae_group].update({"vae": ("VAE", {}), "audio_vae": ("VAE", {})})
+            return input_types
 
         @classmethod
         def execute(cls, **kwargs):
@@ -2115,8 +2118,11 @@ def test_minimax_reference_loader_outputs_enabled_order_and_preserves_duplicates
     assert "at most 9" in loader_cls.VALIDATE_INPUTS(ten_paths)
 
 
-def test_minimax_h3_wrapper_replaces_only_image_autogrow_with_one_bundle_socket():
+@pytest.mark.parametrize("vaes_optional", [True, False], ids=["current-optional-vaes", "legacy-required-vaes"])
+def test_minimax_h3_wrapper_replaces_only_image_autogrow_with_one_bundle_socket(monkeypatch, vaes_optional):
     package = load_package()
+    module = sys.modules[f"{package.__name__}.deno_minimax_h3_reference"]
+    monkeypatch.setattr(module.MiniMaxH3ReferenceToVideo, "VAES_OPTIONAL", vaes_optional)
     wrapper_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceToVideo"]
     schema = wrapper_cls.define_schema()
     input_types = wrapper_cls.INPUT_TYPES()
@@ -2142,13 +2148,19 @@ def test_minimax_h3_wrapper_replaces_only_image_autogrow_with_one_bundle_socket(
     ref_images = next(spec for spec in schema.inputs if spec.id == "ref_images")
     assert ref_images.type_name == "DENO_MINIMAX_H3_REFERENCE_IMAGES"
     assert input_types["optional"]["ref_images"][0] == "DENO_MINIMAX_H3_REFERENCE_IMAGES"
+    for input_name in ("vae", "audio_vae"):
+        assert next(spec for spec in schema.inputs if spec.id == input_name).optional is vaes_optional
+        expected_group = "optional" if vaes_optional else "required"
+        other_group = "required" if vaes_optional else "optional"
+        assert input_types[expected_group][input_name][0] == "VAE"
+        assert input_name not in input_types[other_group]
     for input_name in ("ref_videos", "ref_video_audios", "ref_audios"):
         spec = input_types["optional"][input_name]
         assert spec[0] == "COMFY_AUTOGROW_V3"
         assert spec[1]["template"]["max"] == 3
     assert all(spec.tooltip for spec in schema.inputs)
     assert [output.tooltip for output in schema.outputs] == [
-        "Positive MiniMax H3 conditioning containing the ordered image, video, and audio references.",
+        "Positive MiniMax H3 conditioning from the prompt and reference encoders connected to this node.",
         "Empty MiniMax H3 audio/video latent for sampling.",
     ]
     assert next(spec for spec in schema.inputs if spec.id == "length").tooltip == (
@@ -2159,7 +2171,16 @@ def test_minimax_h3_wrapper_replaces_only_image_autogrow_with_one_bundle_socket(
     )
 
 
-def test_minimax_h3_wrapper_forwards_ordered_bundle_and_stock_media_inputs_unchanged(monkeypatch):
+@pytest.mark.parametrize(
+    "vae_inputs",
+    [{}, {"vae": "vae"}, {"audio_vae": "audio-vae"}, {"vae": "vae", "audio_vae": "audio-vae"},
+     {"vae": None, "audio_vae": None}],
+    ids=["both-omitted", "audio-vae-omitted", "vae-omitted", "both-connected", "explicit-none"],
+)
+@pytest.mark.parametrize("with_references", [True, False], ids=["media-references", "no-references"])
+def test_minimax_h3_wrapper_forwards_ordered_bundle_and_stock_media_inputs_unchanged(
+    monkeypatch, vae_inputs, with_references
+):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_minimax_h3_reference"]
     wrapper_cls = package.NODE_CLASS_MAPPINGS["DenoMiniMaxH3ReferenceToVideo"]
@@ -2176,10 +2197,10 @@ def test_minimax_h3_wrapper_forwards_ordered_bundle_and_stock_media_inputs_uncha
         FakeTensor("first", (1, 11, 17, 3)),
         FakeTensor("second", (1, 23, 9, 3)),
         FakeTensor("third", (1, 8, 8, 4)),
-    )
-    ref_videos = {"ref_video_0": object()}
-    ref_video_audios = {"ref_video_audio_0": object()}
-    ref_audios = {"ref_audio_0": object()}
+    ) if with_references else None
+    ref_videos = {"ref_video_0": object()} if with_references else None
+    ref_video_audios = {"ref_video_audio_0": object()} if with_references else None
+    ref_audios = {"ref_audio_0": object()} if with_references else None
     marker = object()
     captured = {}
 
@@ -2190,8 +2211,6 @@ def test_minimax_h3_wrapper_forwards_ordered_bundle_and_stock_media_inputs_uncha
     monkeypatch.setattr(module.MiniMaxH3ReferenceToVideo, "execute", classmethod(fake_execute))
     result = wrapper_cls.execute(
         clip="clip",
-        vae="vae",
-        audio_vae="audio-vae",
         prompt="prompt",
         width=1344,
         height=768,
@@ -2201,11 +2220,21 @@ def test_minimax_h3_wrapper_forwards_ordered_bundle_and_stock_media_inputs_uncha
         ref_videos=ref_videos,
         ref_video_audios=ref_video_audios,
         ref_audios=ref_audios,
+        **vae_inputs,
     )
 
     assert result is marker
-    assert list(captured["ref_images"]) == ["ref_image_0", "ref_image_1", "ref_image_2"]
-    assert list(captured["ref_images"].values()) == list(images)
+    assert captured["clip"] == "clip"
+    assert captured["vae"] == vae_inputs.get("vae")
+    assert captured["audio_vae"] == vae_inputs.get("audio_vae")
+    assert captured["prompt"] == "prompt"
+    assert (captured["width"], captured["height"], captured["length"]) == (1344, 768, 124)
+    assert captured["ref_image_size"] == "match"
+    if with_references:
+        assert list(captured["ref_images"]) == ["ref_image_0", "ref_image_1", "ref_image_2"]
+        assert list(captured["ref_images"].values()) == list(images)
+    else:
+        assert captured["ref_images"] is None
     assert captured["ref_videos"] is ref_videos
     assert captured["ref_video_audios"] is ref_video_audios
     assert captured["ref_audios"] is ref_audios

@@ -173,6 +173,15 @@ Main features:
 
 The dedicated H3 socket is intentional: a normal ComfyUI `IMAGE` batch requires one shared width and height, so it cannot preserve mixed reference sizes. The additional `image_list` is a list output rather than a same-size batch, so the original dimensions, order, and aspect ratios remain separate when reused by list-aware nodes. MiniMax H3 may still downscale references during its normal `ref_image_size` processing while preserving their aspect ratio.
 
+On ComfyUI builds that support optional H3 VAEs, `(Deno) MiniMax H3 Reference to Video` also accepts an unconnected `vae` or `audio_vae` input. Connecting both keeps the existing reference-encoding behavior.
+
+- Without `vae`, reference images and videos still reach the text/vision encoder, but their VAE-encoded reference latents are omitted.
+- Without `audio_vae`, the actual reference sound is not encoded. The text encoder retains labels such as `<Audio 1>`, not the audio waveform; connect `audio_vae` to reference a voice or sound. Omitting it does not disable generated audio.
+
+Audio paired with a reference video (`ref_video_audio`) needs both `vae` and `audio_vae` connected to encode the reference video and its sound; standalone reference audio (`ref_audio`) needs only `audio_vae`.
+
+These choices apply only to reference encoding in this node. Keep the VAEs needed by the downstream video and audio decoding nodes. Older ComfyUI builds whose native H3 node requires both VAEs still require both connections; update ComfyUI to use optional reference encoding.
+
 These two MiniMax H3 nodes require ComfyUI 0.30.0 or newer. See the portable [MiniMax H3 multi-reference workflow](docs/workflows/minimax-h3-multi-reference.json) for the complete native H3 pipeline with the two stock `Load Image` nodes replaced by the one-cable Deno loader.
 
 ### `(Deno) MiniMax H3 Acc LoRA Loader`

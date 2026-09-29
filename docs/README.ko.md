@@ -132,6 +132,15 @@ ComfyUI 순정 MiniMax H3 Reference to Video용 한 줄 연결 다중 참조 이
 
 함께 제공되는 `(Deno) MiniMax H3 Reference to Video`는 이미지 입력만 한 단자로 바꾸고, 참조 비디오·비디오 오디오·단독 오디오의 순정 Autogrow 입력은 그대로 유지합니다. 일반 `IMAGE` 배치는 모든 이미지가 같은 가로·세로 크기여야 하므로 혼합 원본 크기 보존에는 사용할 수 없습니다. 추가된 `image_list`는 동일 크기 배치가 아니라 각 원본을 분리해 유지하는 리스트 출력입니다. H3 내부의 `ref_image_size` 처리는 실행 시 비율을 유지한 채 참조 이미지를 축소할 수 있습니다.
 
+H3의 VAE 선택 입력을 지원하는 ComfyUI에서는 `(Deno) MiniMax H3 Reference to Video`의 `vae` 또는 `audio_vae`를 연결하지 않아도 실행할 수 있습니다. 둘 다 연결하면 기존 참조 인코딩 방식이 유지됩니다.
+
+- `vae`를 생략하면 참조 이미지·영상은 텍스트/시각 인코더에 전달되지만, VAE로 인코딩한 참조 잠재값은 전달되지 않습니다.
+- `audio_vae`를 생략하면 참조 음성의 실제 소리는 인코딩되지 않습니다. 텍스트 인코더에는 음성 파형 대신 `<Audio 1>` 같은 표시만 남으므로, 목소리나 소리를 참조하려면 `audio_vae`를 연결하세요. 이 입력을 생략하는 것은 생성 오디오를 끄는 기능이 아닙니다.
+
+참조 영상에 딸린 오디오(`ref_video_audio`)는 `vae`와 `audio_vae`를 모두 연결해야 참조 영상과 실제 소리가 인코딩되며, 단독 참조 오디오(`ref_audio`)는 `audio_vae`만 연결해도 됩니다.
+
+이 선택은 이 노드의 참조 인코딩에만 적용됩니다. 뒤쪽 영상·오디오 디코딩 노드에 필요한 VAE 연결은 유지하세요. 순정 H3가 두 VAE를 필수로 요구하는 이전 ComfyUI에서는 여전히 둘 다 연결해야 하며, 선택 입력을 사용하려면 ComfyUI를 업데이트해야 합니다.
+
 이 두 MiniMax H3 노드는 ComfyUI 0.30.0 이상이 필요합니다. 순정 H3 전체 구성에서 여러 `Load Image` 노드만 Deno 한 줄 로더로 교체한 [MiniMax H3 다중 참조 예제 워크플로](workflows/minimax-h3-multi-reference.json)를 함께 제공합니다.
 
 ### `(Deno) MiniMax H3 Acc LoRA Loader`
