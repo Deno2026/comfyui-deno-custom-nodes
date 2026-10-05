@@ -632,7 +632,7 @@ See the [latest release](https://github.com/Deno2026/comfyui-deno-custom-nodes/r
 
 ## Links
 
-- [Original project banner (Korean UI)](docs/images/deno-custom-nodes-banner.jpg)
+- [Deno Custom Nodes banner](docs/images/deno-custom-nodes-banner.jpg)
 - YouTube: https://www.youtube.com/@Denoise-AI
 - GitHub: https://github.com/Deno2026/comfyui-deno-custom-nodes
 - Registry: https://registry.comfy.org/publishers/deno2026/nodes/deno-custom-nodes
