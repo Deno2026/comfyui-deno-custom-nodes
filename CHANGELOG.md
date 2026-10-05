@@ -4,7 +4,12 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
-## Unreleased
+## 0.7.110 - 2026-10-05
+
+- Added an optional audio section to MiniMax H3 Multi Reference Image Loader with up to three files, measured waveforms and duration, preview playback, per-file enable controls, reorder, and individual AUDIO outputs. Existing image outputs and saved image-only workflows are preserved.
+- Numbered only enabled audio references from Audio 1 and kept each cable attached to its file during reorder. DENO H3 skips disabled audio references without blocking generation and explains incomplete or conflicting audio connections.
+- Fixed Local LLM Loader detected-model selectors accumulating after refreshes or provider changes on newer ComfyUI frontends. Known duplicate rows are repaired while model selection and saved workflow values are preserved.
+- Fixed Advanced Image Source Loader thumbnails for quoted Windows paths and made URL previews use the same validated server fetch as execution. Added preview retry and failure help without changing source order or enabled state.
 
 ## 0.7.109 - 2026-09-30
 

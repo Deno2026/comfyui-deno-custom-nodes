@@ -102,8 +102,10 @@ function setupAdvancedImageSourceLoader(node) {
     const inputFolderBtn = createActionButton("Input Folder");
     const externalFolderBtn = createActionButton("External Folder");
     const urlPathBtn = createActionButton("URL / Path");
+    const refreshPreviewsBtn = createActionButton("Refresh previews");
+    refreshPreviewsBtn.title = "Reload thumbnails without changing sources, order or enabled images.";
     const clearBtn = createActionButton("Clear", true);
-    topBar.append(uploadBtn, pasteBtn, inputFolderBtn, externalFolderBtn, urlPathBtn, clearBtn);
+    topBar.append(uploadBtn, pasteBtn, inputFolderBtn, externalFolderBtn, urlPathBtn, refreshPreviewsBtn, clearBtn);
 
     const countLabel = document.createElement("div");
     countLabel.style.cssText = "margin-left:auto; color:#94f7af; font:600 11px sans-serif;";
@@ -290,6 +292,8 @@ function setupAdvancedImageSourceLoader(node) {
         app.graph?.setDirtyCanvas?.(true, true);
     }
 
+    let previewRefreshToken = "";
+
     function render() {
         const paths = getPaths();
         const disabled = new Set(getDisabledPaths());
@@ -338,7 +342,7 @@ function setupAdvancedImageSourceLoader(node) {
             font: 700 10px sans-serif;
         `;
 
-        const previewUrls = getPreviewUrls(path);
+        const previewUrls = getPreviewUrls(path, previewRefreshToken);
         if (previewUrls.length) {
             const image = document.createElement("img");
             image.dataset.denoCardImage = "true";
@@ -348,7 +352,8 @@ function setupAdvancedImageSourceLoader(node) {
             image.style.cssText = "width:100%; height:100%; object-fit:contain; opacity:1; pointer-events:none;";
             image.onload = () => applyMasonrySpanForImage(card, image);
             setImagePreviewSources(image, previewUrls, () => {
-                preview.textContent = getSourceKind(path);
+                preview.textContent = `${getSourceKind(path)} · preview unavailable`;
+                preview.title = previewFailureHint(path);
                 image.remove();
             });
             preview.appendChild(image);
@@ -832,6 +837,11 @@ function setupAdvancedImageSourceLoader(node) {
     inputFolderBtn.onclick = () => showInputFolderBrowser(node, setPaths, getPaths);
     externalFolderBtn.onclick = () => showExternalFolderBrowser(node, setPaths, getPaths, folderUploadInput, uploadFiles);
     urlPathBtn.onclick = () => showSourceTextDialog(node, setPaths, getPaths);
+    refreshPreviewsBtn.onclick = () => {
+        previewRefreshToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        render();
+        setStatus("Previews refreshed. If a thumbnail still fails, hover over it for help.");
+    };
 
     container.ondragover = (event) => {
         if (isReordering) {
@@ -1667,19 +1677,33 @@ function setImagePreviewSources(image, sources, onExhausted = undefined) {
     return urls;
 }
 
-function getPreviewUrls(path) {
-    const text = String(path || "").trim();
+function getPreviewUrls(path, refreshToken = "") {
+    const text = normalizeSourceForPreview(path);
     const location = classifySourceLocation(text);
+    let urls = [];
     if (location === "url") {
-        return [text];
+        urls = [`/deno/advanced/remote-image-preview?url=${encodeURIComponent(text)}`];
+    } else if (location === "external") {
+        urls = [externalImagePreviewUrl(text)].filter(Boolean);
+    } else if (IMAGE_RE.test(text)) {
+        urls = inputImagePreviewUrls(text);
     }
+    return urls.map((url) => {
+        const refreshed = refreshToken ? `${url}&_deno_preview=${encodeURIComponent(refreshToken)}` : url;
+        return typeof api.apiURL === "function" ? api.apiURL(refreshed) : refreshed;
+    });
+}
+
+function previewFailureHint(path) {
+    const retry = "Use Refresh previews to retry. If the node pack was just updated, restart ComfyUI first.";
+    const location = classifySourceLocation(path);
     if (location === "external") {
-        return [externalImagePreviewUrl(text)].filter(Boolean);
+        return `External file previews require a localhost connection and an existing image file. ${retry}`;
     }
-    if (IMAGE_RE.test(text)) {
-        return inputImagePreviewUrls(text);
+    if (location === "url") {
+        return `Use a direct, reachable public image URL. Private addresses, login pages and oversized previews are unsupported. ${retry}`;
     }
-    return [];
+    return `Check that the image exists in ComfyUI's input folder. ${retry}`;
 }
 
 function getPreviewUrl(path) {
@@ -1698,7 +1722,7 @@ function getSourceKind(path) {
 }
 
 function classifySourceLocation(path) {
-    const text = String(path || "").trim();
+    const text = normalizeSourceForPreview(path);
     if (/^https?:\/\//i.test(text)) {
         return "url";
     }
@@ -1706,6 +1730,12 @@ function classifySourceLocation(path) {
         return "external";
     }
     return "input";
+}
+
+function normalizeSourceForPreview(path) {
+    // Explorer's Copy as path includes quotes; execution already accepts them.
+    // Normalize only the preview request, preserving the saved source identity.
+    return String(path || "").trim().replace(/^"+|"+$/g, "");
 }
 
 function createLatestRequestGate() {
@@ -1883,6 +1913,7 @@ if (typeof window !== "undefined" && typeof window.__DENO_ADVANCED_IMAGE_SOURCE_
         fetchExternalFolderImagesAndRemember,
         getPreviewUrl,
         getPreviewUrls,
+        previewFailureHint,
         getSourceKind,
         inputImagePreviewUrls,
         setImagePreviewSources,

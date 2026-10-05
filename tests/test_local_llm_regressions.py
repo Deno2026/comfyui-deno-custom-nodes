@@ -2773,6 +2773,20 @@ def test_local_llm_frontend_async_actions_are_latest_wins():
     assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
 
 
+def test_local_llm_detected_model_picker_survives_frontend_store_reuse():
+    node = shutil.which("node")
+    assert node, "node executable is required for the Local LLM model-picker harness"
+
+    result = subprocess.run(
+        [node, str(REPO_ROOT / "tests" / "js" / "local_llm_model_picker_harness.mjs")],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
+
+
 def test_local_llm_system_prompt_presets_use_durable_user_data():
     node = shutil.which("node")
     assert node, "node executable is required for the Local LLM preset-storage harness"

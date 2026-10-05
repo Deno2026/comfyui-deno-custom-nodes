@@ -5423,14 +5423,28 @@ function openAIModelPickerValues(choices) {
     return values;
 }
 
-function removeOpenAIModelPickerRows(node) {
-    node.widgets = (node.widgets || []).filter((widget) => {
-        if (String(widget?.name || "") !== OPENAI_MODEL_PICKER_NAME) {
-            return true;
+function isOpenAIModelPickerWidget(widget) {
+    const name = String(widget?.name || "");
+    // Frontends that normalize duplicate names may append #1, #2, etc.
+    return /^deno_local_llm_model_picker(?:#\d+)*$/.test(name) ||
+        (/^Detected Models(?:#\d+)*$/.test(name) && widget?.type === "combo");
+}
+
+function removeOpenAIModelPickerRows(node, keep = null) {
+    for (const widget of [...(node.widgets || [])]) {
+        if (!isOpenAIModelPickerWidget(widget) || widget === keep) {
+            continue;
         }
         removeWidgetElement(widget);
-        return false;
-    });
+        try {
+            node.removeWidget?.(widget);
+        } catch {
+            // Older frontends may expose only the widgets array.
+        }
+        if ((node.widgets || []).includes(widget)) {
+            node.widgets = node.widgets.filter((candidate) => candidate !== widget);
+        }
+    }
 }
 
 function syncOpenAIModelPicker(node, provider) {
@@ -5449,8 +5463,11 @@ function syncOpenAIModelPicker(node, provider) {
         modelWidget.value = values[0];
     }
     let picker = getWidget(node, OPENAI_MODEL_PICKER_NAME);
+    removeOpenAIModelPickerRows(node, picker);
     if (!picker) {
-        picker = node.addWidget?.("combo", "Detected Models", values[0], () => {
+        // New frontends register widget names in a value store. Renaming after
+        // creation can fail if an older row left state under the internal name.
+        picker = node.addWidget?.("combo", OPENAI_MODEL_PICKER_NAME, values[0], () => {
             const selected = String(picker?.value || "").trim();
             if (!selected) {
                 return;
@@ -5463,14 +5480,14 @@ function syncOpenAIModelPicker(node, provider) {
                 thinking: "Detected model copied into the Model field.",
             });
             refreshNode(node);
-        }, { values, list: values });
+        }, { values, list: values, serialize: false });
         if (!picker) {
             return null;
         }
     }
-    picker.name = OPENAI_MODEL_PICKER_NAME;
     picker.label = "Detected Models";
     picker.type = "combo";
+    picker.serialize = false;
     picker.options = { ...(picker.options || {}), values, list: values, serialize: false };
     picker.serializeValue = () => undefined;
     const current = String(modelWidget.value || "").trim();
@@ -5636,12 +5653,12 @@ function addRefreshButton(node) {
         return;
     }
     removeRefreshButtonWidgets(node);
-    const button = node.addWidget?.("button", "Refresh Models", "Refresh Models", () => refreshModels(node));
+    const button = node.addWidget?.("button", `${GENERATED_PREFIX}refresh_models`, "Refresh Models", () => refreshModels(node), { serialize: false });
     if (!button) {
         return;
     }
-    button.name = `${GENERATED_PREFIX}refresh_models`;
     button.label = "Refresh Models";
+    button.serialize = false;
     button.options = { ...(button.options || {}), serialize: false };
     button.serializeValue = () => undefined;
     moveWidgetAfter(node, button, getWidget(node, `${GENERATED_PREFIX}model_picker`) || modelWidget);
@@ -5654,12 +5671,12 @@ function addStopButton(node) {
         return;
     }
     removeStopButtonWidgets(node);
-    const button = node.addWidget?.("button", "Stop LLM", "Stop LLM", () => stopLocalModel(node));
+    const button = node.addWidget?.("button", `${GENERATED_PREFIX}stop_llm`, "Stop LLM", () => stopLocalModel(node), { serialize: false });
     if (!button) {
         return;
     }
-    button.name = `${GENERATED_PREFIX}stop_llm`;
     button.label = "Stop LLM";
+    button.serialize = false;
     button.options = { ...(button.options || {}), serialize: false };
     button.serializeValue = () => undefined;
     moveWidgetAfter(node, button, getWidget(node, `${GENERATED_PREFIX}refresh_models`) || modelWidget);
@@ -5672,12 +5689,12 @@ function addUnloadButton(node) {
         return;
     }
     removeUnloadButtonWidgets(node);
-    const button = node.addWidget?.("button", "Unload LLM", "Unload LLM", () => unloadLocalModel(node));
+    const button = node.addWidget?.("button", `${GENERATED_PREFIX}unload_llm`, "Unload LLM", () => unloadLocalModel(node), { serialize: false });
     if (!button) {
         return;
     }
-    button.name = `${GENERATED_PREFIX}unload_llm`;
     button.label = "Unload LLM";
+    button.serialize = false;
     button.options = { ...(button.options || {}), serialize: false };
     button.serializeValue = () => undefined;
     moveWidgetAfter(node, button, getWidget(node, `${GENERATED_PREFIX}stop_llm`) || getWidget(node, `${GENERATED_PREFIX}refresh_models`) || modelWidget);

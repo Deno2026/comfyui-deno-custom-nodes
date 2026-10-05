@@ -71,6 +71,7 @@ NODE_INPUT_TOOLTIPS = {
     "DenoMiniMaxH3ReferenceImageLoader": {
         "image_paths": "Ordered MiniMax H3 reference-image list managed by the node UI.",
         "disabled_image_paths": "Saved skipped references. Only enabled cards map to Picture 1, Picture 2, and so on.",
+        "audio_sources": "Saved reference audio files, their card order and enabled state. Enabled files are numbered from Audio 1; disabled files retain their connections but are skipped.",
     },
     "DenoMiniMaxH3ReferenceToVideo": {
         # Shared by legacy object_info and V3 define_schema; the upstream
@@ -86,7 +87,7 @@ NODE_INPUT_TOOLTIPS = {
         "ref_images": "Ordered image bundle from the DENO MiniMax H3 Reference Image Loader.",
         "ref_videos": "Stock MiniMax H3 reference-video slots, in prompt tag order.",
         "ref_video_audios": "Stock MiniMax H3 soundtrack slots paired by number with reference videos.",
-        "ref_audios": "Stock MiniMax H3 standalone reference-audio slots, in prompt tag order.",
+        "ref_audios": "Standalone reference-audio slots. With DENO loader audio, connect all enabled files from one loader; disabled cables are skipped. Keep other audio sources and reference-video soundtracks separate in that mode.",
     },
     "DenoMiniMaxH3AccLoader": {
         "model": "Matching native ComfyUI MiniMax H3 diffusion model to accelerate; full and curve-pruned models are supported.",
@@ -332,6 +333,9 @@ NODE_OUTPUT_TOOLTIPS = {
     "DenoMiniMaxH3ReferenceImageLoader": (
         "Ordered MiniMax H3 reference-image bundle with each image's decoded size and aspect ratio preserved.",
         "The same ordered sources as a mixed-size IMAGE list for nodes such as DENO Local LLM Loader.",
+        "Individual AUDIO output. Its visible reference number follows enabled card order. Disabling the file preserves its cable and skips this audio branch.",
+        "Individual AUDIO output. Its visible reference number follows enabled card order. Disabling the file preserves its cable and skips this audio branch.",
+        "Individual AUDIO output. Its visible reference number follows enabled card order. Disabling the file preserves its cable and skips this audio branch.",
     ),
     "DenoMiniMaxH3ReferenceToVideo": (
         "Positive MiniMax H3 conditioning from the prompt and reference encoders connected to this node.",

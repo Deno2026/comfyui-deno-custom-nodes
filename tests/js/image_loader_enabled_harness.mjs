@@ -317,6 +317,36 @@ for (const spec of cases) {
 
   const oldWorkflow = await runtime.create(["legacy-one.png", "legacy-two.png"], [], false);
   assertCards(oldWorkflow, ["legacy-one.png", "legacy-two.png"], ["1", "2"], `${label} legacy workflow`);
+  if (label === "Advanced") {
+    const sourceUrl = "https://images.example.com/image?sig=a%2Bb&expires=5";
+    const quotedPath = '"C:\\Images\\a.png"';
+    const previewNode = await runtime.create([sourceUrl, "/external/image.png", "a.png", quotedPath], [sourceUrl]);
+    const previousValues = previewNode.widgets.map((entry) => entry.value);
+    const originalImage = card(previewNode, sourceUrl).querySelector("img");
+    assert.match(originalImage.src, /^\/deno\/advanced\/remote-image-preview\?/);
+    originalImage.onerror();
+    const failedPreview = card(previewNode, sourceUrl).children[0];
+    assert.match(failedPreview.textContent, /preview unavailable/,
+      "a failed URL thumbnail must show an explicit failure, not just the URL source kind");
+    assert.match(failedPreview.title, /Refresh previews/);
+    previewNode.panel.querySelectorAll("button").find((button) => button.textContent === "Refresh previews").click();
+    await runtime.flush();
+    assert.deepEqual(previewNode.widgets.map((entry) => entry.value), previousValues,
+      "retry must preserve all serialized settings, source order and enable state");
+    assertCards(previewNode, [sourceUrl, "/external/image.png", "a.png", quotedPath], ["", "1", "2", "3"], "Advanced refresh previews");
+    const retryImage = card(previewNode, sourceUrl).querySelector("img");
+    assert.notEqual(retryImage.src, originalImage.src, "retry must bypass a browser-cached failed response");
+    const retryParams = new URL(retryImage.src, "http://localhost").searchParams;
+    assert.equal(retryParams.get("url"), sourceUrl, "retry must not rewrite a signed remote URL");
+    assert.ok(retryParams.get("_deno_preview"));
+    assert.match(card(previewNode, "/external/image.png").querySelector("img").src, /_deno_preview=/,
+      "retry must also refresh external files that changed on disk");
+    const quotedPreview = new URL(card(previewNode, quotedPath).querySelector("img").src, "http://localhost");
+    assert.equal(quotedPreview.pathname, "/deno/advanced/external-image-view");
+    assert.equal(quotedPreview.searchParams.get("path"), "C:\\Images\\a.png",
+      "preview must accept Explorer quotes while the original stored string stays unchanged");
+    previewNode.onRemoved?.();
+  }
   for (const current of [node, reopened, oldWorkflow]) current.onRemoved?.();
 }
 

@@ -227,12 +227,35 @@ assert.equal(hooks.classifySourceLocation("C:\\Images\\a.png"), "external");
 assert.equal(hooks.classifySourceLocation("\\\\server\\share\\a.png"), "external");
 assert.equal(hooks.classifySourceLocation("/home/user/a.png"), "external");
 assert.equal(hooks.classifySourceLocation("folder/a.png"), "input");
+assert.equal(hooks.classifySourceLocation('"C:\\Images\\a.png"'), "external",
+  "Explorer Copy as path must have the same source classification as backend execution");
+assert.equal(hooks.getPreviewUrl('"C:\\Images\\a.png"'),
+  "/deno/advanced/external-image-view?path=C%3A%5CImages%5Ca.png",
+  "outer quotes must not send a valid external path to the input-folder preview route");
 assert.equal(hooks.getSourceKind("/home/user/a.png"), "Path");
 assert.equal(
   hooks.getPreviewUrl("/home/user/a.png"),
   "/deno/advanced/external-image-view?path=%2Fhome%2Fuser%2Fa.png",
 );
 assert.match(hooks.getPreviewUrl("folder/a.png"), /^\/api\/view\?/);
+
+const signedImageUrl = "http://images.example.com/a.png?signature=one%2Btwo&size=full";
+const sameOriginPreview = hooks.getPreviewUrl(signedImageUrl);
+assert.match(sameOriginPreview, /^\/deno\/advanced\/remote-image-preview\?/,
+  "URL previews must share the backend fetch path instead of a browser cross-origin request");
+assert.equal(new URLSearchParams(sameOriginPreview.split("?")[1]).get("url"), signedImageUrl,
+  "the encoded preview request must preserve every original URL parameter");
+assert.equal(new URLSearchParams(hooks.getPreviewUrl(`"${signedImageUrl}"`).split("?")[1]).get("url"), signedImageUrl,
+  "a quoted URL accepted by execution must also get a web-image preview");
+const refreshedPreview = hooks.getPreviewUrls(signedImageUrl, "retry-1")[0];
+assert.equal(new URLSearchParams(refreshedPreview.split("?")[1]).get("url"), signedImageUrl);
+assert.equal(new URLSearchParams(refreshedPreview.split("?")[1]).get("_deno_preview"), "retry-1",
+  "refresh must bypass cached preview failures without altering the remote URL");
+assert.match(hooks.previewFailureHint("/home/user/a.png"), /localhost/,
+  "a failed external path preview must explain the existing localhost boundary");
+assert.match(hooks.previewFailureHint(signedImageUrl), /public image URL/);
+assert.match(hooks.previewFailureHint(signedImageUrl), /restart ComfyUI/,
+  "an extension loaded with an older backend must have an actionable error hint");
 
 const previewUrls = Array.from(hooks.inputImagePreviewUrls("folder name/a b.png"));
 assert.ok(previewUrls.length >= 4, "input previews must include Comfy-compatible encoding and route fallbacks");

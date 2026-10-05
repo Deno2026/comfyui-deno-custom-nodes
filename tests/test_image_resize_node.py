@@ -70,6 +70,14 @@ def install_ltx_stub():
             self.id = input_id
             self.tooltip = tooltip
             self.optional = optional
+            self.rawLink = False
+            if input_id == "ref_audios":
+                cached_inputs = {f"ref_audio_{i}": MiniMaxInput(f"ref_audio_{i}") for i in range(3)}
+                self.template = types.SimpleNamespace(
+                    input=MiniMaxInput("ref_audio"),
+                    cached_inputs=cached_inputs,
+                    get_all=lambda: list(cached_inputs.values()),
+                )
 
     class MiniMaxOutput:
         def __init__(self, display_name=None, tooltip=None):
@@ -83,6 +91,7 @@ def install_ltx_stub():
             self.display_name = "MiniMax H3 Reference to Video"
             self.category = "model/conditioning/minimax"
             self.description = "Stock MiniMax H3 reference conditioning."
+            self.hidden = []
             self.inputs = [
                 MiniMaxInput("clip"),
                 MiniMaxInput("vae", optional=vaes_optional),
@@ -257,7 +266,12 @@ def install_comfyui_dependency_stubs():
     comfy_api_latest = types.ModuleType("comfy_api.latest")
 
     class ComfyNode:
-        pass
+        hidden = types.SimpleNamespace(dynprompt=None, unique_id=None)
+
+    class NodeOutput:
+        def __init__(self, *result, expand=None):
+            self.result = result
+            self.expand = expand
 
     class CustomType:
         def __init__(self, type_name):
@@ -268,7 +282,10 @@ def install_comfyui_dependency_stubs():
             spec.type_name = self.type_name
             return spec
 
-    comfy_io = types.SimpleNamespace(ComfyNode=ComfyNode, Custom=CustomType)
+    comfy_io = types.SimpleNamespace(
+        ComfyNode=ComfyNode, Custom=CustomType, NodeOutput=NodeOutput,
+        Hidden=types.SimpleNamespace(dynprompt="DYNPROMPT", unique_id="UNIQUE_ID"),
+    )
     comfy_api_latest.io = comfy_io
     comfy_api.latest = comfy_api_latest
     sys.modules["comfy_api"] = comfy_api
@@ -282,6 +299,23 @@ def install_comfyui_dependency_stubs():
             self.message = message
 
     graph_utils.ExecutionBlocker = ExecutionBlocker
+    graph_utils.is_link = lambda value: isinstance(value, list) and len(value) == 2 and isinstance(value[0], str) and isinstance(value[1], int)
+
+    class GraphBuilder:
+        def __init__(self, *args, **kwargs):
+            self.nodes = {}
+
+        def node(self, class_type, **inputs):
+            node_id = str(len(self.nodes) + 1)
+            self.nodes[node_id] = {"class_type": class_type, "inputs": inputs}
+            return types.SimpleNamespace(
+                out=lambda index: [node_id, index], set_override_display_id=lambda display_id: None,
+            )
+
+        def finalize(self):
+            return self.nodes
+
+    graph_utils.GraphBuilder = GraphBuilder
     comfy_execution.graph_utils = graph_utils
     sys.modules["comfy_execution"] = comfy_execution
     sys.modules["comfy_execution.graph_utils"] = graph_utils
@@ -1950,7 +1984,8 @@ def test_minimax_h3_reference_loader_preserves_individual_shapes_and_order(monke
 
     result = loader_cls().load_reference_images("wide.png\ntall.png")
 
-    assert len(result) == 2
+    assert len(result) == 5
+    assert all(value.message is None for value in result[2:])
     bundle = result[0]
     image_list = result[1]
     assert isinstance(bundle, tuple)
@@ -1958,9 +1993,9 @@ def test_minimax_h3_reference_loader_preserves_individual_shapes_and_order(monke
     assert [tensor.shape for tensor in bundle] == [(1, 11, 17, 3), (1, 23, 9, 3)]
     assert [tensor.shape for tensor in image_list] == [(1, 11, 17, 3), (1, 23, 9, 3)]
     assert all(bundle[index] is image_list[index] for index in range(2))
-    assert loader_cls.OUTPUT_IS_LIST == (False, True)
-    assert loader_cls.RETURN_TYPES == ("DENO_MINIMAX_H3_REFERENCE_IMAGES", "IMAGE")
-    assert loader_cls.RETURN_NAMES == ("ref_images", "image_list")
+    assert loader_cls.OUTPUT_IS_LIST == (False, True, False, False, False)
+    assert loader_cls.RETURN_TYPES == ("DENO_MINIMAX_H3_REFERENCE_IMAGES", "IMAGE", "AUDIO", "AUDIO", "AUDIO")
+    assert loader_cls.RETURN_NAMES == ("ref_images", "image_list", "audio_1", "audio_2", "audio_3")
 
     llm_module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     attachments = llm_module._prepare_image_attachments(image_list, max_side=64)
@@ -2104,7 +2139,9 @@ def test_minimax_reference_loader_outputs_enabled_order_and_preserves_duplicates
     Image.new("RGB", (3, 9), color=(70, 80, 90)).save(tmp_path / "tall.png")
     monkeypatch.setattr(module.torch, "from_numpy", lambda array: array, raising=False)
     paths = "missing.png\nwide.png\ntall.png\nwide.png"
-    bundle, image_list = loader_cls().load_reference_images(paths, disabled_image_paths="missing.png")
+    result = loader_cls().load_reference_images(paths, disabled_image_paths="missing.png")
+    bundle, image_list = result[:2]
+    assert len(result) == 5
     assert [image.shape for image in bundle] == [(1, 4, 8, 3), (1, 9, 3, 3), (1, 4, 8, 3)]
     assert all(bundle[index] is image_list[index] for index in range(3))
     np.testing.assert_allclose(bundle[0][0, 0, 0], np.array([10, 20, 30]) / 255.0)
@@ -4192,7 +4229,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "normalizeComfyVramValue" in script
     assert "syncComfyVramWidgetOptions" in script
     assert "comfy_vram_policy" in script
-    assert "ModelPickerWidget" not in script
+    assert "class ModelPickerWidget" not in script
+    assert "new ModelPickerWidget(" not in script
     assert "showModelMenu" not in script
     assert "normalizeModelChoices" in script
     assert "updateModelChoices" in script
@@ -4340,9 +4378,9 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "removeRefreshButtonWidgets" in script
     assert "removeStopButtonWidgets" in script
     assert "removeUnloadButtonWidgets" in script
-    assert 'node.addWidget?.("button", "Refresh Models", "Refresh Models", () => refreshModels(node))' in script
-    assert 'node.addWidget?.("button", "Stop LLM", "Stop LLM", () => stopLocalModel(node))' in script
-    assert 'node.addWidget?.("button", "Unload LLM", "Unload LLM", () => unloadLocalModel(node))' in script
+    assert 'node.addWidget?.("button", `${GENERATED_PREFIX}refresh_models`, "Refresh Models"' in script
+    assert 'node.addWidget?.("button", `${GENERATED_PREFIX}stop_llm`, "Stop LLM"' in script
+    assert 'node.addWidget?.("button", `${GENERATED_PREFIX}unload_llm`, "Unload LLM"' in script
     assert 'drawWideButton(ctx, 15, y, width - 30, height, "Refresh Models"' not in script
     assert "schedulePostSetupCleanup" in script
     assert "Model list is ready. Choose from the ${provider} model row." in script

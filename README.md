@@ -157,7 +157,7 @@ Main features:
 
 ### `(Deno) MiniMax H3 Multi Reference Image Loader`
 
-One-cable reference-image loader for ComfyUI's native MiniMax H3 Reference to Video workflow.
+Reference loader for MiniMax H3 workflows, with one-cable images and individual audio outputs.
 
 Main features:
 
@@ -166,10 +166,18 @@ Main features:
 - keeps each decoded image's own dimensions and aspect ratio without resize, crop, pad, or letterbox processing
 - displays each preview card at the source image's own aspect ratio, so mixed landscape and portrait references stay fully visible without preview cropping
 - click thumbnails to disable/enable references; enabled cards are immediately renumbered to match `<Picture 1>`, `<Picture 2>`, and so on, and only those images reach both outputs
-- disabled references stay saved in their card positions and still occupy one of the 9 gallery slots; enable at least one reference to run
+- disabled images stay saved in their card positions and still occupy one of the 9 gallery slots; enable at least one image or audio reference to run
 - connects to the single `ref_images` input on `(Deno) MiniMax H3 Reference to Video`
 - also exposes the same ordered sources as an `image_list` output that connects directly to `(Deno) Local LLM Loader`'s `image` input
 - the H3 node keeps ComfyUI's native reference-video, paired-video-audio, and standalone-audio Autogrow inputs
+
+The collapsible audio section below the image gallery accepts up to 3 audio files through `Add audio`, Input Folder, or file drop. Each file has a waveform, measured duration, preview playback, a separate Use toggle, reorder handle, and remove control. Playback does not change whether a file is used for generation. Video files are not accepted by this loader.
+
+Each registered audio adds an individual `AUDIO` output after the two existing image outputs. Connect those outputs to `(Deno) MiniMax H3 Reference to Video`'s growing standalone-audio inputs and connect `audio_vae` to encode the sound. Only enabled audio cards receive `<Audio 1>`, `<Audio 2>`, and so on in card order. For example, with three registered files and the first two disabled, the third file is displayed and encoded as `<Audio 1>`. Disabled files and their cables remain saved; their ordinary downstream audio branches are skipped. Reordering keeps each cable attached to the same file, and removing a file removes only that file's audio cable. Audio-only loading is also supported.
+
+To keep the displayed tags and H3 references identical, connect all enabled audio outputs from one DENO loader to the same DENO H3 node. Turn off files you do not want to connect. When using these DENO audio outputs, other standalone-audio sources and reference-video soundtracks must be disconnected from that H3 node; the node explains a numbering conflict instead of silently assigning different tags. Existing workflows that use only other audio loaders retain their stock input behavior.
+
+Audio files are read from ComfyUI's input folder. Supported extensions are WAV, MP3, FLAC, OGG/OGA, Opus, M4A, AAC, AIF and AIFF, subject to the installed PyAV decoder. Loading is bounded to 256 MiB per file, 128 MiB decoded PCM, and 30 seconds of CPU decoding. Preview failures have a Retry action and do not change the saved files or their connections.
 
 The dedicated H3 socket is intentional: a normal ComfyUI `IMAGE` batch requires one shared width and height, so it cannot preserve mixed reference sizes. The additional `image_list` is a list output rather than a same-size batch, so the original dimensions, order, and aspect ratios remain separate when reused by list-aware nodes. MiniMax H3 may still downscale references during its normal `ref_image_size` processing while preserving their aspect ratio.
 
@@ -250,6 +258,9 @@ Main features:
 - supports external local folder paths outside the ComfyUI `input` folder
 - supports folder tiles, nested-folder browsing, and a `Parent` button
 - supports `URL / Path` input for web image URLs, absolute local image paths, and local folder paths
+- web thumbnails use the same validated server fetch as execution; quoted paths from Windows `Copy as path` are also recognized for previews
+- use `Refresh previews` to retry thumbnails without changing sources, enabled state, or order; hover a failed preview for help
+- external local file previews require a localhost connection to ComfyUI
 - web image URLs use direct HTTP(S) connections to public addresses; private addresses and environment-proxy routing are not supported
 - supports upload, drag-and-drop, paste, and browser folder upload where the browser allows it
 - includes a visible `Paste` button plus normal Ctrl+V image paste
@@ -555,6 +566,7 @@ Main features:
 - call local Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible, llama-swap, or Unsloth Studio models from ComfyUI
 - localhost-by-default server safety: use `127.0.0.1` or `localhost`, or explicitly allow one private LAN `IP:port` with `DENO_LOCAL_LLM_ALLOWED_HOSTS`
 - refresh provider-specific model lists from the node
+- keeps one detected-model selector across repeated refreshes and provider changes, and removes known duplicate selectors from older frontend sessions while preserving the selected model
 - stop a running local LLM request before unloading the model
 - use llama-swap's live running-state and management APIs for manual or post-run unload; any configured llama-swap server timeout still owns automatic unloading
 - use the `Unsloth` provider only with an Unsloth Studio server (default `http://127.0.0.1:8888/v1`); if an Unsloth GGUF is running inside LM Studio, select `LM Studio` instead

@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import io
 import ipaddress
@@ -37,6 +38,9 @@ from .deno_resolution_common import (
 REMOTE_IMAGE_TIMEOUT_SECONDS = 20
 REMOTE_IMAGE_MAX_BYTES = 64 * 1024 * 1024
 REMOTE_IMAGE_MAX_REDIRECTS = 5
+REMOTE_IMAGE_PREVIEW_MAX_SIZE = 640
+REMOTE_IMAGE_PREVIEW_MAX_PIXELS = 40 * 1024 * 1024
+_REMOTE_IMAGE_PREVIEW_SLOTS = asyncio.Semaphore(4)
 ADVANCED_RESIZE_METHODS = list(dict.fromkeys([
     *RESIZE_METHODS,
     "Top Crop (Fill)",
@@ -331,6 +335,45 @@ def _read_remote_image_bytes(source: str) -> bytes:
             finally:
                 pool.close()
     raise ValueError("Remote image redirected too many times.")
+
+
+def _remote_image_preview_bytes(source: str) -> bytes:
+    # Reuse the execution fetcher so a preview has the same URL, redirect,
+    # certificate and public-address boundaries as the image that is run.
+    image_bytes = _read_remote_image_bytes(source)
+    with Image.open(io.BytesIO(image_bytes)) as image:
+        if image.width * image.height > REMOTE_IMAGE_PREVIEW_MAX_PIXELS:
+            raise ValueError("Remote image is too large for a preview.")
+        # Only raster pixels leave this endpoint, never remote HTML, SVG,
+        # original metadata or an unvalidated response body.
+        image.thumbnail((REMOTE_IMAGE_PREVIEW_MAX_SIZE, REMOTE_IMAGE_PREVIEW_MAX_SIZE))
+        has_alpha = "A" in image.getbands() or "transparency" in image.info
+        preview = ImageOps.exif_transpose(image).convert("RGBA" if has_alpha else "RGB")
+        preview.info.clear()
+        output = io.BytesIO()
+        preview.save(output, format="PNG")
+        return output.getvalue()
+
+
+@PromptServer.instance.routes.get("/deno/advanced/remote-image-preview")
+async def deno_advanced_remote_image_preview(request):
+    source = str(request.query.get("url", "")).strip()
+    headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+    if not _is_remote_image_url(source):
+        return web.json_response(
+            {"error": "A direct public HTTP(S) image URL is required."}, status=400, headers=headers,
+        )
+    try:
+        # Network waits and image decoding must not stall ComfyUI's event loop.
+        async with _REMOTE_IMAGE_PREVIEW_SLOTS:
+            preview_bytes = await asyncio.to_thread(_remote_image_preview_bytes, source)
+    except (OSError, ValueError, urllib.error.URLError, Image.DecompressionBombError):
+        return web.json_response(
+            {"error": "Image preview unavailable. Check that the URL is a reachable public image."},
+            status=400,
+            headers=headers,
+        )
+    return web.Response(body=preview_bytes, content_type="image/png", headers=headers)
 
 
 def _open_image_source(source: str) -> Image.Image | None:

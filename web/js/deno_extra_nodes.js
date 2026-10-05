@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import "./deno_minimax_h3_acc_loader_migration.js";
 import "./deno_text_encoder_unload.js";
+import { setupH3AudioPanel } from "./deno_minimax_h3_audio.js";
 
 const LOADER_NODE = "DenoMultiImageLoader";
 const H3_REFERENCE_LOADER_NODE = "DenoMiniMaxH3ReferenceImageLoader";
@@ -71,6 +72,7 @@ app.registerExtension({
                 inputFolderBrowser: true,
                 outputSizeHint: false,
                 notifySequencers: false,
+                referenceAudio: true,
                 maxImages: 9,
                 minSize: H3_REFERENCE_LOADER_MIN_SIZE,
                 preserveCardAspectRatio: true,
@@ -1922,6 +1924,13 @@ function setupMultiImageLoader(node, options = {}) {
     node._denoUpdateLoaderVisibility?.();
     render();
     refreshOutputSizeHint();
+    // Keep the existing image widget and serialized slots intact. Older server
+    // builds have no audio_sources field and continue to use the image panel.
+    if (options.referenceAudio && getWidget(node, "audio_sources")) {
+        hideSerializedWidget(getWidget(node, "audio_sources"));
+        grid.style.minHeight = "64px";
+        setupH3AudioPanel(node, container, { app, api, createActionButton, gallery: grid });
+    }
 }
 
 function createLatestRequestGate() {
