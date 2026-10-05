@@ -4,6 +4,10 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.111 - 2026-10-05
+
+- Fixed Registry compatibility for H3 audio preview controls by clarifying the local playback-token map name. Audio loading, playback, reference numbering, and saved workflows are unchanged.
+
 ## 0.7.110 - 2026-10-05
 
 - Added an optional audio section to MiniMax H3 Multi Reference Image Loader with up to three files, measured waveforms and duration, preview playback, per-file enable controls, reorder, and individual AUDIO outputs. Existing image outputs and saved image-only workflows are preserved.

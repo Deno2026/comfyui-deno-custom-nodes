@@ -174,7 +174,7 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
     const infoCache = new Map();
     const pendingInfo = new Map();
     const players = new Map();
-    const playRequests = new Map();
+    const playbackTokens = new Map();
     const unrendered = Symbol("unrendered audio_sources");
     let renderedValue = unrendered;
     let rows = [];
@@ -219,7 +219,7 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
     container.appendChild(section);
 
     const stopPlayers = () => {
-        playRequests.clear();
+        playbackTokens.clear();
         for (const player of players.values()) {
             player.pause();
             player.removeAttribute("src");
@@ -424,14 +424,14 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
                 player.src = info.preview_url;
                 player.onended = () => {
                     if (players.get(row.id) !== player || (!player.paused && !player.ended)) return;
-                    playRequests.delete(row.id);
+                    playbackTokens.delete(row.id);
                     play.textContent = "▶";
                     play.setAttribute("aria-label", tr("Play audio preview", "오디오 미리듣기 재생"));
                 };
                 player.onpause = player.onended;
                 player.onerror = () => {
                     if (disposed || !list.contains(item) || players.get(row.id) !== player) return;
-                    playRequests.delete(row.id);
+                    playbackTokens.delete(row.id);
                     player.onended();
                     rowStatus.textContent = tr("Playback failed · Retry", "재생 실패 · 다시 시도");
                     rowStatus.onclick = () => { player.pause(); players.delete(row.id); loadInfo(row, item, true); };
@@ -439,8 +439,8 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
                 };
                 players.set(row.id, player);
             }
-            if (!player.paused || playRequests.has(row.id)) {
-                playRequests.delete(row.id);
+            if (!player.paused || playbackTokens.has(row.id)) {
+                playbackTokens.delete(row.id);
                 player.pause();
                 play.textContent = "▶";
                 play.setAttribute("aria-label", tr("Play audio preview", "오디오 미리듣기 재생"));
@@ -448,27 +448,27 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
             }
             for (const [id, other] of players) {
                 if (id === row.id) continue;
-                playRequests.delete(id);
+                playbackTokens.delete(id);
                 other.pause();
             }
             const request = {};
-            playRequests.set(row.id, request);
+            playbackTokens.set(row.id, request);
             try {
                 await player.play();
                 if (disposed || !list.contains(item) || players.get(row.id) !== player) { player.pause(); return; }
-                if (playRequests.get(row.id) !== request || player.paused) return;
+                if (playbackTokens.get(row.id) !== request || player.paused) return;
                 rowStatus.textContent = readyLabel;
                 rowStatus.title = readyTitle;
                 play.textContent = "Ⅱ";
                 play.setAttribute("aria-label", tr("Pause audio preview", "오디오 미리듣기 일시정지"));
             } catch (error) {
                 if (disposed || !list.contains(item) || players.get(row.id) !== player
-                    || playRequests.get(row.id) !== request
+                    || playbackTokens.get(row.id) !== request
                     || (error?.name === "AbortError" && player.paused)) return;
                 rowStatus.textContent = tr("Playback failed · Retry", "재생 실패 · 다시 시도");
                 rowStatus.title = localError(error);
             } finally {
-                if (playRequests.get(row.id) === request) playRequests.delete(row.id);
+                if (playbackTokens.get(row.id) === request) playbackTokens.delete(row.id);
             }
         };
     }

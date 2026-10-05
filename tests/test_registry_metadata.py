@@ -599,6 +599,9 @@ def test_packaged_files_contain_no_scanner_trigger_literals():
     triggers = (
         "subprocess.Popen(", "os.system(", "os.popen(", ".connect(",
         "socket.socket(", "socket.create_connection(",
+        # Registry's Python HTTP-client pattern also matches a JS Map name
+        # ending in Requests. Playback ownership maps should use token names.
+        "Requests.get(", "Requests.delete(",
     )
     # Inspect package text, including extensionless files. Tests are excluded
     # from the install package, so this rule's own examples are not shipped.
