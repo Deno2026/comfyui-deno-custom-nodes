@@ -3,7 +3,7 @@ import { app } from "../../scripts/app.js";
 const NODE = "DenoFilmGrain";
 const MIN_WIDTH = 280;
 const VALUE_NAMES = ["enabled", "amount", "grain_size", "roughness", "tone_weighted",
-    "temporal_mode", "seed", "control_after_generate", "frame_offset", "processing_batch_size"];
+    "temporal_mode", "seed", "control_after_generate", "frame_offset", "processing_batch_size", "grain_scale_mode"];
 
 // Keep the existing backend range and workflow values. Only the visible scale
 // changes: strength 0..1 maps linearly to amount 0..12. The selected default
@@ -28,6 +28,19 @@ export function isLegacyAutoSize(info) {
 export function processingLabel(value) {
     const labels = {1:"Low RAM", 2:"Balanced", 4:"Faster"};
     return Object.hasOwn(labels, String(value)) ? labels[String(value)] : `Custom (${value} frames)`;
+}
+
+export function configuredGrainScale(info, widgetIndex, currentValue) {
+    const values = info?.widgets_values;
+    if (widgetIndex < 0 || !Array.isArray(values)) return currentValue;
+    // Older workflows end before this appended widget. Keep their exact
+    // pixel-based output; preserve explicitly saved modes, including unknowns.
+    if (widgetIndex >= values.length) return "pixels";
+    // Native serialization kept a trailing empty DOM value in v1–3. It now
+    // lands in the new mode slot; recognize only that exact legacy shape.
+    const version = Number(info?.properties?.denoFilmGrain?.uiVersion || 1);
+    if (version < 4 && values.length === widgetIndex + 1 && values[widgetIndex] === "") return "pixels";
+    return values[widgetIndex];
 }
 
 function installStyle() {
@@ -215,8 +228,9 @@ function makePanel(node) {
     const arrow = document.createElement("span"); arrow.textContent = "+";
     detailsButton.append(detailsLabel, arrow);
     const details = document.createElement("div"); details.className = "details"; details.hidden = true;
-    const detailControl = (name, label, options, bounds) => {
+    const detailControl = (name, label, options, bounds, tooltip) => {
         const row = document.createElement("label"); row.className = "row";
+        if (tooltip) row.title = tooltip;
         const span = document.createElement("span"); span.textContent = label;
         const input = document.createElement(options ? "select" : "input");
         input.dataset.control = name;
@@ -239,6 +253,8 @@ function makePanel(node) {
         });
     };
     detailControl("processing_batch_size", "Frames at once", null, {min:1,max:4});
+    detailControl("grain_scale_mode", "Grain scale", [["resolution", "Match resolution"], ["pixels", "Fixed pixels"]], null,
+        "Match resolution samples the grain from a 1536px-short-edge reference (2752 × 1536), keeping a similar texture across resolutions. Only grain is resized; strength stays unchanged. Fixed pixels preserves older workflows. The reference grid uses temporary RAM; fine grain and video compression have sampling limits.");
     detailControl("temporal_mode", "Video grain", [["changing", "Per frame"], ["fixed", "Fixed"]]);
     detailControl("seed", "Seed");
     detailControl("control_after_generate", "Next seed", [["fixed", "Keep"], ["randomize", "Random"], ["increment", "Increment"], ["decrement", "Decrement"]]);
@@ -285,7 +301,7 @@ function makePanel(node) {
         // Measuring wrapped text then would turn a compact panel into a very
         // tall node before the canvas assigns its actual width.
         measuredHeight = getPanelContentHeight(root, node.size?.[0]) || measuredHeight;
-        return measuredHeight || (details.hidden ? 186 : 323);
+        return measuredHeight || (details.hidden ? 186 : 350);
     }};
 }
 
@@ -350,10 +366,13 @@ app.registerExtension({
         if (nodeData.name !== NODE) return;
         const created = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
-            const result = created?.apply(this, arguments); setupFilmGrain(this);
+            const result = created?.apply(this, arguments);
+            const scale = widget(this, "grain_scale_mode");
+            if (scale) scale.value = "resolution";
+            setupFilmGrain(this);
             this.__denoGrain.pendingHeight = 0;
             this.setSize([MIN_WIDTH, this.size[1]]);
-            this.properties.denoFilmGrain = {...this.properties.denoFilmGrain, uiVersion:3};
+            this.properties.denoFilmGrain = {...this.properties.denoFilmGrain, uiVersion:4};
             return result;
         };
         const configure = nodeType.prototype.onConfigure;
@@ -361,10 +380,12 @@ app.registerExtension({
             const compact = isLegacyAutoSize(arguments[0]);
             const savedHeight = Number(arguments[0]?.size?.[1]);
             const result = configure?.apply(this, arguments);
+            const scale = widget(this, "grain_scale_mode");
+            if (scale) scale.value = configuredGrainScale(arguments[0], this.widgets.indexOf(scale), scale.value);
             if (this.__denoGrain) { this.__denoGrain.previousMin = null; this.__denoGrain.pendingHeight = compact ? 0 : Number.isFinite(savedHeight) ? savedHeight : null; }
             setupFilmGrain(this);
             if (compact) this.setSize([MIN_WIDTH, this.size[1]]);
-            this.properties.denoFilmGrain = {...this.properties.denoFilmGrain, uiVersion:3};
+            this.properties.denoFilmGrain = {...this.properties.denoFilmGrain, uiVersion:4};
             return result;
         };
         for (const name of ["onAdded", "onConnectionsChange", "onExecuted"]) {

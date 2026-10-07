@@ -300,6 +300,10 @@ The panel uses English controls and the compact green styling of the other Deno 
 
 Existing workflows retain their saved values and cables. A saved amount above the panel's new maximum remains intact until you deliberately adjust the slider. Connected parameter inputs control their respective settings; the panel disables those controls and keeps their native sockets visible.
 
+New nodes default to **Advanced → Grain scale → Match resolution**. Grain size is relative to the frame: the node creates the original grain on an aspect-matched grid with a **1536px shorter edge** (the selected 2752×1536 reference), then resamples only that monochrome grain to the input size. Strength and the fine/coarse mix are unchanged. At 2752×1536 the result is exactly the original preset. Existing saved workflows retain **Fixed pixels** and their previous result; choose Match resolution to enable the new behavior. Older API prompts that omit `grain_scale_mode` also retain the pixel-based result.
+
+The reference pattern is filtered when sampled into smaller frames, rather than amplified back to the same per-pixel variance. This keeps particle size and visible strength more consistent when different resolutions are viewed at the same display size. Very fine grain, codec compression and playback scaling can still differ; identical appearance in every player is not guaranteed. Extremely stretched inputs whose reference grid exceeds 16,777,216 pixels fail before allocating it and can use Fixed pixels instead.
+
 Connect it at the end of the image processing chain:
 
 - Photo: final image / resize → **Film Grain** → **Save Image**.
@@ -310,17 +314,18 @@ Connect it at the end of the image processing chain:
 | --- | --- | --- |
 | `enabled` | on | Off passes through the original input without copying. |
 | `amount` | `6` | Stored/API strength in 8-bit brightness units. Panel strength `0.5` = amount `6`, `1` = amount `12`; `0` passes through. The larger backend range retains older workflows. |
-| `grain_size` | `1` | Fine/coarse blur sigma `0.45 / 1.15 px`, scaled together. |
+| `grain_size` | `1` | Relative fine/coarse size in Match resolution; original `0.45 / 1.15 px` sigma at the 1536px reference. Fixed pixels uses these sigmas at the input resolution. |
 | `roughness` | `0.25` | Coarse grain proportion; default fine/coarse mix `75:25`. |
 | `tone_weighted` | on | Emphasizes darker midtones and protects the brightest and darkest ends. |
 | `temporal_mode` | `changing` | Varies the pattern per frame. `fixed` repeats a pattern for comparison. |
 | `seed` | `2026100701` | Reproduces the same pattern and frame sequence. |
 | `frame_offset` | `0` | First frame's global index when processing video chunks separately. |
 | `processing_batch_size` | `1` | Frames processed together on CPU, from 1 to 4. 1 minimizes temporary RAM. |
+| `grain_scale_mode` | `resolution` for new nodes | Match resolution samples the reference grain into the frame. `pixels` preserves the original pixel-based grain; omission in old API prompts uses `pixels`. |
 
 To compare settings with the same pattern across runs, keep `seed` unchanged and set ComfyUI's seed **control after generate** to `fixed`.
 
-Scratch memory is limited to the selected processing group (1–4 frames), and enabled output is stored on CPU rather than allocating a second full batch in VRAM. **The complete output IMAGE batch still requires RAM**, in addition to the upstream input and ComfyUI caches. For float32 RGB, this output uses `frames × width × height × 12` bytes: about **23.7 MiB per 1080p frame**, or **2.78 GiB for 120 frames**. This node does not stream an entire video file or remove upstream cache memory; use shorter batches for long or high-resolution clips. Disabled/zero-strength runs return the same input object.
+Scratch memory is limited to the selected processing group (1–4 frames), and enabled output is stored on CPU rather than allocating a second full batch in VRAM. Match resolution also needs the reference grain grid, so lower-resolution frames can use more temporary RAM than Fixed pixels; Low RAM keeps this work to one frame at a time. **The complete output IMAGE batch still requires RAM**, in addition to the upstream input and ComfyUI caches. For float32 RGB, this output uses `frames × width × height × 12` bytes: about **23.7 MiB per 1080p frame**, or **2.78 GiB for 120 frames**. This node does not stream an entire video file or remove upstream cache memory; use shorter batches for long or high-resolution clips. Disabled/zero-strength runs return the same input object.
 
 Size, channel count and dtype are preserved; RGBA alpha is unchanged. The node operates on pixels, while Save Image/Save Video retain responsibility for workflow metadata, encoding and file creation. A native `VIDEO` socket connects after Create Video, not directly to this node. Video compression may soften fine grain or increase the saved file size.
 

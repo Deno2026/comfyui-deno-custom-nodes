@@ -1,4 +1,4 @@
-"""CPU film grain for photos and decoded video frames, with frame-sized scratch."""
+"""CPU film grain for photos and decoded video frames, with bounded scratch."""
 
 from __future__ import annotations
 
@@ -7,9 +7,26 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import torch
+from PIL import Image
 
 
 _MAX_SEED = (1 << 64) - 1
+_REFERENCE_SHORT_EDGE = 1536
+_MAX_REFERENCE_PIXELS = 16_777_216
+
+
+def _reference_grain_shape(shape) -> tuple[int, int]:
+    """Bound an aspect-matched noise grid before any image/noise allocation."""
+    height, width = shape[:2]
+    scale = _REFERENCE_SHORT_EDGE / min(height, width)
+    reference = (round(height * scale), round(width * scale))
+    if reference[0] * reference[1] > _MAX_REFERENCE_PIXELS:
+        raise ValueError(
+            f"Film Grain resolution mode needs a {reference[1]} x {reference[0]} reference grain grid, "
+            f"which exceeds the {_MAX_REFERENCE_PIXELS:,}-pixel memory limit. "
+            "Use Fixed pixels or a less extreme image aspect ratio."
+        )
+    return reference
 
 
 def _gaussian_numpy(field: np.ndarray, sigma: float) -> np.ndarray:
@@ -73,13 +90,37 @@ def _grain_field(shape, seed: int, grain_size: float, roughness: float) -> np.nd
     return fine
 
 
-def _apply_frame(source, destination, *, amount, grain_size, roughness, tone_weighted, seed):
+def _resolution_grain_field(shape, seed: int, grain_size: float, roughness: float,
+                            reference_shape=None) -> np.ndarray:
+    """Resample only reference grain; keep the power lost to pixel sampling."""
+    reference_shape = _reference_grain_shape(shape) if reference_shape is None else reference_shape
+    field = _grain_field(reference_shape, seed, grain_size, roughness)
+    if tuple(shape) == reference_shape:
+        # The selected sample remains exactly the original pixel algorithm.
+        return field
+    with Image.fromarray(field) as reference_image:
+        resized = reference_image.resize((shape[1], shape[0]), Image.Resampling.LANCZOS)
+    # Release the reference grid before copying Pillow's read-only array view.
+    del field
+    try:
+        # No post-resize normalization: it would amplify subpixel grain at low
+        # resolutions instead of matching the reference's displayed texture.
+        return np.array(resized, dtype=np.float32, copy=True)
+    finally:
+        resized.close()
+
+
+def _apply_frame(source, destination, *, amount, grain_size, roughness, tone_weighted, seed,
+                 grain_scale_mode="pixels", reference_shape=None):
     """Write one frame; neither source nor its alpha plane is modified."""
     # Bound the finite-value check too, rather than creating a whole RGB mask.
     for row in range(0, source.shape[0], 64):
         if not np.isfinite(source[row:row + 64]).all():
             raise ValueError("Film Grain requires finite image values; found NaN or infinity.")
-    noise = _grain_field(source.shape[:2], seed, grain_size, roughness)
+    if grain_scale_mode == "resolution":
+        noise = _resolution_grain_field(source.shape[:2], seed, grain_size, roughness, reference_shape)
+    else:
+        noise = _grain_field(source.shape[:2], seed, grain_size, roughness)
     if tone_weighted:
         luminance = np.einsum(
             "ijk,k->ij", source[..., :3], np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
@@ -102,7 +143,7 @@ def _apply_frame(source, destination, *, amount, grain_size, roughness, tone_wei
         destination[..., 3] = source[..., 3]
 
 
-def _validate_settings(amount, grain_size, roughness, temporal_mode, seed, frame_offset):
+def _validate_settings(amount, grain_size, roughness, temporal_mode, seed, frame_offset, grain_scale_mode):
     for name, value, minimum, maximum in (
         ("amount", amount, 0.0, 100.0),
         ("grain_size", grain_size, 0.25, 4.0),
@@ -112,6 +153,8 @@ def _validate_settings(amount, grain_size, roughness, temporal_mode, seed, frame
             raise ValueError(f"Film Grain {name} must be between {minimum} and {maximum}.")
     if temporal_mode not in ("changing", "fixed"):
         raise ValueError(f"Unknown Film Grain temporal_mode: {temporal_mode!r}.")
+    if grain_scale_mode not in ("resolution", "pixels"):
+        raise ValueError(f"Unknown Film Grain grain_scale_mode: {grain_scale_mode!r}.")
     for name, value in (("seed", seed), ("frame_offset", frame_offset)):
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= _MAX_SEED:
             raise ValueError(f"Film Grain {name} must be an integer between 0 and {_MAX_SEED}.")
@@ -128,6 +171,8 @@ class DenoFilmGrain:
         "Create Video or Video Combine. CPU processing uses small groups of 1–4 frames; "
         "choose 1 for the least temporary RAM. "
         "An enabled run still allocates one complete output IMAGE batch in RAM. "
+        "Resolution scaling samples grain from an aspect-matched 1536px short-edge reference; "
+        "pixel scaling preserves older grain results. "
         "RGB/RGBA size and dtype are preserved; alpha is unchanged. "
         "For native Save Video, connect images to Create Video first."
     )
@@ -140,7 +185,7 @@ class DenoFilmGrain:
             "amount": ("FLOAT", {"default": 6.0, "min": 0.0, "max": 100.0, "step": 0.01, "round": 0.001,
                 "tooltip": "Legacy/API grain strength in 8-bit brightness units. The panel maps strength 0..1 to amount 0..12; its default is amount 6. The larger backend range preserves older workflows. 0 passes through."}),
             "grain_size": ("FLOAT", {"default": 1.0, "min": 0.25, "max": 4.0, "step": 0.05,
-                "tooltip": "Scales grain blur only. 1 uses fine sigma 0.45px and coarse sigma 1.15px. Image detail is not blurred."}),
+                "tooltip": "Scales grain blur only. 1 uses fine/coarse sigma 0.45/1.15px at the 1536px short-edge reference, or at every size in Pixels mode. Image detail is not blurred."}),
             "roughness": ("FLOAT", {"default": 0.25, "min": 0.0, "max": 1.0, "step": 0.05,
                 "tooltip": "Coarse grain proportion. 0.25 uses the original 75:25 fine/coarse mix."}),
             "tone_weighted": ("BOOLEAN", {"default": True,
@@ -154,14 +199,17 @@ class DenoFilmGrain:
         }, "optional": {
             "processing_batch_size": ("INT", {"default": 1, "min": 1, "max": 4, "step": 1,
                 "tooltip": "Frames processed together on CPU. 1 minimizes temporary RAM; larger groups can improve speed. The complete output IMAGE batch still requires RAM. This does not change upstream generation VRAM."}),
+            "grain_scale_mode": (["resolution", "pixels"], {"default": "resolution",
+                "tooltip": "Resolution samples only the grain from a 1536px short-edge reference for similar screen-relative texture. Pixels preserves the original fixed-pixel grain. Strength is unchanged; subpixel grain is naturally filtered. The reference grid is limited to 16,777,216 pixels for memory safety."}),
         }}
 
     def apply(self, images, enabled=True, amount=6.0, grain_size=1.0, roughness=0.25,
               tone_weighted=True, temporal_mode="changing", seed=2026100701, frame_offset=0,
-              processing_batch_size=1):
+              processing_batch_size=1, grain_scale_mode="pixels"):
         if not enabled or amount == 0:
             return (images,)
-        _validate_settings(amount, grain_size, roughness, temporal_mode, seed, frame_offset)
+        # Old API prompts omit this optional setting and retain pixel results.
+        _validate_settings(amount, grain_size, roughness, temporal_mode, seed, frame_offset, grain_scale_mode)
         if (isinstance(processing_batch_size, bool) or not isinstance(processing_batch_size, int)
                 or not 1 <= processing_batch_size <= 4):
             raise ValueError("Film Grain processing_batch_size must be an integer between 1 and 4.")
@@ -169,6 +217,7 @@ class DenoFilmGrain:
                 or images.shape[-1] not in (3, 4) or any(d <= 0 for d in images.shape)
                 or not images.is_floating_point()):
             raise ValueError("Film Grain requires a nonempty floating-point IMAGE batch [frames, height, width, 3 or 4].")
+        reference_shape = _reference_grain_shape(images.shape[1:3]) if grain_scale_mode == "resolution" else None
         try:
             from comfy.utils import ProgressBar
             from comfy.model_management import throw_exception_if_processing_interrupted
@@ -195,7 +244,8 @@ class DenoFilmGrain:
             else:
                 destination = output[index].numpy()
             _apply_frame(source, destination, amount=amount, grain_size=grain_size,
-                         roughness=roughness, tone_weighted=tone_weighted, seed=frame_seed)
+                         roughness=roughness, tone_weighted=tone_weighted, seed=frame_seed,
+                         grain_scale_mode=grain_scale_mode, reference_shape=reference_shape)
             if images.dtype == torch.bfloat16:
                 output[index].copy_(torch.from_numpy(destination))
             # Copy alpha directly from the original dtype, including float64.

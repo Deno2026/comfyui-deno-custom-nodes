@@ -21,6 +21,18 @@ assert.equal(run('processingLabel(1)'), 'Low RAM');
 assert.equal(run('processingLabel(2)'), 'Balanced');
 assert.equal(run('processingLabel(4)'), 'Faster');
 assert.equal(run('processingLabel(3)'), 'Custom (3 frames)', 'existing frame count must remain visible');
+assert.equal(run('configuredGrainScale({widgets_values:Array(10).fill(0)},10,"resolution")'), 'pixels',
+  'old saved workflows must preserve pixel-based grain');
+assert.equal(run('configuredGrainScale({widgets_values:[...Array(10).fill(0),"resolution"]},10,"pixels")'), 'resolution');
+assert.equal(run('configuredGrainScale({widgets_values:[...Array(10).fill(0),"pixels"]},10,"resolution")'), 'pixels');
+assert.equal(run('configuredGrainScale({widgets_values:[...Array(10).fill(0),"future-mode"]},10,"resolution")'), 'future-mode',
+  'unknown saved modes must not silently change output');
+assert.equal(run('configuredGrainScale({},10,"resolution")'), 'resolution', 'partial configure must preserve current state');
+assert.equal(run('configuredGrainScale({widgets_values:[...Array(10).fill(0),""],properties:{denoFilmGrain:{uiVersion:3}}},10,"resolution")'), 'pixels',
+  'legacy serialized DOM placeholder must not become an invalid scale mode');
+assert.equal(run('configuredGrainScale({widgets_values:[...Array(10).fill(0),""],properties:{denoFilmGrain:{uiVersion:4}}},10,"resolution")'), '',
+  'new unknown saved values must remain explicit');
+assert.equal(run('configuredGrainScale({widgets_values:[]},-1,"pixels")'), 'pixels', 'older host without mode widget is preserved');
 assert.equal(run('isLegacyAutoSize({size:[280,312],properties:{denoFilmGrain:{uiVersion:2}}})'), true);
 assert.equal(run('isLegacyAutoSize({size:[280,424],properties:{denoFilmGrain:{uiVersion:3}}})'), false);
 assert.equal(run('getPanelContentHeight({isConnected:false,offsetWidth:1,scrollHeight:1993},340)'), null);

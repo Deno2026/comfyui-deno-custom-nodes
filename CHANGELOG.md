@@ -4,6 +4,12 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.114 - 2026-10-08
+
+- Added Match resolution as the default Film Grain scale for new nodes. Grain is sampled from a 1536px-short-edge reference to keep texture more consistent across photo and video resolutions; the selected 2752×1536 preset remains exact. Only grain is resized.
+- Preserved Fixed pixels for existing workflows and older API prompts. Advanced → Grain scale exposes both modes, with saved values, links, manual sizing, alpha and processing groups preserved.
+- Bounded the reference grain grid and documented its temporary RAM cost. Low RAM still processes one frame at a time.
+
 ## 0.7.113 - 2026-10-08
 
 - Added `(Deno) Film Grain` for photos and decoded video frames before saving. Compact English controls provide strength 0–1 (default 0.5, amount 6; maximum 1, amount 12), grain size, roughness and tone protection, with seed and video options under Advanced.
