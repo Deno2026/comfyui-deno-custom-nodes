@@ -28,6 +28,7 @@ ComfyUI가 설치되어 정상 실행되는 환경에서 시작하세요.
 ### 다음 작업 선택
 
 - **미디어 준비·비교:** [Resize Box](#deno-resize-box), [Multi Image Loader](#deno-multi-image-loader), [Video Compare](#deno-video-compare)에서 시작하세요.
+- **사진·영상 마무리:** 최종 크기 조절 뒤, 저장 전에 [Film Grain](#deno-film-grain)을 연결하세요.
 - **모델로 생성:** [Ideogram Director](#deno-ideogram-director), [MiniMax H3](#deno-minimax-h3-multi-reference-image-loader), [LTX Model Loader](#deno-ltx-model-loader)의 요구사항과 예제를 확인하세요.
 - **정리·브라우저 작업:** [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools), 설치 없는 [웹 도구](#web-tools)를 사용하세요.
 
@@ -84,7 +85,11 @@ Auto는 다른 확장의 설정·요소·클릭 동작을 바꾸지 않습니다
 
 현재 GPU 수치는 NVIDIA NVML을 사용합니다. 지원되지 않거나 읽을 수 없는 GPU 항목은 숨기고 CPU·RAM과 정리 버튼은 사용할 수 있습니다. 여러 GPU가 있으면 NVIDIA GPU index 0(없으면 첫 번째로 확인된 GPU)을 표시하므로 생성에 선택한 GPU와 다를 수 있습니다. 수치는 탭이 보일 때만 조회하고 상시 방송 스레드는 실행하지 않습니다. 정리 버튼만 표시되는 상태에서는 DENO 하드웨어 조회가 발생하지 않습니다. 리소스 항목과 NVIDIA 측정 방식은 MIT 라이선스의 ComfyUI-Crystools를 바탕으로 조정했으며 고지는 [Third-Party Notices](../THIRD_PARTY_NOTICES.md)에 있습니다.
 
-창이 좁거나 상단 공간이 부족하면 DENO 표시만 그 아래 별도 줄로 내려갑니다. 기존 버튼은 그대로 두며, 창을 넓혀 공간이 생기면 DENO도 다시 상단에 붙습니다.
+왼쪽 여섯 점 손잡이를 끌면 DENO 표시를 창 안에서 자유롭게 옮길 수 있습니다. 끄는 동안 원래 상단 자리에 **상단에 고정** 영역이 나타나며, 그곳에 놓으면 다시 붙습니다. 분리된 표시의 회전 버튼을 누르면 숫자와 항목명을 똑바로 유지하면서 가로형·세로형으로 전환합니다. 위치와 방향은 이 브라우저에 저장됩니다. `Settings > DENO > Tools > Resource Monitor`의 `DENO resource monitor placement`에서 `Top / Floating`을 선택할 수도 있으며, 위치를 찾기 어려울 때 `Top`으로 되돌리면 됩니다.
+
+세로형은 폭 44px의 얇은 띠 형태입니다. 작은 항목명 아래에 자릿수 폭이 일정한 수치를 가운데 정렬하고, 단위는 작게 구분해 표시합니다. 얇은 사용량 선과 손잡이·정리·회전 버튼도 한 열로 배치해 캔버스 옆에 붙여 두기 편하게 구성했습니다.
+
+`Top`에서는 창이 좁거나 상단 공간이 부족하면 DENO 표시만 그 아래 별도 줄로 내려갑니다. 기존 버튼은 그대로 두며, 창을 넓혀 공간이 생기면 DENO도 다시 상단에 붙습니다. `Floating`에서는 선택한 위치를 유지하고 창 크기가 바뀌어도 표시가 창 안에 들어오도록 조정합니다. 상단에 붙일 때는 항상 가로형으로 표시합니다.
 
 ## Included Nodes
 
@@ -215,6 +220,40 @@ URL 썸네일은 실행과 같은 서버 조회 경로로 읽습니다. Windows 
 ![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
 
 주요 기능: ComfyUI `input` 폴더와 외부 로컬 폴더 지원, URL/Path 입력, 업로드와 붙여넣기, 썸네일 enable/disable, 드래그 정렬, masonry 스타일 갤러리, 재귀 폴더 로드, 배치 텐서와 `image_list` 출력. 비활성 이미지는 삭제하지 않은 채 알아볼 수 있는 밝기로 유지되고, 켜진 카드에만 현재 순서대로 번호가 즉시 갱신됩니다. 갤러리는 기존 캔버스와 Nodes 2.0에서 노드 높이에 맞춰 유동적으로 배치됩니다.
+
+### `(Deno) Film Grain`
+
+사진 또는 영상의 `IMAGE` 프레임 배치에 CPU로 단색 필름 그레인을 더합니다. 모델이나 추가 패키지 설치 없이 사용할 수 있습니다. 기본값은 미세·굵은 입자 75:25 혼합, 강한 입자의 부드러운 제한, 밝은 끝·깊은 검정에서의 강도 감소입니다. 입자 무늬에만 퍼짐을 적용하므로 원본 사진의 디테일은 흐리지 않습니다.
+
+![Film Grain 조절 패널](images/film-grain.png)
+
+노드 표기는 ComfyUI의 언어 설정과 관계없이 **영어가 기본**이며, 다른 Deno 노드와 같은 작은 글자·얇은 녹색 조절부를 사용합니다. 기본 화면에는 **Strength·Grain size·Roughness·Tone protection**과 **Processing** 선택지만 표시합니다. **Strength는 0~1**이며, 선택한 기본값 **`0.50`은 기존 코드 강도 `6`**, 최대 **`1.00`은 강도 `12`**에 대응합니다. **Low RAM**은 한 프레임씩 처리하는 기본값, **Balanced**는 2프레임, **Faster**는 4프레임을 함께 처리합니다. 그레인 결과는 같으며, 더 빠른 처리는 임시 RAM을 더 사용할 수 있습니다. **Advanced → Frames at once**에서 정확한 1~4 값을 지정할 수 있고, 이전 3프레임 설정도 그대로 유지됩니다. 그레인은 CPU에서 처리하며 생성 단계의 VRAM이나 저장 영상의 길이·파일 수를 바꾸지 않습니다. 출력 영상 전체를 담는 RAM은 별도로 필요합니다. 자세한 내용은 Processing 툴팁에서 확인하세요. 입자 번호와 영상 구간 설정도 Advanced에 있습니다.
+
+기존 워크플로의 값과 연결은 유지합니다. 저장된 강도가 새 슬라이더 범위보다 높아도 직접 조절하기 전에는 바꾸지 않습니다. 연결된 매개변수 입력은 기존 단위로 값을 전달하며, 해당 조절부는 비활성화되고 순정 입력 단자가 표시됩니다.
+
+최종 이미지 처리 뒤에 연결하세요.
+
+- 사진: 최종 이미지 / 크기 조절 → **Film Grain** → **Save Image**.
+- 순정 영상: 디코딩된 프레임 / 최종 크기 조절 → **Film Grain** → **Create Video** → **Save Video**. 원래 오디오와 FPS는 Create Video에 유지하세요.
+- Video Helper Suite: 디코딩된 프레임 → **Film Grain** → **Video Combine**. 기존 오디오·FPS 설정을 유지하세요.
+
+| 설정 | 기본값 | 용도 |
+| --- | --- | --- |
+| `enabled` | 켜짐 | 끄면 입력을 복사하지 않고 그대로 전달합니다. |
+| `amount` | `6` | 저장·API의 8비트 밝기 기준 강도입니다. 패널 `0.5`는 강도 `6`, `1`은 강도 `12`이며 `0`이면 그대로 전달합니다. 기존 워크플로 보존을 위해 backend의 이전 범위는 유지합니다. |
+| `grain_size` | `1` | 미세·굵은 입자의 퍼짐 `0.45 / 1.15 px`를 함께 조절합니다. |
+| `roughness` | `0.25` | 굵은 입자의 비중입니다. 기본 혼합비는 미세·굵은 입자 `75:25`입니다. |
+| `tone_weighted` | 켜짐 | 약간 어두운 중간톤에 질감을 주고 밝은 끝·깊은 검정에서는 줄입니다. |
+| `temporal_mode` | `changing` | 프레임마다 무늬를 바꿉니다. `fixed`는 같은 무늬로 비교할 때 사용합니다. |
+| `seed` | `2026100701` | 같은 입자와 프레임 순서를 재현합니다. |
+| `frame_offset` | `0` | 영상을 나누어 처리할 때 해당 구간의 첫 프레임 번호를 입력합니다. |
+| `processing_batch_size` | `1` | CPU에서 한 번에 처리할 프레임 수입니다. 1~4를 지원하며 1이 임시 RAM을 가장 적게 사용합니다. |
+
+같은 입자로 설정을 비교하려면 `seed`를 유지하고, ComfyUI의 시드 **생성 후 제어**를 `fixed`로 두세요.
+
+선택한 묶음(1~4프레임)씩 계산해 임시 메모리가 영상 길이에 따라 늘지 않으며, 출력은 CPU에 두므로 VRAM에 전체 배치를 하나 더 만들지 않습니다. **출력 IMAGE 배치 전체를 담는 RAM은 필요합니다.** float32 RGB 기준 출력만 `프레임 수 × 가로 × 세로 × 12`바이트로, **1080p 한 프레임 약 23.7 MiB, 120프레임 약 2.78 GiB**입니다. 여기에 원본 입력과 ComfyUI 캐시·선택한 묶음의 계산 공간이 추가됩니다. 영상 파일 전체를 스트리밍하거나 앞선 노드의 캐시를 비우는 기능은 아니므로 긴 영상·고해상도 영상은 짧은 배치로 나누세요. 꺼짐·강도 0에서는 입력 객체를 그대로 전달합니다.
+
+크기·채널 수·dtype를 유지하고 RGBA 알파는 바꾸지 않습니다. 이 노드는 픽셀만 처리하며 파일 생성·워크플로 metadata·인코딩은 기존 Save Image/Save Video가 담당합니다. 순정 `VIDEO` 단자는 Create Video 뒤에 연결하며 이 노드에 직접 연결하지 않습니다. 영상 압축에서는 미세 입자가 약해지거나 저장 파일 크기가 커질 수 있습니다.
 
 ### `(Deno) Image Compare`
 

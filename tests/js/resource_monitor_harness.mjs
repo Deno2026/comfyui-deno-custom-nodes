@@ -9,6 +9,8 @@ const scriptPath = path.join(repoRoot, "web/js/deno_resource_monitor.js");
 const source = fs.readFileSync(scriptPath, "utf8").replace(/^import .*;\r?\n/gm, "");
 const MODE = "DENO.ResourceMonitor.Mode";
 const CLEANUP = "DENO.ResourceMonitor.CleanupMode";
+const PLACEMENT = "DENO.ResourceMonitor.Placement";
+const POSITION = "DENO.ResourceMonitor.FloatingPosition.v1";
 const ROOT = "deno-resource-monitor-root";
 const sample = {
   cpu_percent: 25, ram_percent: 50, ram_used: 8 * 1024 ** 3, ram_total: 16 * 1024 ** 3,
@@ -28,8 +30,13 @@ async function flush() {
 
 // Deliberately small DOM fixture: no rendering claims are made by this harness.
 // It exercises actual extension code, browser event ordering and owned DOM only.
-function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, metrics = sample } = {}) {
+function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, metrics = sample,
+  storage = new Map(), storageBlocked = false } = {}) {
   let viewportWidth = 1440;
+  let viewportHeight = 900;
+  const pointerCaptures = new Map();
+  const activePointers = new Set();
+  const storageWrites = [];
   const observers = new Set();
   let observerScheduled = false;
   function notify(record) {
@@ -60,7 +67,19 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
     removeEventListener(type, callback) { this.listeners.get(type)?.delete(callback); }
     dispatchEvent(event) {
       event.target ??= this;
-      for (const callback of this.listeners.get(event.type) || []) callback(event);
+      event.currentTarget = this;
+      event.preventDefault ??= () => { event.defaultPrevented = true; };
+      event.stopPropagation ??= () => { event.propagationStopped = true; };
+      event.stopImmediatePropagation ??= () => { event.propagationStopped = true; event.immediatePropagationStopped = true; };
+      for (const callback of [...(this.listeners.get(event.type) || [])]) {
+        callback(event);
+        if (event.immediatePropagationStopped) break;
+      }
+      if (event.bubbles && !event.propagationStopped) {
+        const parent = this.parentElement || (this === document?.documentElement ? document : this === document ? windowEvents : null);
+        parent?.dispatchEvent(event);
+      }
+      return !event.defaultPrevented;
     }
   }
   function matchesSimple(element, selector) {
@@ -82,14 +101,22 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
   function matches(element, selector) {
     return selector.split(",").some((part) => {
       // Split descendants only outside attribute values (which may contain spaces).
-      const descendants = part.trim().split(/\s+(?![^\[]*\])/);
-      if (!matchesSimple(element, descendants.pop())) return false;
-      let ancestor = element.parentElement;
-      while (descendants.length) {
-        const wanted = descendants.pop();
-        while (ancestor && !matchesSimple(ancestor, wanted)) ancestor = ancestor.parentElement;
-        if (!ancestor) return false;
-        ancestor = ancestor.parentElement;
+      const terms = part.trim().replace(/\s*([>+~])\s*/g, " $1 ").split(/\s+(?![^\[]*\])/);
+      if (!matchesSimple(element, terms.pop())) return false;
+      let candidate = element;
+      while (terms.length) {
+        const combinator = [">", "+", "~"].includes(terms.at(-1)) ? terms.pop() : " ";
+        const wanted = terms.pop();
+        if (combinator === "+" || combinator === "~") {
+          const siblings = candidate.parentElement?.children || [];
+          let index = siblings.indexOf(candidate) - 1;
+          if (combinator === "~") while (index >= 0 && !matchesSimple(siblings[index], wanted)) index -= 1;
+          candidate = siblings[index];
+        } else {
+          candidate = candidate.parentElement;
+          if (combinator === " ") while (candidate && !matchesSimple(candidate, wanted)) candidate = candidate.parentElement;
+        }
+        if (!candidate || !matchesSimple(candidate, wanted)) return false;
       }
       return true;
     });
@@ -135,6 +162,9 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
     get parentNode() { return this.parentElement; }
     get childNodes() { return this.children; }
     get firstChild() { return this.children[0] || null; }
+    get firstElementChild() { return this.firstChild; }
+    get offsetWidth() { return this.getBoundingClientRect().width; }
+    get offsetHeight() { return this.getBoundingClientRect().height; }
     get id() { return this.getAttribute("id") || ""; }
     set id(value) { this.setAttribute("id", value); }
     get className() { return this.getAttribute("class") || ""; }
@@ -187,6 +217,16 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
       notify({ type: "childList", target: parent, addedNodes: [], removedNodes: [this] });
     }
     replaceChildren(...nodes) { for (const child of [...this.children]) child.remove(); this.append(...nodes); }
+    setPointerCapture(pointerId) {
+      assert.ok(activePointers.has(pointerId), "pointer capture requires an active pointer");
+      pointerCaptures.set(pointerId, this);
+    }
+    hasPointerCapture(pointerId) { return pointerCaptures.get(pointerId) === this; }
+    releasePointerCapture(pointerId) {
+      if (!this.hasPointerCapture(pointerId)) return;
+      pointerCaptures.delete(pointerId);
+      this.dispatchEvent({ type: "lostpointercapture", pointerId, bubbles: true });
+    }
     matches(selector) { return matches(this, selector); }
     closest(selector) { return this.matches(selector) ? this : this.parentElement?.closest(selector) || null; }
     querySelectorAll(selector) {
@@ -199,8 +239,74 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
       for (let node = this; node; node = node.parentElement) {
         if (node.hidden || node.style.display === "none" || node.style.visibility === "hidden") visible = false;
       }
-      const geometry = typeof this.rect === "function" ? this.rect() : this.rect;
-      const { x = 100, y = 50, width = this.id === ROOT ? 320 : 30, height = 30 } = geometry || {};
+      const geometry = (typeof this.rect === "function" ? this.rect() : this.rect) || {};
+      let { x = 100, y = 50, width = 30, height = 30 } = geometry;
+      if (this.id === ROOT && !this.rect) {
+        const css = computedDeclarations(this);
+        const children = this.children.filter((child) => !child.hidden && child.style.display !== "none"
+          && !child.classList.contains("deno-resource-unavailable") && computedDeclarations(child).display !== "none");
+        const gap = Number.parseFloat(css.gap) || 0;
+        const childStyles = children.map(computedDeclarations);
+        const dimensions = childStyles.map((childCss) => {
+          return [Number.parseFloat(childCss.width) || 30, (Number.parseFloat(childCss.height) || 30)
+            + (Number.parseFloat(childCss["margin-top"]) || 0) + (Number.parseFloat(childCss["margin-bottom"]) || 0)];
+        });
+        const padding = Number.parseFloat(css.padding) || 0;
+        const border = css.border && css.border !== "none" ? 1 : 0;
+        const inset = 2 * (padding + border);
+        const vertical = css["flex-direction"] === "column";
+        const viewportLimit = (value, dimension) => {
+          const expression = value?.match(/^calc\(100v[wh]\s*-\s*(\d+(?:\.\d+)?)px\)$/);
+          return expression ? Math.max(0, dimension - Number(expression[1])) : Infinity;
+        };
+        const maxWidth = viewportLimit(css["max-width"], viewportWidth);
+        const maxHeight = viewportLimit(css["max-height"], viewportHeight);
+        if (css.display === "grid") {
+          const template = css["grid-template-columns"] || "1fr";
+          const columns = Number(template.match(/^repeat\(\s*(\d+)\s*,/)?.[1])
+            || template.match(/minmax\([^)]*\)|[^\s]+/g)?.length || 1;
+          const cssWidth = Number.parseFloat(css.width) || Math.max(0, ...dimensions.map(([w]) => w)) * columns + (columns - 1) * gap;
+          width = Math.min(maxWidth, cssWidth + (css["box-sizing"] === "border-box" ? 0 : inset));
+          const columnWidth = Math.max(0, (width - inset - (columns - 1) * gap) / columns);
+          const rows = [];
+          let occupiedColumns = 0;
+          for (const [index, childCss] of childStyles.entries()) {
+            const fullRow = childCss["grid-column"]?.match(/^1\s*\/\s*-1$/);
+            const span = fullRow ? columns : Math.min(columns, Number(childCss["grid-column"]?.match(/span\s+(\d+)/)?.[1]) || 1);
+            if (!rows.length || occupiedColumns + span > columns) { rows.push(0); occupiedColumns = 0; }
+            const childWidth = childCss.width?.endsWith("%")
+              ? (columnWidth * span + gap * (span - 1)) * Number.parseFloat(childCss.width) / 100 : dimensions[index][0];
+            dimensions[index][0] = childWidth;
+            rows[rows.length - 1] = Math.max(rows.at(-1), dimensions[index][1]);
+            occupiedColumns += span;
+          }
+          height = rows.reduce((sum, row) => sum + row, 0) + Math.max(0, rows.length - 1) * gap + inset;
+        } else {
+          width = (vertical ? Math.max(0, ...dimensions.map(([w]) => w)) : dimensions.reduce((sum, [w]) => sum + w, 0)
+            + Math.max(0, dimensions.length - 1) * gap) + inset;
+          height = (vertical ? dimensions.reduce((sum, [, h]) => sum + h, 0) + Math.max(0, dimensions.length - 1) * gap
+            : Math.max(0, ...dimensions.map(([, h]) => h))) + inset;
+        }
+        if (css.display !== "grid" && !vertical && width > maxWidth && css["flex-wrap"] === "wrap") {
+          const innerWidth = Math.max(0, maxWidth - inset);
+          let rowWidth = 0;
+          let rowHeight = 0;
+          let totalHeight = 0;
+          for (const [w, h] of dimensions) {
+            if (rowWidth && rowWidth + gap + w > innerWidth) { totalHeight += rowHeight + gap; rowWidth = 0; rowHeight = 0; }
+            rowWidth += (rowWidth ? gap : 0) + w;
+            rowHeight = Math.max(rowHeight, h);
+          }
+          width = Math.max(0, maxWidth);
+          height = totalHeight + rowHeight + inset;
+        }
+        height = Math.min(height, maxHeight);
+      }
+      if (!this.rect) {
+        if (this.style.left !== "") x = Number.parseFloat(this.style.left) || 0;
+        else if (this.style.right !== "") x = viewportWidth - width - (Number.parseFloat(this.style.right) || 0);
+        if (this.style.top !== "") y = Number.parseFloat(this.style.top) || 0;
+      }
       return { x, y, width: visible ? width : 0, height: visible ? height : 0,
         top: y, left: x, right: x + (visible ? width : 0), bottom: y + (visible ? height : 0) };
     }
@@ -266,9 +372,31 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
   const windowEvents = new EventTarget();
   const apiEvents = new EventTarget();
   const settingsEvents = new EventTarget();
+  function computedDeclarations(node) {
+    const css = document.getElementById("deno-resource-monitor-style")?.textContent || "";
+    const declarations = {};
+    const specificities = {};
+    for (const [, selectors, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      // Fixture geometry only needs the simple owned-element rules, not pseudo classes.
+      const matching = selectors.split(",").filter((selector) => !selector.includes(":") && node.matches(selector.trim()));
+      if (!matching.length) continue;
+      const specificity = Math.max(...matching.map((selector) => (selector.match(/#[\w-]+/g)?.length || 0) * 100
+        + (selector.match(/\.[\w-]+|\[[^\]]*\]/g)?.length || 0) * 10
+        + (selector.match(/(?:^|\s|[>+~])\s*[a-z][\w-]*/gi)?.length || 0)));
+      for (const declaration of body.split(";")) {
+        const separator = declaration.indexOf(":");
+        const property = declaration.slice(0, separator).trim();
+        if (separator >= 0 && (specificities[property] ?? -1) <= specificity) {
+          declarations[property] = declaration.slice(separator + 1).trim();
+          specificities[property] = specificity;
+        }
+      }
+    }
+    return declarations;
+  }
   const context = {
     console, document, Element, HTMLElement: Element, Node: Element, AbortController,
-    innerWidth: viewportWidth, innerHeight: 900,
+    innerWidth: viewportWidth, innerHeight: viewportHeight,
     queueMicrotask, URL, URLSearchParams,
     MutationObserver: class {
       constructor(callback) { this.callback = callback; this.targets = []; this.records = []; observers.add(this); }
@@ -276,7 +404,13 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
       disconnect() { this.targets = []; this.records = []; }
       takeRecords() { return this.records.splice(0); }
     },
-    getComputedStyle: (node) => ({ display: node.hidden ? "none" : node.style.display || "flex", visibility: node.style.visibility || "visible", opacity: node.style.opacity || "1" }),
+    getComputedStyle: (node) => ({ ...computedDeclarations(node), display: node.hidden ? "none" : node.style.display || computedDeclarations(node).display || "flex",
+      visibility: node.style.visibility || "visible", opacity: node.style.opacity || "1" }),
+    localStorage: {
+      getItem(key) { if (storageBlocked) throw new Error("Storage unavailable"); return storage.get(key) ?? null; },
+      setItem(key, value) { if (storageBlocked) throw new Error("Storage unavailable"); storageWrites.push([key, String(value)]); storage.set(key, String(value)); },
+      removeItem(key) { if (storageBlocked) throw new Error("Storage unavailable"); storage.delete(key); },
+    },
     setTimeout(callback, delay = 0) { const id = nextTimer++; timers.set(id, { callback, due: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
     addEventListener: windowEvents.addEventListener.bind(windowEvents),
@@ -285,7 +419,12 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
       menu: { element: host, settingsGroup: { element: settingsGroup }, actionsGroup: { element: host } },
       ui: { settings: {
         getSettingValue: (id) => settingsValues.get(id),
-        setSettingValue: (id, value) => { settingWrites.push([id, value]); settingsValues.set(id, value); },
+        setSettingValue: (id, value) => {
+          const old = settingsValues.get(id);
+          settingWrites.push([id, value]); settingsValues.set(id, value);
+          extension.settings.find((item) => item.id === id)?.onChange?.(value, old);
+          settingsEvents.dispatchEvent({ type: `${id}.change`, detail: { value } });
+        },
         addEventListener: settingsEvents.addEventListener.bind(settingsEvents),
       } },
       extensionManager: { toast: { add() {} } },
@@ -327,12 +466,15 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
     assert.fail("extension created an unbounded timer loop");
   }
   return {
-    document, host, settingsGroup, context, calls, responders, settingWrites, crystoolsRoot, existingCleanup,
+    document, host, settingsGroup, context, calls, responders, settingWrites, settingsValues, storage, storageWrites,
+    pointerCaptures, crystoolsRoot, existingCleanup,
     addCrystools, addCleanup, advance,
     emitApi(type, detail) { apiEvents.dispatchEvent({ type, detail }); },
-    async resize(width) {
+    async resize(width, height = viewportHeight) {
       viewportWidth = width;
+      viewportHeight = height;
       context.innerWidth = width;
+      context.innerHeight = height;
       windowEvents.dispatchEvent({ type: "resize" });
       await advance(250);
     },
@@ -345,6 +487,22 @@ function makeHarness({ crystools = "absent", cleanup = "absent", settings = {}, 
     root: () => document.getElementById(ROOT),
     meters: () => document.querySelectorAll(`#${ROOT} .deno-resource-meter`),
     button: () => document.querySelector(`#${ROOT} .deno-resource-free`),
+    grip: () => document.querySelector(`#${ROOT} .deno-resource-grip`),
+    rotate: () => document.querySelector(`#${ROOT} .deno-resource-rotate`),
+    cue: () => document.getElementById("deno-resource-monitor-dock-cue"),
+    async pointer(target, type, { x = 0, y = 0, pointerId = 1, ...extra } = {}) {
+      if (type === "pointerdown") activePointers.add(pointerId);
+      const event = { type, clientX: x, clientY: y, pointerId, pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1,
+        isPrimary: true, bubbles: true, ...extra };
+      (pointerCaptures.get(pointerId) || target).dispatchEvent(event);
+      if (type === "pointerup" || type === "pointercancel") {
+        pointerCaptures.get(pointerId)?.releasePointerCapture(pointerId);
+        activePointers.delete(pointerId);
+      }
+      await advance(100);
+      return event;
+    },
+    async windowEvent(type, extra = {}) { windowEvents.dispatchEvent({ type, ...extra }); await advance(250); },
     async boot() { extension.setup(); await advance(500); },
     async setSetting(id, value) {
       const old = settingsValues.get(id);
@@ -377,6 +535,34 @@ function cssDeclarations(css, selector) {
       const separator = declaration.indexOf(":");
       return [declaration.slice(0, separator).trim(), declaration.slice(separator + 1).trim().replace(/\s+/g, " ")];
     }));
+}
+
+function assertWithinViewport(h, message = "floating monitor stays visible") {
+  const rect = h.root().getBoundingClientRect();
+  assert.ok(Number.isFinite(rect.left) && Number.isFinite(rect.top), `${message}: finite coordinates`);
+  assert.ok(rect.left >= 0 && rect.top >= 0, `${message}: top/left`);
+  assert.ok(rect.right <= h.context.innerWidth && rect.bottom <= h.context.innerHeight, `${message}: right/bottom`);
+}
+
+function assertNativePositionUntouched(h, original) {
+  assert.deepEqual([...h.storage].filter(([key]) => key.startsWith("Comfy.MenuPosition.")), original,
+    "monitor placement must preserve native Run toolbar positions");
+  assert.ok(h.storageWrites.every(([key]) => key === POSITION), "dragging writes only the DENO position key");
+  assert.ok(h.settingWrites.every(([key]) => key === PLACEMENT), "dragging writes only DENO placement, not display settings");
+}
+
+async function beginDrag(h, { x = 500, y = 350 } = {}) {
+  const rect = h.root().getBoundingClientRect();
+  await h.pointer(h.grip(), "pointerdown", { x: rect.left + 8, y: rect.top + 15 });
+  await h.pointer(h.document.body, "pointermove", { x, y });
+  assert.ok(h.root().classList.contains("deno-resource-floating"), "handle drag undocks DENO's own root");
+  assert.ok(h.cue(), "drag exposes the owned top dock cue");
+  return { x, y };
+}
+
+async function dragTo(h, coordinates = { x: 500, y: 350 }) {
+  const point = await beginDrag(h, coordinates);
+  await h.pointer(h.document.body, "pointerup", point);
 }
 
 // Existing visible and user-hidden Crystools retain ownership of resource display.
@@ -693,7 +879,7 @@ for (const crystools of ["absent", "present"]) {
   const properties = [
     [`#${ROOT}`, { gap: "5px" }],
     [`#${ROOT} .deno-resource-meter`, { width: "60px", height: "30px" }],
-    [`#${ROOT} .deno-resource-meter:first-child`, { "border-top-left-radius": "4px", "border-bottom-left-radius": "4px" }],
+    [`#${ROOT} .deno-resource-grip + .deno-resource-meter`, { "border-top-left-radius": "4px", "border-bottom-left-radius": "4px" }],
     [`#${ROOT} .deno-resource-meter:not(:has(~ .deno-resource-meter:not(.deno-resource-unavailable)))`, { "border-top-right-radius": "4px", "border-bottom-right-radius": "4px" }],
     [`#${ROOT} .deno-resource-label`, { "font-size": "10px", "font-weight": "100", bottom: "2px", left: "3px" }],
     [`#${ROOT} .deno-resource-value`, { "font-size": "11px", "font-weight": "500", top: "2px", right: "2px" }],
@@ -782,4 +968,296 @@ for (const result of [response({}, 503), response({}), response({ queue_running:
   assert.equal(h.count("/deno/resource-monitor"), 0, "cleanup feedback must not start telemetry in button-only mode");
 }
 
-console.log("resource monitor behavior harness passed (20 coexistence combinations, lifecycle, responsive placement, metrics, queue safety, concurrency)");
+// Only the dedicated grip may undock the monitor, and tiny clicks stay docked.
+{
+  const nativeStorage = new Map([
+    ["Comfy.MenuPosition.Docked", "false"],
+    ["Comfy.MenuPosition.Floating", '{"x":300,"y":600}'],
+  ]);
+  const h = makeHarness({ storage: new Map(nativeStorage) });
+  await h.boot();
+  const root = h.root();
+  const cleanup = h.button();
+  assert.ok(h.grip(), "monitor exposes its own move handle");
+  assert.equal(h.settingsValues.get(PLACEMENT), "Top", "existing users keep top placement by default");
+  assert.ok(!h.rotate() || h.rotate().hidden, "rotation is offered only in manual floating placement");
+  for (const target of [h.meters()[0], cleanup, root]) {
+    await h.pointer(target, "pointerdown", { x: 108, y: 65 });
+    await h.pointer(h.document.body, "pointermove", { x: 500, y: 350 });
+    await h.pointer(h.document.body, "pointerup", { x: 500, y: 350 });
+    assert.equal(root.parentElement, h.host, "dragging readings or cleanup does not move the bar");
+    assert.equal(h.cue(), null);
+  }
+  await h.pointer(h.grip(), "pointerdown", { x: 108, y: 65, button: 2 });
+  await h.pointer(h.document.body, "pointermove", { x: 500, y: 350 });
+  await h.pointer(h.document.body, "pointerup", { x: 500, y: 350 });
+  assert.equal(root.parentElement, h.host, "secondary-button press does not start dragging");
+  await h.pointer(h.grip(), "pointerdown", { x: 108, y: 65 });
+  await h.pointer(h.document.body, "pointermove", { x: 111, y: 65 });
+  assert.equal(root.parentElement, h.host, "movement below the 4px threshold stays docked");
+  await h.pointer(h.document.body, "pointerup", { x: 111, y: 65 });
+  assert.equal(h.cue(), null);
+  assert.deepEqual(h.settingWrites, [], "a handle click does not change the saved placement");
+  assert.deepEqual(h.storageWrites, [], "a handle click does not save a floating position");
+
+  const down = await h.pointer(h.grip(), "pointerdown", { x: 108, y: 65 });
+  assert.equal(down.propagationStopped, true, "handle input cannot reach native toolbar or canvas controls");
+  await h.pointer(h.document.body, "pointermove", { x: 500, y: 350, pointerId: 2 });
+  assert.equal(root.parentElement, h.host, "a different pointer cannot advance the active grip drag");
+  await h.pointer(h.document.body, "pointermove", { x: 113, y: 65 });
+  assert.equal(root.parentElement, h.document.body, "movement beyond the threshold floats the same owned DOM");
+  assert.equal(h.pointerCaptures.size, 1, "active drag captures the pointer after undocking");
+  await h.pointer(h.document.body, "pointermove", { x: 500, y: 350 });
+  await h.pointer(h.document.body, "pointerup", { x: 500, y: 350 });
+  assert.equal(h.root(), root);
+  assert.equal(h.button(), cleanup);
+  assert.equal(h.settingsValues.get(PLACEMENT), "Floating");
+  assert.equal(h.pointerCaptures.size, 0);
+  assert.equal(h.cue(), null);
+  assertWithinViewport(h);
+  const saved = JSON.parse(h.storage.get(POSITION));
+  assert.equal(saved.version, 1);
+  assert.equal(saved.orientation, "horizontal");
+  assert.equal(saved.x, root.getBoundingClientRect().left);
+  assert.equal(saved.y, root.getBoundingClientRect().top);
+  assert.equal(h.count("/free"), 0, "placement actions never request memory cleanup");
+  assertNativePositionUntouched(h, [...nativeStorage]);
+  const polls = h.count("/deno/resource-monitor");
+  await h.advance(3000);
+  assert.equal(h.count("/deno/resource-monitor") - polls, 3, "dragging preserves exactly one hardware polling chain");
+}
+
+// Snapping uses the visible DENO cue's current geometry, not a screen-edge guess.
+{
+  const h = makeHarness();
+  await h.boot();
+  await beginDrag(h);
+  h.cue().rect = { x: 800, y: 32, width: 150, height: 30 };
+  await h.pointer(h.document.body, "pointermove", { x: 200, y: 40 });
+  assert.equal(h.cue().classList.contains("deno-resource-dock-active"), false,
+    "being near the top outside the actual cue is not a dock target");
+  await h.pointer(h.document.body, "pointermove", { x: 825, y: 45 });
+  assert.equal(h.cue().classList.contains("deno-resource-dock-active"), true, "cue highlights inside its actual rectangle");
+  await h.pointer(h.document.body, "pointermove", { x: 975, y: 45 });
+  assert.equal(h.cue().classList.contains("deno-resource-dock-active"), false, "leaving the cue clears its highlight");
+  await h.pointer(h.document.body, "pointermove", { x: 825, y: 45 });
+  await h.pointer(h.document.body, "pointerup", { x: 825, y: 45 });
+  assert.equal(h.settingsValues.get(PLACEMENT), "Top");
+  assert.equal(h.root().parentElement, h.host);
+  assert.equal(h.root().classList.contains("deno-resource-floating"), false);
+  assert.equal(h.root().style.left, "", "top placement clears manual left coordinates");
+  assert.equal(h.cue(), null);
+  assert.equal(h.pointerCaptures.size, 0);
+  assert.equal(h.count("/free"), 0);
+}
+
+// Interrupted drags restore the starting placement and release owned UI/capture.
+for (const cancellation of ["pointercancel", "lostpointercapture", "blur", "Escape"]) {
+  for (const initialPlacement of ["Top", "Floating"]) {
+    const initialPosition = { version: 1, x: 200, y: 220, orientation: "horizontal" };
+    const h = makeHarness({ settings: { [PLACEMENT]: initialPlacement }, storage: new Map([[POSITION, JSON.stringify(initialPosition)]]) });
+    await h.boot();
+    const before = h.root().getBoundingClientRect();
+    const storedBefore = h.storage.get(POSITION);
+    await beginDrag(h);
+    if (cancellation === "pointercancel") await h.pointer(h.document.body, "pointercancel", { x: 500, y: 350 });
+    else if (cancellation === "lostpointercapture") { h.grip().releasePointerCapture(1); await h.advance(100); }
+    else if (cancellation === "blur") await h.windowEvent("blur");
+    else await h.windowEvent("keydown", { key: "Escape" });
+    assert.equal(h.settingsValues.get(PLACEMENT), initialPlacement, `${cancellation} restores ${initialPlacement} placement`);
+    assert.equal(h.cue(), null, `${cancellation} removes the temporary dock cue`);
+    assert.equal(h.pointerCaptures.size, 0, `${cancellation} releases the captured pointer`);
+    assert.equal(h.storage.get(POSITION), storedBefore, `${cancellation} does not persist an interrupted drag`);
+    assert.equal(h.root().getBoundingClientRect().left, before.left);
+    assert.equal(h.root().getBoundingClientRect().top, before.top);
+    await h.pointer(h.document.body, "pointerup", { x: 700, y: 500 });
+    assert.equal(h.settingsValues.get(PLACEMENT), initialPlacement, "late pointerup cannot finish a cancelled drag");
+    assert.equal(h.count("/free"), 0);
+  }
+}
+
+// Turning the controls off during a drag destroys its temporary UI and restores
+// the original manual position when the controls are enabled again.
+{
+  const position = { version: 1, x: 200, y: 220, orientation: "horizontal" };
+  const h = makeHarness({ settings: { [PLACEMENT]: "Floating" }, storage: new Map([[POSITION, JSON.stringify(position)]]) });
+  await h.boot();
+  const before = h.root().getBoundingClientRect();
+  const saved = h.storage.get(POSITION);
+  await beginDrag(h);
+  await h.setSetting(MODE, "Off");
+  await h.setSetting(CLEANUP, "Off");
+  assert.equal(h.root(), null);
+  assert.equal(h.cue(), null, "Off during drag removes the owned drop cue");
+  assert.equal(h.pointerCaptures.size, 0, "Off during drag releases the pointer");
+  await h.pointer(h.document.body, "pointermove", { x: 900, y: 600 });
+  await h.pointer(h.document.body, "pointerup", { x: 900, y: 600 });
+  assert.equal(h.storage.get(POSITION), saved, "late drag events after destruction cannot save a position");
+  await h.setSetting(MODE, "Auto");
+  await h.setSetting(CLEANUP, "Auto");
+  assert.equal(h.root().getBoundingClientRect().left, before.left);
+  assert.equal(h.root().getBoundingClientRect().top, before.top);
+  assert.equal(h.settingsValues.get(PLACEMENT), "Floating");
+}
+
+// Manual floating ignores automatic toolbar relocation while preserving owned
+// DOM, clamps viewport changes, and survives toolbar remounts and Off/On.
+{
+  const h = makeHarness({ settings: { [PLACEMENT]: "Floating" } });
+  await h.boot();
+  const ownedRoot = h.root();
+  assert.equal(ownedRoot.parentElement, h.document.body);
+  assert.ok(ownedRoot.classList.contains("deno-resource-floating"));
+  assertWithinViewport(h, "initial floating placement");
+  await dragTo(h, { x: 1380, y: 850 });
+  assertWithinViewport(h, "drag clamp");
+  for (const [width, height] of [[800, 600], [600, 400], [1440, 900]]) {
+    await h.resize(width, height);
+    assert.equal(h.root(), ownedRoot);
+    assert.equal(ownedRoot.parentElement, h.document.body, "manual floating does not redock on wide windows");
+    assertWithinViewport(h, "resize clamp");
+  }
+  const beforeMutation = ownedRoot.getBoundingClientRect();
+  h.host.style.display = "none";
+  await h.advance(250);
+  assert.equal(ownedRoot.parentElement, h.document.body, "manual floating is independent of native toolbar visibility");
+  h.host.style.display = "flex";
+  await h.advance(250);
+  assert.equal(ownedRoot.getBoundingClientRect().left, beforeMutation.left);
+  assert.equal(ownedRoot.getBoundingClientRect().top, beforeMutation.top);
+  ownedRoot.remove();
+  await h.advance(250);
+  assert.equal(h.root(), ownedRoot, "external removal remounts the same manually positioned monitor");
+  const replacement = h.document.createElement("div");
+  const replacementSettings = h.document.createElement("div");
+  replacement.append(replacementSettings);
+  h.context.app.menu.element = replacement;
+  h.context.app.menu.settingsGroup.element = replacementSettings;
+  h.context.app.menu.actionsGroup.element = replacement;
+  h.host.remove();
+  h.document.body.append(replacement);
+  await h.advance(250);
+  assert.equal(h.root(), ownedRoot);
+  assert.equal(ownedRoot.parentElement, h.document.body);
+  assertWithinViewport(h, "native toolbar remount");
+  const position = h.root().getBoundingClientRect();
+  await h.setSetting(MODE, "Off");
+  await h.setSetting(CLEANUP, "Off");
+  assert.equal(h.root(), null);
+  const polls = h.count("/deno/resource-monitor");
+  await h.advance(2500);
+  assert.equal(h.count("/deno/resource-monitor"), polls, "Off cancels floating polling");
+  await h.setSetting(MODE, "Auto");
+  await h.setSetting(CLEANUP, "Auto");
+  assert.equal(h.root().parentElement, h.document.body);
+  assert.equal(h.root().getBoundingClientRect().left, position.left);
+  assert.equal(h.root().getBoundingClientRect().top, position.top);
+  assert.equal(h.count("/free"), 0);
+}
+
+// New readings can increase the root's width without a viewport resize. The
+// monitor re-clamps after unavailable GPU fields become available again.
+{
+  const h = makeHarness({ settings: { [PLACEMENT]: "Floating" }, metrics: { ...sample, gpus: [] } });
+  await h.boot();
+  await dragTo(h, { x: 1400, y: 500 });
+  const narrowWidth = h.root().getBoundingClientRect().width;
+  h.responders.set("/deno/resource-monitor", async () => response(sample));
+  await h.advance(1100);
+  assert.ok(h.root().getBoundingClientRect().width > narrowWidth, "fixture reflects newly visible GPU meters");
+  assertWithinViewport(h, "telemetry width change");
+  h.responders.set("/deno/resource-monitor", async () => response({ ...sample, gpus: [] }));
+  await h.advance(1100);
+  assert.equal(h.root().getBoundingClientRect().width, narrowWidth);
+  assertWithinViewport(h, "telemetry fields hide again");
+}
+
+// Rotation is a column layout, keeping the reading text upright. Docking is
+// horizontal, while returning to floating restores the saved orientation.
+{
+  const h = makeHarness();
+  await h.boot();
+  const values = h.meters().map((meter) => meter.querySelector(".deno-resource-value").textContent);
+  await h.setSetting(PLACEMENT, "Floating");
+  assert.ok(h.rotate() && !h.rotate().hidden);
+  const horizontal = h.root().getBoundingClientRect();
+  h.rotate().click();
+  await h.advance(250);
+  const vertical = h.root().getBoundingClientRect();
+  assert.ok(vertical.width < horizontal.width && vertical.height > horizontal.height,
+    "rotation changes the container from a horizontal row to a vertical column");
+  assert.deepEqual(h.meters().map((meter) => meter.querySelector(".deno-resource-value").textContent), values);
+  for (const meter of h.meters()) {
+    assert.ok(!h.context.getComputedStyle(meter).transform || h.context.getComputedStyle(meter).transform === "none",
+      "readings stay upright instead of rotating their contents");
+  }
+  assert.equal(JSON.parse(h.storage.get(POSITION)).orientation, "vertical");
+  assertWithinViewport(h, "rotation clamp");
+  await h.resize(600, 300);
+  assertWithinViewport(h, "vertical resize clamp");
+  await h.setSetting(PLACEMENT, "Top");
+  assert.equal(h.root().classList.contains("deno-resource-vertical"), false);
+  assert.ok(!h.rotate() || h.rotate().hidden);
+  await h.setSetting(PLACEMENT, "Floating");
+  assert.equal(h.root().classList.contains("deno-resource-vertical"), true, "floating restores its previously selected direction");
+  const restored = makeHarness({ storage: h.storage, settings: Object.fromEntries(h.settingsValues) });
+  await restored.boot();
+  assert.equal(restored.root().classList.contains("deno-resource-vertical"), true, "reload restores column orientation");
+  assert.equal(restored.root().getBoundingClientRect().left, h.root().getBoundingClientRect().left);
+  assert.equal(restored.root().getBoundingClientRect().top, h.root().getBoundingClientRect().top);
+  restored.rotate().click();
+  await restored.advance(250);
+  assert.equal(restored.root().classList.contains("deno-resource-vertical"), false);
+  assert.equal(JSON.parse(restored.storage.get(POSITION)).orientation, "horizontal");
+  assert.equal(restored.count("/free"), 0);
+}
+
+// Broken or blocked browser storage cannot leave the monitor offscreen or make
+// drag/rotation unusable. Invalid records never become literal NaN/Infinity CSS.
+for (const stored of ["not-json", "null", "[]", '{"version":1,"x":null,"y":200}',
+  '{"version":1,"x":"NaN","y":200}', '{"version":1,"x":1e309,"y":200}',
+  '{"version":2,"x":400,"y":200,"orientation":"vertical"}',
+  '{"version":1,"x":400,"y":200,"orientation":"diagonal"}',
+  '{"version":1,"x":99999,"y":99999,"orientation":"horizontal"}']) {
+  const h = makeHarness({ settings: { [PLACEMENT]: "Floating" }, storage: new Map([[POSITION, stored]]) });
+  await h.boot();
+  assertWithinViewport(h, "malformed storage recovery");
+  await dragTo(h);
+  const valid = JSON.parse(h.storage.get(POSITION));
+  assert.equal(valid.version, 1);
+  assert.ok(Number.isFinite(valid.x) && Number.isFinite(valid.y));
+  assert.ok(["horizontal", "vertical"].includes(valid.orientation));
+}
+{
+  const h = makeHarness({ settings: { [PLACEMENT]: "Floating" }, storageBlocked: true });
+  await h.boot();
+  await dragTo(h);
+  h.rotate().click();
+  await h.advance(250);
+  assertWithinViewport(h, "blocked storage still permits dragging and rotation");
+  assert.equal(h.cue(), null);
+  assert.equal(h.pointerCaptures.size, 0);
+}
+
+// A floating cleanup-only fallback retains Crystools and its telemetry-free
+// lifecycle through placement, rotation, cleanup and visibility transitions.
+{
+  const h = makeHarness({ crystools: "present", settings: { [PLACEMENT]: "Floating" } });
+  const originalCrystools = serialize(h.crystoolsRoot);
+  await h.boot();
+  await dragTo(h);
+  h.rotate().click();
+  await h.advance(250);
+  await h.visibility("hidden");
+  await h.visibility("visible");
+  assert.equal(h.count("/deno/resource-monitor"), 0);
+  assert.equal(serialize(h.crystoolsRoot), originalCrystools);
+  assert.equal(h.count("/free"), 0, "placement and rotation do not activate cleanup");
+  h.button().click();
+  await h.advance(1000);
+  assert.equal(h.count("/free"), 1, "the original cleanup action remains usable while floating");
+  assert.deepEqual(JSON.parse(h.calls.find((call) => call.url === "/free").options.body), { unload_models: true, free_memory: true });
+  assert.equal(h.count("/deno/resource-monitor"), 0);
+}
+
+console.log("resource monitor behavior harness passed (20 coexistence combinations, lifecycle, responsive placement, metrics, queue safety, concurrency, floating drag/dock, rotation, persistence)");

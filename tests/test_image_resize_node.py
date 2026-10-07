@@ -499,6 +499,7 @@ def test_node_registration_exports_expected_nodes():
         "DenoRTXVFXEasyUpscale",
         "DenoRTXVFXVideoFinisher",
         "DenoImageCompare",
+        "DenoFilmGrain",
         "DenoVideoCompare",
         "DenoVideoPreview",
     ]
@@ -587,6 +588,7 @@ def test_node_registration_exports_expected_nodes():
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXEasyUpscale"] == "(Deno) RTX Video Super Resolution"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoRTXVFXVideoFinisher"] == "(Deno) RTX Video Super Resolution (2 Pass)"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoImageCompare"] == "(Deno) Image Compare"
+    assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoFilmGrain"] == "(Deno) Film Grain"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoCompare"] == "(Deno) Video Compare"
     assert package.NODE_DISPLAY_NAME_MAPPINGS["DenoVideoPreview"] == "(Deno) Video Preview"
     assert package.WEB_DIRECTORY == "./web/js"

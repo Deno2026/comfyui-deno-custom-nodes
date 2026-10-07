@@ -4,6 +4,7 @@ import { api } from "../../scripts/api.js";
 const EXTENSION_NAME = "Deno.ResourceMonitor";
 const SETTING_MODE = "DENO.ResourceMonitor.Mode";
 const SETTING_CLEANUP_MODE = "DENO.ResourceMonitor.CleanupMode";
+const SETTING_PLACEMENT = "DENO.ResourceMonitor.Placement";
 const MANUAL_UNLOAD_SETTING = "Comfy.Memory.AllowManualUnload";
 const ROOT_ID = "deno-resource-monitor-root";
 const STYLE_ID = "deno-resource-monitor-style";
@@ -17,6 +18,12 @@ const CLEANUP_SHOW = "Show";
 const CLEANUP_COMMAND = "Comfy.Memory.UnloadModelsAndExecutionCache";
 const DETACHED_CLASS = "deno-resource-detached";
 const DETACHED_VIEWPORT_WIDTH = 1100;
+const PLACEMENT_TOP = "Top";
+const PLACEMENT_FLOATING = "Floating";
+const FLOATING_CLASS = "deno-resource-floating";
+const VERTICAL_CLASS = "deno-resource-vertical";
+const DOCK_CUE_ID = "deno-resource-monitor-dock-cue";
+const POSITION_STORAGE_KEY = "DENO.ResourceMonitor.FloatingPosition.v1";
 
 let rootEl = null;
 let freeButtonEl = null;
@@ -43,6 +50,13 @@ let menuObserver = null;
 let mountObserver = null;
 let observedScope = null;
 let observedAncestors = [];
+let gripEl = null;
+let rotateButtonEl = null;
+let dockCueEl = null;
+let placementMode = PLACEMENT_TOP;
+let floatingPosition = null;
+let floatingOrientation = "horizontal";
+let dragSession = null;
 
 function getSettingValue(id, fallback) {
     try {
@@ -65,6 +79,36 @@ function normalizedCleanupMode(value = getSettingValue(SETTING_CLEANUP_MODE, MOD
     if (text === CLEANUP_SHOW.toLowerCase()) return CLEANUP_SHOW;
     if (text === MODE_OFF.toLowerCase()) return MODE_OFF;
     return MODE_AUTO;
+}
+
+function normalizedPlacement(value = getSettingValue(SETTING_PLACEMENT, PLACEMENT_TOP)) {
+    return value === PLACEMENT_FLOATING ? PLACEMENT_FLOATING : PLACEMENT_TOP;
+}
+
+function localized(ko, en) {
+    return String(getSettingValue("Comfy.Locale", "en")).toLowerCase().startsWith("ko") ? ko : en;
+}
+
+function readFloatingPosition() {
+    try {
+        const saved = JSON.parse(window.localStorage?.getItem(POSITION_STORAGE_KEY) || "null");
+        if (saved?.version !== 1 || !Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return;
+        floatingPosition = { x: saved.x, y: saved.y };
+        floatingOrientation = saved.orientation === "vertical" ? "vertical" : "horizontal";
+    } catch (_error) {
+        // Private browsing and malformed saved coordinates must not hide the bar.
+    }
+}
+
+function saveFloatingPosition() {
+    if (!floatingPosition) return;
+    try {
+        window.localStorage?.setItem(POSITION_STORAGE_KEY, JSON.stringify({
+            version: 1, ...floatingPosition, orientation: floatingOrientation,
+        }));
+    } catch (_error) {
+        // Movement remains available when browser storage is disabled.
+    }
 }
 
 function installStyles() {
@@ -115,7 +159,7 @@ function installStyles() {
             background: var(--comfy-input-bg, #202024);
             cursor: crosshair;
         }
-        #${ROOT_ID} .deno-resource-meter:first-child {
+        #${ROOT_ID} .deno-resource-grip + .deno-resource-meter {
             border-top-left-radius: 4px;
             border-bottom-left-radius: 4px;
         }
@@ -184,6 +228,186 @@ function installStyles() {
             font-size: 18px;
             line-height: 1;
         }
+        #${ROOT_ID} .deno-resource-grip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 18px;
+            width: 18px;
+            height: 30px;
+            padding: 0;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--input-text, #ddd);
+            opacity: 0.7;
+            cursor: grab;
+            touch-action: none;
+        }
+        #${ROOT_ID} .deno-resource-grip span {
+            width: 10px;
+            height: 15px;
+            background: radial-gradient(circle, currentColor 1px, transparent 1.3px) 0 0 / 5px 5px;
+            pointer-events: none;
+        }
+        #${ROOT_ID} .deno-resource-grip:hover,
+        #${ROOT_ID} .deno-resource-grip:focus-visible {
+            opacity: 1;
+            background: var(--comfy-input-bg, #202024);
+        }
+        #${ROOT_ID} .deno-resource-grip:focus-visible {
+            outline: 2px solid var(--p-primary-color, #0c86f4);
+            outline-offset: 1px;
+        }
+        #${ROOT_ID}.deno-resource-dragging,
+        #${ROOT_ID}.deno-resource-dragging .deno-resource-grip { cursor: grabbing; }
+        #${ROOT_ID}.${FLOATING_CLASS} {
+            z-index: 1300;
+            max-width: calc(100vw - 16px);
+            max-height: calc(100vh - 16px);
+            overflow: auto;
+            user-select: none;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            align-items: stretch;
+            width: 44px;
+            padding: 4px;
+            gap: 3px;
+            border-radius: 4px;
+            box-shadow: none;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-grip {
+            grid-column: 1 / -1;
+            width: 100%;
+            height: 14px;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-grip span {
+            width: 15px;
+            height: 10px;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-meter {
+            grid-column: 1 / -1;
+            width: 100%;
+            height: 30px;
+            border-radius: 0;
+            background: transparent;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-meter::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 2px;
+            border-radius: 2px;
+            background: rgba(163, 166, 173, 0.18);
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-fill {
+            inset: auto auto 0 0;
+            height: 2px;
+            border-radius: 2px;
+            box-shadow: none;
+            z-index: 1;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-label {
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: auto;
+            font-size: 8px;
+            font-weight: 500;
+            line-height: 10px;
+            letter-spacing: 0.04em;
+            text-align: center;
+            text-transform: uppercase;
+            opacity: 0.74;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-value {
+            top: 11px;
+            left: 0;
+            right: 0;
+            width: 100%;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 14px;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+            display: flex;
+            justify-content: center;
+            align-items: baseline;
+            gap: 1px;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-number {
+            font: inherit;
+            line-height: 14px;
+            font-variant-numeric: inherit;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-unit {
+            font-size: 8px;
+            font-weight: 400;
+            line-height: 12px;
+            opacity: 0.70;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-unit:empty { display: none; }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-free,
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-rotate {
+            grid-column: 1 / -1;
+            justify-self: center;
+            width: 28px;
+            height: 26px;
+            margin-top: 0;
+            border-color: transparent;
+            background: transparent;
+        }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-free .mdi,
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-rotate .mdi { font-size: 16px; }
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-free:hover:not(:disabled),
+        #${ROOT_ID}.${VERTICAL_CLASS} .deno-resource-rotate:hover {
+            background: var(--comfy-input-bg, #202024);
+        }
+        #${ROOT_ID} .deno-resource-rotate {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 30px;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            border: 1px solid rgba(232, 230, 225, 0.24);
+            border-radius: 4px;
+            background: var(--comfy-input-bg, #202024);
+            color: var(--input-text, #ddd);
+            cursor: pointer;
+        }
+        #${ROOT_ID} .deno-resource-rotate .mdi { font-size: 18px; }
+        #${ROOT_ID} .deno-resource-rotate[hidden] { display: none; }
+        #${ROOT_ID} .deno-resource-rotate:hover,
+        #${ROOT_ID} .deno-resource-rotate:focus-visible {
+            border-color: var(--p-primary-color, #0c86f4);
+            outline: none;
+        }
+        #${DOCK_CUE_ID} {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            min-height: 30px;
+            box-sizing: border-box;
+            border: 2px dashed var(--p-primary-color, #0c86f4);
+            border-radius: 6px;
+            color: var(--input-text, #ddd);
+            font-family: inherit;
+            font-size: 12px;
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 1299;
+        }
+        #${DOCK_CUE_ID}.deno-resource-dock-active {
+            background: color-mix(in srgb, var(--p-primary-color, #0c86f4) 22%, var(--comfy-menu-bg, #202024));
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--p-primary-color, #0c86f4) 35%, transparent);
+        }
         #${ROOT_ID} .deno-resource-free.deno-resource-cleaning .mdi {
             animation: deno-resource-cleaning 750ms linear infinite;
         }
@@ -219,9 +443,12 @@ function createMeter(key, label, color) {
 
     const fill = makeElement("div", "deno-resource-fill");
     const labelEl = makeElement("span", "deno-resource-label", label);
-    const valueEl = makeElement("span", "deno-resource-value", "--");
+    const valueEl = makeElement("span", "deno-resource-value");
+    const numberEl = makeElement("span", "deno-resource-number", "--");
+    const unitEl = makeElement("span", "deno-resource-unit");
+    valueEl.append(numberEl, unitEl);
     meter.append(fill, labelEl, valueEl);
-    meterElements.set(key, { meter, fill, valueEl });
+    meterElements.set(key, { meter, fill, valueEl, numberEl, unitEl });
     return meter;
 }
 
@@ -238,6 +465,23 @@ function createRoot() {
     rootEl = makeElement("div");
     rootEl.id = ROOT_ID;
     rootEl.setAttribute("aria-label", "DENO resource monitor");
+    gripEl = makeElement("button", "deno-resource-grip");
+    gripEl.type = "button";
+    const dots = makeElement("span");
+    dots.setAttribute("aria-hidden", "true");
+    gripEl.appendChild(dots);
+    gripEl.addEventListener("pointerdown", beginDrag);
+    gripEl.addEventListener("keydown", handleGripKey);
+    gripEl.addEventListener("lostpointercapture", cancelDrag);
+    rootEl.appendChild(gripEl);
+    rotateButtonEl = makeElement("button", "deno-resource-rotate");
+    rotateButtonEl.type = "button";
+    const rotateIcon = makeElement("i", "mdi mdi-rotate-right");
+    rotateIcon.setAttribute("aria-hidden", "true");
+    rotateButtonEl.appendChild(rotateIcon);
+    rotateButtonEl.addEventListener("click", rotateFloatingLayout);
+    rootEl.appendChild(rotateButtonEl);
+    updatePlacementControls();
     return rootEl;
 }
 
@@ -251,7 +495,7 @@ function addMeters() {
         createMeter("vram", "VRAM", "#176EC7"),
         createMeter("temperature", "Temp", "#00ff00"),
     );
-    rootEl.insertBefore(fragment, freeButtonEl);
+    rootEl.insertBefore(fragment, freeButtonEl || rotateButtonEl);
     // GPU fields stay absent until the backend supplies actual readings.
     updateSnapshot(null);
 }
@@ -263,7 +507,7 @@ function addCleanupButton() {
     freeButtonEl.setAttribute("aria-label", "Unload models and clear execution cache");
     freeButtonEl.appendChild(cleanupIcon());
     freeButtonEl.addEventListener("click", freeModelsAndCache);
-    rootEl.appendChild(freeButtonEl);
+    rootEl.insertBefore(freeButtonEl, rotateButtonEl);
     updateFreeButton();
 }
 
@@ -286,8 +530,229 @@ function menuScope() {
     return mount.parent.closest('.actionbar-container, .comfyui-body-top, [data-testid="topbar"], [role="toolbar"]') || mount.parent;
 }
 
+function updatePlacementControls() {
+    const floating = placementMode === PLACEMENT_FLOATING || Boolean(dragSession?.started);
+    rootEl?.classList.toggle(FLOATING_CLASS, floating);
+    rootEl?.classList.toggle(VERTICAL_CLASS, floating && floatingOrientation === "vertical");
+    if (gripEl) {
+        gripEl.setAttribute("aria-label", localized("리소스 모니터 이동", "Move resource monitor"));
+        gripEl.setAttribute("aria-pressed", String(floating));
+        gripEl.title = floating
+            ? localized("끌어서 이동 · Enter로 상단에 고정", "Drag to move · Enter to dock to top")
+            : localized("끌어서 이동 · Enter로 분리", "Drag to move · Enter to float");
+    }
+    if (rotateButtonEl) {
+        rotateButtonEl.hidden = !floating;
+        rotateButtonEl.title = localized("가로·세로 전환", "Rotate layout 90°");
+        rotateButtonEl.setAttribute("aria-label", rotateButtonEl.title);
+        rotateButtonEl.setAttribute("aria-pressed", String(floatingOrientation === "vertical"));
+    }
+}
+
+function applyFloatingPosition() {
+    if (!rootEl) return;
+    rootEl.classList.add(DETACHED_CLASS);
+    updatePlacementControls();
+    if (rootEl.parentElement !== document.body) document.body.appendChild(rootEl);
+    rootEl.style.removeProperty("right");
+    if (!floatingPosition) floatingPosition = { x: Math.max(8, window.innerWidth - 400), y: 100 };
+    rootEl.style.left = `${floatingPosition.x}px`;
+    rootEl.style.top = `${floatingPosition.y}px`;
+    const rect = rootEl.getBoundingClientRect();
+    floatingPosition = {
+        x: Math.min(Math.max(8, window.innerWidth - rect.width - 8), Math.max(8, floatingPosition.x)),
+        y: Math.min(Math.max(8, window.innerHeight - rect.height - 8), Math.max(8, floatingPosition.y)),
+    };
+    rootEl.style.left = `${floatingPosition.x}px`;
+    rootEl.style.top = `${floatingPosition.y}px`;
+}
+
+function setPlacement(value, position = null) {
+    placementMode = normalizedPlacement(value);
+    if (position) floatingPosition = { ...position };
+    updatePlacementControls();
+    attachRoot();
+    if (placementMode === PLACEMENT_FLOATING) saveFloatingPosition();
+    try {
+        const settings = app?.ui?.settings;
+        if (getSettingValue(SETTING_PLACEMENT, PLACEMENT_TOP) !== placementMode) {
+            // Set our state first: ComfyUI may synchronously call onChange.
+            const result = settings?.setSettingValue?.(SETTING_PLACEMENT, placementMode);
+            result?.catch?.(() => {});
+        }
+    } catch (_error) {
+        // Older frontends without a writable settings API still support movement.
+    }
+}
+
+function updateDockCue() {
+    if (!dragSession?.started || !rootEl) return;
+    const mount = menuMountPoint();
+    const scope = menuScope();
+    if (!mount || !scope || !visiblyRendered(scope)) {
+        dockCueEl?.remove();
+        dragSession.dock = false;
+        return;
+    }
+    if (!dockCueEl) {
+        dockCueEl = makeElement("div");
+        dockCueEl.id = DOCK_CUE_ID;
+        dockCueEl.setAttribute("aria-hidden", "true");
+    }
+    dockCueEl.textContent = localized("상단에 고정", "Dock to top");
+    const meterCount = [...meterElements.values()]
+        .filter(({ meter }) => !meter.classList.contains("deno-resource-unavailable")).length;
+    const controlCount = 1 + meterCount + (freeButtonEl ? 1 : 0);
+    const width = Math.max(90, 18 + meterCount * 60 + (freeButtonEl ? 30 : 0) + (controlCount - 1) * 5);
+    dockCueEl.style.width = `${Math.min(width, Math.max(90, window.innerWidth - 24))}px`;
+    dockCueEl.style.removeProperty("position");
+    dockCueEl.style.removeProperty("top");
+    dockCueEl.style.removeProperty("right");
+    if (dockCueEl.parentElement !== mount.parent) mount.parent.insertBefore(dockCueEl, mount.before);
+    const cluster = scope.closest(".flex.items-start.gap-2") || scope;
+    const clusterRect = cluster.getBoundingClientRect();
+    const breadcrumb = document.querySelector(".subgraph-breadcrumb");
+    const leftBoundary = Math.max(72, ...Array.from(breadcrumb?.children || [])
+        .filter(visiblyRendered).map((element) => element.getBoundingClientRect().right + 12));
+    if (window.innerWidth < DETACHED_VIEWPORT_WIDTH || clusterRect.right > window.innerWidth - 4
+        || clusterRect.left < leftBoundary) {
+        document.body.appendChild(dockCueEl);
+        const rect = scope.getBoundingClientRect();
+        dockCueEl.style.position = "fixed";
+        dockCueEl.style.top = `${Math.max(12, rect.bottom + 12)}px`;
+        dockCueEl.style.right = `${Math.max(12, window.innerWidth - Math.min(rect.right, window.innerWidth - 12))}px`;
+    }
+    updateDockHighlight(dragSession.lastX, dragSession.lastY);
+}
+
+function updateDockHighlight(x, y) {
+    if (!dragSession) return;
+    const rect = dockCueEl?.isConnected ? dockCueEl.getBoundingClientRect() : null;
+    dragSession.dock = Boolean(rect && rect.width > 0 && x >= rect.left - 20 && x <= rect.right + 20
+        && y >= rect.top - 20 && y <= rect.bottom + 20);
+    dockCueEl?.classList.toggle("deno-resource-dock-active", dragSession.dock);
+}
+
+function beginDrag(event) {
+    if (event.button !== 0 || event.isPrimary === false || dragSession || !rootEl) return;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    const rect = rootEl.getBoundingClientRect();
+    dragSession = {
+        pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+        lastX: event.clientX, lastY: event.clientY, x: rect.left, y: rect.top,
+        placement: placementMode, position: floatingPosition ? { ...floatingPosition } : null,
+        started: false, dock: false,
+    };
+    window.addEventListener("pointermove", moveDrag, true);
+    window.addEventListener("pointerup", finishDrag, true);
+    window.addEventListener("pointercancel", cancelDrag, true);
+    window.addEventListener("blur", cancelDrag);
+    window.addEventListener("keydown", cancelDragKey, true);
+}
+
+function moveDrag(event) {
+    const session = dragSession;
+    if (!session || event.pointerId !== session.pointerId) return;
+    session.lastX = event.clientX;
+    session.lastY = event.clientY;
+    if (!session.started && Math.hypot(event.clientX - session.startX, event.clientY - session.startY) < 4) return;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    if (!session.started) {
+        session.started = true;
+        floatingPosition = { x: session.x, y: session.y };
+        // Reparent before capture: moving a captured node can lose its capture.
+        applyFloatingPosition();
+        rootEl.classList.add("deno-resource-dragging");
+        try { gripEl?.setPointerCapture?.(session.pointerId); } catch (_error) { /* Window listeners remain active. */ }
+        updateDockCue();
+    }
+    floatingPosition = { x: session.x + event.clientX - session.startX, y: session.y + event.clientY - session.startY };
+    applyFloatingPosition();
+    updateDockHighlight(event.clientX, event.clientY);
+}
+
+function clearDrag() {
+    const session = dragSession;
+    dragSession = null;
+    window.removeEventListener("pointermove", moveDrag, true);
+    window.removeEventListener("pointerup", finishDrag, true);
+    window.removeEventListener("pointercancel", cancelDrag, true);
+    window.removeEventListener("blur", cancelDrag);
+    window.removeEventListener("keydown", cancelDragKey, true);
+    rootEl?.classList.remove("deno-resource-dragging");
+    dockCueEl?.remove();
+    dockCueEl = null;
+    // Clear the session first so the resulting lostpointercapture cannot cancel a completed move.
+    try { if (session) gripEl?.releasePointerCapture?.(session.pointerId); } catch (_error) { /* Capture may already be lost. */ }
+    return session;
+}
+
+function finishDrag(event) {
+    if (!dragSession || event.pointerId !== dragSession.pointerId) return;
+    if (dragSession.started) moveDrag(event);
+    const session = clearDrag();
+    if (!session?.started) return;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    setPlacement(session.dock ? PLACEMENT_TOP : PLACEMENT_FLOATING);
+}
+
+function cancelDrag(event) {
+    if (!dragSession || (event?.pointerId !== undefined && event.pointerId !== dragSession.pointerId)) return;
+    const session = clearDrag();
+    floatingPosition = session.position;
+    placementMode = session.placement;
+    updatePlacementControls();
+    attachRoot();
+}
+
+function cancelDragKey(event) {
+    if (event.key !== "Escape") return;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    cancelDrag();
+}
+
+function handleGripKey(event) {
+    if (dragSession || !rootEl) return;
+    if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        const rect = rootEl.getBoundingClientRect();
+        setPlacement(placementMode === PLACEMENT_FLOATING ? PLACEMENT_TOP : PLACEMENT_FLOATING,
+            placementMode === PLACEMENT_FLOATING ? null : { x: rect.left, y: rect.top });
+        gripEl?.focus?.({ preventScroll: true });
+        return;
+    }
+    if (placementMode !== PLACEMENT_FLOATING || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    const step = event.shiftKey ? 30 : 10;
+    floatingPosition.x += event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+    floatingPosition.y += event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+    applyFloatingPosition();
+    saveFloatingPosition();
+}
+
+function rotateFloatingLayout() {
+    if (placementMode !== PLACEMENT_FLOATING || dragSession) return;
+    floatingOrientation = floatingOrientation === "vertical" ? "horizontal" : "vertical";
+    applyFloatingPosition();
+    saveFloatingPosition();
+}
+
 function attachRoot() {
     if (!rootEl) return false;
+    // User placement takes priority over responsive mounting and menu observers.
+    if (placementMode === PLACEMENT_FLOATING || dragSession?.started) {
+        applyFloatingPosition();
+        if (dragSession?.started) updateDockCue();
+        return true;
+    }
+    updatePlacementControls();
+    rootEl.style.removeProperty("left");
     const mount = menuMountPoint();
     if (!mount) return false;
     const scope = menuScope();
@@ -383,9 +848,10 @@ function setMeter(key, value, title, options = {}) {
     if (key === "temperature") {
         refs.fill.style.backgroundColor = `color-mix(in srgb, #ff0000 ${available ? percent : 0}%, #00ff00)`;
     }
-    refs.valueEl.textContent = available
-        ? `${Math.floor(displayValue)}${options.symbol || "%"}`
-        : "--";
+    const numberText = available ? String(Math.floor(displayValue)) : "--";
+    const unitText = available ? options.symbol || "%" : "";
+    if (refs.numberEl.textContent !== numberText) refs.numberEl.textContent = numberText;
+    if (refs.unitEl.textContent !== unitText) refs.unitEl.textContent = unitText;
     refs.meter.title = title || "Metric unavailable";
     if (available) {
         refs.meter.setAttribute("aria-valuenow", String(Math.floor(percent)));
@@ -635,7 +1101,8 @@ async function refreshCrystoolsDetection() {
 }
 
 function isDenoNode(node) {
-    return node?.nodeType === 1 && (node.id === ROOT_ID || Boolean(node.closest?.(`#${ROOT_ID}`)));
+    return node?.nodeType === 1 && (node.id === ROOT_ID || node.id === DOCK_CUE_ID
+        || Boolean(node.closest?.(`#${ROOT_ID}, #${DOCK_CUE_ID}`)));
 }
 
 function visiblyRendered(element) {
@@ -729,9 +1196,16 @@ function observeMenu() {
 
 function destroyMonitor() {
     stopPolling();
+    const session = clearDrag();
+    if (session) {
+        floatingPosition = session.position;
+        placementMode = session.placement;
+    }
     rootEl?.remove();
     rootEl = null;
     freeButtonEl = null;
+    gripEl = null;
+    rotateButtonEl = null;
     meterElements = new Map();
 }
 
@@ -775,7 +1249,7 @@ function reconcileMonitor() {
         if (showCleanup && !previouslyHadCleanup) void readQueueBusy();
         startPolling();
     }
-    if (!menuMountPoint() || (rootEl && !rootEl.isConnected)) scheduleAttach();
+    if ((placementMode !== PLACEMENT_FLOATING && !menuMountPoint()) || (rootEl && !rootEl.isConnected)) scheduleAttach();
     else stopAttachRetries();
 }
 
@@ -811,11 +1285,29 @@ app.registerExtension({
                 reconcileMonitor();
             },
         },
+        {
+            id: SETTING_PLACEMENT,
+            name: "DENO resource monitor placement",
+            category: ["DENO", "Tools", "Resource Monitor"],
+            tooltip: "Top follows the responsive toolbar layout. Floating lets you drag the monitor freely; drag it to the highlighted top dock to attach it again.",
+            type: "combo",
+            options: [PLACEMENT_TOP, PLACEMENT_FLOATING],
+            defaultValue: PLACEMENT_TOP,
+            onChange(value) {
+                const next = normalizedPlacement(value);
+                if (next === placementMode) return;
+                cancelDrag();
+                const rect = rootEl?.getBoundingClientRect();
+                setPlacement(next, next === PLACEMENT_FLOATING && rect ? { x: rect.left, y: rect.top } : null);
+            },
+        },
     ],
     setup() {
         setupComplete = true;
         meterMode = normalizedMode();
         cleanupMode = normalizedCleanupMode();
+        placementMode = normalizedPlacement();
+        readFloatingPosition();
         installRuntimeListeners();
         reconcileMonitor();
         void refreshCrystoolsDetection();

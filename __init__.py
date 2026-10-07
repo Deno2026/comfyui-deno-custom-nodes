@@ -518,6 +518,7 @@ _OPTIONAL_NODES = (
     ("deno_rtx_vfx_easy_upscale", "DenoRTXVFXEasyUpscale", "(Deno) RTX Video Super Resolution"),
     ("deno_rtx_vfx_video_finisher", "DenoRTXVFXVideoFinisher", "(Deno) RTX Video Super Resolution (2 Pass)"),
     ("deno_image_compare", "DenoImageCompare", "(Deno) Image Compare"),
+    ("deno_film_grain", "DenoFilmGrain", "(Deno) Film Grain"),
     ("deno_video_compare", "DenoVideoCompare", "(Deno) Video Compare"),
     ("deno_video_preview", "DenoVideoPreview", "(Deno) Video Preview"),
 )

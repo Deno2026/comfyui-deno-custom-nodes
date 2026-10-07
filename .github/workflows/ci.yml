@@ -20,6 +20,7 @@ jobs:
         run: |
           node --check web/js/deno_extra_nodes.js
           node --check web/js/deno_resource_monitor.js
+          node --check web/js/deno_film_grain.js
 
       - name: Run LTX Sequencer frontend harness
         run: node tests/js/ltx_sequencer_input_slots_harness.mjs

@@ -30,6 +30,7 @@ This first example needs no generation model. Individual model and RTX nodes hav
 ### Choose your next step
 
 - **Prepare and compare:** start with [Resize Box](#deno-resize-box), [Multi Image Loader](#deno-multi-image-loader), or [Video Compare](#deno-video-compare).
+- **Finish photos or video:** add [Film Grain](#deno-film-grain) after the final resize, before saving.
 - **Generate with a model:** see [Ideogram Director](#deno-ideogram-director), [MiniMax H3](#deno-minimax-h3-multi-reference-image-loader), or [LTX Model Loader](#deno-ltx-model-loader).
 - **Organize or work in a browser:** try [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools), or the no-install [Web Tools](#web-tools).
 
@@ -87,7 +88,11 @@ Auto leaves other extensions' settings, elements, and event handlers alone. It a
 
 GPU readings currently use NVIDIA NVML; unsupported or unavailable GPU fields are hidden, while CPU/RAM and cleanup remain usable. On multi-GPU systems the bar shows NVIDIA GPU index 0 (or the first available GPU), not necessarily the GPU selected for generation. The monitor samples only while its browser tab is visible and does not run a permanent broadcast thread. Button-only mode makes no DENO telemetry requests. Resource-monitor behavior and NVIDIA metric selection are adapted from MIT-licensed ComfyUI-Crystools; see [Third-Party Notices](THIRD_PARTY_NOTICES.md).
 
-When the window is narrow or the top bar is crowded, only the DENO controls move to a compact row beneath it; existing controls stay in place. Widening the window returns DENO to the top bar when there is room.
+Drag the six-dot handle to move the DENO bar anywhere in the window. While dragging, a **Dock to top** target appears at its top-bar position; drop there to snap it back. The floating bar's rotation button switches between horizontal and vertical layouts while keeping labels upright. Position and orientation are remembered in this browser. Under `Settings > DENO > Tools > Resource Monitor`, `DENO resource monitor placement` offers `Top / Floating`, including a way to return a misplaced bar to the top.
+
+The vertical layout is a 44px-wide rail, with small labels above centered tabular readings, smaller unit symbols, and thin usage lines. Its handle and cleanup/rotation buttons form one compact column for placing the monitor along a side of the canvas.
+
+In Top mode, narrow or crowded windows move only the DENO controls to a compact row beneath the top bar; existing controls stay in place. Widening the window returns DENO to the top bar when there is room. Floating mode keeps the chosen position and fits the bar inside the window after resizing. Docking always displays a horizontal bar.
 
 ## Included Nodes
 
@@ -284,6 +289,40 @@ Main features:
 - `Original Size` list mode can preserve mixed source resolutions in `image_list`
 - `Match Batch Size` list mode makes `image_list` match the resized batch dimensions
 - outputs: `batch`, `image_list`, `width`, `height`, `image_count`
+
+### `(Deno) Film Grain`
+
+Adds monochrome film grain to a photo or a decoded video `IMAGE` batch using CPU processing. No model or additional package installation is needed. The default blends fine and coarse grain at 75:25, softens extreme particles, and reduces grain near pure black and white. Only the grain pattern is blurred; image detail is preserved.
+
+![Film Grain controls](docs/images/film-grain.png)
+
+The panel uses English controls and the compact green styling of the other Deno nodes, regardless of ComfyUI's locale. It shows **Strength**, **Grain size**, **Roughness**, **Tone protection** and one **Processing** choice. **Strength runs from 0 to 1**: the selected default `0.50` matches code amount `6`, while `1.00` matches amount `12`. **Low RAM** (default) processes one frame at a time, **Balanced** uses two, and **Faster** uses four. The grain output is identical; faster processing can use more temporary RAM. **Frames at once** under **Advanced** provides the exact 1–4 value, including a preserved custom value of 3. Processing uses CPU and does not change upstream generation VRAM or split saved video into clips. The complete output frame batch still needs RAM; see the Processing tooltip. Seed and video chunk settings are also under Advanced.
+
+Existing workflows retain their saved values and cables. A saved amount above the panel's new maximum remains intact until you deliberately adjust the slider. Connected parameter inputs control their respective settings; the panel disables those controls and keeps their native sockets visible.
+
+Connect it at the end of the image processing chain:
+
+- Photo: final image / resize → **Film Grain** → **Save Image**.
+- Native video: decoded frames / final resize → **Film Grain** → **Create Video** → **Save Video**. Keep the original audio and frame rate connected to Create Video.
+- Video Helper Suite: decoded frames → **Film Grain** → **Video Combine**. Keep its audio and frame-rate settings.
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `enabled` | on | Off passes through the original input without copying. |
+| `amount` | `6` | Stored/API strength in 8-bit brightness units. Panel strength `0.5` = amount `6`, `1` = amount `12`; `0` passes through. The larger backend range retains older workflows. |
+| `grain_size` | `1` | Fine/coarse blur sigma `0.45 / 1.15 px`, scaled together. |
+| `roughness` | `0.25` | Coarse grain proportion; default fine/coarse mix `75:25`. |
+| `tone_weighted` | on | Emphasizes darker midtones and protects the brightest and darkest ends. |
+| `temporal_mode` | `changing` | Varies the pattern per frame. `fixed` repeats a pattern for comparison. |
+| `seed` | `2026100701` | Reproduces the same pattern and frame sequence. |
+| `frame_offset` | `0` | First frame's global index when processing video chunks separately. |
+| `processing_batch_size` | `1` | Frames processed together on CPU, from 1 to 4. 1 minimizes temporary RAM. |
+
+To compare settings with the same pattern across runs, keep `seed` unchanged and set ComfyUI's seed **control after generate** to `fixed`.
+
+Scratch memory is limited to the selected processing group (1–4 frames), and enabled output is stored on CPU rather than allocating a second full batch in VRAM. **The complete output IMAGE batch still requires RAM**, in addition to the upstream input and ComfyUI caches. For float32 RGB, this output uses `frames × width × height × 12` bytes: about **23.7 MiB per 1080p frame**, or **2.78 GiB for 120 frames**. This node does not stream an entire video file or remove upstream cache memory; use shorter batches for long or high-resolution clips. Disabled/zero-strength runs return the same input object.
+
+Size, channel count and dtype are preserved; RGBA alpha is unchanged. The node operates on pixels, while Save Image/Save Video retain responsibility for workflow metadata, encoding and file creation. A native `VIDEO` socket connects after Create Video, not directly to this node. Video compression may soften fine grain or increase the saved file size.
 
 ### `(Deno) Image Compare`
 

@@ -4,6 +4,12 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.113 - 2026-10-08
+
+- Added `(Deno) Film Grain` for photos and decoded video frames before saving. Compact English controls provide strength 0–1 (default 0.5, amount 6; maximum 1, amount 12), grain size, roughness and tone protection, with seed and video options under Advanced.
+- Film Grain uses CPU processing with Low RAM (default), Balanced and Faster choices. These control groups of 1, 2 or 4 frames without changing quality; custom counts, saved values, links and manual node sizing are preserved. Active output still requires the complete image/frame batch in RAM.
+- Added a six-dot drag handle, snap-to-top target and horizontal/vertical rotation to the resource monitor. Floating position and orientation are remembered, and the vertical layout uses a compact 44px rail with centered readings, smaller units and thin usage bars.
+
 ## 0.7.112 - 2026-10-07
 
 - Fixed MiniMax H3 Multi Reference Image Loader's audio section staying at one row with an internal scrollbar. Adding audio now grows the node to show every row; removing files or collapsing the section reduces its height while preserving manually added space and width. Older compact workflows expand to fit their saved audio rows when reopened.

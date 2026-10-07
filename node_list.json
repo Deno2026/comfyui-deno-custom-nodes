@@ -24,6 +24,7 @@
   "DenoRTXVFXEasyUpscale": "(Deno) RTX Video Super Resolution",
   "DenoRTXVFXVideoFinisher": "(Deno) RTX Video Super Resolution (2 Pass)",
   "DenoImageCompare": "(Deno) Image Compare",
+  "DenoFilmGrain": "(Deno) Film Grain",
   "DenoVideoCompare": "(Deno) Video Compare",
   "DenoVideoPreview": "(Deno) Video Preview"
 }
