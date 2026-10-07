@@ -4,6 +4,10 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.112 - 2026-10-07
+
+- Fixed MiniMax H3 Multi Reference Image Loader's audio section staying at one row with an internal scrollbar. Adding audio now grows the node to show every row; removing files or collapsing the section reduces its height while preserving manually added space and width. Older compact workflows expand to fit their saved audio rows when reopened.
+
 ## 0.7.111 - 2026-10-05
 
 - Fixed Registry compatibility for H3 audio preview controls by clarifying the local playback-token map name. Audio loading, playback, reference numbering, and saved workflows are unchanged.

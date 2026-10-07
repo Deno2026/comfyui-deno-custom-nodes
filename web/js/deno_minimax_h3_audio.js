@@ -186,13 +186,13 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
 
     const section = document.createElement("section");
     section.dataset.denoH3AudioPanel = "true";
-    section.style.cssText = "display:flex;flex-direction:column;flex:0 1 auto;min-height:32px;max-height:58%;border-top:1px solid #244933;padding-top:6px;gap:6px;overflow:hidden;color:#dfffea;font:11px sans-serif;";
+    section.style.cssText = "display:flex;flex-direction:column;flex:0 0 auto;min-height:32px;border-top:1px solid #244933;padding-top:6px;gap:6px;color:#dfffea;font:11px sans-serif;";
     const disclosure = document.createElement("button");
     disclosure.type = "button";
     disclosure.dataset.denoAudioDisclosure = "true";
     disclosure.style.cssText = "display:flex;align-items:center;gap:8px;min-height:26px;width:100%;padding:0 2px;border:0;color:#a8f8bc;background:transparent;text-align:left;cursor:pointer;font:600 12px sans-serif;";
     const body = document.createElement("div");
-    body.style.cssText = "display:flex;flex-direction:column;gap:6px;min-height:0;overflow:hidden;";
+    body.style.cssText = "display:flex;flex-direction:column;flex:0 0 auto;gap:6px;";
     const toolbar = document.createElement("div");
     toolbar.style.cssText = "display:flex;align-items:center;gap:6px;flex-shrink:0;";
     const upload = createActionButton(tr("Add audio", "오디오 추가"));
@@ -201,7 +201,7 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
     toolbar.append(upload, inputFolder, clear);
     const list = document.createElement("div");
     list.dataset.denoAudioList = "true";
-    list.style.cssText = "display:flex;flex-direction:column;gap:5px;overflow-y:auto;min-height:0;max-height:225px;padding-right:3px;";
+    list.style.cssText = "display:flex;flex-direction:column;flex:0 0 auto;gap:5px;";
     const note = document.createElement("div");
     note.style.cssText = "color:#92cba2;line-height:1.3;flex-shrink:0;";
     note.textContent = tr("Connect each audio output to H3 and connect audio_vae. Only enabled audio gets a reference number.", "오디오 출력을 H3에 연결하고 audio_vae도 연결하세요. 켜진 오디오에만 참조 번호가 붙습니다.");
@@ -217,6 +217,22 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
     body.append(toolbar, list, note, status, fileInput);
     section.append(disclosure, body);
     container.appendChild(section);
+
+    let layoutFrame = 0;
+    let resetLayout = true;
+    const scheduleLayout = () => {
+        if (disposed || layoutFrame || typeof requestAnimationFrame !== "function") return;
+        layoutFrame = requestAnimationFrame(() => {
+            layoutFrame = 0;
+            if (disposed || !section.isConnected || node.flags?.collapsed) return;
+            const height = section.offsetHeight;
+            if (!height) return;
+            node.__denoUpdateLoaderAudioHeight?.(height, { reset: resetLayout });
+            resetLayout = false;
+        });
+    };
+    const layoutObserver = typeof ResizeObserver === "function" ? new ResizeObserver(scheduleLayout) : null;
+    layoutObserver?.observe(section);
 
     const stopPlayers = () => {
         playbackTokens.clear();
@@ -257,23 +273,11 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
                     : tr("Connect each audio output to H3 and connect audio_vae. Only enabled audio gets a reference number.", "오디오 출력을 H3에 연결하고 audio_vae도 연결하세요. 켜진 오디오에만 참조 번호가 붙습니다.");
         note.style.color = mixed || incomplete || missingVae ? "#edc493" : "#92cba2";
     };
-    const setStatus = (message) => { status.textContent = message; };
+    const setStatus = (message) => { status.textContent = message; scheduleLayout(); };
     const setOpen = (open, persist = true) => {
         if (persist) node.properties[AUDIO_OPEN] = open;
         body.style.display = open ? "flex" : "none";
-        const hasRows = open && rows.length > 0;
-        // At the smallest node size, reserve one complete audio row together
-        // with its buttons/help. Photos use the remaining scrollable area.
-        // A 64px basis limits intrinsic content to one row; larger panels can
-        // grow the list instead of forcing every saved row into the node.
-        section.style.flex = hasRows ? "0 0 58%" : "0 1 auto";
-        section.style.minHeight = hasRows ? "min-content" : "32px";
-        body.style.flex = "1 1 auto";
-        body.style.minHeight = hasRows ? "min-content" : "0";
-        list.style.flex = hasRows ? "1 1 auto" : "0 1 auto";
-        list.style.height = hasRows ? "64px" : "auto";
-        list.style.minHeight = hasRows ? "64px" : "0";
-        if (gallery) gallery.style.minHeight = hasRows ? "0" : "64px";
+        if (gallery) gallery.style.minHeight = "64px";
         disclosure.setAttribute("aria-expanded", String(open));
         const enabled = rows.filter((row) => row.enabled).length;
         disclosure.textContent = `${open ? "▾" : "▸"} ${tr(`Audio references  ·  ${enabled}/${rows.length} enabled  ·  max 3`, `오디오 참조  ·  ${enabled}/${rows.length}개 사용  ·  최대 3개`)}`;
@@ -282,6 +286,7 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
             stopPlayers();
         }
         node.setDirtyCanvas?.(true, true);
+        scheduleLayout();
     };
     disclosure.onclick = () => setOpen(disclosure.getAttribute("aria-expanded") !== "true");
 
@@ -296,6 +301,7 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
         try {
             // Validate before changing either the widget or any connection.
             parseH3AudioSources(JSON.stringify(next));
+            node.__denoBeginLoaderContentChange?.();
             reconcileH3AudioOutputs(node, next, tr("Audio · off", "Audio · 꺼짐"));
             widget.value = JSON.stringify(next);
             widget.callback?.(widget.value);
@@ -557,6 +563,7 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
         pendingInfo.clear();
         try {
             rows = read();
+            node.__denoBeginLoaderContentChange?.();
             reconcileH3AudioOutputs(node, rows, tr("Audio · off", "Audio · 꺼짐"));
             const currentPaths = new Set(rows.map((row) => row.path));
             for (const path of infoCache.keys()) if (!currentPaths.has(path)) infoCache.delete(path);
@@ -760,6 +767,7 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
     const originalConfigure = node.onConfigure;
     node.onConfigure = function () {
         const result = originalConfigure?.apply(this, arguments);
+        resetLayout = true;
         renderedValue = unrendered;
         queueMicrotask(sync);
         return result;
@@ -772,6 +780,7 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
                 cancelDrag();
                 stopPlayers();
             }
+            scheduleLayout();
             return result;
         };
     }
@@ -784,6 +793,8 @@ export function setupH3AudioPanel(node, container, { app, api, createActionButto
     const originalRemoved = node.onRemoved;
     node.onRemoved = function () {
         disposed = true;
+        layoutObserver?.disconnect();
+        if (layoutFrame) cancelAnimationFrame(layoutFrame);
         uploadGeneration += 1;
         lifecycle.abort();
         modalCleanup?.();

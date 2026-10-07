@@ -31,6 +31,7 @@ class Element extends Target {
     constructor(tag, doc) {
         super(); this.tag = tag; this.doc = doc; this.children = []; this.parentElement = null;
         this.dataset = {}; this.attrs = {}; this.style = {}; this.textContent = ""; this.paused = true;
+        this.offsetHeight = 100;
     }
     append(...items) { for (const item of items) { item.remove(); item.parentElement = this; this.children.push(item); } }
     appendChild(item) { this.append(item); return item; }
@@ -45,6 +46,7 @@ class Element extends Target {
     querySelectorAll(selector) { return this.children.flatMap((item) => [...(match(item, selector) ? [item] : []), ...item.querySelectorAll(selector)]); }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
     contains(item) { return this === item || this.children.some((child) => child.contains(item)); }
+    get isConnected() { return this === this.doc.body || Boolean(this.parentElement?.isConnected); }
     getBoundingClientRect() { const index = this.parentElement?.children.indexOf(this) || 0; return { top: index * 70, bottom: index * 70 + 64, height: 64 }; }
     focus() { this.doc.activeElement = this; }
     click() { this.emit("click"); }
@@ -57,9 +59,21 @@ document.body = document.createElement("body");
 const window = new Target();
 window.location = { href: "http://localhost:8188/", origin: "http://localhost:8188" };
 let uuid = 0;
+let frameId = 0;
+const frames = new Map();
+const observers = [];
+class LayoutObserver {
+    constructor(callback) { this.callback = callback; this.targets = new Set(); this.disconnected = false; observers.push(this); }
+    observe(target) { this.targets.add(target); }
+    disconnect() { this.disconnected = true; this.targets.clear(); }
+    emit() { if (!this.disconnected) this.callback([...this.targets].map((target) => ({ target }))); }
+}
 const context = {
     console, document, window, AbortController, URL, FormData,
     CSS: { escape: (value) => value }, crypto: { randomUUID: () => `added-${++uuid}` }, queueMicrotask,
+    ResizeObserver: LayoutObserver,
+    requestAnimationFrame(callback) { const id = ++frameId; frames.set(id, callback); return id; },
+    cancelAnimationFrame(id) { frames.delete(id); },
 };
 vm.runInNewContext(fs.readFileSync(sourcePath, "utf8").replace(/^export /gm, ""), context, { filename: sourcePath });
 const { parseH3AudioSources: parse, reconcileH3AudioOutputs: reconcile, setupH3AudioPanel: setup } = context;
@@ -192,15 +206,73 @@ const api = { async fetchApi(url, options) {
     } };
 } };
 const createActionButton = (label) => { const button = document.createElement("button"); button.textContent = label; return button; };
-const flush = async () => { for (let index = 0; index < 20; ++index) await Promise.resolve(); };
+const flush = async () => {
+    for (let index = 0; index < 20; ++index) {
+        await Promise.resolve();
+        const callbacks = [...frames.values()];
+        frames.clear();
+        callbacks.forEach((callback) => callback());
+    }
+};
 function makeUi(initial, locale = "en") {
     const node = seed();
     node.widgets = [{ name: "audio_sources", value: JSON.stringify(initial) }];
+    const layoutUpdates = [];
+    node.__denoUpdateLoaderAudioHeight = (height, options) => layoutUpdates.push({ height, ...options });
+    node.contentChangeCalls = 0;
+    node.__denoBeginLoaderContentChange = () => { node.contentChangeCalls += 1; };
     const container = document.createElement("div");
     document.body.append(container);
     setup(node, container, { app: { graph: node.graph, extensionManager: { setting: { get: () => locale } } }, api, createActionButton });
-    return { node, container, panel: node.__denoH3Audio.section };
+    return { node, container, panel: node.__denoH3Audio.section, layoutUpdates };
 }
+// Observe intrinsic section space, including disabled rows, and batch resize work.
+const layoutUi = makeUi(rows);
+const layoutObserver = observers.find((observer) => observer.targets.has(layoutUi.panel));
+assert.ok(layoutObserver, "audio layout must observe its own section");
+layoutUi.panel.offsetHeight = 298;
+await flush();
+assert.deepEqual(layoutUi.layoutUpdates.at(-1), { height: 298, reset: true },
+    "the first measured audio layout initializes a saved-size-preserving baseline");
+const layoutList = layoutUi.panel.querySelector("[data-deno-audio-list]");
+assert.doesNotMatch(layoutList.style.cssText, /overflow-y\s*:\s*auto|max-height\s*:/,
+    "bounded audio rows must use natural space instead of a private scrolling viewport");
+assert.equal(layoutList.style.height, undefined, "opening rows must not force a one-row list height");
+assert.doesNotMatch(layoutUi.panel.style.cssText, /max-height\s*:\s*58%/,
+    "audio must not borrow a fixed percentage of the image gallery");
+const beforeObserverBatch = layoutUi.layoutUpdates.length;
+layoutUi.panel.offsetHeight = 229;
+layoutObserver.emit(); layoutObserver.emit(); layoutObserver.emit();
+assert.equal(layoutUi.layoutUpdates.length, beforeObserverBatch, "observer changes apply asynchronously");
+await flush();
+assert.equal(layoutUi.layoutUpdates.length, beforeObserverBatch + 1, "one frame coalesces repeated resize notifications");
+assert.deepEqual(layoutUi.layoutUpdates.at(-1), { height: 229, reset: false });
+const beforeToggleContentChanges = layoutUi.node.contentChangeCalls;
+layoutUi.panel.querySelector("[data-deno-audio-use]").click();
+await flush();
+assert.ok(layoutUi.node.contentChangeCalls > beforeToggleContentChanges,
+    "audio mutations capture size before native output reconciliation");
+assert.equal(layoutUi.panel.querySelectorAll("[data-deno-audio-id]").length, 3,
+    "disabled audio remains a full saved row and keeps its natural space");
+assert.equal(layoutUi.layoutUpdates.at(-1).height, 229, "Use must not collapse a disabled row");
+layoutUi.panel.querySelector("[data-deno-audio-disclosure]").click();
+layoutUi.panel.offsetHeight = 33;
+layoutObserver.emit();
+await flush();
+assert.deepEqual(layoutUi.layoutUpdates.at(-1), { height: 33, reset: false }, "collapse returns the measured header space");
+layoutUi.node.onConfigure({});
+layoutUi.panel.offsetHeight = 160;
+await flush();
+assert.deepEqual(layoutUi.layoutUpdates.at(-1), { height: 160, reset: true },
+    "loading another saved workflow resets the height baseline");
+const beforeDispose = layoutUi.layoutUpdates.length;
+layoutObserver.emit();
+assert.ok(frames.size > 0, "precondition: node has a pending layout frame");
+layoutUi.node.onRemoved();
+assert.equal(layoutObserver.disconnected, true, "node disposal disconnects its size observer");
+await flush();
+assert.equal(layoutUi.layoutUpdates.length, beforeDispose, "removed nodes must never apply pending layout measurements");
+
 const ui = makeUi(rows);
 await flush();
 const audioItems = () => ui.panel.querySelectorAll("[data-deno-audio-id]");

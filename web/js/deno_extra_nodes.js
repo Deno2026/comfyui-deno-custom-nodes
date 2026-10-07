@@ -968,10 +968,41 @@ function setupMultiImageLoader(node, options = {}) {
     fileInput.style.display = "none";
 
     container.append(topBar, hint, grid, fileInput);
+    let audioExtraHeight = 0;
+    let previousContentMinHeight = null;
+    let pendingContentHeight = null;
     node.addDOMWidget("loader_panel", "deno_multi_image_loader", container, {
         serialize: false,
-        getMinHeight: () => LOADER_PANEL_MIN_HEIGHT + LOADER_PANEL_WIDGET_EXTRA_HEIGHT,
+        getMinHeight: () => LOADER_PANEL_MIN_HEIGHT + LOADER_PANEL_WIDGET_EXTRA_HEIGHT + audioExtraHeight,
     });
+
+    // Keep the gallery's existing space when the bounded audio list expands.
+    // Native computeSize includes both the widget and its growing output stack.
+    node.__denoBeginLoaderContentChange = function () {
+        pendingContentHeight ??= Number(this.size?.[1]) || null;
+    };
+    node.__denoUpdateLoaderAudioHeight = function (height, { reset = false } = {}) {
+        if (reset) {
+            previousContentMinHeight = null;
+            pendingContentHeight = null;
+        }
+        if (!Number.isFinite(height) || height <= 0) return;
+        audioExtraHeight = Math.max(0, Math.ceil(height) - 33);
+        const computedHeight = this.computeSize?.()[1];
+        if (!Number.isFinite(computedHeight)) return;
+        const minHeight = Math.max(loaderMinSize[1], computedHeight);
+        // addOutput may already expand the native node before this frame.
+        const currentHeight = pendingContentHeight ?? (Number(this.size?.[1]) || minHeight);
+        pendingContentHeight = null;
+        const delta = previousContentMinHeight == null ? 0 : minHeight - previousContentMinHeight;
+        previousContentMinHeight = minHeight;
+        const nextSize = [Math.max(Number(this.size?.[0]) || 0, loaderMinSize[0]),
+            Math.max(minHeight, currentHeight + delta)];
+        if (shouldApplyLoaderNodeSize(this.size, nextSize)) {
+            this.setSize?.(nextSize);
+            this.setDirtyCanvas?.(true, true);
+        }
+    };
 
     node.__denoApplyLoaderSize = function ({ migrateLegacyDefault = false } = {}) {
         const nextSize = resolveLoaderNodeSize(this.size, loaderMinSize, {

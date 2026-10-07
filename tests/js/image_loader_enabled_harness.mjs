@@ -160,6 +160,7 @@ async function createRuntime(spec) {
       this.type = spec.nodeType;
       this.comfyClass = spec.nodeType;
       this.size = [520, 620];
+      this.resizeCalls = 0;
       this.properties = {};
       this.graph = graph;
       this.outputs = [{ links: [1] }];
@@ -176,7 +177,23 @@ async function createRuntime(spec) {
       this.initialWidgets = [...this.widgets];
     }
     setDirtyCanvas() {}
-    setSize(size) { this.size = size; }
+    setSize(size) { this.size = Array.from(size); this.resizeCalls += 1; this.onResize?.(this.size); }
+    computeSize() {
+      // Match the native layout boundary: output rows plus visible widget minima.
+      let height = Math.max(1, this.outputs.length) * 20 + 14;
+      for (const widget of this.widgets) {
+        if (widget.hidden || widget.options?.hidden) continue;
+        height += (widget.computeSize?.(this.size[0])?.[1] ?? widget.options?.getMinHeight?.() ?? 20) + 4;
+      }
+      return [this.size[0], height];
+    }
+    addOutput(name, type) {
+      this.outputs.push({ name, type, links: [] });
+      // Current LiteGraph adds a slot by expanding to its new minimum immediately.
+      const [width, height] = this.computeSize();
+      this.setSize([Math.max(this.size[0], width), Math.max(this.size[1], height)]);
+    }
+    removeOutput(slot) { this.outputs.splice(slot, 1); }
     addDOMWidget(name, type, element, options) {
       this.panel = element;
       document.body.appendChild(element);
@@ -212,6 +229,82 @@ const cards = (node) => node.panel.querySelectorAll("[data-path]");
 const card = (node, path) => cards(node).find((entry) => entry.dataset.path === path);
 const savedPaths = (node, name = "image_paths") => String(widget(node, name)?.value || "").split("\n").filter(Boolean);
 
+// The audio rows must add native node space rather than borrowing gallery space.
+// Keep browser geometry outside this harness; sectionHeight is the observer boundary.
+const h3LayoutRuntime = await createRuntime(cases.find((spec) => spec.name === "H3"));
+const h3Layout = await h3LayoutRuntime.create([]);
+const panelMinimum = () => widget(h3Layout, "loader_panel").options.getMinHeight();
+assert.equal(panelMinimum(), 332, "H3 without open audio retains the image panel minimum");
+assert.equal(typeof h3Layout.__denoUpdateLoaderAudioHeight, "function", "H3 must synchronize measured audio space");
+h3Layout.__denoUpdateLoaderAudioHeight(33, { reset: true });
+const savedInitialHeight = h3Layout.size[1];
+const initialFloor = h3Layout.computeSize()[1];
+h3Layout.__denoUpdateLoaderAudioHeight(160);
+assert.equal(panelMinimum(), 459, "one audio row adds its whole measured section above the collapsed header");
+assert.equal(h3Layout.size[1] - savedInitialHeight, h3Layout.computeSize()[1] - initialFloor,
+  "audio growth preserves the existing gallery and user surplus");
+const oneRowHeight = h3Layout.size[1];
+h3Layout.__denoUpdateLoaderAudioHeight(229);
+assert.equal(h3Layout.size[1] - oneRowHeight, 69, "a second row adds its full row and gap");
+h3Layout.__denoUpdateLoaderAudioHeight(298);
+const threeRowsHeight = h3Layout.size[1];
+const stableResizeCalls = h3Layout.resizeCalls;
+for (let pass = 0; pass < 4; pass += 1) h3Layout.__denoUpdateLoaderAudioHeight(298);
+assert.equal(h3Layout.size[1], threeRowsHeight, "unchanged metadata, playback and reorder must not accumulate height");
+assert.equal(h3Layout.resizeCalls, stableResizeCalls, "an unchanged section must not trigger resize feedback");
+h3Layout.__denoUpdateLoaderAudioHeight(160);
+assert.equal(h3Layout.size[1], oneRowHeight, "removing rows gives back their space");
+h3Layout.__denoUpdateLoaderAudioHeight(33);
+assert.equal(h3Layout.size[1], savedInitialHeight, "closing or clearing audio restores the prior height");
+
+// User width and extra height survive an add/remove round trip.
+h3Layout.setSize([710, savedInitialHeight + 180]);
+h3Layout.__denoUpdateLoaderAudioHeight(298);
+assert.equal(h3Layout.size[0], 710, "audio growth preserves a user-selected width");
+h3Layout.__denoUpdateLoaderAudioHeight(33);
+assert.deepEqual(h3Layout.size, [710, savedInitialHeight + 180], "manual surplus survives audio collapse");
+
+// Reusing a node for another saved workflow resets the previous delta baseline.
+h3Layout.size = [430, 370];
+h3Layout.__denoUpdateLoaderAudioHeight(298, { reset: true });
+assert.equal(h3Layout.size[1], h3Layout.computeSize()[1], "old compact saved workflows grow only to the content floor");
+const reopenedHeight = h3Layout.size[1];
+h3Layout.__denoUpdateLoaderAudioHeight(298, { reset: true });
+assert.equal(h3Layout.size[1], reopenedHeight, "reopening saved audio repeatedly must remain stable");
+h3Layout.size = [430, reopenedHeight + 200];
+h3Layout.__denoUpdateLoaderAudioHeight(298, { reset: true });
+assert.equal(h3Layout.size[1], reopenedHeight + 200, "restore preserves larger saved manual heights");
+
+// Native addOutput expands before the asynchronous audio observer fires.
+h3Layout.__denoUpdateLoaderAudioHeight(33, { reset: true });
+h3Layout.setSize([430, h3Layout.computeSize()[1]]);
+h3Layout.__denoUpdateLoaderAudioHeight(33, { reset: true });
+const beforeNativeAdd = [...h3Layout.size];
+h3Layout.__denoBeginLoaderContentChange();
+h3Layout.addOutput("audio_1", "AUDIO");
+h3Layout.__denoUpdateLoaderAudioHeight(160);
+assert.equal(h3Layout.size[1], h3Layout.computeSize()[1],
+  "native output expansion must not be counted a second time as user surplus");
+h3Layout.__denoBeginLoaderContentChange();
+h3Layout.removeOutput(h3Layout.outputs.length - 1);
+h3Layout.__denoUpdateLoaderAudioHeight(33);
+assert.deepEqual(h3Layout.size, beforeNativeAdd, "adding and removing an audio output must return to the original floor");
+
+// Several rows may be appended before the observer gets its next frame.
+h3Layout.__denoBeginLoaderContentChange();
+h3Layout.addOutput("audio_1", "AUDIO");
+h3Layout.__denoBeginLoaderContentChange();
+h3Layout.addOutput("audio_2", "AUDIO");
+h3Layout.__denoUpdateLoaderAudioHeight(229);
+assert.equal(h3Layout.size[1], h3Layout.computeSize()[1],
+  "coalesced row additions retain the earliest pre-mutation height");
+h3Layout.__denoBeginLoaderContentChange();
+h3Layout.removeOutput(h3Layout.outputs.length - 1);
+h3Layout.removeOutput(h3Layout.outputs.length - 1);
+h3Layout.__denoUpdateLoaderAudioHeight(33);
+assert.deepEqual(h3Layout.size, beforeNativeAdd, "batched additions and clear return to the original floor");
+h3Layout.onRemoved?.();
+
 function assertCards(node, expectedPaths, expectedIndices, label) {
   const visible = cards(node);
   assert.deepEqual(visible.map((entry) => entry.dataset.path), expectedPaths, `${label}: source order`);
@@ -244,6 +337,11 @@ for (const spec of cases) {
   const runtime = await createRuntime(spec);
   const node = await runtime.create(["a.png", "b.png", "c.png", "d.png"], ["b.png"]);
   const label = spec.name;
+  if (label === "standard") {
+    assert.equal(widget(node, "loader_panel").options.getMinHeight(), 332,
+      "ordinary Multi Image Loader retains its fixed panel minimum");
+    assert.deepEqual(node.size, [520, 620], "ordinary image loader preserves its existing saved/manual size");
+  }
   assertCards(node, ["a.png", "b.png", "c.png", "d.png"], ["1", "", "2", "3"], `${label} initial`);
   assert.equal(widget(node, "disabled_image_paths").hidden, true, `${label}: saved disabled list must stay hidden`);
   if (label !== "Advanced") assert.equal(node._denoImageCount, 3, `${label}: only enabled sources count`);

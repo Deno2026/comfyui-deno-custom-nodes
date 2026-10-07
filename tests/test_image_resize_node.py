@@ -2321,10 +2321,10 @@ def test_multi_image_loader_dom_panel_tracks_manual_node_resize():
 
     assert 'container.dataset.denoLoaderLayout = "fluid-v1"' in script
     assert "height: calc(100% + ${LOADER_PANEL_WRAPPER_COMPENSATION}px)" in script
-    assert "getMinHeight: () => LOADER_PANEL_MIN_HEIGHT + LOADER_PANEL_WIDGET_EXTRA_HEIGHT" in script
     assert "LOADER_PANEL_MIN_HEIGHT + LOADER_PANEL_WIDGET_EXTRA_HEIGHT" in script
-    assert 'const widget = node.addDOMWidget("loader_panel"' not in script
-    assert "node.__denoSyncLoaderPanelGeometry" not in script
+    # Actual native widget minima, dynamic H3 growth and manual-resize preservation
+    # are exercised by image_loader_enabled_harness rather than a fixed callback body.
+    assert 'node.addDOMWidget("loader_panel"' in script
 
 
 def test_multi_image_loader_keeps_serialized_path_widget_hidden_without_reordering():
