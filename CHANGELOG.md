@@ -4,6 +4,10 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.116 - 2026-10-11
+
+- Re-published the current RTX installation guidance as a fresh Registry submission after v0.7.115 remained pending. Node processing, controls, connections and saved workflows are unchanged.
+
 ## 0.7.115 - 2026-10-10
 
 - Updated RTX installation guides, in-node help and copied steps for NVIDIA VFX 0.2.0.0 or newer. Existing 0.1.x users can rerun the installer; updating the DENO node pack alone does not update the optional NVIDIA runtime. Runtime upgrades can change NVIDIA image results while workflow connections and settings stay the same.
