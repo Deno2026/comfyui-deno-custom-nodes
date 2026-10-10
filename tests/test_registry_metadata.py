@@ -731,7 +731,7 @@ def test_rtx_vfx_node_info_prefers_install_steps_over_mode_repeats():
     assert r"ComfyUI\custom_nodes\deno-custom-nodes\tools" in node_source
     assert "Move `install_rtx_vfx_bat.zip` into that `tools` folder" in node_source
     assert "Right-click the ZIP inside `tools`, choose `Extract All`" in node_source
-    assert "Double-click `install_rtx_vfx.bat` from inside `tools`" in node_source
+    assert r"Double-click `deno-custom-nodes\tools\install_rtx_vfx.bat` directly inside `tools`" in node_source
     assert "type `Y` only when the shown Windows path is inside this ComfyUI app" in node_source
     assert "green `INSTALL COMPLETE` message" in node_source
     assert "Easy install steps:" in node_source

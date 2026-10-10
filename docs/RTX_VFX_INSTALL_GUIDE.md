@@ -36,7 +36,7 @@ Important safety checks:
 5. Tell me that the ZIP may first download to my Windows Downloads folder.
 6. Tell me to open my ComfyUI folder, then open custom_nodes\deno-custom-nodes\tools\.
 7. Tell me to move install_rtx_vfx_bat.zip into the deno-custom-nodes\tools folder before extracting it.
-8. Tell me to right-click the ZIP inside tools, choose Extract All, and run install_rtx_vfx.bat only from the extracted installer files inside tools.
+8. Tell me to right-click the ZIP inside tools, choose Extract All, and set the destination to deno-custom-nodes\tools itself. If Windows created an install_rtx_vfx_bat subfolder, move both install_rtx_vfx.bat and README_RTX_VFX_EASY_INSTALL.md directly into tools before running tools\install_rtx_vfx.bat.
 9. When the black installer window shows a Windows path and asks "Install RTX VFX here?", help me check that the path is inside my ComfyUI app before I type Y.
 10. If the path looks wrong, tell me to type N and stop instead of guessing.
 11. Explain that workflow connections/settings stay the same but NVIDIA processing results can differ after the library upgrade.
@@ -93,30 +93,26 @@ Do not extract it in `Downloads`.
 
 Right-click `install_rtx_vfx_bat.zip` inside `tools`, then choose `Extract All`.
 
-Press `Extract`.
+Set the extraction destination to the `deno-custom-nodes\tools` folder itself, then press `Extract`. Remove the automatically added `install_rtx_vfx_bat` subfolder from the destination path if Windows adds it.
 
-After extraction, you should see `install_rtx_vfx.bat` either directly in `tools` or inside a new extracted folder named:
-
-```text
-install_rtx_vfx_bat
-```
-
-Inside it, you should see:
+After extraction, these two files must be directly inside `tools`:
 
 - `install_rtx_vfx.bat`
-- The latest ZIP also contains `README_RTX_VFX_EASY_INSTALL.md` for the same current instructions.
+- `README_RTX_VFX_EASY_INSTALL.md`
+
+If Windows already created an `install_rtx_vfx_bat` subfolder, move both files from that subfolder directly into `deno-custom-nodes\tools` before running the BAT.
 
 ![Step 4 - open extracted folder](images/rtx-vfx-install/step-4-open-folder.png)
 
 ## Step 5. Run `install_rtx_vfx.bat`
 
-Double-click `install_rtx_vfx.bat` from the extracted installer files inside the DENO `tools` folder:
+Double-click `install_rtx_vfx.bat` directly inside the DENO `tools` folder:
 
 ```text
 ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat
 ```
 
-If Windows created an `install_rtx_vfx_bat` subfolder, open that subfolder and run the BAT inside it.
+Check that the final BAT path is exactly `deno-custom-nodes\tools\install_rtx_vfx.bat` before running it.
 
 If Windows shows a security warning, continue only if the file came from this official Deno2026 GitHub repository.
 

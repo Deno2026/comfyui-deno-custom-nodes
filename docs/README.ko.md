@@ -306,7 +306,7 @@ NVIDIA RTX Video Super Resolution을 ComfyUI 안에서 간단히 시도할 수 �
 
 ![Deno RTX Video Super Resolution](images/rtx-vfx-easy-upscale-node.png)
 
-초보자 흐름: `deno-custom-nodes` 설치 또는 업데이트, ComfyUI 시작, 노드 추가 후 한 번 실행, NVIDIA VFX가 없거나 구버전을 갱신하려면 `How to install` 버튼으로 [설치 가이드](https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/)를 열기, ComfyUI 완전 종료, 가이드의 ZIP을 `ComfyUI\custom_nodes\deno-custom-nodes\tools`로 옮겨 압축 해제, 그 안의 `install_rtx_vfx.bat` 실행, BAT에서 ComfyUI Python 경로를 확인하고 `Y`, 녹색 `INSTALL COMPLETE` 확인 후 ComfyUI 재시작.
+초보자 흐름: `deno-custom-nodes` 설치 또는 업데이트, ComfyUI 시작, 노드 추가 후 한 번 실행, NVIDIA VFX가 없거나 구버전을 갱신하려면 `How to install` 버튼으로 [설치 가이드](https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/)를 열기, ComfyUI 완전 종료, 가이드의 ZIP을 `ComfyUI\custom_nodes\deno-custom-nodes\tools`로 옮기고 압축 해제 대상 폴더를 `tools` 자체로 지정, Windows가 `install_rtx_vfx_bat` 하위 폴더를 만들었다면 BAT와 `README_RTX_VFX_EASY_INSTALL.md` 두 파일을 `tools` 바로 아래로 옮기기, `tools\install_rtx_vfx.bat` 실행, BAT에서 ComfyUI Python 경로를 확인하고 `Y`, 녹색 `INSTALL COMPLETE` 확인 후 ComfyUI 재시작.
 
 NVIDIA 공식 참고 링크: [현재 NVIDIA 패키지 요구사항·변경 이력](https://pypi.org/project/nvidia-vfx/), [현재 VFX SDK Windows 요구사항](https://docs.nvidia.com/maxine/vfx/latest/WindowsVFXSDK/GetStartedonWindows.html), [Video Super Resolution 안내](https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html).
 

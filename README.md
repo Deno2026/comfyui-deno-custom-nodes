@@ -401,7 +401,7 @@ Beginner install flow:
 2. Add `(Deno) RTX Video Super Resolution` and run it once with an image.
 3. Click the node's `How to install` button if NVIDIA VFX is missing or you want to update an older installation.
 4. Close every ComfyUI window/process before running the installer.
-5. Follow the visual web install guide: download the ZIP from that page, move it into `ComfyUI\custom_nodes\deno-custom-nodes\tools`, extract it there, and run `install_rtx_vfx.bat` from the extracted installer files inside that `tools` folder.
+5. Follow the visual web install guide: download the ZIP from that page, move it into `ComfyUI\custom_nodes\deno-custom-nodes\tools`, choose `Extract All` with the destination set to that `tools` folder itself, and run `tools\install_rtx_vfx.bat`. If Windows created an `install_rtx_vfx_bat` subfolder, move both `install_rtx_vfx.bat` and `README_RTX_VFX_EASY_INSTALL.md` directly into `tools` before running the BAT.
 6. If the BAT asks `Install RTX VFX here?`, type `Y` only when the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type `N` and stop.
 7. Wait for the green `INSTALL COMPLETE` message.
 8. Restart ComfyUI completely, then use `(Deno) RTX Video Super Resolution` again.

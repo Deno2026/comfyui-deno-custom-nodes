@@ -36,9 +36,9 @@ If you are reading this file from the DENO `tools` folder, start at step 2.
 3. Open your ComfyUI folder, then open:
    `custom_nodes\deno-custom-nodes\tools`
 4. Move `install_rtx_vfx_bat.zip` from `Downloads` into that `tools` folder.
-5. Right-click the ZIP inside `tools`, choose `Extract All`, and press `Extract`.
-6. Double-click `install_rtx_vfx.bat` from the extracted installer files inside `tools`:
-   `install_rtx_vfx.bat`
+5. Right-click the ZIP inside `tools`, choose `Extract All`, set the destination to the `deno-custom-nodes\tools` folder itself, and press `Extract`. If Windows created an `install_rtx_vfx_bat` subfolder, move both `install_rtx_vfx.bat` and `README_RTX_VFX_EASY_INSTALL.md` directly into `tools` first.
+6. Double-click the BAT directly inside `tools`:
+   `ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat`
 7. The black installer window shows the Windows path it will modify.
 8. If that path is inside the ComfyUI app you just closed, type `Y` and press Enter.
 9. If the path looks wrong or unfamiliar, type `N` and press Enter. Nothing is changed when you choose `N`.

@@ -576,7 +576,7 @@
       <div class="wrap">
         <div class="section-head">
           <h2>Follow this exact order</h2>
-          <p>The important rule is simple: download the ZIP, move it into DENO's <code>tools</code> folder, extract it there, then run the BAT from there.</p>
+          <p>The important rule is simple: download the ZIP, move it into DENO's <code>tools</code> folder, set the extraction destination to <code>tools</code> itself, then run the BAT directly inside <code>tools</code>.</p>
         </div>
 
         <ol class="route">
@@ -598,7 +598,7 @@
             <span class="route-number">3</span>
             <div>
               <strong>Where the BAT must run</strong>
-              <p>Run <code>install_rtx_vfx.bat</code> from the extracted installer files inside that same <code>tools</code> area.</p>
+              <p>Run <code>deno-custom-nodes\tools\install_rtx_vfx.bat</code> directly inside <code>tools</code>.</p>
             </div>
           </li>
         </ol>
@@ -665,10 +665,10 @@
               <img loading="lazy" src="../images/rtx-vfx-install/step-4-open-folder.png" alt="Right-click the installer ZIP and choose Extract All inside the tools folder">
             </div>
             <div class="step-body">
-              <p>In <code>deno-custom-nodes\tools</code>, right-click <code>install_rtx_vfx_bat.zip</code>, choose <code>Extract All</code>, then press <code>Extract</code>.</p>
+              <p>In <code>deno-custom-nodes\tools</code>, right-click <code>install_rtx_vfx_bat.zip</code> and choose <code>Extract All</code>. Set the destination to <code>deno-custom-nodes\tools</code> itself, then press <code>Extract</code>. Remove the automatically added <code>install_rtx_vfx_bat</code> subfolder from the destination path if Windows adds it.</p>
               <div class="step-points">
-                <div class="point"><b>Do this</b><span>Extract the ZIP from inside <code>deno-custom-nodes\tools</code>.</span></div>
-                <div class="point"><b>Check this</b><span>You can now see <code>install_rtx_vfx.bat</code>, either directly in <code>tools</code> or inside a new extracted subfolder.</span></div>
+                <div class="point"><b>Do this</b><span>If Windows already created an <code>install_rtx_vfx_bat</code> subfolder, move both <code>install_rtx_vfx.bat</code> and <code>README_RTX_VFX_EASY_INSTALL.md</code> from it directly into <code>tools</code>.</span></div>
+                <div class="point"><b>Check this</b><span>Both <code>install_rtx_vfx.bat</code> and <code>README_RTX_VFX_EASY_INSTALL.md</code> are directly inside <code>deno-custom-nodes\tools</code>.</span></div>
               </div>
             </div>
           </article>
@@ -676,16 +676,16 @@
           <article class="step-card">
             <div class="step-header">
               <span class="step-no">5</span>
-              <h3 class="step-title">Run install_rtx_vfx.bat from that extracted folder</h3>
+              <h3 class="step-title">Run install_rtx_vfx.bat directly inside tools</h3>
             </div>
             <div class="step-media">
-              <img loading="lazy" src="../images/rtx-vfx-install/step-5-run-bat.png" alt="Double-click install_rtx_vfx.bat from the extracted installer files">
+              <img loading="lazy" src="../images/rtx-vfx-install/step-5-run-bat.png" alt="Double-click install_rtx_vfx.bat directly inside the DENO tools folder">
             </div>
             <div class="step-body">
-              <p>Double-click <code>install_rtx_vfx.bat</code> from the extracted installer files inside the DENO <code>tools</code> area. A black Command Prompt installer window opens.</p>
+              <p>Double-click <code>install_rtx_vfx.bat</code> directly inside the DENO <code>tools</code> folder. A black Command Prompt installer window opens.</p>
               <span class="path-chip">...\ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat</span>
               <div class="step-points">
-                <div class="point"><b>Do this</b><span>Run only the BAT that came from the official ZIP and was extracted inside the DENO <code>tools</code> folder.</span></div>
+                <div class="point"><b>Do this</b><span>Check that the final BAT path is <code>deno-custom-nodes\tools\install_rtx_vfx.bat</code>.</span></div>
                 <div class="point"><b>Check this</b><span>The black installer window shows a ComfyUI path before it asks for confirmation.</span></div>
               </div>
             </div>
@@ -757,8 +757,8 @@ Important safety checks:
 5. Tell me that the ZIP may first download to my Windows Downloads folder.
 6. Tell me to open my ComfyUI folder, then open custom_nodes\deno-custom-nodes\tools\.
 7. Tell me to move install_rtx_vfx_bat.zip into the deno-custom-nodes\tools folder.
-8. Tell me to right-click the ZIP inside tools, choose Extract All, and extract it there.
-9. Tell me to run install_rtx_vfx.bat only from the extracted installer files inside deno-custom-nodes\tools.
+8. Tell me to right-click the ZIP inside tools, choose Extract All, and set the destination to deno-custom-nodes\tools itself. If Windows created an install_rtx_vfx_bat subfolder, move BOTH install_rtx_vfx.bat and README_RTX_VFX_EASY_INSTALL.md directly into tools.
+9. Tell me to run deno-custom-nodes\tools\install_rtx_vfx.bat only after both files are directly inside tools.
 10. When the black installer window shows a Windows path and asks "Install RTX VFX here?", help me check that the path is inside my ComfyUI app before I type Y. Explain that seeing python_embeded or python.exe is normal, but the path must still be inside my ComfyUI app.
 11. If the path looks wrong, tell me to type N and stop instead of guessing.
 12. After INSTALL COMPLETE, tell me to fully restart ComfyUI before testing the node again.
@@ -805,8 +805,8 @@ const stepsText = [
   "4. Open your ComfyUI folder.",
   "5. Open custom_nodes\\deno-custom-nodes\\tools\\.",
   "6. Move install_rtx_vfx_bat.zip into that tools folder.",
-  "7. Right-click the ZIP inside tools and choose Extract All.",
-  "8. Double-click install_rtx_vfx.bat from the extracted installer files inside tools.",
+  "7. Right-click the ZIP inside tools, choose Extract All, and set the destination to tools itself. If Windows created an install_rtx_vfx_bat subfolder, move BOTH install_rtx_vfx.bat and README_RTX_VFX_EASY_INSTALL.md directly into tools first.",
+  "8. Double-click deno-custom-nodes\\tools\\install_rtx_vfx.bat directly inside tools.",
   "9. Type Y only if the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type N and stop.",
   "10. Wait for INSTALL COMPLETE.",
   "11. Restart ComfyUI completely."

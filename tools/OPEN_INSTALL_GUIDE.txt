@@ -19,8 +19,11 @@ Beginner flow:
 3. Download the installer ZIP from the official Deno2026 GitHub link on that page.
 4. Move the ZIP into this DENO tools folder:
    ComfyUI\custom_nodes\deno-custom-nodes\tools
-5. Right-click the ZIP inside this tools folder and choose Extract All.
-6. Run install_rtx_vfx.bat from the extracted installer files inside this tools folder.
+5. Right-click the ZIP inside tools, choose Extract All, and set the destination
+   to deno-custom-nodes\tools itself. If Windows created an install_rtx_vfx_bat
+   subfolder, move BOTH install_rtx_vfx.bat and README_RTX_VFX_EASY_INSTALL.md
+   directly into tools before running the BAT.
+6. Run ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat.
 7. Type Y only if the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type N and stop.
 8. Wait for INSTALL COMPLETE.
 9. Restart ComfyUI.
