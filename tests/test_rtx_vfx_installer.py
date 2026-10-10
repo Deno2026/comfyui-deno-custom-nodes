@@ -309,8 +309,13 @@ def test_powershell_launcher_keeps_requirement_comparator_and_no_deps(tmp_path):
     assert "--index-url https://pypi.nvidia.com nvidia-vfx>=0.2.0.0" in logged_args
 
 
-def test_zip_preserves_installer_readme_and_exact_source_bytes():
+def test_zip_preserves_installer_readme_and_source_content():
     with zipfile.ZipFile(ZIP_PATH) as archive:
         assert sorted(archive.namelist()) == ["README_RTX_VFX_EASY_INSTALL.md", "install_rtx_vfx.bat"]
-        assert archive.read("install_rtx_vfx.bat") == BAT_PATH.read_bytes()
-        assert archive.read("README_RTX_VFX_EASY_INSTALL.md") == INSTALLER_README_PATH.read_bytes()
+        # The Windows download uses CRLF; Git checkouts on Linux use LF.
+        # Normalize only that platform difference, preserving every other byte.
+        for member, source in (
+            ("install_rtx_vfx.bat", BAT_PATH),
+            ("README_RTX_VFX_EASY_INSTALL.md", INSTALLER_README_PATH),
+        ):
+            assert archive.read(member).replace(b"\r\n", b"\n") == source.read_bytes().replace(b"\r\n", b"\n")
