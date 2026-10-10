@@ -1,5 +1,10 @@
 DENO RTX VFX install helper
 
+Current installer runtime: nvidia-vfx 0.2.0.0 or newer (NVIDIA VFX SDK 1.3).
+Updating DENO nodes alone does not update this optional NVIDIA runtime. To update
+an older 0.1.x install, follow the same latest guide and rerun its installer.
+Workflow connections/settings stay the same, but NVIDIA results can change.
+
 If you installed deno-custom-nodes through ComfyUI Manager, this tools folder is
 kept here on purpose so it matches older tutorial videos.
 
@@ -9,8 +14,8 @@ Open the visual install guide instead:
 https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/
 
 Beginner flow:
-1. Close every ComfyUI window.
-2. Open the guide above.
+1. Open the guide above and keep it open.
+2. Close every ComfyUI window before installation.
 3. Download the installer ZIP from the official Deno2026 GitHub link on that page.
 4. Move the ZIP into this DENO tools folder:
    ComfyUI\custom_nodes\deno-custom-nodes\tools

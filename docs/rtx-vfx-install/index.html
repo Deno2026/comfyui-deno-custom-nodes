@@ -3,8 +3,32 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Beginner-friendly visual install guide for DENO RTX VFX in ComfyUI.">
-<title>DENO RTX VFX Visual Install Guide</title>
+<meta name="description" content="Install or update NVIDIA VFX for ComfyUI.">
+<meta name="author" content="Deno2026">
+<meta name="theme-color" content="#eef4f8">
+<title>DENO RTX VFX Install</title>
+<link rel="canonical" href="https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/">
+<link rel="author" href="https://github.com/Deno2026">
+<link rel="license" href="https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/LICENSE">
+<link rel="icon" type="image/png" sizes="16x16" href="brand/favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="brand/favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="brand/favicon-48.png">
+<link rel="apple-touch-icon" sizes="180x180" href="brand/apple-touch-icon.png">
+<link rel="manifest" href="brand/site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DENO Custom Nodes">
+<meta property="og:title" content="DENO RTX VFX Install">
+<meta property="og:description" content="Install or update NVIDIA VFX for ComfyUI.">
+<meta property="og:url" content="https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/">
+<meta property="og:image" content="https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/brand/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="DENO W01 symbol with DENO RTX VFX Install and its ComfyUI install description">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="DENO RTX VFX Install">
+<meta name="twitter:description" content="Install or update NVIDIA VFX for ComfyUI.">
+<meta name="twitter:image" content="https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/brand/og-image.png">
+<meta name="twitter:image:alt" content="DENO W01 symbol with DENO RTX VFX Install and its ComfyUI install description">
 <style>
   :root {
     --bg: #eef4f8;
@@ -89,9 +113,10 @@
   .brand-mark {
     width: 28px;
     height: 28px;
+    display: block;
+    flex: 0 0 28px;
     border-radius: 8px;
-    background: linear-gradient(135deg, var(--deno), #38bdf8);
-    box-shadow: 0 8px 20px rgba(22, 163, 74, .22);
+    object-fit: contain;
   }
 
   .nav {
@@ -502,7 +527,7 @@
 <body>
   <header class="top">
     <div class="wrap bar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>DENO RTX VFX Install</span></div>
+      <div class="brand"><img class="brand-mark" src="brand/favicon-48.png" width="28" height="28" alt="DENO"><span>DENO RTX VFX Install</span></div>
       <nav class="nav" aria-label="Page navigation">
         <a class="btn" href="#steps">Steps</a>
         <a class="btn" href="#gpt">GPT Help</a>
@@ -517,9 +542,13 @@
         <p class="eyebrow">Visual step-by-step guide for Windows users</p>
         <h1>Install DENO RTX VFX for ComfyUI without guessing paths</h1>
         <p class="lead">
-          Use this page when the DENO RTX Video Super Resolution node says NVIDIA RTX VFX is missing.
+          Use this page to install NVIDIA RTX VFX or update an older installation used by the DENO RTX Video Super Resolution node.
           The screenshots below show exactly where the ZIP goes, where the BAT should run, and when it is safe to type <code>Y</code>.
         </p>
+
+        <p><strong>Current NVIDIA runtime: <code>nvidia-vfx 0.2.0.0</code> or later (VFX SDK 1.3).</strong> The installer downloads this supported version range from NVIDIA. Updating DENO Custom Nodes alone does not update the NVIDIA library; if you use <code>0.1.x</code>, fully close ComfyUI and rerun the latest ZIP using the same steps below.</p>
+        <p>Existing workflow connections and settings stay the same. NVIDIA processing results can differ after the library update, so keep your previous environment if you need to reproduce an earlier render exactly. Our Windows comparison found less update-check process accumulation with <code>0.2.0.0</code> than <code>0.1.0.1</code>; results may vary across PCs.</p>
+        <p>Use Windows 10/11 x64, a supported NVIDIA RTX GPU, and Python 3.10 or later. CUDA 13 or later PyTorch is recommended by the <a href="https://github.com/Comfy-Org/ComfyUI_Nvidia_VFX_Nodes#requirements">current Comfy Org NVIDIA nodes</a>. NVIDIA's driver minimum is 570.65 (595 for TCC devices). The installer verifies the effect in your ComfyUI environment and does not automatically change PyTorch or your driver. The NVIDIA package includes the VFX runtime; no separate VFX SDK installer or CUDA Toolkit is needed. See <a href="https://pypi.org/project/nvidia-vfx/">NVIDIA package requirements</a> and the <a href="https://docs.nvidia.com/maxine/vfx/latest/WindowsVFXSDK/GetStartedonWindows.html">Windows SDK requirements</a>.</p>
 
         <div class="hero-actions">
           <a class="btn primary" href="https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip">Download installer ZIP</a>
@@ -584,7 +613,7 @@
               <img loading="lazy" src="../images/rtx-vfx-install/step-1-open-guide.png" alt="ComfyUI RTX node with the How to install button highlighted">
             </div>
             <div class="step-body">
-              <p>In ComfyUI, add <code>(Deno) RTX Video Super Resolution</code>. If NVIDIA RTX VFX is missing, click <code>How to install</code>.</p>
+              <p>In ComfyUI, add <code>(Deno) RTX Video Super Resolution</code>. If NVIDIA RTX VFX is missing or you use an older version, click <code>How to install</code>, then fully close ComfyUI before running the installer.</p>
               <div class="step-points">
                 <div class="point"><b>Do this</b><span>Click <code>How to install</code> in the node panel.</span></div>
                 <div class="point"><b>Check this</b><span>This visual install page opens in your browser.</span></div>
@@ -722,7 +751,7 @@ https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/
 
 Important safety checks:
 1. Tell me to download only from the official Deno2026 GitHub repository.
-2. Explain that the installer prepares NVIDIA's official nvidia-vfx Python package from NVIDIA's package index, https://pypi.nvidia.com.
+2. Explain that the installer prepares NVIDIA's official nvidia-vfx 0.2.0.0 or later (VFX SDK 1.3) from NVIDIA's package index, https://pypi.nvidia.com. Updating DENO Custom Nodes alone does not update that optional NVIDIA library. Existing 0.1.x users should fully close ComfyUI and rerun the latest installer using these same steps.
 3. Tell me not to run any BAT file from an unknown mirror, reupload, Discord attachment, or random website.
 4. Tell me to close every ComfyUI window before running the installer.
 5. Tell me that the ZIP may first download to my Windows Downloads folder.
@@ -733,6 +762,9 @@ Important safety checks:
 10. When the black installer window shows a Windows path and asks "Install RTX VFX here?", help me check that the path is inside my ComfyUI app before I type Y. Explain that seeing python_embeded or python.exe is normal, but the path must still be inside my ComfyUI app.
 11. If the path looks wrong, tell me to type N and stop instead of guessing.
 12. After INSTALL COMPLETE, tell me to fully restart ComfyUI before testing the node again.
+13. Explain that existing workflow connections and settings stay the same, but NVIDIA processing results can differ after the library upgrade. If I need to reproduce an earlier render exactly, tell me to preserve my previous environment before upgrading.
+14. Check that I use Windows 10/11 x64, a supported NVIDIA RTX GPU, and Python 3.10 or later. Explain that current Comfy Org NVIDIA nodes recommend CUDA 13 or later PyTorch and NVIDIA's driver minimum is 570.65 (595 for TCC devices). The installer verifies the NVIDIA effect in my actual environment and does not automatically change PyTorch or drivers. If verification fails, help me follow the displayed instructions instead of installing unrelated packages. The NVIDIA wheel includes its VFX runtime, so I do not need a separate VFX SDK installer or CUDA Toolkit.
+15. Explain only that DENO's Windows comparison found less update-check process accumulation with 0.2.0.0 than 0.1.0.1. Do not present it as an NVIDIA-confirmed fix or a guarantee for every PC.
 
 Please do not skip steps. Ask me what I see on screen after each step.</textarea>
             <div class="helper-notes">
@@ -762,6 +794,10 @@ Please do not skip steps. Ask me what I see on screen after each step.</textarea
 <script>
 const stepsText = [
   "DENO RTX VFX manual install",
+  "Recommended runtime: nvidia-vfx 0.2.0.0 or later (VFX SDK 1.3).",
+  "Updating DENO Custom Nodes alone does not update NVIDIA VFX. Existing 0.1.x users: rerun the latest installer using these same steps.",
+  "Existing workflow connections/settings stay the same, but NVIDIA processing results can differ after the library upgrade. Preserve your previous environment if you need to reproduce old renders exactly.",
+  "Use Windows 10/11 x64, supported NVIDIA RTX, Python 3.10+, and preferably CUDA 13+ PyTorch. Driver minimum: 570.65 (TCC: 595). The installer verifies the effect in your environment and does not automatically change PyTorch or drivers. No separate VFX SDK installer or CUDA Toolkit is needed.",
   "",
   "1. Close every ComfyUI window first.",
   "2. Open https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/",

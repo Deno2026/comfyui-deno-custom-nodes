@@ -11,6 +11,10 @@ This guide is for Windows users who installed `deno-custom-nodes` from ComfyUI M
 
 The ComfyUI Manager package does not include the installer BAT file. The RTX node opens the standalone visual web page instead, so the install steps stay easy to follow without putting installer scripts inside the Registry package.
 
+Use the latest guide installer for `nvidia-vfx 0.2.0.0` or newer (NVIDIA VFX SDK 1.3). Updating DENO nodes alone does not update NVIDIA VFX. If you still use `0.1.x`, open the guide, fully close ComfyUI and rerun the same installer. Workflow connections and settings stay the same, but NVIDIA processing results can differ after a runtime upgrade. Preserve your previous environment when exact old renders must be reproduced.
+
+The current Comfy Org NVIDIA nodes recommend CUDA 13 or later PyTorch. The DENO installer checks your actual CUDA/NVIDIA effect and does not replace PyTorch or update drivers automatically. NVIDIA's package includes the VFX runtime; no separate VFX SDK installer or CUDA Toolkit is needed.
+
 ## If You Are a Beginner, Copy This Into GPT First
 
 If installing BAT/ZIP files feels confusing, copy the prompt below and paste it into ChatGPT or another GPT assistant. Ask it to guide you one step at a time while you look at your own Windows screen.
@@ -26,7 +30,7 @@ https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/
 
 Important safety checks:
 1. Tell me to download only from the official Deno2026 GitHub repository.
-2. Explain that the installer prepares NVIDIA's official nvidia-vfx Python package from NVIDIA's package index, https://pypi.nvidia.com.
+2. Explain that the installer prepares NVIDIA's official nvidia-vfx 0.2.0.0 or newer from https://pypi.nvidia.com; existing 0.1.x users can rerun it, and updating the DENO node pack alone does not update NVIDIA VFX.
 3. Tell me not to run any BAT file from an unknown mirror, reupload, Discord attachment, or random website.
 4. Tell me to close every ComfyUI window before running the installer.
 5. Tell me that the ZIP may first download to my Windows Downloads folder.
@@ -35,7 +39,8 @@ Important safety checks:
 8. Tell me to right-click the ZIP inside tools, choose Extract All, and run install_rtx_vfx.bat only from the extracted installer files inside tools.
 9. When the black installer window shows a Windows path and asks "Install RTX VFX here?", help me check that the path is inside my ComfyUI app before I type Y.
 10. If the path looks wrong, tell me to type N and stop instead of guessing.
-11. After INSTALL COMPLETE, tell me to fully restart ComfyUI before testing the node again.
+11. Explain that workflow connections/settings stay the same but NVIDIA processing results can differ after the library upgrade.
+12. After INSTALL COMPLETE, tell me to fully restart ComfyUI before testing the node again.
 
 Please do not skip steps. Ask me what I see on screen after each step.
 ```
@@ -44,12 +49,12 @@ This GPT prompt is only a helper. It cannot guarantee safety by itself. The real
 
 ## Before You Start
 
-- Use Windows 10 or Windows 11.
+- Use Windows 10 or Windows 11 x64 and Python 3.10 or later.
 - Use an NVIDIA RTX GPU.
-- Update your NVIDIA driver if it is old.
+- NVIDIA's Windows driver minimum is 570.65 (595 for TCC devices).
 - Close every ComfyUI window before running the installer.
 - Only download the ZIP from this Deno2026 GitHub repository.
-- The installer uses NVIDIA's official `nvidia-vfx` Python package path from `https://pypi.nvidia.com`.
+- The installer uses NVIDIA's official `nvidia-vfx>=0.2.0.0` from `https://pypi.nvidia.com` and verifies the loaded package and native SDK versions.
 - The BAT shows the exact ComfyUI location before installing and lets you choose `Y` or `N`.
 - The BAT does not ask for passwords.
 - Do not use installer files from mirrors, reuploads, Discord attachments, or random websites.
@@ -99,7 +104,7 @@ install_rtx_vfx_bat
 Inside it, you should see:
 
 - `install_rtx_vfx.bat`
-- `README_RTX_VFX_EASY_INSTALL.md`
+- The latest ZIP also contains `README_RTX_VFX_EASY_INSTALL.md` for the same current instructions.
 
 ![Step 4 - open extracted folder](images/rtx-vfx-install/step-4-open-folder.png)
 

@@ -4,20 +4,24 @@ This optional helper is for users who want to use `(Deno) RTX Video Super Resolu
 
 The DENO node uses NVIDIA's official `nvidia-vfx` / `nvvfx.VideoSuperRes` path. The installer only prepares that optional NVIDIA dependency for the ComfyUI Python you choose.
 
+The current installer requires `nvidia-vfx 0.2.0.0` or newer (NVIDIA VFX SDK 1.3). Updating DENO nodes alone does not update this optional runtime. Existing `0.1.x` users can fully close ComfyUI and rerun the latest installer from the same guide. Workflow connections/settings stay the same, but NVIDIA image results can differ after an SDK upgrade; preserve the old environment for exact earlier renders.
+
 ## Who can use this
 
 - Windows PC with an NVIDIA RTX GPU
-- Recent NVIDIA driver
+- Windows 10/11 x64; NVIDIA driver 570.65 or newer (595 for TCC devices)
 - ComfyUI using Python 3.10 or newer
 - Internet access to `https://pypi.nvidia.com`
+
+CUDA 13 or later PyTorch matches the current Comfy Org NVIDIA node recommendation. The DENO installer verifies your actual CUDA/NVIDIA runtime and does not automatically replace PyTorch or change drivers. No separate VFX SDK installer or CUDA Toolkit is needed.
 
 ## Easiest install flow
 
 1. Start ComfyUI.
 2. Add `(Deno) RTX Video Super Resolution`.
 3. Run it once with an image.
-4. If NVIDIA VFX is already available, you are done.
-5. If NVIDIA VFX is missing, click the node's `How to install` button.
+4. If a current NVIDIA VFX runtime is already available, you are done.
+5. If NVIDIA VFX is missing or you need to update an older installation, click the node's `How to install` button.
 6. Follow the visual web install guide:
    <https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/>
 7. Close every ComfyUI window/process before running the BAT.

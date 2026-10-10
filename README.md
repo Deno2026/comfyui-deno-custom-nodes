@@ -387,14 +387,20 @@ Optional Windows/NVIDIA RTX Video Super Resolution helper node for users who wan
 
 This node is intentionally separate from the core Deno nodes. It only imports NVIDIA VFX during upscale execution, so normal Deno node installs do not require NVIDIA VFX. ComfyUI Manager installs the node pack without auto-installing NVIDIA VFX.
 
+Recommended NVIDIA runtime: `nvidia-vfx 0.2.0.0` or later (VFX SDK 1.3); the current installer requires at least this version. In our Windows comparison, `0.2.0.0` avoided the repeated accumulation of NVIDIA update-check processes seen with `0.1.0.1`. This is a result from the tested environment, not a guarantee for every PC.
+
+For the current runtime, use Windows 10/11 x64, a supported NVIDIA RTX GPU, and Python 3.10 or later. CUDA 13 or later PyTorch is recommended, matching the [current Comfy Org NVIDIA nodes](https://github.com/Comfy-Org/ComfyUI_Nvidia_VFX_Nodes#requirements). NVIDIA's x64 Windows driver minimum is 570.65 (595 for TCC devices). The installer checks the NVIDIA effect in your actual ComfyUI environment and does not automatically replace PyTorch or update your driver; follow its instructions if verification fails. The NVIDIA package includes its VFX runtime, so you do not need a separate VFX SDK installer or CUDA Toolkit for this install.
+
+Already using `nvidia-vfx 0.1.x`? Updating DENO Custom Nodes alone does not update this optional NVIDIA library. Fully close ComfyUI and rerun the latest installer from the same guide below. Existing workflow connections and settings stay the same, but NVIDIA processing results can differ after the library upgrade. Keep your previous environment if you need to reproduce an earlier render exactly.
+
 ![Deno RTX Video Super Resolution](docs/images/rtx-vfx-easy-upscale-node.png)
 
 Beginner install flow:
 
 1. Install or update `deno-custom-nodes`, then start ComfyUI.
 2. Add `(Deno) RTX Video Super Resolution` and run it once with an image.
-3. If NVIDIA VFX is missing, close every ComfyUI window/process.
-4. Click the node's `How to install` button.
+3. Click the node's `How to install` button if NVIDIA VFX is missing or you want to update an older installation.
+4. Close every ComfyUI window/process before running the installer.
 5. Follow the visual web install guide: download the ZIP from that page, move it into `ComfyUI\custom_nodes\deno-custom-nodes\tools`, extract it there, and run `install_rtx_vfx.bat` from the extracted installer files inside that `tools` folder.
 6. If the BAT asks `Install RTX VFX here?`, type `Y` only when the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type `N` and stop.
 7. Wait for the green `INSTALL COMPLETE` message.
@@ -407,6 +413,8 @@ Official NVIDIA references:
 
 - [Video Super Resolution filter](https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html)
 - [NVIDIA VFX Python bindings](https://docs.nvidia.com/maxine/vfx-python/latest/index.html)
+- [Current NVIDIA package requirements and release history](https://pypi.org/project/nvidia-vfx/)
+- [Current VFX SDK Windows requirements](https://docs.nvidia.com/maxine/vfx/latest/WindowsVFXSDK/GetStartedonWindows.html)
 - [VideoSuperRes Python API](https://docs.nvidia.com/maxine/vfx-python/latest/api.html)
 
 Mode guide:
@@ -428,7 +436,7 @@ Main features:
 - installer refuses to continue if ComfyUI is still running with that Python
 - installer asks before installing into the detected Python
 - installer stops if no NVIDIA GPU is detected unless the user explicitly overrides the check
-- installer reinstalls `nvidia-vfx` cleanly when the user confirms the target Python
+- installer reinstalls `nvidia-vfx >= 0.2.0.0` cleanly when the user confirms the target Python, including upgrades from older `0.1.x` installations
 - installer first verifies the normal `nvvfx` package path used by the current ComfyUI Python
 - installer uses the ASCII Windows runtime fallback only when the normal `nvvfx` path fails verification
 - node startup prefers the recorded ASCII fallback path only when that fallback was actually selected

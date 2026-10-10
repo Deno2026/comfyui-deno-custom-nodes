@@ -9,15 +9,18 @@ set "RUNTIME_PATH_TMP=%TEMP%\deno_nvvfx_runtime_path.txt"
 set "PRESTARTUP_SCRIPT=%TOOL_DIR%..\prestartup_script.py"
 set "PYTHON_EXE="
 set "PYTHON_SOURCE="
-set "PIP_INSTALL_ARGS=--force-reinstall --no-build-isolation"
+set "PIP_INSTALL_ARGS=--force-reinstall --no-build-isolation --no-deps"
 
 echo ============================================================
 echo  DENO RTX VFX Easy Install
 echo ============================================================
 echo.
-echo This installs NVIDIA's official nvidia-vfx Python package
+echo This installs NVIDIA's official nvidia-vfx 0.2.0.0 or newer
 echo into the Python used by this ComfyUI install.
 echo If nvidia-vfx is already installed, it will be reinstalled cleanly.
+echo Existing 0.1 users can run this installer again to update.
+echo SDK updates can change image results with the same workflow settings.
+echo Your workflows, PyTorch packages and NVIDIA driver are not changed.
 echo It uses the normal ComfyUI Python package path when possible.
 echo If that path fails verification, it prepares an ASCII runtime fallback.
 echo.
@@ -120,9 +123,9 @@ echo.
 echo Checking selected Python...
 set "PYTHON_CHECK=%TEMP%\deno_rtx_python_check.txt"
 if exist "%PYTHON_CHECK%" del /f /q "%PYTHON_CHECK%" >nul 2>nul
-"%PYTHON_EXE%" -c "import sys; print('DENO_PYTHON_OK', sys.version_info[0], sys.version_info[1]); raise SystemExit(0 if sys.version_info >= (3, 10) else 12)" > "%PYTHON_CHECK%" 2>> "%LOG%"
+"%PYTHON_EXE%" -c "import sys, struct; print('Python', sys.version); print('Platform', sys.platform, struct.calcsize('P') * 8, 'bit'); assert sys.platform == 'win32' and struct.calcsize('P') == 8, 'NVIDIA VFX requires 64-bit Windows Python'; assert sys.version_info >= (3, 10), 'NVIDIA VFX requires Python 3.10+'; print('DENO_PYTHON_OK', sys.version_info[0], sys.version_info[1])" > "%PYTHON_CHECK%" 2>> "%LOG%"
 if errorlevel 1 (
-  echo [FAIL] The selected file is not a supported Python 3.10+ executable.
+  echo [FAIL] The selected file is not a supported 64-bit Windows Python 3.10+ executable.
   echo.
   echo Selected path:
   echo "%PYTHON_EXE%"
@@ -209,6 +212,25 @@ if errorlevel 1 (
 echo Progress [#############-------] 65%% GPU check complete.
 echo.
 
+echo Checking existing ComfyUI PyTorch and CUDA...
+set "TORCH_CHECK=%TEMP%\deno_rtx_torch_check.txt"
+"%PYTHON_EXE%" -c "import torch; print('PyTorch', torch.__version__); print('PyTorch CUDA', torch.version.cuda or 'CPU-only'); print('CUDA available', torch.cuda.is_available()); assert torch.version.cuda, 'This ComfyUI Python has CPU-only PyTorch'; assert torch.cuda.is_available(), 'CUDA is not available to this ComfyUI Python'; print('GPU', torch.cuda.get_device_name(0)); print('CUDA 13 is the current Comfy Org NVIDIA VFX reference setup; older CUDA builds must pass runtime verification')" > "%TORCH_CHECK%" 2>&1
+if errorlevel 1 (
+  echo [FAIL] This ComfyUI Python needs working CUDA-enabled PyTorch.
+  echo.
+  type "%TORCH_CHECK%"
+  type "%TORCH_CHECK%" >> "%LOG%"
+  echo.
+  echo Use a supported NVIDIA/CUDA ComfyUI installation, then run this BAT again.
+  echo Comfy Org currently recommends PyTorch with CUDA 13 for NVIDIA VFX.
+  echo This installer does not install or replace PyTorch, CUDA, or your driver.
+  call :FAIL_CODE 1
+  pause
+  exit /b 1
+)
+type "%TORCH_CHECK%"
+echo.
+
 if not "%DENO_RTX_VFX_YES%"=="1" (
   echo Ready to install RTX VFX into this ComfyUI Python:
   echo "%PYTHON_EXE%"
@@ -233,8 +255,9 @@ if not "%DENO_RTX_VFX_YES%"=="1" (
   )
 )
 
-echo [5/6] Installing nvidia-vfx from NVIDIA official package index...
+echo [5/6] Installing nvidia-vfx 0.2.0.0 or newer from NVIDIA official package index...
 echo Reinstall mode is ON. Existing nvidia-vfx files will be overwritten cleanly.
+echo Existing PyTorch packages are preserved; dependency replacement is disabled.
 echo This can take 1-5 minutes. Live pip output is shown below and saved to the log.
 echo Progress [##############------] 70%% Download and install started.
 echo.
@@ -247,7 +270,7 @@ echo.
   echo.
 ) > "%LOG%" 2>&1
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Continue'; $installArgs=@('-m','pip','install','--upgrade') + (($env:PIP_INSTALL_ARGS -split ' ') | Where-Object { $_ }) + @('--index-url','https://pypi.nvidia.com','nvidia-vfx'); & $env:PYTHON_EXE @installArgs 2>&1 | ForEach-Object { $line = [string]$_; Write-Host $line; [System.IO.File]::AppendAllText($env:LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false)) }; exit $LASTEXITCODE"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Continue'; $installArgs=@('-m','pip','install','--upgrade') + (($env:PIP_INSTALL_ARGS -split ' ') | Where-Object { $_ }) + @('--index-url','https://pypi.nvidia.com','nvidia-vfx>=0.2.0.0'); & $env:PYTHON_EXE @installArgs 2>&1 | ForEach-Object { $line = [string]$_; Write-Host $line; [System.IO.File]::AppendAllText($env:LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false)) }; exit $LASTEXITCODE"
 
 if errorlevel 1 (
   set "PIP_EXIT_CODE=!ERRORLEVEL!"
@@ -259,6 +282,7 @@ if errorlevel 1 (
   echo - Network/security software blocked https://pypi.nvidia.com
   echo - The selected Python is not ComfyUI's Python
   echo - Python is older than 3.10
+  echo - No compatible nvidia-vfx 0.2.0.0 or newer wheel is available for this Python
   echo - NVIDIA driver is too old
   call :FAIL_CODE !PIP_EXIT_CODE!
   pause
@@ -269,9 +293,16 @@ echo.
 
 echo [6/6] Verifying NVIDIA VFX runtime from normal ComfyUI Python...
 echo Progress [#################---] 85%% Verifying NVIDIA VFX runtime.
-"%PYTHON_EXE%" -c "import os, torch, nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('nvvfx path', nvvfx.__path__[0]); print('bundled libs', loader.get_libs_directory()); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); names=('LOW','MEDIUM','HIGH','ULTRA'); [(print('checking VSR', name), (lambda effect: (effect.close(), print('VideoSuperRes create ready', name)))(VideoSuperRes(quality=getattr(VideoSuperRes.QualityLevel, name), device=0))) for name in names]; print('Native nvvfx runtime ready')" >> "%LOG%" 2>&1
+"%PYTHON_EXE%" -c "import os, re, importlib.metadata as metadata, torch, nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; numbers=lambda value: tuple(map(int, re.findall(r'\d+', str(value)))); installed=metadata.version('nvidia-vfx'); loaded=getattr(nvvfx, '__version__', 'unknown'); sdk=nvvfx.get_sdk_version(); print('installed nvidia-vfx', installed); print('loaded nvvfx', loaded); print('native SDK', sdk); assert numbers(installed) >= (0, 2, 0, 0), 'Installed nvidia-vfx must be 0.2.0.0 or newer'; assert loaded == installed, 'Loaded nvvfx does not match the installed package; an old runtime copy may be active'; assert numbers(sdk) >= (1, 3, 0), 'Loaded NVIDIA VFX SDK must be 1.3.0 or newer'; print('nvvfx path', nvvfx.__path__[0]); print('bundled libs', loader.get_libs_directory()); print('PyTorch', torch.__version__, 'CUDA', torch.version.cuda); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); names=('LOW','MEDIUM','HIGH','ULTRA'); [(print('checking VSR', name), (lambda effect: (effect.close(), print('VideoSuperRes create ready', name)))(VideoSuperRes(quality=getattr(VideoSuperRes.QualityLevel, name), device=0))) for name in names]; exec('def verify_vsr_smoke():\n    frame = torch.zeros((3, 360, 640), device=\'cuda:0\', dtype=torch.float32)\n    effect = VideoSuperRes(quality=VideoSuperRes.QualityLevel.MEDIUM, device=0)\n    output = None\n    try:\n        effect.output_width = 1280\n        effect.output_height = 720\n        effect.load()\n        output = torch.from_dlpack(effect.run(frame).image).clone()\n        assert tuple(output.shape) == (3, 720, 1280), \'NVIDIA VFX smoke returned an unexpected output shape\'\n        assert torch.isfinite(output).all().item(), \'NVIDIA VFX smoke returned non-finite output\'\n    finally:\n        effect.close()\n        torch.cuda.synchronize(0)\n        del output, frame\nverify_vsr_smoke()\n'); print('VSR load/run smoke ready'); print('Native nvvfx runtime ready')" >> "%LOG%" 2>&1
 if not errorlevel 1 (
   type nul > "%RUNTIME_PATH_FILE%"
+  if errorlevel 1 (
+    echo [FAIL] Runtime verified, but the DENO runtime marker could not be updated.
+    echo Check write access to this deno-custom-nodes tools folder, then run again.
+    call :FAIL_CODE 1
+    pause
+    exit /b 1
+  )
   echo Native nvvfx runtime is usable.
   echo DENO runtime override is disabled for this ComfyUI Python.
   echo Progress [###################-] 95%% Native runtime verified.
@@ -286,7 +317,7 @@ echo.
 
 if exist "%RUNTIME_PATH_TMP%" del /f /q "%RUNTIME_PATH_TMP%" >nul 2>nul
 set "DENO_NVVFX_RUNTIME_ROOT=%PUBLIC%\DENO\nvvfx_runtime"
-"%PYTHON_EXE%" -c "import os, sys, shutil; from pathlib import Path; import nvvfx; root=Path(os.environ['DENO_NVVFX_RUNTIME_ROOT']); src=Path(nvvfx.__path__[0]); dest=root / ('py%%d%%d' %% sys.version_info[:2]) / 'nvidia_vfx_0_1_0_1'; package=dest / 'nvvfx'; shutil.rmtree(dest, ignore_errors=True); shutil.copytree(src, package); print(str(dest))" > "%RUNTIME_PATH_TMP%" 2>> "%LOG%"
+"%PYTHON_EXE%" -c "import os, sys, re, shutil, uuid, importlib.metadata as metadata; from pathlib import Path; dist=metadata.distribution('nvidia-vfx'); version=dist.version; assert tuple(map(int, re.findall(r'\d+', version))) >= (0, 2, 0, 0), 'Fallback requires nvidia-vfx 0.2.0.0 or newer'; root=Path(os.environ['DENO_NVVFX_RUNTIME_ROOT']) / ('py%%d%%d' %% sys.version_info[:2]); src=Path(dist.locate_file('nvvfx')); assert src.is_dir(), 'Installed nvvfx package directory was not found'; root.mkdir(parents=True, exist_ok=True); prefix='nvidia_vfx_' + re.sub(r'[^A-Za-z0-9_]', '_', version) + '_'; dest=root / (prefix + uuid.uuid4().hex); dest.mkdir(); shutil.copytree(src, dest / 'nvvfx'); print(str(dest))" > "%RUNTIME_PATH_TMP%" 2>> "%LOG%"
 if errorlevel 1 (
   echo [FAIL] Could not prepare NVIDIA VFX runtime copy.
   echo See log:
@@ -304,13 +335,12 @@ if "%DENO_NVVFX_RUNTIME_PATH%"=="" (
   pause
   exit /b 1
 )
->"%RUNTIME_PATH_FILE%" echo %DENO_NVVFX_RUNTIME_PATH%
 echo Runtime path:
 echo %DENO_NVVFX_RUNTIME_PATH%
 echo.
 
 echo Verifying DENO ASCII NVIDIA VFX runtime fallback...
-"%PYTHON_EXE%" -c "import os, sys, torch; sys.path.insert(0, os.environ['DENO_NVVFX_RUNTIME_PATH']); import nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; expected=os.environ['DENO_NVVFX_RUNTIME_PATH']; actual=nvvfx.__path__[0]; print('nvvfx', getattr(nvvfx, '__version__', 'unknown')); print('nvvfx path', actual); print('expected path', expected); print('bundled libs', loader.get_libs_directory()); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); assert os.path.normcase(os.path.abspath(actual)).startswith(os.path.normcase(os.path.abspath(expected))), 'DENO runtime path was not used during verification'; names=('LOW','MEDIUM','HIGH','ULTRA'); [(print('checking VSR', name), (lambda effect: (effect.close(), print('VideoSuperRes create ready', name)))(VideoSuperRes(quality=getattr(VideoSuperRes.QualityLevel, name), device=0))) for name in names]; print('DENO ASCII nvvfx runtime ready')" >> "%LOG%" 2>&1
+"%PYTHON_EXE%" -c "import os, sys, re, importlib.metadata as metadata, torch; sys.path.insert(0, os.environ['DENO_NVVFX_RUNTIME_PATH']); import nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; numbers=lambda value: tuple(map(int, re.findall(r'\d+', str(value)))); installed=metadata.version('nvidia-vfx'); loaded=getattr(nvvfx, '__version__', 'unknown'); sdk=nvvfx.get_sdk_version(); expected=os.path.join(os.environ['DENO_NVVFX_RUNTIME_PATH'], 'nvvfx'); actual=nvvfx.__path__[0]; print('installed nvidia-vfx', installed); print('loaded nvvfx', loaded); print('native SDK', sdk); assert numbers(installed) >= (0, 2, 0, 0), 'Installed nvidia-vfx must be 0.2.0.0 or newer'; assert loaded == installed, 'Fallback nvvfx does not match the installed package'; assert numbers(sdk) >= (1, 3, 0), 'Loaded NVIDIA VFX SDK must be 1.3.0 or newer'; print('nvvfx path', actual); print('expected path', expected); print('bundled libs', loader.get_libs_directory()); print('PyTorch', torch.__version__, 'CUDA', torch.version.cuda); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); assert os.path.normcase(os.path.abspath(actual)) == os.path.normcase(os.path.abspath(expected)), 'DENO runtime path was not used during verification'; names=('LOW','MEDIUM','HIGH','ULTRA'); [(print('checking VSR', name), (lambda effect: (effect.close(), print('VideoSuperRes create ready', name)))(VideoSuperRes(quality=getattr(VideoSuperRes.QualityLevel, name), device=0))) for name in names]; exec('def verify_vsr_smoke():\n    frame = torch.zeros((3, 360, 640), device=\'cuda:0\', dtype=torch.float32)\n    effect = VideoSuperRes(quality=VideoSuperRes.QualityLevel.MEDIUM, device=0)\n    output = None\n    try:\n        effect.output_width = 1280\n        effect.output_height = 720\n        effect.load()\n        output = torch.from_dlpack(effect.run(frame).image).clone()\n        assert tuple(output.shape) == (3, 720, 1280), \'NVIDIA VFX smoke returned an unexpected output shape\'\n        assert torch.isfinite(output).all().item(), \'NVIDIA VFX smoke returned non-finite output\'\n    finally:\n        effect.close()\n        torch.cuda.synchronize(0)\n        del output, frame\nverify_vsr_smoke()\n'); print('VSR load/run smoke ready'); print('DENO ASCII nvvfx runtime ready')" >> "%LOG%" 2>&1
 if errorlevel 1 (
   echo [FAIL] Install finished, but NVIDIA VFX runtime is not usable on this PC.
   echo See log:
@@ -320,8 +350,18 @@ if errorlevel 1 (
   echo - NVIDIA driver is too old
   echo - this GPU does not support NVIDIA VFX Video Super Resolution
   echo - CUDA is not visible from this ComfyUI Python
+  echo - incompatible PyTorch/CUDA build; Comfy Org recommends CUDA 13
+  echo - an old nvvfx runtime copy was loaded instead of the newly installed version
   echo - the selected Python belongs to a different ComfyUI install
-  echo - NVIDIA's nvidia-vfx package cannot create VideoSuperRes on this GPU/driver combination
+  echo - NVIDIA's nvidia-vfx package cannot load or run VideoSuperRes with this PyTorch/CUDA/GPU/driver
+  call :FAIL_CODE 1
+  pause
+  exit /b 1
+)
+>"%RUNTIME_PATH_FILE%" echo %DENO_NVVFX_RUNTIME_PATH%
+if errorlevel 1 (
+  echo [FAIL] Runtime verified, but the DENO runtime marker could not be updated.
+  echo Check write access to this deno-custom-nodes tools folder, then run again.
   call :FAIL_CODE 1
   pause
   exit /b 1

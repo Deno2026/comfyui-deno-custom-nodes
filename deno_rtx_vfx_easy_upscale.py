@@ -265,7 +265,8 @@ def _import_vfx():
 
 def _rtx_vfx_easy_install_note() -> str:
     return (
-        "Easy install steps: close every ComfyUI window, click this node's How to install button, "
+        "Easy install steps: open this node's How to install guide, then close every ComfyUI window. "
+        "Use the latest installer for nvidia-vfx 0.2.0.0 or newer; updating the DENO node pack alone does not update NVIDIA VFX. "
         "follow the visual web install guide, download the ZIP from that guide page, move it into "
         r"ComfyUI\custom_nodes\deno-custom-nodes\tools, extract it there, run install_rtx_vfx.bat "
         "from the extracted installer files inside that tools folder, type Y only if the shown Windows path is inside your ComfyUI app; if it looks wrong, type N and stop, then wait for the green "
@@ -362,8 +363,11 @@ def _safe_cuda_device_index(device: int) -> int:
 class DenoRTXVFXEasyUpscale:
     DESCRIPTION = (
         "RTX VFX install steps for beginners.\n\n"
-        "1. Close every ComfyUI window first.\n"
-        "2. Click this node's `How to install` button.\n"
+        "Recommended NVIDIA runtime: nvidia-vfx 0.2.0.0 or newer.\n"
+        "Existing 0.1.x users: rerun the latest installer. Updating DENO nodes alone does not update NVIDIA VFX.\n"
+        "Workflow connections/settings stay the same; NVIDIA processing results can change after a runtime upgrade.\n\n"
+        "1. Click this node's `How to install` button and keep the guide open.\n"
+        "2. Close every ComfyUI window before installation.\n"
         "3. Follow the visual web install guide.\n"
         "4. Download the ZIP from that guide page.\n"
         r"5. Open `ComfyUI\custom_nodes\deno-custom-nodes\tools`." "\n"

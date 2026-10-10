@@ -1,0 +1,32 @@
+{
+  "name": "DENO RTX VFX Install",
+  "short_name": "DENO RTX VFX",
+  "description": "Install or update NVIDIA VFX for ComfyUI.",
+  "id": "../",
+  "start_url": "../",
+  "scope": "../",
+  "display": "browser",
+  "lang": "en",
+  "theme_color": "#eef4f8",
+  "background_color": "#eef4f8",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

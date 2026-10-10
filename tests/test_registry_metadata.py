@@ -725,7 +725,7 @@ def test_rtx_vfx_node_info_prefers_install_steps_over_mode_repeats():
     node_source = (REPO_ROOT / "deno_rtx_vfx_easy_upscale.py").read_text()
 
     assert "RTX VFX install steps" in node_source
-    assert "Close every ComfyUI window first" in node_source
+    assert "Close every ComfyUI window before installation" in node_source
     assert "Click this node's `How to install` button" in node_source
     assert "Follow the visual web install guide" in node_source
     assert r"ComfyUI\custom_nodes\deno-custom-nodes\tools" in node_source

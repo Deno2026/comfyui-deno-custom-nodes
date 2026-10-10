@@ -4,6 +4,12 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.115 - 2026-10-10
+
+- Updated RTX installation guides, in-node help and copied steps for NVIDIA VFX 0.2.0.0 or newer. Existing 0.1.x users can rerun the installer; updating the DENO node pack alone does not update the optional NVIDIA runtime. Runtime upgrades can change NVIDIA image results while workflow connections and settings stay the same.
+- The installer verifies the installed/loaded package and native SDK versions, CUDA visibility and one real VSR frame. It preserves PyTorch, driver configuration and previous fallback copies; the ZIP includes matching BAT and README instructions.
+- Existing RTX processing, controls, node IDs, sockets and saved workflows are unchanged.
+
 ## 0.7.114 - 2026-10-08
 
 - Added Match resolution as the default Film Grain scale for new nodes. Grain is sampled from a 1536px-short-edge reference to keep texture more consistent across photo and video resolutions; the selected 2752×1536 preset remains exact. Only grain is resized.

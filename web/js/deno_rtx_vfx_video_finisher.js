@@ -13,9 +13,12 @@ const NVIDIA_VSR_DOCS_URL = "https://docs.nvidia.com/maxine/vfx/latest/Filters/V
 const RTX_VFX_INSTALL_GUIDE_URL = "https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/";
 const RTX_VFX_INSTALL_STEPS = [
     "DENO RTX VFX manual install",
+    "Install or update NVIDIA VFX 0.2.0.0 or newer using the latest guide installer.",
+    "Updating DENO nodes alone does not update NVIDIA VFX. Existing 0.1.x users can rerun the same installer.",
+    "Workflow connections and settings stay the same; NVIDIA processing results can change after a runtime upgrade.",
     "",
-    "1. Close every ComfyUI window first.",
-    "2. Click the How to install button in the node.",
+    "1. Click How to install in the node and keep the guide open.",
+    "2. Close every ComfyUI window before installation.",
     "3. Follow the visual web install guide step by step.",
     "4. Download the ZIP from that guide page.",
     "5. Open ComfyUI\\custom_nodes\\deno-custom-nodes\\tools.",

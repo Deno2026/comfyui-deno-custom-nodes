@@ -296,13 +296,19 @@ ComfyUI 캔버스 안에서 두 이미지를 빠르게 비교하는 A/B 비교 �
 
 NVIDIA RTX Video Super Resolution을 ComfyUI 안에서 간단히 시도할 수 있는 선택형 Windows/NVIDIA RTX 도우미 노드입니다.
 
+권장 NVIDIA 런타임은 `nvidia-vfx 0.2.0.0` 이상(VFX SDK 1.3)이며, 현재 설치 도우미도 이 버전 이상을 설치합니다. Windows 비교 시험에서 `0.1.0.1`의 반복 실행 중 나타난 NVIDIA 업데이트 확인 프로그램 누적이 `0.2.0.0`에서는 나타나지 않았습니다. 확인한 환경의 결과이며 모든 PC에서의 해결을 보장하지는 않습니다.
+
+현재 런타임은 Windows 10/11 x64, 지원하는 NVIDIA RTX GPU, Python 3.10 이상 환경을 사용하세요. [현재 Comfy Org NVIDIA 노드](https://github.com/Comfy-Org/ComfyUI_Nvidia_VFX_Nodes#requirements)와 같은 CUDA 13 이상 PyTorch 환경을 권장합니다. NVIDIA의 x64 Windows 드라이버 최소 버전은 570.65(TCC 장치는 595)입니다. 설치 도우미는 실제 ComfyUI 환경에서 NVIDIA 효과를 검증하며 PyTorch나 드라이버를 자동으로 바꾸지 않습니다. 검증이 실패하면 그 안내에 따라 ComfyUI 환경을 준비하세요. NVIDIA 패키지 안에 VFX 런타임이 포함되어 별도 VFX SDK 설치 파일이나 CUDA Toolkit을 설치할 필요는 없습니다.
+
+이미 `nvidia-vfx 0.1.x`를 사용한다면 **DENO 노드 업데이트만으로 NVIDIA 라이브러리가 갱신되지는 않습니다.** ComfyUI를 완전히 종료하고 아래 같은 가이드의 최신 설치 파일을 다시 실행하세요. 기존 워크플로의 연결과 설정은 유지되지만, NVIDIA 라이브러리를 올리면 처리한 이미지가 이전 결과와 달라질 수 있습니다. 이전 렌더 결과를 정확히 재현해야 한다면 이전 환경도 보존하세요.
+
 노드 안에는 조작부만 표시합니다. 처리한 이미지는 `images` 출력을 Preview Image 또는 Image Compare에 연결해 확인하세요.
 
 ![Deno RTX Video Super Resolution](images/rtx-vfx-easy-upscale-node.png)
 
-초보자 흐름: `deno-custom-nodes` 설치 또는 업데이트, ComfyUI 시작, 노드 추가 후 한 번 실행, NVIDIA VFX가 없다는 안내가 나오면 ComfyUI를 완전히 종료, `How to install` 버튼의 설치 가이드 순서대로 진행, BAT에서 경로를 확인하고 `Y`, 완료 후 ComfyUI 재시작.
+초보자 흐름: `deno-custom-nodes` 설치 또는 업데이트, ComfyUI 시작, 노드 추가 후 한 번 실행, NVIDIA VFX가 없거나 구버전을 갱신하려면 `How to install` 버튼으로 [설치 가이드](https://deno2026.github.io/comfyui-deno-custom-nodes/rtx-vfx-install/)를 열기, ComfyUI 완전 종료, 가이드의 ZIP을 `ComfyUI\custom_nodes\deno-custom-nodes\tools`로 옮겨 압축 해제, 그 안의 `install_rtx_vfx.bat` 실행, BAT에서 ComfyUI Python 경로를 확인하고 `Y`, 녹색 `INSTALL COMPLETE` 확인 후 ComfyUI 재시작.
 
-NVIDIA 공식 참고 링크: [NVIDIA Maxine Windows Getting Started](https://docs.nvidia.com/deeplearning/maxine/vfx-sdk-programming-guide/index.html), [RTX Video FAQ](https://nvidia.custhelp.com/app/answers/detail/a_id/5448/~/rtx-video-faq).
+NVIDIA 공식 참고 링크: [현재 NVIDIA 패키지 요구사항·변경 이력](https://pypi.org/project/nvidia-vfx/), [현재 VFX SDK Windows 요구사항](https://docs.nvidia.com/maxine/vfx/latest/WindowsVFXSDK/GetStartedonWindows.html), [Video Super Resolution 안내](https://docs.nvidia.com/maxine/vfx/latest/Filters/VideoSuperResolution.html).
 
 ### `(Deno) RTX Video Super Resolution (2 Pass)`
 
