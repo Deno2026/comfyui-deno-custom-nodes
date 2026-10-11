@@ -80,6 +80,7 @@ CUSTOM_SERVER_DEFAULT = "http://127.0.0.1:8000/v1"
 LLAMA_SWAP_DEFAULT_SERVER = "http://127.0.0.1:8080/v1"
 UNSLOTH_DEFAULT_SERVER = "http://127.0.0.1:8888/v1"
 UNSLOTH_API_KEY_ENV = "DENO_LOCAL_LLM_UNSLOTH_API_KEY"
+LM_STUDIO_API_KEY_ENV = "DENO_LOCAL_LLM_LM_STUDIO_API_KEY"
 LEGACY_CUSTOM_SERVER_DEFAULT = CUSTOM_SERVER_DEFAULT
 LOCAL_LLM_IMAGE_MAX_SIDE = 2048
 LOCAL_LLM_IMAGE_MAX_PIXELS = 2 * 1024 * 1024
@@ -635,6 +636,24 @@ def _unsloth_authentication_error(exc: RuntimeError) -> RuntimeError:
         return RuntimeError(
             "Unsloth authentication failed (HTTP 401). Check "
             f"{UNSLOTH_API_KEY_ENV} in the ComfyUI host environment, then restart ComfyUI."
+        )
+    return exc
+
+
+def _lm_studio_request_headers() -> Optional[Dict[str, str]]:
+    api_key = str(_read_process_environment(LM_STUDIO_API_KEY_ENV) or "").strip()
+    if not api_key:
+        return None
+    return {"Authorization": f"Bearer {api_key}"}
+
+
+def _lm_studio_authentication_error(exc: RuntimeError) -> RuntimeError:
+    message = str(exc or "")
+    lowered = message.lower()
+    if "http 401" in lowered or "unauthorized" in lowered or "authentication" in lowered:
+        return RuntimeError(
+            "LM Studio authentication failed (HTTP 401). If LM Studio requires an API key, set "
+            f"{LM_STUDIO_API_KEY_ENV} in the ComfyUI host environment, then restart ComfyUI."
         )
     return exc
 
@@ -2906,7 +2925,18 @@ def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]
 
     base = _normalize_lm_native_url(server_url)
     try:
-        payload = _http_json(f"{base}/api/v1/models", timeout=10.0)
+        payload = _http_json(
+            f"{base}/api/v1/models",
+            timeout=10.0,
+            headers=_lm_studio_request_headers(),
+        )
+    except RuntimeError as exc:
+        auth_error = _lm_studio_authentication_error(exc)
+        if auth_error is not exc:
+            _invalidate_lm_studio_models_cache(base)
+            raise auth_error from exc
+        _invalidate_lm_studio_models_cache(base)
+        raise
     except Exception:
         _invalidate_lm_studio_models_cache(base)
         raise
@@ -3186,8 +3216,12 @@ def _lm_unload_best_effort(native_base: str, model: str) -> None:
             {"instance_id": instance_id},
             method="POST",
             timeout=15.0,
+            headers=_lm_studio_request_headers(),
         )
     except RuntimeError as exc:
+        auth_error = _lm_studio_authentication_error(exc)
+        if auth_error is not exc:
+            raise auth_error from exc
         message = str(exc).lower()
         if "model_not_found" in message or "not loaded" in message:
             _mark_lm_studio_model_unloaded(native_base, model)
@@ -4403,6 +4437,7 @@ class DenoLocalLLMRefiner:
         openai_base = _normalize_lm_openai_url(server_url)
         memory_value = _normalize_model_memory(model_memory)
         keep_minutes_value = max(1, int(keep_minutes))
+        request_headers = _lm_studio_request_headers()
         internal_system_prompt = STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION
         if system_prompt.strip():
             internal_system_prompt = f"{system_prompt}\n\n{internal_system_prompt}"
@@ -4447,10 +4482,13 @@ class DenoLocalLLMRefiner:
             final_meta: Dict[str, Any] = {}
             had_stream_output = False
             try:
+                stream_kwargs: Dict[str, Any] = {"cancel_key": cancel_key}
+                if request_headers:
+                    stream_kwargs["headers"] = request_headers
                 for _event_name, chunk in _http_stream_sse(
                     f"{openai_base}/chat/completions",
                     request_payload,
-                    cancel_key=cancel_key,
+                    **stream_kwargs,
                 ):
                     if chunk.get("error"):
                         error = chunk.get("error")
@@ -4500,6 +4538,9 @@ class DenoLocalLLMRefiner:
             except _LMStudioStreamRequestError:
                 raise
             except RuntimeError as exc:
+                auth_error = _lm_studio_authentication_error(exc)
+                if auth_error is not exc:
+                    raise auth_error from exc
                 if _looks_like_unsupported_lm_studio_reasoning_error(exc):
                     raise _LMStudioStreamRequestError(exc, had_output=had_stream_output) from exc
                 raise
