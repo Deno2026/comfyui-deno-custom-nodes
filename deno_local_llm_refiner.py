@@ -81,6 +81,7 @@ LLAMA_SWAP_DEFAULT_SERVER = "http://127.0.0.1:8080/v1"
 UNSLOTH_DEFAULT_SERVER = "http://127.0.0.1:8888/v1"
 UNSLOTH_API_KEY_ENV = "DENO_LOCAL_LLM_UNSLOTH_API_KEY"
 LM_STUDIO_API_KEY_ENV = "DENO_LOCAL_LLM_LM_STUDIO_API_KEY"
+LOCAL_LLM_API_KEY_ENV = "DENO_LOCAL_LLM_API_KEY"
 LEGACY_CUSTOM_SERVER_DEFAULT = CUSTOM_SERVER_DEFAULT
 LOCAL_LLM_IMAGE_MAX_SIDE = 2048
 LOCAL_LLM_IMAGE_MAX_PIXELS = 2 * 1024 * 1024
@@ -629,10 +630,17 @@ def _unsloth_request_headers() -> Dict[str, str]:
     return {"Authorization": f"Bearer {api_key}"}
 
 
+def _is_local_llm_authentication_error(message: str) -> bool:
+    lowered = message.lower()
+    status = re.search(r"\bhttp\s+([1-5]\d{2})\b", lowered)
+    if status:
+        return status.group(1) == "401"
+    return "unauthorized" in lowered or "authentication" in lowered
+
+
 def _unsloth_authentication_error(exc: RuntimeError) -> RuntimeError:
     message = str(exc or "")
-    lowered = message.lower()
-    if "http 401" in lowered or "unauthorized" in lowered or "authentication" in lowered:
+    if _is_local_llm_authentication_error(message):
         return RuntimeError(
             "Unsloth authentication failed (HTTP 401). Check "
             f"{UNSLOTH_API_KEY_ENV} in the ComfyUI host environment, then restart ComfyUI."
@@ -643,19 +651,84 @@ def _unsloth_authentication_error(exc: RuntimeError) -> RuntimeError:
 def _lm_studio_request_headers() -> Optional[Dict[str, str]]:
     api_key = str(_read_process_environment(LM_STUDIO_API_KEY_ENV) or "").strip()
     if not api_key:
+        api_key = str(_read_process_environment(LOCAL_LLM_API_KEY_ENV) or "").strip()
+    if not api_key:
         return None
     return {"Authorization": f"Bearer {api_key}"}
 
 
 def _lm_studio_authentication_error(exc: RuntimeError) -> RuntimeError:
     message = str(exc or "")
-    lowered = message.lower()
-    if "http 401" in lowered or "unauthorized" in lowered or "authentication" in lowered:
+    if _is_local_llm_authentication_error(message):
         return RuntimeError(
             "LM Studio authentication failed (HTTP 401). If LM Studio requires an API key, set "
-            f"{LM_STUDIO_API_KEY_ENV} in the ComfyUI host environment, then restart ComfyUI."
+            f"{LM_STUDIO_API_KEY_ENV} or {LOCAL_LLM_API_KEY_ENV} in the ComfyUI host environment, then restart ComfyUI."
         )
     return exc
+
+
+def _openai_compatible_request_headers(provider: str) -> Optional[Dict[str, str]]:
+    provider = _normalize_provider(provider)
+    if provider == PROVIDER_UNSLOTH:
+        return _unsloth_request_headers()
+    if provider == PROVIDER_LM_STUDIO:
+        return _lm_studio_request_headers()
+    elif provider not in OPENAI_COMPATIBLE_PROVIDERS:
+        return None
+    api_key = str(_read_process_environment(LOCAL_LLM_API_KEY_ENV) or "").strip()
+    return {"Authorization": f"Bearer {api_key}"} if api_key else None
+
+
+def _openai_compatible_authentication_error(provider: str, exc: RuntimeError) -> RuntimeError:
+    if provider == PROVIDER_UNSLOTH:
+        return _unsloth_authentication_error(exc)
+    if provider == PROVIDER_LM_STUDIO:
+        return _lm_studio_authentication_error(exc)
+    if _is_local_llm_authentication_error(str(exc or "")):
+        return RuntimeError(
+            f"{provider} authentication failed (HTTP 401). Check {LOCAL_LLM_API_KEY_ENV} "
+            "in the ComfyUI host environment, then restart ComfyUI."
+        )
+    return exc
+
+
+def _redact_local_llm_credentials(value: Any, headers: Optional[Dict[str, str]]) -> str:
+    text = str(value)
+    tokens = []
+    for name, value in (headers or {}).items():
+        if str(name).lower() != "authorization":
+            continue
+        parts = str(value).split(None, 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer" and parts[1]:
+            tokens.append(parts[1])
+    if not tokens:
+        return text
+
+    def redact(item):
+        if isinstance(item, str):
+            for token in tokens:
+                item = item.replace(token, "[redacted]")
+        elif isinstance(item, list):
+            item = [redact(child) for child in item]
+        elif isinstance(item, dict):
+            item = {redact(key): redact(child) for key, child in item.items()}
+        return item
+
+    try:
+        decoded = json.loads(text)
+    except (ValueError, TypeError):
+        return redact(text)
+    cleaned = redact(decoded)
+    return json.dumps(cleaned, ensure_ascii=False) if cleaned != decoded else text
+
+
+def _redact_local_llm_response_error(payload: Dict[str, Any], headers: Optional[Dict[str, str]]) -> Dict[str, Any]:
+    if headers and payload.get("error"):
+        payload = dict(payload)
+        payload["error"] = json.loads(_redact_local_llm_credentials(
+            json.dumps(payload["error"], ensure_ascii=False), headers,
+        ))
+    return payload
 
 
 def _normalize_ollama_url(server_url: str) -> str:
@@ -816,7 +889,7 @@ def _http_json(
         response = connection.getresponse()
         data = response.read().decode("utf-8", errors="replace")
         if response.status >= 400:
-            raise _local_llm_http_error(response.status, data, payload)
+            raise _local_llm_http_error(response.status, _redact_local_llm_credentials(data, headers), payload)
     except (TimeoutError, OSError, http.client.HTTPException) as exc:
         raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
     finally:
@@ -834,6 +907,7 @@ def _http_expect_success(
     method: str = "GET",
     timeout: float = 20.0,
     error_payload: Optional[Dict[str, Any]] = None,
+    headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[int, str]:
     """Return status/text without requiring a JSON response body."""
     parsed = _parse_local_llm_url(url)
@@ -842,11 +916,14 @@ def _http_expect_success(
         path = f"{path}?{parsed.query}"
     connection = _open_local_llm_http_connection(parsed, timeout=timeout)
     try:
-        connection.request(method.upper(), path, headers={"Accept": "*/*"})
+        request_headers = {"Accept": "*/*"}
+        if headers:
+            request_headers.update({str(key): str(value) for key, value in headers.items()})
+        connection.request(method.upper(), path, headers=request_headers)
         response = connection.getresponse()
         data = response.read().decode("utf-8", errors="replace")
         if not 200 <= response.status < 300:
-            raise _local_llm_http_error(response.status, data, error_payload)
+            raise _local_llm_http_error(response.status, _redact_local_llm_credentials(data, headers), error_payload)
         return response.status, data
     except (TimeoutError, OSError, http.client.HTTPException) as exc:
         raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
@@ -896,7 +973,7 @@ def _http_stream_sse(
                 if data_lines:
                     data = "\n".join(data_lines).strip()
                     if data and data != "[DONE]":
-                        yield event_name, json.loads(data)
+                        yield event_name, _redact_local_llm_response_error(json.loads(data), headers)
                 event_name = "message"
                 data_lines = []
                 continue
@@ -907,7 +984,7 @@ def _http_stream_sse(
         if data_lines:
             data = "\n".join(data_lines).strip()
             if data and data != "[DONE]":
-                yield event_name, json.loads(data)
+                yield event_name, _redact_local_llm_response_error(json.loads(data), headers)
     except (TimeoutError, OSError, http.client.HTTPException) as exc:
         raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
 
@@ -938,7 +1015,7 @@ def _iter_cancellable_response_lines(
             response = connection.getresponse()
             if response.status >= 400:
                 message = response.read().decode("utf-8", errors="replace")
-                raise _local_llm_http_error(response.status, message, payload)
+                raise _local_llm_http_error(response.status, _redact_local_llm_credentials(message, headers), payload)
             while not stop_event.is_set():
                 raw_line = response.readline()
                 if raw_line == b"":
@@ -2868,7 +2945,7 @@ def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]
 
     if provider in OPENAI_COMPATIBLE_PROVIDERS:
         server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
-        request_headers = _unsloth_request_headers() if provider == PROVIDER_UNSLOTH else None
+        request_headers = _openai_compatible_request_headers(provider)
         try:
             if request_headers:
                 payload = _http_json(
@@ -2879,16 +2956,16 @@ def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]
             else:
                 payload = _http_json(f"{openai_base}/models", timeout=10.0)
         except RuntimeError as exc:
-            if provider == PROVIDER_UNSLOTH:
-                auth_error = _unsloth_authentication_error(exc)
-                if auth_error is not exc:
-                    raise auth_error from exc
+            auth_error = _openai_compatible_authentication_error(provider, exc)
+            if auth_error is not exc:
+                raise auth_error from exc
             raise
         models = payload.get("data") or payload.get("models") or []
         llama_swap_running: Set[str] = set()
         if provider == PROVIDER_LLAMA_SWAP:
             try:
-                running_payload = _http_json(f"{server_root}/running", timeout=10.0)
+                running_kwargs = {"headers": request_headers} if request_headers else {}
+                running_payload = _http_json(f"{server_root}/running", timeout=10.0, **running_kwargs)
                 llama_swap_running = _llama_swap_running_model_ids(running_payload)
             except Exception:
                 pass
@@ -2928,7 +3005,7 @@ def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]
         payload = _http_json(
             f"{base}/api/v1/models",
             timeout=10.0,
-            headers=_lm_studio_request_headers(),
+            headers=_openai_compatible_request_headers(PROVIDER_LM_STUDIO),
         )
     except RuntimeError as exc:
         auth_error = _lm_studio_authentication_error(exc)
@@ -3062,12 +3139,21 @@ def _llama_swap_model_path(model: str) -> str:
 
 def _llama_swap_unload(server_root: str, model: str) -> None:
     encoded_model = _llama_swap_model_path(model)
-    _http_expect_success(
-        f"{_strip_trailing_slash(server_root)}/api/models/unload/{encoded_model}",
-        method="POST",
-        timeout=20.0,
-        error_payload={"model": model},
-    )
+    request_headers = _openai_compatible_request_headers(PROVIDER_LLAMA_SWAP)
+    request_kwargs = {"headers": request_headers} if request_headers else {}
+    try:
+        _http_expect_success(
+            f"{_strip_trailing_slash(server_root)}/api/models/unload/{encoded_model}",
+            method="POST",
+            timeout=20.0,
+            error_payload={"model": model},
+            **request_kwargs,
+        )
+    except RuntimeError as exc:
+        auth_error = _openai_compatible_authentication_error(PROVIDER_LLAMA_SWAP, exc)
+        if auth_error is not exc:
+            raise auth_error from exc
+        raise
 
 
 def _llama_swap_entry_is_running(entry: Dict[str, Any]) -> bool:
@@ -3157,7 +3243,9 @@ def _llama_swap_is_model_loaded(server_root: str, model: str) -> bool:
     model = str(model or "").strip()
     if not model:
         return False
-    payload = _http_json(f"{_strip_trailing_slash(server_root)}/running", timeout=10.0)
+    request_headers = _openai_compatible_request_headers(PROVIDER_LLAMA_SWAP)
+    request_kwargs = {"headers": request_headers} if request_headers else {}
+    payload = _http_json(f"{_strip_trailing_slash(server_root)}/running", timeout=10.0, **request_kwargs)
     running = _llama_swap_running_model_ids(payload)
     return (
         model in running
@@ -3216,7 +3304,7 @@ def _lm_unload_best_effort(native_base: str, model: str) -> None:
             {"instance_id": instance_id},
             method="POST",
             timeout=15.0,
-            headers=_lm_studio_request_headers(),
+            headers=_openai_compatible_request_headers(PROVIDER_LM_STUDIO),
         )
     except RuntimeError as exc:
         auth_error = _lm_studio_authentication_error(exc)
@@ -3237,8 +3325,12 @@ def _llama_cpp_unload(server_root: str, model: str) -> None:
             {"model": model},
             method="POST",
             timeout=20.0,
+            headers=_openai_compatible_request_headers(PROVIDER_LLAMA_CPP),
         )
     except RuntimeError as exc:
+        auth_error = _openai_compatible_authentication_error(PROVIDER_LLAMA_CPP, exc)
+        if auth_error is not exc:
+            raise auth_error from exc
         message = str(exc)
         if "HTTP 404" in message or "HTTP 405" in message:
             raise RuntimeError(
@@ -3269,7 +3361,14 @@ def _vllm_sleep_key(server_root: str, model: str) -> str:
 
 
 def _vllm_sleep(server_root: str, model: str) -> None:
-    _http_json(f"{server_root}/sleep?level=1", {}, method="POST", timeout=30.0)
+    try:
+        _http_json(f"{server_root}/sleep?level=1", {}, method="POST", timeout=30.0,
+                   headers=_openai_compatible_request_headers(PROVIDER_VLLM))
+    except RuntimeError as exc:
+        auth_error = _openai_compatible_authentication_error(PROVIDER_VLLM, exc)
+        if auth_error is not exc:
+            raise auth_error from exc
+        raise
     _SLEEPING_VLLM_KEYS.add(_vllm_sleep_key(server_root, model))
 
 
@@ -3277,7 +3376,14 @@ def _vllm_wake_if_needed(server_root: str, model: str) -> Dict[str, Any]:
     key = _vllm_sleep_key(server_root, model)
     if key not in _SLEEPING_VLLM_KEYS:
         return {"action": "none"}
-    _http_json(f"{server_root}/wake_up", {}, method="POST", timeout=60.0)
+    try:
+        _http_json(f"{server_root}/wake_up", {}, method="POST", timeout=60.0,
+                   headers=_openai_compatible_request_headers(PROVIDER_VLLM))
+    except RuntimeError as exc:
+        auth_error = _openai_compatible_authentication_error(PROVIDER_VLLM, exc)
+        if auth_error is not exc:
+            raise auth_error from exc
+        raise
     _SLEEPING_VLLM_KEYS.discard(key)
     return {"action": "wake_up"}
 
@@ -4256,7 +4362,7 @@ class DenoLocalLLMRefiner:
     ) -> Tuple[str, str, Dict[str, Any]]:
         provider = _normalize_provider(provider)
         server_root, openai_base = _normalize_openai_compatible_urls(provider, server_url)
-        request_headers = _unsloth_request_headers() if provider == PROVIDER_UNSLOTH else None
+        request_headers = _openai_compatible_request_headers(provider)
         memory_value = _normalize_model_memory(model_memory)
         keep_minutes_value = max(1, int(keep_minutes))
         wake_info: Dict[str, Any] = {"action": "none"}
@@ -4284,10 +4390,9 @@ class DenoLocalLLMRefiner:
         cancel_key = _llm_state_key(provider, openai_base, model)
 
         def raise_image_hint(exc: RuntimeError) -> None:
-            if provider == PROVIDER_UNSLOTH:
-                auth_error = _unsloth_authentication_error(exc)
-                if auth_error is not exc:
-                    raise auth_error from exc
+            auth_error = _openai_compatible_authentication_error(provider, exc)
+            if auth_error is not exc:
+                raise auth_error from exc
             message = str(exc)
             lowered = message.lower()
             if image_attachments and any(marker in lowered for marker in ("image", "vision", "multimodal", "image_url", "content part")):
@@ -4308,6 +4413,7 @@ class DenoLocalLLMRefiner:
                     payload,
                     **stream_kwargs,
                 ):
+                    chunk = _redact_local_llm_response_error(chunk, request_headers)
                     if chunk.get("error"):
                         error = chunk.get("error")
                         if isinstance(error, dict):
@@ -4437,7 +4543,7 @@ class DenoLocalLLMRefiner:
         openai_base = _normalize_lm_openai_url(server_url)
         memory_value = _normalize_model_memory(model_memory)
         keep_minutes_value = max(1, int(keep_minutes))
-        request_headers = _lm_studio_request_headers()
+        request_headers = _openai_compatible_request_headers(PROVIDER_LM_STUDIO)
         internal_system_prompt = STRUCTURED_FINAL_ANSWER_SYSTEM_INSTRUCTION
         if system_prompt.strip():
             internal_system_prompt = f"{system_prompt}\n\n{internal_system_prompt}"
@@ -4490,6 +4596,7 @@ class DenoLocalLLMRefiner:
                     request_payload,
                     **stream_kwargs,
                 ):
+                    chunk = _redact_local_llm_response_error(chunk, request_headers)
                     if chunk.get("error"):
                         error = chunk.get("error")
                         if isinstance(error, dict):
@@ -4535,7 +4642,10 @@ class DenoLocalLLMRefiner:
                             "answer": "",
                             "thinking": "\n".join(visible_thinking_parts).strip(),
                         })
-            except _LMStudioStreamRequestError:
+            except _LMStudioStreamRequestError as exc:
+                auth_error = _lm_studio_authentication_error(exc)
+                if auth_error is not exc:
+                    raise auth_error from exc
                 raise
             except RuntimeError as exc:
                 auth_error = _lm_studio_authentication_error(exc)

@@ -288,11 +288,22 @@ Negative preset 不是输出模式，而是自动填充下方 negative prompt �
 
 主要功能：调用 Ollama、LM Studio、llama.cpp、vLLM、Custom OpenAI-compatible server、llama-swap 或 Unsloth Studio 模型；默认使用 `127.0.0.1` / `localhost`，也可通过 `DENO_LOCAL_LLM_ALLOWED_HOSTS` 明确允许私有局域网的精确 `IP:port`；刷新各 provider 的模型列表；停止正在运行的请求；通过 llama-swap / Unsloth Studio 管理 API 手动或在运行后卸载；在一次节点运行中顺序处理 prompt batch；向 vision 模型附加 IMAGE；预览 Thinking / Result；在 Save 节点前 gate IMAGE / AUDIO；一次性批准当前 review 结果；或只重跑 reviewer 前的路径。Local LLM 节点的最终 Result 会写入 PNG / workflow metadata，重新打开时恢复到节点中，而 Thinking / reasoning 不会保存。
 
-`Unsloth` provider 仅用于 Unsloth Studio server，默认地址是 `http://127.0.0.1:8888/v1`。若在 LM Studio 中运行来自 Unsloth 的 GGUF，请选择 `LM Studio` 而非 `Unsloth`。使用前需要在启动 ComfyUI 之前设置 `DENO_LOCAL_LLM_UNSLOTH_API_KEY` 环境变量；该 key 不会保存到 workflow 或 PNG metadata。
+`Unsloth` provider 仅用于 Unsloth Studio server，默认地址是 `http://127.0.0.1:8888/v1`。若在 LM Studio 中运行来自 Unsloth 的 GGUF，请选择 `LM Studio` 而非 `Unsloth`。
 
-专用 `LM Studio` provider 支持 API key 认证：若 LM Studio 开启了 API key，请在启动 ComfyUI 前设置 `DENO_LOCAL_LLM_LM_STUDIO_API_KEY` 环境变量。节点会以 Bearer token 形式将 key 附加到对该 LM Studio 服务器的模型列表、对话和卸载请求，且不会保存到 workflow 或 PNG metadata。未设置该变量时，请求不带 Authorization 头，未开启认证的 LM Studio 服务器行为不变；若因 key 缺失或错误收到 HTTP 401，节点会提示设置此变量。
+API 认证 key 从运行 ComfyUI 的主机环境变量读取：
 
-远程 LM Studio：专用 `LM Studio` provider 当前使用 `http://127.0.0.1:1234/v1`。若要调用同一可信局域网内自己另一台 PC 上的 LM Studio，请在该 PC 启用 **Serve on Local Network**，在启动 ComfyUI 前设置精确允许列表（例如 `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`），重启 ComfyUI，然后选择 `Custom`，将 Custom Server URL 设为 `http://192.168.1.50:1234/v1`。允许列表仅接受精确匹配的私有 IP 与端口，不会保存到 workflow 或 PNG metadata。Custom 连接器当前不发送认证 token，也不使用 LM Studio 专用的卸载功能，因此请用服务器 PC 的防火墙将该端口的访问限制为 ComfyUI PC，并在 LM Studio 中管理远程模型。
+| Provider | API key 环境变量 |
+| --- | --- |
+| LM Studio | 可选 `DENO_LOCAL_LLM_LM_STUDIO_API_KEY`；未设置专用 key 时使用 `DENO_LOCAL_LLM_API_KEY` |
+| llama.cpp、vLLM、Custom、llama-swap | 可选 `DENO_LOCAL_LLM_API_KEY` |
+| Unsloth | 必需 `DENO_LOCAL_LLM_UNSLOTH_API_KEY`；不使用通用 key |
+| Ollama | 不发送通用 key |
+
+请在启动 ComfyUI 前设置相应变量，修改 key 后重启 ComfyUI。key 以 Bearer token 发送到模型查询、chat 和 provider 支持的管理请求，包括 LM Studio 卸载和 llama-swap 管理请求。可选认证的 provider 未配置 key 时仍不发送认证头。key 不会保存到 workflow 或 PNG metadata。
+
+同一 PC 上的 Docker LLM server 应将服务端口发布到 host loopback，并使用对应的本地 URL。认证不会改变 localhost / 私有局域网 URL 限制；配置的 key 会发送到所选受支持 provider 的服务器，因此请仅使用可信服务器。
+
+远程 LM Studio：专用 `LM Studio` provider 当前使用 `http://127.0.0.1:1234/v1`。若要调用同一可信局域网内自己另一台 PC 上的 LM Studio，请在该 PC 启用 **Serve on Local Network**，在启动 ComfyUI 前设置精确允许列表（例如 `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`），重启 ComfyUI，然后选择 `Custom`，将 Custom Server URL 设为 `http://192.168.1.50:1234/v1`。若服务器需要认证，请在重启前同时设置 ComfyUI 主机的 `DENO_LOCAL_LLM_API_KEY`。允许列表仅接受精确匹配的私有 IP 与端口，不会保存到 workflow 或 PNG metadata。Custom 不使用 LM Studio 专用的卸载功能，因此请用服务器 PC 的防火墙将该端口的访问限制为 ComfyUI PC，并在 LM Studio 中管理远程模型。
 
 如果 LM Studio 在开始生成前拒绝可选的 reasoning-control 字段，节点会去掉该字段并重试一次。之后的 reasoning 行为由所选 server 与 model 的默认设置决定。
 

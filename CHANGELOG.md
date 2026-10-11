@@ -4,6 +4,12 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.117 - 2026-10-11
+
+- Added optional Bearer-token authentication for LM Studio model discovery, generation and unload, with a dedicated host environment key and a common-key fallback. Addresses #92.
+- Added a common host environment API key for llama.cpp, vLLM, Custom and llama-swap requests, including supported model-management APIs. Documented authenticated Docker and trusted-LAN connections in English, Korean and Chinese.
+- Kept existing unauthenticated connections, Unsloth's dedicated-key requirement, Ollama requests, localhost/private-LAN restrictions and saved workflows unchanged. API keys are never stored in workflow or PNG metadata.
+
 ## 0.7.116 - 2026-10-11
 
 - Re-published the current RTX installation guidance as a fresh Registry submission after v0.7.115 remained pending. Node processing, controls, connections and saved workflows are unchanged.
@@ -58,8 +64,6 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 - Added an automatic DENO top-bar resource monitor with independent queue-safe model/cache cleanup. Without Crystools, Auto shows the complete DENO bar by default, even when another cleanup button exists. With Crystools, it preserves the existing monitor and only supplements missing full-cleanup controls. Existing buttons remain untouched. Button-only mode does not poll hardware; unavailable metrics are not shown as zero.
 - Matched the DENO meters to Crystools' default horizontal appearance, including bar size, spacing, typography, colors, and temperature color mixing; retained the independent cleanup button and narrow-window layout.
-
-- Added optional API-key authentication for the dedicated `LM Studio` provider: when `DENO_LOCAL_LLM_LM_STUDIO_API_KEY` is set in the ComfyUI host environment before startup, the node sends it as a Bearer token on model list, chat, and unload requests, and the key is never stored in a workflow or PNG metadata. Without the variable, requests stay unauthenticated; an LM Studio HTTP 401 now shows a hint naming the variable.
 
 ## 0.7.106 - 2026-09-10
 

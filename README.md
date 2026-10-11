@@ -636,11 +636,20 @@ Main features:
 - pass or block IMAGE and AUDIO outputs from a review text result
 - approve the current reviewed result once, or rerun the path before the reviewer
 
-The `Unsloth` provider requires an API key in the `DENO_LOCAL_LLM_UNSLOTH_API_KEY` environment variable. Set it before starting ComfyUI. The key is not stored in a workflow or PNG metadata.
+API authentication is read from the environment of the ComfyUI host:
 
-The dedicated `LM Studio` provider supports API-key authentication: if LM Studio requires a key, set the `DENO_LOCAL_LLM_LM_STUDIO_API_KEY` environment variable before starting ComfyUI. The key is sent as a Bearer token on model list, chat, and unload requests to the LM Studio server and is never stored in a workflow or PNG metadata. When the variable is unset, requests are sent without an Authorization header so authentication-free LM Studio servers keep working unchanged. If LM Studio returns HTTP 401 because the key is missing or wrong, the node shows a hint naming this variable.
+| Provider | API key environment variable |
+| --- | --- |
+| LM Studio | Optional `DENO_LOCAL_LLM_LM_STUDIO_API_KEY`; falls back to `DENO_LOCAL_LLM_API_KEY` when the dedicated key is unset |
+| llama.cpp, vLLM, Custom, llama-swap | Optional `DENO_LOCAL_LLM_API_KEY` |
+| Unsloth | Required `DENO_LOCAL_LLM_UNSLOTH_API_KEY`; the common key is not used |
+| Ollama | The common key is not sent |
 
-Remote LM Studio note: the dedicated `LM Studio` provider currently uses `http://127.0.0.1:1234/v1`. To call LM Studio on another PC that you own on the same trusted LAN, enable **Serve on Local Network** on that PC, set an exact allowlist before starting ComfyUI (for example `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`), restart ComfyUI, then select `Custom` and use `http://192.168.1.50:1234/v1` as the Custom Server URL. The allowlist accepts exact private IP-and-port pairs only and is never stored in workflows or PNG metadata. The Custom connector does not currently send an authentication token or use LM Studio-specific unload helpers, so restrict the server port to the ComfyUI PC with the host firewall and manage the remote model from LM Studio.
+Set the appropriate variable before starting ComfyUI, and restart ComfyUI after changing it. The key is sent as a Bearer token for model discovery, chat, and provider-supported management requests, including LM Studio unload and llama-swap management. Optional providers keep working without an authentication header when no key is configured. Keys are never stored in workflows or PNG metadata.
+
+For a Docker-hosted LLM server on the same PC, publish the server port on host loopback and use the corresponding local URL. Authentication does not change the localhost/private-LAN URL rules; use only a trusted server because the configured key is sent to the selected supported provider.
+
+Remote LM Studio note: the dedicated `LM Studio` provider currently uses `http://127.0.0.1:1234/v1`. To call LM Studio on another PC that you own on the same trusted LAN, enable **Serve on Local Network** on that PC, set an exact allowlist before starting ComfyUI (for example `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`), restart ComfyUI, then select `Custom` and use `http://192.168.1.50:1234/v1` as the Custom Server URL. If that server requires authentication, also set `DENO_LOCAL_LLM_API_KEY` on the ComfyUI host before restarting. The allowlist accepts exact private IP-and-port pairs only and is never stored in workflows or PNG metadata. Custom does not use LM Studio-specific unload helpers, so restrict the server port to the ComfyUI PC with the host firewall and manage the remote model from LM Studio.
 
 LM Studio compatibility note: if LM Studio rejects its optional reasoning-control field before any generated output starts, the node retries once without that field. The selected server and model then decide their default reasoning behavior; the Thinking toggle cannot force a reasoning mode that the server does not expose.
 

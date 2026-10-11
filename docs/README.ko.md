@@ -410,9 +410,20 @@ system prompt, user prompt, template, JSON 같은 긴 문구를 별도 노드에
 
 `Unsloth` provider는 Unsloth Studio 서버 전용이며 기본 주소는 `http://127.0.0.1:8888/v1`입니다. Unsloth에서 받은 GGUF를 LM Studio에 불러 실행하는 경우에는 `Unsloth`가 아니라 `LM Studio`를 선택하세요. 이 연동은 Unsloth Studio의 모델 조회와 OpenAI-compatible chat 요청을 사용하고 tool definition/tool choice 필드는 보내지 않으며, 수동 unload와 실행 후 unload에는 Unsloth Studio 관리 API를 사용합니다. `Keep for minutes`는 Unsloth timed unload를 예약하지 않으므로 실제 종료가 필요하면 `Unload after run` 또는 `Unload LLM`을 사용하세요.
 
-`Unsloth` provider를 사용하려면 ComfyUI를 시작하기 전에 `DENO_LOCAL_LLM_UNSLOTH_API_KEY` 환경변수에 API key를 설정해야 합니다. 이 키는 workflow나 PNG 메타데이터에 저장되지 않습니다.
+API 인증 키는 ComfyUI를 실행하는 PC의 환경변수에서 읽습니다.
 
-서브컴 LM Studio 참고: 현재 전용 `LM Studio` provider 주소는 `http://127.0.0.1:1234/v1`로 고정되어 있습니다. 같은 신뢰 가능한 LAN의 본인 서브컴을 호출하려면 서브컴 LM Studio에서 **Serve on Local Network**를 켜고, 메인컴에서 ComfyUI를 시작하기 전에 정확한 주소를 허용 목록에 넣으세요(예: `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`). ComfyUI를 완전히 다시 시작한 뒤 Provider를 `Custom`, Custom Server URL을 `http://192.168.1.50:1234/v1`로 설정하면 됩니다. 허용 목록은 정확한 사설 IP와 포트만 받으며 workflow나 PNG 메타데이터에는 저장되지 않습니다. 현재 Custom 연결은 인증 token이나 LM Studio 전용 unload 기능을 보내지 않으므로, 방화벽에서 해당 포트를 메인 ComfyUI PC로 제한하고 원격 모델 관리는 LM Studio에서 직접 하세요.
+| Provider | API key 환경변수 |
+| --- | --- |
+| LM Studio | 선택형 `DENO_LOCAL_LLM_LM_STUDIO_API_KEY`; 전용 키가 없으면 `DENO_LOCAL_LLM_API_KEY` 사용 |
+| llama.cpp, vLLM, Custom, llama-swap | 선택형 `DENO_LOCAL_LLM_API_KEY` |
+| Unsloth | 필수 `DENO_LOCAL_LLM_UNSLOTH_API_KEY`; 공통 키는 사용하지 않음 |
+| Ollama | 공통 키를 보내지 않음 |
+
+ComfyUI를 시작하기 전에 해당 환경변수를 설정하고, 키를 변경한 뒤에는 ComfyUI를 완전히 다시 시작하세요. 키는 모델 조회, chat과 provider가 지원하는 관리 요청에 Bearer token으로 보내며 LM Studio unload와 llama-swap 관리 요청에도 적용됩니다. 선택형 인증 provider는 키가 없으면 기존처럼 인증 헤더 없이 연결합니다. 키는 workflow나 PNG 메타데이터에 저장되지 않습니다.
+
+같은 PC의 Docker에서 LLM 서버를 실행한다면 서버 포트를 host loopback에 공개하고 해당 로컬 URL을 사용하세요. 인증을 설정해도 localhost/사설 LAN 주소 제한은 그대로입니다. 설정한 키는 선택한 지원 provider의 서버로 보내므로 신뢰하는 서버만 사용하세요.
+
+서브컴 LM Studio 참고: 현재 전용 `LM Studio` provider 주소는 `http://127.0.0.1:1234/v1`로 고정되어 있습니다. 같은 신뢰 가능한 LAN의 본인 서브컴을 호출하려면 서브컴 LM Studio에서 **Serve on Local Network**를 켜고, 메인컴에서 ComfyUI를 시작하기 전에 정확한 주소를 허용 목록에 넣으세요(예: `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`). ComfyUI를 완전히 다시 시작한 뒤 Provider를 `Custom`, Custom Server URL을 `http://192.168.1.50:1234/v1`로 설정하면 됩니다. 서버에서 인증을 요구하면 재시작 전에 메인컴의 `DENO_LOCAL_LLM_API_KEY`도 설정하세요. 허용 목록은 정확한 사설 IP와 포트만 받으며 workflow나 PNG 메타데이터에는 저장되지 않습니다. Custom은 LM Studio 전용 unload 기능을 사용하지 않으므로, 방화벽에서 해당 포트를 메인 ComfyUI PC로 제한하고 원격 모델 관리는 LM Studio에서 직접 하세요.
 
 LM Studio 호환 참고: LM Studio가 생성 출력을 시작하기 전에 선택형 reasoning 제어 필드를 거부하면 노드는 그 필드만 뺀 요청으로 한 번 재시도합니다. 그 이후 reasoning 기본 동작은 선택한 서버와 모델이 결정하므로, Thinking toggle만으로 서버가 노출하지 않는 reasoning 모드를 강제할 수는 없습니다.
 
