@@ -401,7 +401,7 @@ Beginner install flow:
 2. Add `(Deno) RTX Video Super Resolution` and run it once with an image.
 3. Click the node's `How to install` button if NVIDIA VFX is missing or you want to update an older installation.
 4. Close every ComfyUI window/process before running the installer.
-5. Follow the visual web install guide: download the ZIP from that page, move it into `ComfyUI\custom_nodes\deno-custom-nodes\tools`, choose `Extract All` with the destination set to that `tools` folder itself, and run `tools\install_rtx_vfx.bat`. If Windows created an `install_rtx_vfx_bat` subfolder, move both `install_rtx_vfx.bat` and `README_RTX_VFX_EASY_INSTALL.md` directly into `tools` before running the BAT.
+5. Follow the visual web install guide: download the ZIP from that page, move it into `ComfyUI\custom_nodes\deno-custom-nodes\tools`, choose `Extract All` with the destination set to that `tools` folder itself, and run `tools\install_rtx_vfx.bat`. If Windows created an `install_rtx_vfx_bat` subfolder, move all three files (`install_rtx_vfx.bat`, `verify_rtx_vfx.py`, and `README_RTX_VFX_EASY_INSTALL.md`) directly into `tools` before running the BAT.
 6. If the BAT asks `Install RTX VFX here?`, type `Y` only when the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type `N` and stop.
 7. Wait for the green `INSTALL COMPLETE` message.
 8. Restart ComfyUI completely, then use `(Deno) RTX Video Super Resolution` again.
@@ -440,6 +440,7 @@ Main features:
 - installer first verifies the normal `nvvfx` package path used by the current ComfyUI Python
 - installer uses the ASCII Windows runtime fallback only when the normal `nvvfx` path fails verification
 - node startup prefers the recorded ASCII fallback path only when that fallback was actually selected
+- fallback paths must stay under the installer-created `%PUBLIC%\DENO\nvvfx_runtime` tree, match this Python version, and expose only the `nvvfx` package; invalid or redirected paths are ignored with a reinstall notice
 - if another NVIDIA VFX native module is already loaded from a conflicting path, the node stops and asks for a full ComfyUI restart instead of trying to reload the native extension
 - installer verifies that NVIDIA's `VideoSuperRes` effect can actually be created after install
 - if NVIDIA VFX reports an unsupported runtime feature, the node shows a readable GPU/driver/runtime-path message instead of a raw stack trace

@@ -2,6 +2,7 @@
 
 import ast
 import importlib.metadata
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -18,6 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BAT_PATH = REPO_ROOT / "tools" / "install_rtx_vfx.bat"
 ZIP_PATH = REPO_ROOT / "tools" / "install_rtx_vfx_bat.zip"
 INSTALLER_README_PATH = REPO_ROOT / "tools" / "README_RTX_VFX_EASY_INSTALL.md"
+VERIFIER_PATH = REPO_ROOT / "tools" / "verify_rtx_vfx.py"
 POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
 
 
@@ -134,9 +136,16 @@ def _run_check(code):
     exec(compile(code, str(BAT_PATH), "exec"), {})
 
 
+def _run_runtime_check(fallback):
+    spec = importlib.util.spec_from_file_location("deno_rtx_verifier_test", VERIFIER_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.verify_runtime(Path(os.environ["DENO_NVVFX_RUNTIME_PATH"]) if fallback else None)
+
+
 def test_all_embedded_python_commands_parse():
     commands = _python_commands()
-    assert len(commands) == 5
+    assert len(commands) == 3
     for command in commands:
         ast.parse(command)
 
@@ -182,14 +191,12 @@ def test_runtime_verification_rejects_old_or_mismatched_copies(
     )
     # The shipped fallback prepends sys.path. Restore it when this test ends.
     monkeypatch.setattr(sys, "path", sys.path.copy())
-    marker = "DENO ASCII nvvfx runtime ready" if fallback else "Native nvvfx runtime ready"
-    code = _command_containing(marker)
     if rejection:
         with pytest.raises(AssertionError, match=re.escape(rejection)):
-            _run_check(code)
+            _run_runtime_check(fallback)
         assert events == [], "An old or mismatched runtime must fail before creating effects"
     else:
-        _run_check(code)
+        _run_runtime_check(fallback)
         assert events == [event for quality in range(4)
                           for event in (("created", quality, 0), ("closed",))] + [
             ("zeros", (3, 360, 640), "cuda:0", "FAKE FLOAT32"),
@@ -219,9 +226,8 @@ def test_runtime_smoke_fails_closed_and_releases_effect(monkeypatch, tmp_path, f
     monkeypatch.setenv("DENO_NVVFX_RUNTIME_PATH", str(runtime))
     monkeypatch.setattr(sys, "path", sys.path.copy())
     events = _fake_runtime(monkeypatch, module_path=str(runtime / "nvvfx"), **failure)
-    marker = "DENO ASCII nvvfx runtime ready" if fallback else "Native nvvfx runtime ready"
     with pytest.raises(error_type, match=message):
-        _run_check(_command_containing(marker))
+        _run_runtime_check(fallback)
     assert events[-2:] == [("closed",), ("synchronized", 0)]
 
 
@@ -231,7 +237,7 @@ def test_fallback_verification_rejects_sibling_prefix_path(monkeypatch, tmp_path
     monkeypatch.setattr(sys, "path", sys.path.copy())
     events = _fake_runtime(monkeypatch, module_path=str(runtime / "nvvfx_stale"))
     with pytest.raises(AssertionError, match="path was not used during verification"):
-        _run_check(_command_containing("DENO ASCII nvvfx runtime ready"))
+        _run_runtime_check(True)
     assert events == []
 
 
@@ -311,11 +317,24 @@ def test_powershell_launcher_keeps_requirement_comparator_and_no_deps(tmp_path):
 
 def test_zip_preserves_installer_readme_and_source_content():
     with zipfile.ZipFile(ZIP_PATH) as archive:
-        assert sorted(archive.namelist()) == ["README_RTX_VFX_EASY_INSTALL.md", "install_rtx_vfx.bat"]
+        assert sorted(archive.namelist()) == ["README_RTX_VFX_EASY_INSTALL.md", "install_rtx_vfx.bat", "verify_rtx_vfx.py"]
         # The Windows download uses CRLF; Git checkouts on Linux use LF.
         # Normalize only that platform difference, preserving every other byte.
         for member, source in (
             ("install_rtx_vfx.bat", BAT_PATH),
+            ("verify_rtx_vfx.py", VERIFIER_PATH),
             ("README_RTX_VFX_EASY_INSTALL.md", INSTALLER_README_PATH),
         ):
             assert archive.read(member).replace(b"\r\n", b"\n") == source.read_bytes().replace(b"\r\n", b"\n")
+
+
+def test_installer_requires_verifier_before_installing_and_has_no_dynamic_code():
+    text = _installer_text()
+    assert text.index('if not exist "%VERIFY_SCRIPT%"') < text.index("$installArgs=")
+    assert '"%PYTHON_EXE%" "%VERIFY_SCRIPT%" >>' in text
+    assert '"%PYTHON_EXE%" "%VERIFY_SCRIPT%" --fallback >>' in text
+    assert "ExecutionPolicy" not in text
+    for source in [*_python_commands(), VERIFIER_PATH.read_text(encoding="utf-8")]:
+        tree = ast.parse(source)
+        assert not any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                       and node.func.id in {"exec", "eval"} for node in ast.walk(tree))

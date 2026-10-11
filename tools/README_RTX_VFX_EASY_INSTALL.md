@@ -36,7 +36,7 @@ If you are reading this file from the DENO `tools` folder, start at step 2.
 3. Open your ComfyUI folder, then open:
    `custom_nodes\deno-custom-nodes\tools`
 4. Move `install_rtx_vfx_bat.zip` from `Downloads` into that `tools` folder.
-5. Right-click the ZIP inside `tools`, choose `Extract All`, set the destination to the `deno-custom-nodes\tools` folder itself, and press `Extract`. If Windows created an `install_rtx_vfx_bat` subfolder, move both `install_rtx_vfx.bat` and `README_RTX_VFX_EASY_INSTALL.md` directly into `tools` first.
+5. Right-click the ZIP inside `tools`, choose `Extract All`, set the destination to the `deno-custom-nodes\tools` folder itself, and press `Extract`. If Windows created an `install_rtx_vfx_bat` subfolder, move all three files (`install_rtx_vfx.bat`, `verify_rtx_vfx.py`, and `README_RTX_VFX_EASY_INSTALL.md`) directly into `tools` first.
 6. Double-click the BAT directly inside `tools`:
    `ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat`
 7. The black installer window shows the Windows path it will modify.
@@ -58,7 +58,9 @@ After install, it checks whether NVIDIA's `VideoSuperRes` effect can actually be
 When ComfyUI starts, the DENO node prefers the recorded `C:\Users\Public\DENO\nvvfx_runtime` path only if the fallback marker is active. If the normal ComfyUI Python path works, DENO uses the same `nvvfx` package path as other RTX nodes.
 The node never tries to unload and reload NVIDIA's native extension inside a running ComfyUI process. If another extension already loaded `nvvfx` from a conflicting path, close every ComfyUI window/process completely and start ComfyUI again.
 
-For ComfyUI Manager / Registry installs, the RTX nodes show a `How to install` button that opens the visual web install guide. The BAT and ZIP stay on GitHub instead of inside the Manager package so the Registry security scanner does not block the node pack.
+The installer ZIP contains the BAT, this README, and `verify_rtx_vfx.py`. Keep all three together. The verifier performs the same native load/run checks with ordinary Python functions; no dynamic code execution or PowerShell execution-policy override is needed.
+
+For ComfyUI Manager / Registry installs, the RTX nodes show a `How to install` button that opens the visual web install guide. The BAT and ZIP stay on GitHub instead of inside the Manager package because dependency setup is a separate, user-run operation.
 
 ZIP download:
 <https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/refs/heads/main/tools/install_rtx_vfx_bat.zip>

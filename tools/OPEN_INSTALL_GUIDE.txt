@@ -21,7 +21,7 @@ Beginner flow:
    ComfyUI\custom_nodes\deno-custom-nodes\tools
 5. Right-click the ZIP inside tools, choose Extract All, and set the destination
    to deno-custom-nodes\tools itself. If Windows created an install_rtx_vfx_bat
-   subfolder, move BOTH install_rtx_vfx.bat and README_RTX_VFX_EASY_INSTALL.md
+   subfolder, move all three files (install_rtx_vfx.bat, verify_rtx_vfx.py, and README_RTX_VFX_EASY_INSTALL.md)
    directly into tools before running the BAT.
 6. Run ComfyUI\custom_nodes\deno-custom-nodes\tools\install_rtx_vfx.bat.
 7. Type Y only if the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type N and stop.

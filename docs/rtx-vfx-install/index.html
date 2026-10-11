@@ -667,8 +667,8 @@
             <div class="step-body">
               <p>In <code>deno-custom-nodes\tools</code>, right-click <code>install_rtx_vfx_bat.zip</code> and choose <code>Extract All</code>. Set the destination to <code>deno-custom-nodes\tools</code> itself, then press <code>Extract</code>. Remove the automatically added <code>install_rtx_vfx_bat</code> subfolder from the destination path if Windows adds it.</p>
               <div class="step-points">
-                <div class="point"><b>Do this</b><span>If Windows already created an <code>install_rtx_vfx_bat</code> subfolder, move both <code>install_rtx_vfx.bat</code> and <code>README_RTX_VFX_EASY_INSTALL.md</code> from it directly into <code>tools</code>.</span></div>
-                <div class="point"><b>Check this</b><span>Both <code>install_rtx_vfx.bat</code> and <code>README_RTX_VFX_EASY_INSTALL.md</code> are directly inside <code>deno-custom-nodes\tools</code>.</span></div>
+                <div class="point"><b>Do this</b><span>If Windows already created an <code>install_rtx_vfx_bat</code> subfolder, move all three files (<code>install_rtx_vfx.bat</code>, <code>verify_rtx_vfx.py</code>, and <code>README_RTX_VFX_EASY_INSTALL.md</code>) from it directly into <code>tools</code>.</span></div>
+                <div class="point"><b>Check this</b><span>All three files — <code>install_rtx_vfx.bat</code>, <code>verify_rtx_vfx.py</code>, and <code>README_RTX_VFX_EASY_INSTALL.md</code> — are directly inside <code>deno-custom-nodes\tools</code>.</span></div>
               </div>
             </div>
           </article>
@@ -757,8 +757,8 @@ Important safety checks:
 5. Tell me that the ZIP may first download to my Windows Downloads folder.
 6. Tell me to open my ComfyUI folder, then open custom_nodes\deno-custom-nodes\tools\.
 7. Tell me to move install_rtx_vfx_bat.zip into the deno-custom-nodes\tools folder.
-8. Tell me to right-click the ZIP inside tools, choose Extract All, and set the destination to deno-custom-nodes\tools itself. If Windows created an install_rtx_vfx_bat subfolder, move BOTH install_rtx_vfx.bat and README_RTX_VFX_EASY_INSTALL.md directly into tools.
-9. Tell me to run deno-custom-nodes\tools\install_rtx_vfx.bat only after both files are directly inside tools.
+8. Tell me to right-click the ZIP inside tools, choose Extract All, and set the destination to deno-custom-nodes\tools itself. If Windows created an install_rtx_vfx_bat subfolder, move all three files (install_rtx_vfx.bat, verify_rtx_vfx.py, and README_RTX_VFX_EASY_INSTALL.md) directly into tools.
+9. Tell me to run deno-custom-nodes\tools\install_rtx_vfx.bat only after all three files are directly inside tools.
 10. When the black installer window shows a Windows path and asks "Install RTX VFX here?", help me check that the path is inside my ComfyUI app before I type Y. Explain that seeing python_embeded or python.exe is normal, but the path must still be inside my ComfyUI app.
 11. If the path looks wrong, tell me to type N and stop instead of guessing.
 12. After INSTALL COMPLETE, tell me to fully restart ComfyUI before testing the node again.
@@ -805,7 +805,7 @@ const stepsText = [
   "4. Open your ComfyUI folder.",
   "5. Open custom_nodes\\deno-custom-nodes\\tools\\.",
   "6. Move install_rtx_vfx_bat.zip into that tools folder.",
-  "7. Right-click the ZIP inside tools, choose Extract All, and set the destination to tools itself. If Windows created an install_rtx_vfx_bat subfolder, move BOTH install_rtx_vfx.bat and README_RTX_VFX_EASY_INSTALL.md directly into tools first.",
+  "7. Right-click the ZIP inside tools, choose Extract All, and set the destination to tools itself. If Windows created an install_rtx_vfx_bat subfolder, move all three files (install_rtx_vfx.bat, verify_rtx_vfx.py, and README_RTX_VFX_EASY_INSTALL.md) directly into tools first.",
   "8. Double-click deno-custom-nodes\\tools\\install_rtx_vfx.bat directly inside tools.",
   "9. Type Y only if the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type N and stop.",
   "10. Wait for INSTALL COMPLETE.",

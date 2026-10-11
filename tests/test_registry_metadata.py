@@ -306,6 +306,7 @@ def test_registry_package_links_public_rtx_installer_but_excludes_flagged_files(
     assert "install_rtx_vfx.bat" in tools_stub
     assert "tools/install_rtx_vfx.bat" in comfyignore
     assert "tools/install_rtx_vfx_bat.zip" in comfyignore
+    assert "tools/verify_rtx_vfx.py" in comfyignore
     assert "tools/README_RTX_VFX_EASY_INSTALL.md" in comfyignore
     assert "docs/RTX_VFX_INSTALL_GUIDE.md" in comfyignore
     assert "docs/images/rtx-vfx-install/" in comfyignore
@@ -740,7 +741,7 @@ def test_rtx_vfx_node_info_prefers_install_steps_over_mode_repeats():
     assert "- `High Bitrate`: cleaner source -> sharper upscale." not in node_source
 
 
-def test_prestartup_runtime_path_rejects_wrong_python_version():
+def test_prestartup_runtime_path_rejects_wrong_python_version(monkeypatch):
     spec = importlib.util.spec_from_file_location("deno_prestartup_test", PRESTARTUP_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -751,12 +752,15 @@ def test_prestartup_runtime_path_rejects_wrong_python_version():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
+        monkeypatch.setenv("PUBLIC", str(temp_root))
         package_dir = temp_root / "deno-custom-nodes"
         wrong_runtime = temp_root / "DENO" / "nvvfx_runtime" / wrong_segment / "nvidia_vfx_0_1_0_1"
         right_runtime = temp_root / "DENO" / "nvvfx_runtime" / current_segment / "nvidia_vfx_0_1_0_1"
         (package_dir / "tools").mkdir(parents=True)
         (wrong_runtime / "nvvfx").mkdir(parents=True)
+        (wrong_runtime / "nvvfx" / "__init__.py").write_text("# fixture\n", encoding="utf-8")
         (right_runtime / "nvvfx").mkdir(parents=True)
+        (right_runtime / "nvvfx" / "__init__.py").write_text("# fixture\n", encoding="utf-8")
         marker = package_dir / "tools" / "DENO_RTX_VFX_runtime_path.txt"
 
         marker.write_text(str(wrong_runtime), encoding="utf-8")
@@ -766,7 +770,7 @@ def test_prestartup_runtime_path_rejects_wrong_python_version():
         assert module._runtime_path_from_marker(package_dir) == right_runtime
 
 
-def test_prestartup_runtime_path_is_preferred_before_existing_paths():
+def test_prestartup_runtime_path_is_preferred_before_existing_paths(monkeypatch):
     spec = importlib.util.spec_from_file_location("deno_prestartup_path_test", PRESTARTUP_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -776,12 +780,15 @@ def test_prestartup_runtime_path_is_preferred_before_existing_paths():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
+        monkeypatch.setenv("PUBLIC", str(temp_root))
         package_dir = temp_root / "deno-custom-nodes"
         runtime = temp_root / "DENO" / "nvvfx_runtime" / current_segment / "nvidia_vfx_0_1_0_1"
         other_site_packages = temp_root / "python_embeded" / "Lib" / "site-packages"
         (package_dir / "tools").mkdir(parents=True)
         (runtime / "nvvfx").mkdir(parents=True)
+        (runtime / "nvvfx" / "__init__.py").write_text("# fixture\n", encoding="utf-8")
         (other_site_packages / "nvvfx").mkdir(parents=True)
+        (other_site_packages / "nvvfx" / "__init__.py").write_text("# fixture\n", encoding="utf-8")
         marker = package_dir / "tools" / "DENO_RTX_VFX_runtime_path.txt"
         marker.write_text(str(runtime), encoding="utf-8")
 

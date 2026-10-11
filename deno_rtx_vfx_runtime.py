@@ -3,6 +3,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+try:
+    from .prestartup_script import _runtime_path_from_marker
+except ImportError:
+    from prestartup_script import _runtime_path_from_marker
+
 
 RUNTIME_MARKER_NAME = "DENO_RTX_VFX_runtime_path.txt"
 
@@ -12,8 +17,7 @@ def expected_python_runtime_segment() -> str:
 
 
 def runtime_path_matches_current_python(runtime_path: Path) -> bool:
-    expected_segment = expected_python_runtime_segment()
-    return any(part.lower() == expected_segment for part in runtime_path.parts)
+    return runtime_path.parent.name.lower() == expected_python_runtime_segment()
 
 
 def runtime_marker_path(package_dir: Optional[Path] = None) -> Path:
@@ -22,22 +26,8 @@ def runtime_marker_path(package_dir: Optional[Path] = None) -> Path:
 
 
 def read_rtx_vfx_runtime_path(package_dir: Optional[Path] = None) -> Optional[Path]:
-    marker = runtime_marker_path(package_dir)
-    try:
-        raw_path = marker.read_text(encoding="utf-8").strip().strip('"')
-    except OSError:
-        return None
-
-    if not raw_path:
-        return None
-
-    runtime_path = Path(os.path.expandvars(raw_path))
-    if not (runtime_path / "nvvfx").is_dir():
-        return None
-    if not runtime_path_matches_current_python(runtime_path):
-        return None
-
-    return runtime_path
+    # Startup and node execution enforce the same fallback trust boundary.
+    return _runtime_path_from_marker(package_dir)
 
 
 def _norm_path(path: Path) -> str:
@@ -97,44 +87,14 @@ def loaded_process_module_paths() -> list[str]:
         return []
 
     try:
-        import ctypes
-        from ctypes import wintypes
+        import psutil
 
-        hmodule = getattr(wintypes, "HMODULE", wintypes.HANDLE)
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        psapi = ctypes.WinDLL("psapi", use_last_error=True)
-        psapi.EnumProcessModulesEx.argtypes = [
-            wintypes.HANDLE,
-            ctypes.POINTER(hmodule),
-            wintypes.DWORD,
-            ctypes.POINTER(wintypes.DWORD),
-            wintypes.DWORD,
-        ]
-        psapi.EnumProcessModulesEx.restype = wintypes.BOOL
-        psapi.GetModuleFileNameExW.argtypes = [wintypes.HANDLE, hmodule, wintypes.LPWSTR, wintypes.DWORD]
-        psapi.GetModuleFileNameExW.restype = wintypes.DWORD
-        handle = kernel32.GetCurrentProcess()
-
-        list_modules_all = 0x03
-        needed = wintypes.DWORD()
-        modules = (hmodule * 2048)()
-        if not psapi.EnumProcessModulesEx(
-            handle,
-            modules,
-            ctypes.sizeof(modules),
-            ctypes.byref(needed),
-            list_modules_all,
-        ):
-            return []
-
-        count = min(int(needed.value / ctypes.sizeof(hmodule)), len(modules))
-        paths = []
-        for module in modules[:count]:
-            buffer = ctypes.create_unicode_buffer(32768)
-            length = psapi.GetModuleFileNameExW(handle, module, buffer, len(buffer))
-            if length:
-                paths.append(buffer.value)
-        return paths
+        # Read mapped image paths in this process through the existing dependency.
+        # No native handles, raw pointers or cross-process access are needed.
+        return list(dict.fromkeys(
+            item.path for item in psutil.Process().memory_maps(grouped=True)
+            if item.path and Path(item.path).suffix.lower() in {".dll", ".pyd", ".exe"}
+        ))
     except Exception:
         return []
 

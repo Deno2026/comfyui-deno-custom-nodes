@@ -1802,7 +1802,7 @@ def test_rtx_vfx_code_minus_two_reports_broadcast_runtime_conflict():
     assert "code -2" in message
 
 
-def test_rtx_vfx_runtime_marker_prefers_ascii_copy_without_reloading_native_module():
+def test_rtx_vfx_runtime_marker_prefers_ascii_copy_without_reloading_native_module(monkeypatch):
     load_package()
     runtime_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_runtime"]
 
@@ -1815,6 +1815,7 @@ def test_rtx_vfx_runtime_marker_prefers_ascii_copy_without_reloading_native_modu
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
+            monkeypatch.setenv("PUBLIC", str(temp_root))
             package_dir = temp_root / "deno-custom-nodes"
             runtime_path = (
                 temp_root
@@ -1825,6 +1826,7 @@ def test_rtx_vfx_runtime_marker_prefers_ascii_copy_without_reloading_native_modu
             )
             (package_dir / "tools").mkdir(parents=True)
             (runtime_path / "nvvfx").mkdir(parents=True)
+            (runtime_path / "nvvfx" / "__init__.py").write_text("# fixture\n", encoding="utf-8")
             (package_dir / "tools" / "DENO_RTX_VFX_runtime_path.txt").write_text(
                 str(runtime_path),
                 encoding="utf-8",
@@ -1842,7 +1844,7 @@ def test_rtx_vfx_runtime_marker_prefers_ascii_copy_without_reloading_native_modu
         sys.modules.pop("nvvfx.effects", None)
 
 
-def test_rtx_vfx_runtime_marker_ignores_wrong_python_version():
+def test_rtx_vfx_runtime_marker_ignores_wrong_python_version(monkeypatch):
     load_package()
     runtime_module = sys.modules["comfyui_deno_custom_nodes.deno_rtx_vfx_runtime"]
     current_segment = runtime_module.expected_python_runtime_segment()
@@ -1850,12 +1852,15 @@ def test_rtx_vfx_runtime_marker_ignores_wrong_python_version():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
+        monkeypatch.setenv("PUBLIC", str(temp_root))
         package_dir = temp_root / "deno-custom-nodes"
         wrong_runtime = temp_root / "DENO" / "nvvfx_runtime" / wrong_segment / "nvidia_vfx_0_1_0_1"
         right_runtime = temp_root / "DENO" / "nvvfx_runtime" / current_segment / "nvidia_vfx_0_1_0_1"
         (package_dir / "tools").mkdir(parents=True)
         (wrong_runtime / "nvvfx").mkdir(parents=True)
+        (wrong_runtime / "nvvfx" / "__init__.py").write_text("# fixture\n", encoding="utf-8")
         (right_runtime / "nvvfx").mkdir(parents=True)
+        (right_runtime / "nvvfx" / "__init__.py").write_text("# fixture\n", encoding="utf-8")
         marker = package_dir / "tools" / "DENO_RTX_VFX_runtime_path.txt"
 
         marker.write_text(str(wrong_runtime), encoding="utf-8")

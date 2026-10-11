@@ -25,7 +25,7 @@ const RTX_VFX_INSTALL_STEPS = [
     "4. Download the ZIP from that guide page.",
     "5. Open ComfyUI\\custom_nodes\\deno-custom-nodes\\tools.",
     "6. Move install_rtx_vfx_bat.zip into that tools folder.",
-    "7. Right-click the ZIP inside tools, choose Extract All, and set the destination to tools itself. If Windows created an install_rtx_vfx_bat subfolder, move BOTH install_rtx_vfx.bat and README_RTX_VFX_EASY_INSTALL.md directly into tools first.",
+    "7. Right-click the ZIP inside tools, choose Extract All, and set the destination to tools itself. If Windows created an install_rtx_vfx_bat subfolder, move all three files (install_rtx_vfx.bat, verify_rtx_vfx.py, and README_RTX_VFX_EASY_INSTALL.md) directly into tools first.",
     "8. Double-click deno-custom-nodes\\tools\\install_rtx_vfx.bat directly inside tools.",
     "9. If it asks Install RTX VFX here?, type Y only if the shown Windows path is inside the ComfyUI app you just closed. If it looks wrong, type N and stop.",
     "10. Wait for INSTALL COMPLETE.",

@@ -7,6 +7,7 @@ set "LOG=%TOOL_DIR%DENO_RTX_VFX_install_log.txt"
 set "RUNTIME_PATH_FILE=%TOOL_DIR%DENO_RTX_VFX_runtime_path.txt"
 set "RUNTIME_PATH_TMP=%TEMP%\deno_nvvfx_runtime_path.txt"
 set "PRESTARTUP_SCRIPT=%TOOL_DIR%..\prestartup_script.py"
+set "VERIFY_SCRIPT=%TOOL_DIR%verify_rtx_vfx.py"
 set "PYTHON_EXE="
 set "PYTHON_SOURCE="
 set "PIP_INSTALL_ARGS=--force-reinstall --no-build-isolation --no-deps"
@@ -30,6 +31,12 @@ echo %LOG%
 echo.
 echo Progress [--------------------] 0%% Starting.
 echo.
+
+if not exist "%VERIFY_SCRIPT%" (
+  echo [FAIL] Missing verify_rtx_vfx.py. Extract every file from the installer ZIP into this tools folder.
+  pause
+  exit /b 1
+)
 
 echo [1/6] Checking DENO node startup hook...
 echo Progress [###-----------------] 15%% Checking node files.
@@ -159,7 +166,7 @@ echo [3/6] Making sure ComfyUI is closed...
 echo Progress [#########-----------] 45%% Checking running processes.
 set "RUNNING_LOG=%TEMP%\deno_rtx_running_comfyui.txt"
 if exist "%RUNNING_LOG%" del /f /q "%RUNNING_LOG%" >nul 2>nul
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $target=[System.IO.Path]::GetFullPath($env:PYTHON_EXE); $hits=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) -and ($_.CommandLine -match '(^|[\\\/])main\.py(\s|$)' -or $_.CommandLine -match 'ComfyUI') }); if ($hits.Count -gt 0) { $lines=[string[]]($hits | ForEach-Object { 'PID=' + $_.ProcessId + ' ' + $_.CommandLine }); $encoding=New-Object System.Text.UTF8Encoding($false); [System.IO.File]::WriteAllLines($env:RUNNING_LOG, $lines, $encoding); exit 2 }" >> "%LOG%" 2>&1
+powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $target=[System.IO.Path]::GetFullPath($env:PYTHON_EXE); $hits=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) -and ($_.CommandLine -match '(^|[\\\/])main\.py(\s|$)' -or $_.CommandLine -match 'ComfyUI') }); if ($hits.Count -gt 0) { $lines=[string[]]($hits | ForEach-Object { 'PID=' + $_.ProcessId + ' ' + $_.CommandLine }); $encoding=New-Object System.Text.UTF8Encoding($false); [System.IO.File]::WriteAllLines($env:RUNNING_LOG, $lines, $encoding); exit 2 }" >> "%LOG%" 2>&1
 if errorlevel 2 (
   echo [FAIL] ComfyUI is still running with this Python.
   echo.
@@ -270,7 +277,7 @@ echo.
   echo.
 ) > "%LOG%" 2>&1
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Continue'; $installArgs=@('-m','pip','install','--upgrade') + (($env:PIP_INSTALL_ARGS -split ' ') | Where-Object { $_ }) + @('--index-url','https://pypi.nvidia.com','nvidia-vfx>=0.2.0.0'); & $env:PYTHON_EXE @installArgs 2>&1 | ForEach-Object { $line = [string]$_; Write-Host $line; [System.IO.File]::AppendAllText($env:LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false)) }; exit $LASTEXITCODE"
+powershell -NoProfile -Command "$ErrorActionPreference='Continue'; $installArgs=@('-m','pip','install','--upgrade') + (($env:PIP_INSTALL_ARGS -split ' ') | Where-Object { $_ }) + @('--index-url','https://pypi.nvidia.com','nvidia-vfx>=0.2.0.0'); & $env:PYTHON_EXE @installArgs 2>&1 | ForEach-Object { $line = [string]$_; Write-Host $line; [System.IO.File]::AppendAllText($env:LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false)) }; exit $LASTEXITCODE"
 
 if errorlevel 1 (
   set "PIP_EXIT_CODE=!ERRORLEVEL!"
@@ -293,7 +300,7 @@ echo.
 
 echo [6/6] Verifying NVIDIA VFX runtime from normal ComfyUI Python...
 echo Progress [#################---] 85%% Verifying NVIDIA VFX runtime.
-"%PYTHON_EXE%" -c "import os, re, importlib.metadata as metadata, torch, nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; numbers=lambda value: tuple(map(int, re.findall(r'\d+', str(value)))); installed=metadata.version('nvidia-vfx'); loaded=getattr(nvvfx, '__version__', 'unknown'); sdk=nvvfx.get_sdk_version(); print('installed nvidia-vfx', installed); print('loaded nvvfx', loaded); print('native SDK', sdk); assert numbers(installed) >= (0, 2, 0, 0), 'Installed nvidia-vfx must be 0.2.0.0 or newer'; assert loaded == installed, 'Loaded nvvfx does not match the installed package; an old runtime copy may be active'; assert numbers(sdk) >= (1, 3, 0), 'Loaded NVIDIA VFX SDK must be 1.3.0 or newer'; print('nvvfx path', nvvfx.__path__[0]); print('bundled libs', loader.get_libs_directory()); print('PyTorch', torch.__version__, 'CUDA', torch.version.cuda); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); names=('LOW','MEDIUM','HIGH','ULTRA'); [(print('checking VSR', name), (lambda effect: (effect.close(), print('VideoSuperRes create ready', name)))(VideoSuperRes(quality=getattr(VideoSuperRes.QualityLevel, name), device=0))) for name in names]; exec('def verify_vsr_smoke():\n    frame = torch.zeros((3, 360, 640), device=\'cuda:0\', dtype=torch.float32)\n    effect = VideoSuperRes(quality=VideoSuperRes.QualityLevel.MEDIUM, device=0)\n    output = None\n    try:\n        effect.output_width = 1280\n        effect.output_height = 720\n        effect.load()\n        output = torch.from_dlpack(effect.run(frame).image).clone()\n        assert tuple(output.shape) == (3, 720, 1280), \'NVIDIA VFX smoke returned an unexpected output shape\'\n        assert torch.isfinite(output).all().item(), \'NVIDIA VFX smoke returned non-finite output\'\n    finally:\n        effect.close()\n        torch.cuda.synchronize(0)\n        del output, frame\nverify_vsr_smoke()\n'); print('VSR load/run smoke ready'); print('Native nvvfx runtime ready')" >> "%LOG%" 2>&1
+"%PYTHON_EXE%" "%VERIFY_SCRIPT%" >> "%LOG%" 2>&1
 if not errorlevel 1 (
   type nul > "%RUNTIME_PATH_FILE%"
   if errorlevel 1 (
@@ -340,7 +347,7 @@ echo %DENO_NVVFX_RUNTIME_PATH%
 echo.
 
 echo Verifying DENO ASCII NVIDIA VFX runtime fallback...
-"%PYTHON_EXE%" -c "import os, sys, re, importlib.metadata as metadata, torch; sys.path.insert(0, os.environ['DENO_NVVFX_RUNTIME_PATH']); import nvvfx; import nvvfx._lib_loader as loader; from nvvfx import VideoSuperRes; numbers=lambda value: tuple(map(int, re.findall(r'\d+', str(value)))); installed=metadata.version('nvidia-vfx'); loaded=getattr(nvvfx, '__version__', 'unknown'); sdk=nvvfx.get_sdk_version(); expected=os.path.join(os.environ['DENO_NVVFX_RUNTIME_PATH'], 'nvvfx'); actual=nvvfx.__path__[0]; print('installed nvidia-vfx', installed); print('loaded nvvfx', loaded); print('native SDK', sdk); assert numbers(installed) >= (0, 2, 0, 0), 'Installed nvidia-vfx must be 0.2.0.0 or newer'; assert loaded == installed, 'Fallback nvvfx does not match the installed package'; assert numbers(sdk) >= (1, 3, 0), 'Loaded NVIDIA VFX SDK must be 1.3.0 or newer'; print('nvvfx path', actual); print('expected path', expected); print('bundled libs', loader.get_libs_directory()); print('PyTorch', torch.__version__, 'CUDA', torch.version.cuda); print('CUDA available', torch.cuda.is_available()); print('CUDA devices', torch.cuda.device_count()); print('GPU', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not visible'); assert os.path.normcase(os.path.abspath(actual)) == os.path.normcase(os.path.abspath(expected)), 'DENO runtime path was not used during verification'; names=('LOW','MEDIUM','HIGH','ULTRA'); [(print('checking VSR', name), (lambda effect: (effect.close(), print('VideoSuperRes create ready', name)))(VideoSuperRes(quality=getattr(VideoSuperRes.QualityLevel, name), device=0))) for name in names]; exec('def verify_vsr_smoke():\n    frame = torch.zeros((3, 360, 640), device=\'cuda:0\', dtype=torch.float32)\n    effect = VideoSuperRes(quality=VideoSuperRes.QualityLevel.MEDIUM, device=0)\n    output = None\n    try:\n        effect.output_width = 1280\n        effect.output_height = 720\n        effect.load()\n        output = torch.from_dlpack(effect.run(frame).image).clone()\n        assert tuple(output.shape) == (3, 720, 1280), \'NVIDIA VFX smoke returned an unexpected output shape\'\n        assert torch.isfinite(output).all().item(), \'NVIDIA VFX smoke returned non-finite output\'\n    finally:\n        effect.close()\n        torch.cuda.synchronize(0)\n        del output, frame\nverify_vsr_smoke()\n'); print('VSR load/run smoke ready'); print('DENO ASCII nvvfx runtime ready')" >> "%LOG%" 2>&1
+"%PYTHON_EXE%" "%VERIFY_SCRIPT%" --fallback >> "%LOG%" 2>&1
 if errorlevel 1 (
   echo [FAIL] Install finished, but NVIDIA VFX runtime is not usable on this PC.
   echo See log:
@@ -426,5 +433,5 @@ exit /b 0
 :COLOR_LINE
 set "DENO_COLOR_NAME=%~1"
 set "DENO_COLOR_TEXT=%~2"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$color=$env:DENO_COLOR_NAME; $text=$env:DENO_COLOR_TEXT; if ([string]::IsNullOrWhiteSpace($color)) { $color='White' }; Write-Host $text -ForegroundColor $color"
+powershell -NoProfile -Command "$color=$env:DENO_COLOR_NAME; $text=$env:DENO_COLOR_TEXT; if ([string]::IsNullOrWhiteSpace($color)) { $color='White' }; Write-Host $text -ForegroundColor $color"
 exit /b 0
