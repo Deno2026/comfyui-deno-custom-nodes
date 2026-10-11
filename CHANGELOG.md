@@ -4,6 +4,13 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.118 - 2026-10-12
+
+- Restricted RTX fallback runtime paths to the installer-created directory for the current Python version, with only the NVIDIA package exposed on the import path. Invalid paths show a reinstall notice; valid existing fallback copies remain supported.
+- Simplified RTX native-library conflict diagnostics to read the current process through the existing psutil dependency.
+- Replaced dynamic verification code in the manual RTX installer with a standalone Python verifier and removed unnecessary PowerShell execution-policy overrides. The installer ZIP now includes the BAT, verifier and README; extract all three together.
+- Preserved RTX processing, node inputs and saved workflows. Updating the node pack does not update NVIDIA VFX, PyTorch or the GPU driver.
+
 ## 0.7.117 - 2026-10-11
 
 - Added optional Bearer-token authentication for LM Studio model discovery, generation and unload, with a dedicated host environment key and a common-key fallback. Addresses #92.
