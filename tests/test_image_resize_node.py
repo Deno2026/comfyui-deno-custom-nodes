@@ -2761,6 +2761,7 @@ def test_input_folder_browser_omits_external_links_but_allows_internal_links(mon
             check=False,
             capture_output=True,
             text=True,
+            errors="replace",
         )
         if result.returncode != 0:
             pytest.skip(f"directory links are unavailable in this environment: {result.stderr or result.stdout}")

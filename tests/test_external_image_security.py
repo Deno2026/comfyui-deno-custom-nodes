@@ -245,7 +245,7 @@ def test_external_listing_and_recursive_expansion_exclude_links_outside_selected
         if os.name != "nt":
             pytest.skip(f"directory links unavailable: {error}")
         result = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(outside)],
-                                check=False, capture_output=True, text=True)
+                                check=False, capture_output=True, text=True, errors="replace")
         if result.returncode:
             pytest.skip(f"directory links unavailable: {result.stderr or result.stdout}")
     # Even a second approved root must not widen a selected folder's listing.
