@@ -460,7 +460,8 @@ def test_translate_caption_passes_selected_engine(monkeypatch):
     assert calls == [("고양이", "ko", "en")]
 
 
-def test_libretranslate_custom_url_validation():
+def test_libretranslate_custom_url_validation(monkeypatch):
+    monkeypatch.setenv("DENO_TRANSLATION_ALLOWED_ORIGINS", "https://example.com")
     assert engine._normalize_libretranslate_endpoint(
         "https://example.com/api/translate",
         require_custom=True,

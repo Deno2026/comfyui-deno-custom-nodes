@@ -1098,15 +1098,22 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
         except Exception:
             return web.json_response({"error": "invalid json body"}, status=400)
 
+        if not isinstance(data, dict):
+            return web.json_response({"error": "json body must be an object"}, status=400)
+
         caption = data.get("caption")
         if not isinstance(caption, dict):
             return web.json_response({"error": "caption must be an object"}, status=400)
 
         target = data.get("target") or data.get("view_language") or VIEW_LANGUAGE_DEFAULT
         source = data.get("source") or "auto"
-        translation_engine = translate_engine.normalize_translation_engine(
-            data.get("engine") or data.get("translation_engine")
-        )
+        engine_value = data.get("engine")
+        if engine_value is None or engine_value == "":
+            engine_value = data.get("translation_engine")
+        try:
+            translation_engine = translate_engine.normalize_translation_engine(engine_value)
+        except (TypeError, ValueError):
+            return web.json_response({"error": "Unknown translation engine. Choose a supported engine."}, status=400)
         libretranslate_url = data.get("libretranslate_url") or ""
         if not isinstance(libretranslate_url, str):
             libretranslate_url = ""

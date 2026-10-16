@@ -25,6 +25,30 @@ from .deno_resolution_common import (
 IMAGE_INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
 INPUT_BROWSER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 IMAGE_FILE_INSPECTION_CACHE_SIZE = 512
+EXTERNAL_IMAGE_ROOTS_ENV = "DENO_EXTERNAL_IMAGE_ROOTS"
+
+
+def _external_image_access_notice() -> str:
+    return (
+        "Upload the image into the ComfyUI input folder, or ask the server owner to "
+        f"configure {EXTERNAL_IMAGE_ROOTS_ENV} with approved absolute image folders "
+        "before starting ComfyUI."
+    )
+
+
+def _local_image_path_is_safe(path: str) -> bool:
+    """Reject network/device paths and NTFS streams before filesystem access."""
+    raw_path = str(path or "").strip().strip('"')
+    if (
+        not raw_path
+        or (len(raw_path) >= 2 and all(character in "\\/" for character in raw_path[:2]))
+        or "\x00" in raw_path
+        or "://" in raw_path
+    ):
+        return False
+    # A drive-letter separator is the only permitted colon. In particular,
+    # do not resolve a UNC path first: that can already contact an SMB server.
+    return all(index == 1 and raw_path[0].isalpha() for index, character in enumerate(raw_path) if character == ":")
 
 
 def _get_folder_paths():
@@ -44,6 +68,8 @@ def _get_comfy_utils():
 
 
 def _normalize_input_browser_path(relative_path: str | None) -> str | None:
+    if relative_path and not _local_image_path_is_safe(str(relative_path)):
+        return None
     raw_path = str(relative_path or "").replace("\\", "/").strip().strip("/")
     if not raw_path or raw_path == ".":
         return ""
@@ -67,6 +93,38 @@ def _path_is_within_root(root_path: str, candidate_path: str) -> bool:
     except ValueError:
         return False
     return common_path == os.path.normcase(root_real_path)
+
+
+def _approved_image_roots() -> List[str]:
+    """Only server configuration can grant access outside ComfyUI's input root."""
+    roots = []
+    folder_paths = _get_folder_paths()
+    if folder_paths is not None and hasattr(folder_paths, "get_input_directory"):
+        roots.append(os.path.realpath(folder_paths.get_input_directory()))
+    for value in os.environ.get(EXTERNAL_IMAGE_ROOTS_ENV, "").split(os.pathsep):
+        root = value.strip().strip('"')
+        if (
+            not root
+            or not _local_image_path_is_safe(root)
+            or not os.path.isabs(root)
+            or "://" in root
+            or any(character in root for character in "*?[]")
+        ):
+            continue
+        if os.path.dirname(os.path.normpath(root)) == os.path.normpath(root):
+            continue
+        root = os.path.realpath(root)
+        if not _local_image_path_is_safe(root) or os.path.dirname(root) == root:
+            continue
+        if os.path.isdir(root):
+            roots.append(root)
+    return roots
+
+
+def _image_path_is_allowed(path: str) -> bool:
+    if not _local_image_path_is_safe(path):
+        return False
+    return any(_path_is_within_root(root, path) for root in _approved_image_roots())
 
 
 def _input_browser_path_is_contained(input_dir: str, relative_path: str) -> bool:
@@ -269,7 +327,11 @@ def _no_selected_images_message() -> str:
 
 
 def _file_stat_cache_key(path: str) -> tuple:
+    if not _local_image_path_is_safe(path):
+        raise ValueError(_external_image_access_notice())
     real_path = os.path.realpath(path)
+    if not _image_path_is_allowed(real_path):
+        raise ValueError(_external_image_access_notice())
     stat = os.stat(real_path)
     return (
         real_path,
@@ -284,6 +346,8 @@ def _file_stat_cache_key(path: str) -> tuple:
 @lru_cache(maxsize=IMAGE_FILE_INSPECTION_CACHE_SIZE)
 def _cached_image_is_valid(cache_key: tuple) -> bool:
     path = cache_key[0]
+    if not _image_path_is_allowed(path):
+        return False
     try:
         with Image.open(path) as image:
             image.verify()
@@ -295,6 +359,8 @@ def _cached_image_is_valid(cache_key: tuple) -> bool:
 @lru_cache(maxsize=IMAGE_FILE_INSPECTION_CACHE_SIZE)
 def _cached_file_sha256(cache_key: tuple) -> bytes:
     path = cache_key[0]
+    if not _image_path_is_allowed(path):
+        raise ValueError(_external_image_access_notice())
     file_hasher = hashlib.sha256()
     with open(path, "rb") as file:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
@@ -374,7 +440,7 @@ def _read_image_size(path: str) -> tuple[int, int] | None:
 
 def _resolve_input_path(path: str | None) -> str | None:
     raw_path = str(path or "").strip()
-    if not raw_path or os.path.isabs(raw_path):
+    if not _local_image_path_is_safe(raw_path) or os.path.isabs(raw_path):
         return None
 
     folder_paths = _get_folder_paths()
@@ -397,29 +463,37 @@ def _resolve_input_path(path: str | None) -> str | None:
 
 
 def _resolve_path(path: str | None) -> str | None:
-    """Resolve normal-loader paths while preserving legacy absolute saved values."""
+    """Preserve legacy absolute values only within server-approved image roots."""
     raw_path = str(path or "").strip()
-    if not raw_path:
+    if not _local_image_path_is_safe(raw_path):
         return None
     if os.path.isabs(raw_path):
-        candidate_path = os.path.realpath(raw_path)
+        candidate_path = _resolve_external_path(raw_path)
+        if candidate_path is None:
+            return None
         return candidate_path if os.path.isfile(candidate_path) else None
     return _resolve_input_path(raw_path)
 
 
 def _resolve_external_path(path: str | None) -> str | None:
-    """Explicit external-path resolver reserved for Advanced Image Source Loader."""
-    raw_path = str(path or "").strip()
-    if not raw_path:
+    """Resolve files and folders under input or host-approved external roots."""
+    raw_path = str(path or "").strip().strip('"')
+    if not _local_image_path_is_safe(raw_path):
         return None
-    if os.path.exists(raw_path):
-        return raw_path
-
-    folder_paths = _get_folder_paths()
-    if folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
+    if os.path.isabs(raw_path):
+        candidate_path = os.path.realpath(raw_path)
+    else:
+        browser_path = _normalize_input_browser_path(raw_path)
+        folder_paths = _get_folder_paths()
+        if browser_path is None or folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
+            return None
+        input_dir = folder_paths.get_input_directory()
+        candidate_path = os.path.realpath(os.path.join(input_dir, browser_path))
+        if not _path_is_within_root(input_dir, candidate_path):
+            return None
+    if not _image_path_is_allowed(candidate_path):
         return None
-    fallback_path = os.path.join(folder_paths.get_input_directory(), raw_path)
-    return fallback_path if os.path.exists(fallback_path) else None
+    return candidate_path if os.path.exists(candidate_path) else None
 
 
 def _resize_tensor(
@@ -550,7 +624,7 @@ class DenoMultiImageLoader:
             return (
                 "[DenoMultiImageLoader] Selected image file(s) are missing or unreadable before execution: "
                 f"{_format_path_preview(failed_paths)}. Re-add the image from the Upload/Input Folder button, "
-                "then run the workflow again."
+                f"then run the workflow again. {_external_image_access_notice()}"
             )
         return True
 
@@ -663,7 +737,7 @@ class DenoMultiImageLoader:
             raise RuntimeError(
                 "[DenoMultiImageLoader] Selected image file(s) could not be loaded: "
                 f"{_format_path_preview(failed_paths)}. Re-add the image from the Upload/Input Folder button, "
-                "then run the workflow again."
+                f"then run the workflow again. {_external_image_access_notice()}"
             )
 
         reference_shape = tuple(loaded_images[0].shape)

@@ -4,6 +4,13 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.119 - 2026-10-16
+
+- Restricted external image paths to ComfyUI input and folders explicitly approved with `DENO_EXTERNAL_IMAGE_ROOTS` on the host. Folder browsing, saved absolute paths, recursive loading and cache checks share the same boundary, including symlink and Windows network-path checks.
+- Replaced external file preview downloads with bounded, metadata-free PNG thumbnails and rejected mismatched browser origins. Generation still loads the original permitted images.
+- Required host approval through `DENO_TRANSLATION_ALLOWED_ORIGINS` for custom LibreTranslate destinations. Translation connections validate and pin addresses, verify TLS hostnames, reject redirects, ignore environment proxies and limit responses. Unknown translation engines now fail explicitly.
+- Preserved node IDs, inputs, connections, source order and enabled states. Existing external-image and custom-translation workflows may need the new host settings; see the file and translation access guide. RTX behavior uses the v0.7.117 baseline.
+
 ## 0.7.117 - 2026-10-11
 
 - Added optional Bearer-token authentication for LM Studio model discovery, generation and unload, with a dedicated host environment key and a common-key fallback. Addresses #92.

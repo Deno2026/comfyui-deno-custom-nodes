@@ -19,7 +19,11 @@ from .deno_multi_image_board import (
     IMAGE_INTERPOLATION_MODES,
     INPUT_BROWSER_IMAGE_EXTENSIONS,
     _compute_keep_input_ratio_dims,
+    _external_image_access_notice,
     _filter_disabled_sources,
+    _image_path_is_allowed,
+    _local_image_path_is_safe,
+    _path_is_within_root,
     _resize_tensor,
     _resolve_external_path as _resolve_path,
     _split_paths,
@@ -61,20 +65,52 @@ def _is_loopback_request(request) -> bool:
         return str(remote).lower() in {"localhost", "::1"}
 
 
+def _local_request_origin_is_allowed(request) -> bool:
+    """Reject cross-origin reads and untrusted Host names, ignoring proxy headers."""
+    headers = getattr(request, "headers", {})
+    host = str(headers.get("Host", "")).strip()
+    origin = headers.get("Origin")
+    if not host:
+        return origin is None
+    scheme = str(getattr(request, "scheme", "http")).lower()
+    try:
+        target = urllib.parse.urlsplit(f"{scheme}://{host}")
+        if target.username or target.password or target.path or target.query or target.fragment:
+            return False
+        hostname = target.hostname or ""
+        if hostname.lower() != "localhost" and not ipaddress.ip_address(hostname).is_loopback:
+            return False
+        target_port = target.port if target.port is not None else (443 if scheme == "https" else 80)
+        if scheme not in {"http", "https"}:
+            return False
+        if origin is None:
+            return True
+        source = urllib.parse.urlsplit(str(origin))
+        if source.username or source.password or source.path or source.query or source.fragment:
+            return False
+        source_port = source.port if source.port is not None else (443 if source.scheme.lower() == "https" else 80)
+        return (
+            source.scheme.lower() == scheme
+            and source.hostname == target.hostname
+            and source_port == target_port
+        )
+    except ValueError:
+        return False
+
+
 def _normalize_external_root(root_path: str | None) -> str | None:
     raw_path = str(root_path or "").strip().strip('"')
-    if not raw_path:
+    if not _local_image_path_is_safe(raw_path) or not os.path.isabs(raw_path):
         return None
-
-    expanded = os.path.expanduser(os.path.expandvars(raw_path))
-    if not os.path.isabs(expanded):
+    root = _resolve_path(raw_path)
+    if root is None:
         return None
-
-    root = os.path.realpath(expanded)
     return root if os.path.isdir(root) else None
 
 
 def _normalize_external_relative_path(relative_path: str | None) -> str | None:
+    if relative_path and not _local_image_path_is_safe(str(relative_path)):
+        return None
     raw_path = str(relative_path or "").replace("\\", "/").strip().strip("/")
     if not raw_path or raw_path == ".":
         return ""
@@ -88,6 +124,8 @@ def _normalize_external_relative_path(relative_path: str | None) -> str | None:
 
 
 def _resolve_external_browser_dir(root_dir: str, relative_path: str) -> str | None:
+    if not _local_image_path_is_safe(root_dir) or (relative_path and not _local_image_path_is_safe(relative_path)):
+        return None
     base_dir = os.path.realpath(root_dir)
     candidate_dir = os.path.realpath(os.path.join(base_dir, relative_path))
 
@@ -96,7 +134,7 @@ def _resolve_external_browser_dir(root_dir: str, relative_path: str) -> str | No
     except ValueError:
         return None
 
-    if common_path != os.path.normcase(base_dir):
+    if common_path != os.path.normcase(base_dir) or not _image_path_is_allowed(candidate_dir):
         return None
     return candidate_dir if os.path.isdir(candidate_dir) else None
 
@@ -143,7 +181,12 @@ def _list_external_folder_entries(root_path: str | None, relative_path: str | No
     try:
         for name in os.listdir(current_dir):
             full_path = os.path.join(current_dir, name)
-            stat = os.stat(full_path)
+            if not _path_is_within_root(root_dir, full_path) or not _image_path_is_allowed(full_path):
+                continue
+            try:
+                stat = os.stat(full_path)
+            except OSError:
+                continue
             if os.path.isdir(full_path):
                 folders.append({
                     "name": name,
@@ -176,16 +219,20 @@ def _list_external_folder_entries(root_path: str | None, relative_path: str | No
 async def deno_advanced_external_folder_images(request):
     if not _is_loopback_request(request):
         return web.json_response({"error": "External folder browsing is only available from localhost."}, status=403)
+    if not _local_request_origin_is_allowed(request):
+        return web.json_response({"error": "External folder browsing requires the same localhost origin."}, status=403)
 
     root_path = request.query.get("root", "")
     requested_path = request.query.get("path", "")
     root_dir = _normalize_external_root(root_path)
     if root_dir is None:
-        return web.json_response({"error": "Invalid external folder path."}, status=400)
+        return web.json_response({"error": f"External folder is unavailable or not approved. {_external_image_access_notice()}"}, status=403)
 
     browser_path = _normalize_external_relative_path(requested_path)
     if browser_path is None:
         return web.json_response({"error": "Invalid external subfolder path."}, status=400)
+    if _resolve_external_browser_dir(root_dir, browser_path) is None:
+        return web.json_response({"error": "External subfolder is unavailable or outside the approved folder."}, status=403)
 
     return web.json_response(_list_external_folder_entries(root_dir, browser_path))
 
@@ -194,16 +241,24 @@ async def deno_advanced_external_folder_images(request):
 async def deno_advanced_external_image_view(request):
     if not _is_loopback_request(request):
         return web.json_response({"error": "External image previews are only available from localhost."}, status=403)
+    if not _local_request_origin_is_allowed(request):
+        return web.json_response({"error": "External image previews require the same localhost origin."}, status=403)
 
     requested_path = str(request.query.get("path", "")).strip().strip('"')
-    if not requested_path or not os.path.isabs(requested_path):
+    if not _local_image_path_is_safe(requested_path) or not os.path.isabs(requested_path):
         return web.json_response({"error": "Invalid image path."}, status=400)
-
-    full_path = os.path.realpath(os.path.expanduser(os.path.expandvars(requested_path)))
+    full_path = _resolve_path(requested_path)
+    if full_path is None:
+        return web.json_response({"error": f"External image is unavailable or not approved. {_external_image_access_notice()}"}, status=403)
     if not os.path.isfile(full_path) or os.path.splitext(full_path)[1].lower() not in INPUT_BROWSER_IMAGE_EXTENSIONS:
         return web.json_response({"error": "Image not found."}, status=404)
-
-    return web.FileResponse(full_path)
+    headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+    try:
+        async with _REMOTE_IMAGE_PREVIEW_SLOTS:
+            preview_bytes = await asyncio.to_thread(_local_image_preview_bytes, full_path)
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return web.json_response({"error": "Image preview unavailable. Use a supported raster image."}, status=400, headers=headers)
+    return web.Response(body=preview_bytes, content_type="image/png", headers=headers)
 
 
 def _is_remote_image_url(source: str) -> bool:
@@ -340,10 +395,24 @@ def _read_remote_image_bytes(source: str) -> bytes:
 def _remote_image_preview_bytes(source: str) -> bytes:
     # Reuse the execution fetcher so a preview has the same URL, redirect,
     # certificate and public-address boundaries as the image that is run.
-    image_bytes = _read_remote_image_bytes(source)
+    return _raster_image_preview_bytes(_read_remote_image_bytes(source))
+
+
+def _local_image_preview_bytes(source: str) -> bytes:
+    resolved_path = _resolve_path(source)
+    if resolved_path is None or not os.path.isfile(resolved_path):
+        raise ValueError(_external_image_access_notice())
+    with open(resolved_path, "rb") as image_file:
+        image_bytes = image_file.read(REMOTE_IMAGE_MAX_BYTES + 1)
+    if len(image_bytes) > REMOTE_IMAGE_MAX_BYTES:
+        raise ValueError("Local image is too large for a preview.")
+    return _raster_image_preview_bytes(image_bytes)
+
+
+def _raster_image_preview_bytes(image_bytes: bytes) -> bytes:
     with Image.open(io.BytesIO(image_bytes)) as image:
         if image.width * image.height > REMOTE_IMAGE_PREVIEW_MAX_PIXELS:
-            raise ValueError("Remote image is too large for a preview.")
+            raise ValueError("Image is too large for a preview.")
         # Only raster pixels leave this endpoint, never remote HTML, SVG,
         # original metadata or an unvalidated response body.
         image.thumbnail((REMOTE_IMAGE_PREVIEW_MAX_SIZE, REMOTE_IMAGE_PREVIEW_MAX_SIZE))
@@ -410,7 +479,13 @@ def _expand_image_sources(
         if not raw_source:
             continue
 
-        local_candidate = os.path.expanduser(os.path.expandvars(raw_source))
+        if _is_remote_image_url(raw_source):
+            expanded.append(raw_source)
+            continue
+        local_candidate = _resolve_path(raw_source)
+        if local_candidate is None:
+            _record_source_failure(failures, raw_source)
+            continue
         if os.path.isdir(local_candidate):
             try:
                 if recursive_folders:
@@ -430,9 +505,26 @@ def _expand_image_sources(
                 continue
 
             folder_files = []
-            for current_dir, _folder_names, file_names in walker:
+            visited_dirs = set()
+            for current_dir, folder_names, file_names in walker:
+                real_dir = os.path.normcase(os.path.realpath(current_dir))
+                if (
+                    real_dir in visited_dirs
+                    or not _path_is_within_root(local_candidate, current_dir)
+                    or not _image_path_is_allowed(current_dir)
+                ):
+                    folder_names[:] = []
+                    continue
+                visited_dirs.add(real_dir)
+                folder_names[:] = [
+                    name for name in folder_names
+                    if _path_is_within_root(local_candidate, os.path.join(current_dir, name))
+                    and _image_path_is_allowed(os.path.join(current_dir, name))
+                ]
                 for file_name in file_names:
                     full_path = os.path.join(current_dir, file_name)
+                    if not _path_is_within_root(local_candidate, full_path) or not _image_path_is_allowed(full_path):
+                        continue
                     if os.path.isfile(full_path) and os.path.splitext(full_path)[1].lower() in INPUT_BROWSER_IMAGE_EXTENSIONS:
                         folder_files.append(os.path.realpath(full_path))
             if not folder_files:
@@ -492,7 +584,8 @@ def _validate_active_sources(image_paths: str, disabled_image_paths: str) -> str
     if invalid_sources:
         return (
             "[DenoAdvancedImageSourceLoader] Active local image source(s) are missing, or a URL is invalid: "
-            f"{_format_source_preview(invalid_sources)}. Fix or disable the source, then run the workflow again."
+            f"{_format_source_preview(invalid_sources)}. Fix or disable the source, then run the workflow again. "
+            f"{_external_image_access_notice()}"
         )
     return True
 
@@ -692,7 +785,8 @@ class DenoAdvancedImageSourceLoader:
         if failed_sources:
             raise RuntimeError(
                 "[DenoAdvancedImageSourceLoader] Active image source(s) could not be loaded: "
-                f"{_format_source_preview(failed_sources)}. Fix or disable the source, then run the workflow again."
+                f"{_format_source_preview(failed_sources)}. Fix or disable the source, then run the workflow again. "
+                f"{_external_image_access_notice()}"
             )
 
         if not originals:

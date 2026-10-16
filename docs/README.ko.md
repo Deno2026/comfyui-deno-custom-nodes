@@ -34,6 +34,8 @@ ComfyUI가 설치되어 정상 실행되는 환경에서 시작하세요.
 
 대부분의 Deno 노드는 ComfyUI 캔버스를 벗어나지 않고 도움말을 볼 수 있는 작은 초록색 `i` 버튼을 포함합니다. 새 Deno Custom Nodes 버전이 있으면 버튼이 노란색으로 바뀌고 작은 `!` 배지가 표시됩니다.
 
+외부 이미지 폴더와 사용자 지정 번역 서버는 ComfyUI 실행 환경에서 허용해야 사용할 수 있습니다. 외부 경로가 저장된 기존 워크플로에도 적용됩니다. 폴더는 `DENO_EXTERNAL_IMAGE_ROOTS`, LibreTranslate Custom URL의 서버 주소는 `DENO_TRANSLATION_ALLOWED_ORIGINS`로 지정한 뒤 ComfyUI를 재시작하세요. [파일·번역 접근 설정](SECURITY_CONFIGURATION.md)에 설정 예시와 적용 범위가 있습니다.
+
 ## Web Tools
 
 브라우저에서 바로 실행할 수 있는 도구입니다.
@@ -212,6 +214,8 @@ Dynamic VRAM은 메모리 압력에 따라 weight를 옮기므로 text encoder �
 ### `(Deno) Advanced Image Source Loader`
 
 외부 폴더, 로컬 경로, 웹 이미지 URL, 혼합 크기 이미지 리스트가 필요한 워크플로우용 고급 이미지 소스 로더입니다.
+
+ComfyUI `input` 폴더는 바로 사용할 수 있습니다. 그 밖의 폴더는 실행 환경의 `DENO_EXTERNAL_IMAGE_ROOTS`에 지정한 폴더만 읽으며, 워크플로 값으로 허용 범위를 넓힐 수 없습니다. 외부 파일 썸네일은 원본 파일 대신 메타데이터를 제거한 이미지 픽셀만 반환합니다. 생성에 쓰는 허용된 원본 이미지의 해상도와 내용은 유지합니다.
 
 웹 이미지 URL은 공개 주소로 직접 HTTP(S) 연결합니다. 내부 주소와 환경 프록시를 통한 연결은 지원하지 않습니다.
 

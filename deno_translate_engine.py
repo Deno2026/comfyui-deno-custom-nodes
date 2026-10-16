@@ -8,12 +8,18 @@ Network access happens only when a caller explicitly invokes translate_text().
 from __future__ import annotations
 
 from collections import OrderedDict
+import ipaddress
 import json
+import math
+import os
 import re
+import socket
+import ssl
 import threading
 import time
 import urllib.parse
-import urllib.request
+
+import urllib3
 
 
 SUNDANESE_CODE = "s" + "u"
@@ -180,7 +186,14 @@ _USER_AGENT = (
     "deno-comfyui-translate/1 "
     "(+https://github.com/Deno2026/comfyui-deno-custom-nodes)"
 )
-_OPENER = urllib.request.build_opener()
+_MAX_TRANSLATION_RESPONSE_BYTES = 2 * 1024 * 1024
+_MAX_TRANSLATION_TIMEOUT_SECONDS = 30.0
+_TRANSLATION_ALLOWED_ORIGINS_ENV = "DENO_TRANSLATION_ALLOWED_ORIGINS"
+_BUILTIN_TRANSLATION_ORIGINS = frozenset({
+    ("https", "translate.googleapis.com", 443),
+    ("https", "api.mymemory.translated.net", 443),
+    ("https", "libretranslate.com", 443),
+})
 
 
 def code_for_display(name: str | None) -> str:
@@ -206,6 +219,8 @@ def display_for_code(code: str | None) -> str:
 
 
 def normalize_translation_engine(engine: str | None) -> str:
+    if engine is not None and not isinstance(engine, str):
+        raise ValueError("Translation engine must be one of the listed engine names")
     value = (engine or "").strip()
     lowered = value.lower().replace("_", " ").replace("-", " ")
     aliases = {
@@ -223,7 +238,9 @@ def normalize_translation_engine(engine: str | None) -> str:
     }
     if value in TRANSLATION_ENGINE_CHOICES:
         return value
-    return aliases.get(lowered, TRANSLATION_ENGINE_DEFAULT)
+    if lowered in aliases:
+        return aliases[lowered]
+    raise ValueError("Unknown translation engine; choose one of the listed engines")
 
 
 def translation_failure_reason(engine: str | None, exc: Exception | None = None) -> str:
@@ -266,6 +283,205 @@ def _cache_set(key, value):
             _CACHE.popitem(last=False)
 
 
+def _translation_url_parts(url, *, allow_query=False):
+    """Validate syntax without DNS or network access.
+
+    Local self-hosted services are limited to literal loopback addresses and
+    localhost (which is pinned to 127.0.0.1 when connecting).
+    """
+    if not isinstance(url, str):
+        raise ValueError("Translation URL must be a string")
+    if any(ord(char) < 32 or ord(char) == 127 for char in url) or "\\" in url:
+        raise ValueError("Translation URL must not contain control characters or backslashes")
+    raw = url.strip()
+    if any(char.isspace() for char in raw):
+        raise ValueError("Translation URL must not contain whitespace")
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        host = parsed.hostname or ""
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Translation URL has an invalid host or port") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or not host:
+        raise ValueError("Translation URL must start with http:// or https://")
+    if "@" in parsed.netloc or parsed.username is not None or parsed.password is not None:
+        raise ValueError("Translation URL must not contain credentials")
+    if "#" in raw or (not allow_query and "?" in raw):
+        raise ValueError("Translation service URL must not contain a query or fragment")
+    if port is not None and not 1 <= port <= 65535:
+        raise ValueError("Translation URL has an invalid port")
+    try:
+        host = host.encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise ValueError("Translation URL has an invalid hostname") from exc
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+        if len(host) > 253 or any(
+            not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+            for label in host.rstrip(".").split(".")
+        ):
+            raise ValueError("Translation URL has an invalid hostname")
+    is_local = host == "localhost" or (
+        address is not None
+        and ((address.version == 4 and address.is_loopback) or str(address) == "::1")
+    )
+    if parsed.scheme == "http" and not is_local:
+        raise ValueError("Remote translation URL must use https://")
+    if address is not None and not is_local and not _is_public_translation_address(address):
+        raise ValueError("Translation URL must use a public address or loopback")
+    authority = "[%s]" % host if ":" in host else host
+    if port is not None:
+        authority += ":%s" % port
+    return parsed._replace(netloc=authority), host, is_local
+
+
+def _is_public_translation_address(address):
+    # IPv6 transition addresses can hide another destination inside the IP.
+    if isinstance(address, ipaddress.IPv6Address) and (
+        address.ipv4_mapped is not None or address.sixtofour is not None or address.teredo is not None
+    ):
+        return False
+    return (
+        address.is_global
+        and not address.is_multicast
+        and not address.is_reserved
+        and str(address) != "168.63.129.16"  # Azure platform/metadata virtual address.
+    )
+
+
+def _translation_origin(parsed):
+    return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+
+
+def _require_custom_translation_origin(parsed):
+    """Only the host process can approve custom destinations, never a workflow."""
+    allowed = os.environ.get(_TRANSLATION_ALLOWED_ORIGINS_ENV, "")
+    for entry in re.split(r"[;,]", allowed):
+        if not entry.strip():
+            continue
+        try:
+            approved, _host, _is_local = _translation_url_parts(entry)
+            if approved.path not in {"", "/"}:
+                raise ValueError("Expected an origin without a path")
+        except ValueError as exc:
+            raise ValueError("%s contains an invalid origin" % _TRANSLATION_ALLOWED_ORIGINS_ENV) from exc
+        if _translation_origin(approved) == _translation_origin(parsed):
+            return
+    raise ValueError(
+        "Custom translation origin is not approved in %s" % _TRANSLATION_ALLOWED_ORIGINS_ENV
+    )
+
+
+def _translation_connection_addresses(host, port):
+    if host == "localhost":
+        return ("127.0.0.1",)
+    try:
+        return (str(ipaddress.ip_address(host)),)
+    except ValueError:
+        pass
+    records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    addresses = []
+    for _family, _socktype, _proto, _canonname, sockaddr in records:
+        address = ipaddress.ip_address(sockaddr[0])
+        if not _is_public_translation_address(address):
+            raise ValueError("Translation hostname must resolve only to public addresses")
+        if str(address) not in addresses:
+            addresses.append(str(address))
+    if not addresses:
+        raise ValueError("Translation hostname did not resolve to a public address")
+    return tuple(addresses)
+
+
+def _request_translation_json(url, *, timeout=10.0, method="GET", body=None):
+    """Use validated, pinned IPs; never replay a request after a response."""
+    parsed, host, _is_local = _translation_url_parts(url, allow_query=True)
+    if _translation_origin(parsed) not in _BUILTIN_TRANSLATION_ORIGINS:
+        _require_custom_translation_origin(parsed)
+    try:
+        seconds = float(timeout)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Translation timeout must be a finite positive number") from exc
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError("Translation timeout must be a finite positive number")
+    seconds = min(seconds, _MAX_TRANSLATION_TIMEOUT_SECONDS)
+    deadline = time.monotonic() + seconds
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    # Validate every DNS answer before transmitting any text. Passing only a
+    # numeric address to urllib3 prevents a later hostname lookup/rebinding.
+    addresses = _translation_connection_addresses(host, port)
+    headers = {
+        "Host": parsed.netloc,
+        "User-Agent": _USER_AGENT,
+        "Accept": "application/json",
+        "Accept-Encoding": "identity",
+    }
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+    pool = None
+    response = None
+    last_connection_error = None
+    try:
+        for address in addresses:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise urllib3.exceptions.ConnectTimeoutError(
+                    "Translation connection timeout exhausted"
+                ) from last_connection_error
+            pool_options = {
+                "host": address,
+                "port": port,
+                "timeout": urllib3.Timeout(
+                    total=remaining, connect=min(remaining, 5.0), read=remaining,
+                ),
+                "retries": False,
+            }
+            if parsed.scheme == "https":
+                pool = urllib3.HTTPSConnectionPool(
+                    **pool_options,
+                    cert_reqs=ssl.CERT_REQUIRED,
+                    assert_hostname=host,
+                    server_hostname=host,
+                )
+            else:
+                pool = urllib3.HTTPConnectionPool(**pool_options)
+            try:
+                response = pool.urlopen(
+                    method, path, body=body, headers=headers,
+                    redirect=False, retries=False, preload_content=False,
+                )
+            except urllib3.exceptions.ConnectTimeoutError as exc:
+                # Includes NewConnectionError: no HTTP request was delivered.
+                # TLS, protocol, status and body errors must never try another IP.
+                last_connection_error = exc
+                pool.close()
+                pool = None
+                continue
+            break
+        if response is None:
+            raise last_connection_error or RuntimeError("No validated translation address")
+        if 300 <= response.status < 400:
+            raise RuntimeError("Translation redirects are disabled; use the final service URL")
+        if not 200 <= response.status < 300:
+            raise RuntimeError("Translation service returned HTTP %s" % response.status)
+        if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+            raise RuntimeError("Translation service returned an unsupported compressed response")
+        length = response.headers.get("Content-Length")
+        if length is not None and int(length) > _MAX_TRANSLATION_RESPONSE_BYTES:
+            raise RuntimeError("Translation response exceeds the 2 MiB limit")
+        data = response.read(_MAX_TRANSLATION_RESPONSE_BYTES + 1, decode_content=False)
+        if len(data) > _MAX_TRANSLATION_RESPONSE_BYTES:
+            raise RuntimeError("Translation response exceeds the 2 MiB limit")
+        return json.loads(data.decode("utf-8"))
+    finally:
+        if response is not None:
+            response.close()
+        if pool is not None:
+            pool.close()
+
+
 def _request_gtx(text, src, tgt, timeout=10.0):
     query = urllib.parse.urlencode(
         {
@@ -276,12 +492,10 @@ def _request_gtx(text, src, tgt, timeout=10.0):
             "q": text,
         }
     )
-    req = urllib.request.Request(
+    return _request_translation_json(
         "https://translate.googleapis.com/translate_a/single?" + query,
-        headers={"User-Agent": _USER_AGENT},
+        timeout=timeout,
     )
-    with _OPENER.open(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
 
 
 def _request_mymemory(text, src, tgt, timeout=10.0):
@@ -291,12 +505,10 @@ def _request_mymemory(text, src, tgt, timeout=10.0):
             "langpair": "%s|%s" % (src or "auto", tgt),
         }
     )
-    req = urllib.request.Request(
+    data = _request_translation_json(
         "https://api.mymemory.translated.net/get?" + query,
-        headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
+        timeout=timeout,
     )
-    with _OPENER.open(req, timeout=timeout) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
     response = data.get("responseData") if isinstance(data, dict) else None
     translated = response.get("translatedText") if isinstance(response, dict) else None
     if not isinstance(translated, str) or not translated:
@@ -306,21 +518,20 @@ def _request_mymemory(text, src, tgt, timeout=10.0):
 
 
 def _normalize_libretranslate_endpoint(url, require_custom=False):
-    raw = (url or "").strip()
-    if not raw:
+    if url is not None and not isinstance(url, str):
+        raise ValueError("Translation URL must be a string")
+    raw = url or ""
+    if not raw.strip():
         if require_custom:
             raise ValueError("LibreTranslate Custom URL is empty")
         raw = LIBRETRANSLATE_DEFAULT_URL
-    parsed = urllib.parse.urlparse(raw)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("LibreTranslate URL must start with http:// or https://")
-    host = (parsed.hostname or "").lower()
-    is_local = host in {"localhost", "127.0.0.1", "::1"}
-    if parsed.scheme == "http" and not is_local:
-        raise ValueError("Remote LibreTranslate Custom URL must use https://")
-    if parsed.path.rstrip("/").endswith("/translate"):
-        return raw
-    return raw.rstrip("/") + "/translate"
+    parsed, _host, _is_local = _translation_url_parts(raw)
+    if require_custom or _translation_origin(parsed) != ("https", "libretranslate.com", 443):
+        _require_custom_translation_origin(parsed)
+    path = parsed.path
+    if not path.rstrip("/").endswith("/translate"):
+        path = path.rstrip("/") + "/translate"
+    return urllib.parse.urlunsplit(parsed._replace(path=path))
 
 
 def _request_libretranslate(text, src, tgt, timeout=10.0, url=None, require_custom=False):
@@ -333,18 +544,12 @@ def _request_libretranslate(text, src, tgt, timeout=10.0, url=None, require_cust
             "format": "text",
         }
     ).encode("utf-8")
-    req = urllib.request.Request(
+    data = _request_translation_json(
         endpoint,
-        data=payload,
-        headers={
-            "User-Agent": _USER_AGENT,
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        },
+        body=payload,
+        timeout=timeout,
         method="POST",
     )
-    with _OPENER.open(req, timeout=timeout) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
     translated = data.get("translatedText") if isinstance(data, dict) else None
     if not isinstance(translated, str) or not translated:
         detail = data.get("error") if isinstance(data, dict) else ""
@@ -420,7 +625,7 @@ def translate_text(
     src_code = code_for_display(src) or "auto"
     tgt_code = code_for_display(tgt)
     engine_name = normalize_translation_engine(engine)
-    libretranslate_url = (libretranslate_url or "").strip()
+    libretranslate_url = libretranslate_url or ""
     if should_skip_translation(text, src_code, tgt_code):
         return text
     key = (engine_name, libretranslate_url, src_code, tgt_code, text)

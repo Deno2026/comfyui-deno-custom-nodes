@@ -1911,6 +1911,7 @@ def test_rtx_vfx_import_stops_if_another_nvvfx_path_is_already_loaded():
 @pytest.mark.parametrize("orientation", [1, 6])
 def test_image_loaders_preserve_all_rgb_values_and_exif(monkeypatch, tmp_path, loader, orientation):
     package = load_package()
+    monkeypatch.setattr(sys.modules["folder_paths"], "get_input_directory", lambda: str(tmp_path))
     values = np.arange(16 * 32, dtype=np.uint8).reshape(16, 32)
     pixels = np.stack([np.roll(values, offset, axis=1) for offset in range(4)], axis=-1)
     image = Image.fromarray(pixels)
@@ -2630,7 +2631,7 @@ def test_multi_image_loader_resolves_copy_path_inside_input_folder():
     assert outside_absolute_path is None
 
 
-def test_multi_image_loader_preserves_legacy_absolute_paths_while_input_paths_stay_contained():
+def test_multi_image_loader_preserves_opted_in_legacy_absolute_paths_while_input_paths_stay_contained(monkeypatch):
     load_package()
     board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
     folder_paths = sys.modules["folder_paths"]
@@ -2641,6 +2642,7 @@ def test_multi_image_loader_preserves_legacy_absolute_paths_while_input_paths_st
         outside_file = Path(outside_dir) / "outside.png"
         input_file.write_bytes(b"inside")
         outside_file.write_bytes(b"outside")
+        monkeypatch.setenv("DENO_EXTERNAL_IMAGE_ROOTS", outside_dir)
         folder_paths.get_input_directory = lambda: temp_dir
         try:
             assert board._resolve_path("inside.png") == os.path.realpath(input_file)
@@ -2668,6 +2670,7 @@ def test_multi_image_loader_executes_legacy_absolute_saved_path(monkeypatch, tmp
     image_file = outside_dir / "saved-absolute.png"
     Image.new("RGB", (3, 2), color=(12, 34, 56)).save(image_file)
     monkeypatch.setattr(folder_paths, "get_input_directory", lambda: str(input_dir))
+    monkeypatch.setenv("DENO_EXTERNAL_IMAGE_ROOTS", str(outside_dir))
 
     assert node_cls.VALIDATE_INPUTS(str(image_file)) is True
 
@@ -2882,11 +2885,12 @@ def test_input_folder_browser_reparse_containment_policy_without_link_privileges
     assert str(outside_target) not in blocked_payloads
 
 
-def test_advanced_image_source_loader_lists_and_expands_external_folders():
+def test_advanced_image_source_loader_lists_and_expands_external_folders(monkeypatch):
     load_package()
     advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
 
     with tempfile.TemporaryDirectory() as temp_dir:
+        monkeypatch.setenv("DENO_EXTERNAL_IMAGE_ROOTS", temp_dir)
         subfolder = Path(temp_dir) / "refs"
         subfolder.mkdir()
         root_file = Path(temp_dir) / "root.png"
@@ -2914,12 +2918,13 @@ def test_advanced_image_source_loader_lists_and_expands_external_folders():
     assert [Path(path).name for path in duplicate_sources] == ["root.png", "root.png"]
 
 
-def test_advanced_image_source_loader_skips_unreadable_external_folder():
+def test_advanced_image_source_loader_skips_unreadable_external_folder(monkeypatch):
     load_package()
     advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
     original_listdir = advanced.os.listdir
 
     with tempfile.TemporaryDirectory() as temp_dir:
+        monkeypatch.setenv("DENO_EXTERNAL_IMAGE_ROOTS", temp_dir)
         def deny_listdir(path):
             if Path(path) == Path(temp_dir):
                 raise PermissionError("access denied")

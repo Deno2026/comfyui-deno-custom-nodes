@@ -35,6 +35,7 @@ This first example needs no generation model. Individual model and RTX nodes hav
 - **Organize or work in a browser:** try [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools), or the no-install [Web Tools](#web-tools).
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
+External image folders and custom translation servers require permission set on the ComfyUI host. See [file and translation access](docs/SECURITY_CONFIGURATION.md) before using these features or reopening workflows with external paths.
 The pack also includes lightweight frontend/browser helpers such as **Deno Visual Fold**, optional **Deno Floating Tools** for Free VRAM, ComfyUI Stable update checks, and GPT/Gemini-ready Error Help reports, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the **Discord Media Compressor** page (Korean-only interface).
 
 ## Web Tools
@@ -262,12 +263,12 @@ Main features:
 
 - keeps the familiar Deno image-loader gallery workflow
 - supports existing ComfyUI `input` folder browsing
-- supports external local folder paths outside the ComfyUI `input` folder
+- supports external local folder paths approved through the host's `DENO_EXTERNAL_IMAGE_ROOTS` setting
 - supports folder tiles, nested-folder browsing, and a `Parent` button
 - supports `URL / Path` input for web image URLs, absolute local image paths, and local folder paths
 - web thumbnails use the same validated server fetch as execution; quoted paths from Windows `Copy as path` are also recognized for previews
 - use `Refresh previews` to retry thumbnails without changing sources, enabled state, or order; hover a failed preview for help
-- external local file previews require a localhost connection to ComfyUI
+- external local file previews require a localhost connection to ComfyUI and return decoded thumbnails rather than original file bytes
 - web image URLs use direct HTTP(S) connections to public addresses; private addresses and environment-proxy routing are not supported
 - supports upload, drag-and-drop, paste, and browser folder upload where the browser allows it
 - includes a visible `Paste` button plus normal Ctrl+V image paste

@@ -22,6 +22,8 @@ The maintainer will follow up and decide the safest disclosure path.
 
 ## Scope
 
+For host-controlled image folders and custom translation destinations, see [File and translation access](docs/SECURITY_CONFIGURATION.md).
+
 Security reports are most useful when they involve:
 
 - unintended access to local files
