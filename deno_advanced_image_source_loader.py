@@ -286,6 +286,12 @@ def _resolve_remote_image_addresses(source: str):
             address = ipaddress.ip_address(ip_text)
         except ValueError:
             return []
+        # Match translation's explicit boundary rather than depending on a
+        # Python release's classification of addresses embedding another IP.
+        if isinstance(address, ipaddress.IPv6Address) and (
+            address.ipv4_mapped is not None or address.sixtofour is not None or address.teredo is not None
+        ):
+            return []
         if (
             not address.is_global
             or address.is_private

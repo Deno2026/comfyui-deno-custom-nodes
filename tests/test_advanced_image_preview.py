@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import socket
 import sys
 import threading
 import time
@@ -75,6 +76,35 @@ def test_remote_preview_preserves_public_address_and_credential_boundaries(advan
     assert response.status == 400
     assert response.headers["Cache-Control"] == "no-store"
     assert "secret" not in str(response.payload)
+
+
+@pytest.mark.parametrize("address", [
+    "::ffff:8.8.8.8", "::ffff:169.254.169.254",
+    "2002:0808:0808::1", "2002:a9fe:a9fe::1", "2002:7f00:0001::1",
+    "2001:0000:4136:e378:8000:63bf:3fff:fdd2",
+])
+def test_remote_image_rejects_ipv6_transition_addresses_before_connecting(advanced, monkeypatch, address):
+    # A mixed DNS answer must not permit the normal address to hide a blocked
+    # destination. The same resolver protects previews and execution fetches.
+    records = [
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("8.8.8.8", 443)),
+        (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 443, 0, 0)),
+    ]
+    monkeypatch.setattr(advanced.socket, "getaddrinfo", lambda *_args, **_kwargs: records)
+    monkeypatch.setattr(advanced, "_open_remote_image_response", lambda *_args:
+                        pytest.fail("IPv6 transition addresses must be rejected before connecting"))
+    assert advanced._resolve_remote_image_addresses("https://public.test/image.png") == []
+    with pytest.raises(ValueError, match="not allowed"):
+        advanced._read_remote_image_bytes("https://public.test/image.png")
+
+
+def test_remote_image_preserves_normal_public_ipv4_and_ipv6_addresses(advanced, monkeypatch):
+    records = [
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("8.8.8.8", 443)),
+        (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:4860:4860::8888", 443, 0, 0)),
+    ]
+    monkeypatch.setattr(advanced.socket, "getaddrinfo", lambda *_args, **_kwargs: records)
+    assert advanced._resolve_remote_image_addresses("https://public.test/image.png") == records
 
 
 @pytest.mark.parametrize("payload", [b"<html>private page</html>", b"<svg xmlns='http://www.w3.org/2000/svg'></svg>"])

@@ -8,6 +8,7 @@ This file intentionally stays short. Detailed engineering notes belong in privat
 
 - Validate Ideogram Director image-save source paths and output prefixes before resolving filesystem paths. Windows network/device paths, drive paths and alternate data streams are rejected before they can trigger filesystem access; normal relative image paths and output subfolders remain supported.
 - Keep canonical directory containment for link/traversal protection and return clear errors for malformed save requests.
+- Apply the same explicit IPv6 transition-address restrictions to web image loading and translation, while preserving normal public IPv4 and IPv6 connections.
 
 ## 0.7.119 - 2026-10-16
 
