@@ -16,6 +16,7 @@ import asyncio
 import json
 import hashlib
 import math
+import ntpath
 import os
 import re
 
@@ -60,6 +61,24 @@ def _path_is_within_base(base, candidate):
     except (TypeError, ValueError):
         # ValueError covers Windows paths on different drives.
         return False
+
+
+def _save_path_is_safe_relative(value, *, allow_empty=False):
+    """Screen request paths before resolution can touch Windows shares/devices."""
+    if not isinstance(value, str):
+        return False
+    if not value:
+        return allow_empty
+    if "\x00" in value or ":" in value or value.startswith(("/", "\\")) or ntpath.splitdrive(value)[0]:
+        return False
+    reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    for component in value.replace("\\", "/").split("/"):
+        if component.rstrip(" ") == "..":
+            return False
+        name = component.rstrip(" .").split(".", 1)[0].rstrip(" ").upper()
+        if name in reserved or re.fullmatch(r"(?:COM|LPT)[1-9\u00b9\u00b2\u00b3]", name):
+            return False
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -1153,10 +1172,23 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
         except Exception:
             return web.json_response({"error": "invalid json body"}, status=400)
 
+        if not isinstance(data, dict):
+            return web.json_response({"error": "json body must be an object"}, status=400)
+        for field in ("filename", "subfolder", "type", "prefix"):
+            if field in data and not isinstance(data[field], str):
+                return web.json_response({"error": "%s must be a string" % field}, status=400)
+
         filename = data.get("filename") or ""
         subfolder = data.get("subfolder") or ""
         ftype = data.get("type") or "temp"
         prefix = data.get("prefix") or "Ideogram_Director"
+
+        if (
+            not _save_path_is_safe_relative(filename)
+            or not _save_path_is_safe_relative(subfolder, allow_empty=True)
+            or not _save_path_is_safe_relative(prefix)
+        ):
+            return web.json_response({"error": "Image paths and save prefix must be safe relative paths."}, status=400)
 
         base = folder_paths.get_directory_by_type(ftype)
         if not base or not filename:
