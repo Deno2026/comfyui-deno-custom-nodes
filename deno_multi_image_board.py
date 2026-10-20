@@ -25,14 +25,13 @@ from .deno_resolution_common import (
 IMAGE_INTERPOLATION_MODES = ["lanczos", "bicubic", "bilinear", "area", "nearest", "nearest-exact"]
 INPUT_BROWSER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 IMAGE_FILE_INSPECTION_CACHE_SIZE = 512
-EXTERNAL_IMAGE_ROOTS_ENV = "DENO_EXTERNAL_IMAGE_ROOTS"
 
 
 def _external_image_access_notice() -> str:
     return (
-        "Upload the image into the ComfyUI input folder, or ask the server owner to "
-        f"configure {EXTERNAL_IMAGE_ROOTS_ENV} with approved absolute image folders "
-        "before starting ComfyUI."
+        "External folders and image URLs are no longer supported. "
+        "Upload the image into the ComfyUI input folder, then select it again. "
+        "Advanced Image Source Loader also accepts a connected IMAGE input."
     )
 
 
@@ -96,35 +95,15 @@ def _path_is_within_root(root_path: str, candidate_path: str) -> bool:
 
 
 def _approved_image_roots() -> List[str]:
-    """Only server configuration can grant access outside ComfyUI's input root."""
-    roots = []
+    """Image loaders read only ComfyUI input; environment values cannot add roots."""
     folder_paths = _get_folder_paths()
-    if folder_paths is not None and hasattr(folder_paths, "get_input_directory"):
-        roots.append(os.path.realpath(folder_paths.get_input_directory()))
-    for value in os.environ.get(EXTERNAL_IMAGE_ROOTS_ENV, "").split(os.pathsep):
-        root = value.strip().strip('"')
-        if (
-            not root
-            or not _local_image_path_is_safe(root)
-            or not os.path.isabs(root)
-            or "://" in root
-            or any(character in root for character in "*?[]")
-        ):
-            continue
-        if os.path.dirname(os.path.normpath(root)) == os.path.normpath(root):
-            continue
-        root = os.path.realpath(root)
-        if not _local_image_path_is_safe(root) or os.path.dirname(root) == root:
-            continue
-        if os.path.isdir(root):
-            roots.append(root)
-    return roots
+    if folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
+        return []
+    return [os.path.realpath(folder_paths.get_input_directory())]
 
 
 def _image_path_is_allowed(path: str) -> bool:
-    if not _local_image_path_is_safe(path):
-        return False
-    return any(_path_is_within_root(root, path) for root in _approved_image_roots())
+    return _resolve_input_source_path(path) is not None
 
 
 def _input_browser_path_is_contained(input_dir: str, relative_path: str) -> bool:
@@ -160,7 +139,7 @@ def _blocked_input_items_notice(blocked_count: int) -> str:
     noun = "item" if count == 1 else "items"
     return (
         f"{count} linked {noun} skipped because the target is outside "
-        "the ComfyUI input folder. Use Advanced Image Source Loader for external folders."
+        "the ComfyUI input folder. Upload those images into the input folder instead."
     )
 
 
@@ -463,37 +442,44 @@ def _resolve_input_path(path: str | None) -> str | None:
 
 
 def _resolve_path(path: str | None) -> str | None:
-    """Preserve legacy absolute values only within server-approved image roots."""
+    """Preserve legacy absolute values only within the ComfyUI input folder."""
     raw_path = str(path or "").strip()
     if not _local_image_path_is_safe(raw_path):
         return None
     if os.path.isabs(raw_path):
-        candidate_path = _resolve_external_path(raw_path)
+        candidate_path = _resolve_input_source_path(raw_path)
         if candidate_path is None:
             return None
         return candidate_path if os.path.isfile(candidate_path) else None
     return _resolve_input_path(raw_path)
 
 
-def _resolve_external_path(path: str | None) -> str | None:
-    """Resolve files and folders under input or host-approved external roots."""
+def _resolve_input_source_path(path: str | None) -> str | None:
+    """Resolve input files/folders; reject external paths before resolving them."""
     raw_path = str(path or "").strip().strip('"')
     if not _local_image_path_is_safe(raw_path):
         return None
-    if os.path.isabs(raw_path):
-        candidate_path = os.path.realpath(raw_path)
-    else:
-        browser_path = _normalize_input_browser_path(raw_path)
-        folder_paths = _get_folder_paths()
-        if browser_path is None or folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
-            return None
-        input_dir = folder_paths.get_input_directory()
-        candidate_path = os.path.realpath(os.path.join(input_dir, browser_path))
-        if not _path_is_within_root(input_dir, candidate_path):
-            return None
-    if not _image_path_is_allowed(candidate_path):
+    folder_paths = _get_folder_paths()
+    if folder_paths is None or not hasattr(folder_paths, "get_input_directory"):
         return None
-    return candidate_path if os.path.exists(candidate_path) else None
+    input_path = os.path.abspath(folder_paths.get_input_directory())
+    if os.path.isabs(raw_path):
+        candidate = os.path.abspath(raw_path)
+    else:
+        relative = _normalize_input_browser_path(raw_path)
+        if relative is None:
+            return None
+        candidate = os.path.abspath(os.path.join(input_path, relative))
+    try:
+        if os.path.commonpath([os.path.normcase(input_path), os.path.normcase(candidate)]) != os.path.normcase(input_path):
+            return None
+    except ValueError:
+        return None
+    # Canonical containment additionally rejects symlinks/junctions escaping input.
+    if not _path_is_within_root(input_path, candidate):
+        return None
+    resolved = os.path.realpath(candidate)
+    return resolved if os.path.exists(resolved) else None
 
 
 def _resize_tensor(

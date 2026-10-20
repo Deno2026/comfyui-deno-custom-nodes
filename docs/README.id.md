@@ -146,11 +146,7 @@ Dynamic VRAM memindahkan weight sesuai tekanan memori dan dapat sengaja membiark
 
 ### `(Deno) Advanced Image Source Loader`
 
-Loader sumber gambar lanjutan untuk folder eksternal, path lokal, URL gambar web, dan daftar gambar dengan ukuran campuran.
-
-![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
-
-Fitur utama: dukungan folder `input` dan folder lokal eksternal, input URL/Path, upload dan paste, enable/disable thumbnail, drag reorder, galeri masonry, recursive folder, output batch tensor dan `image_list`.
+Memuat gambar yang diunggah, folder ComfyUI `input`, atau batch `IMAGE` yang terhubung. Mulai 0.7.121, pembacaan langsung folder eksternal dan unduhan URL gambar telah dihapus. Gunakan `Upload Folder`, lalu pilih gambar melalui `Input Folder` atau path relatif di `Input Path`. Sumber tersimpan, koneksi, urutan, dan status aktif tetap dipertahankan; sumber eksternal aktif menampilkan petunjuk migrasi. Resize, subfolder input rekursif, drag reorder, batch, dan `image_list` ukuran campuran tetap tersedia.
 
 ### `(Deno) Image Compare`
 

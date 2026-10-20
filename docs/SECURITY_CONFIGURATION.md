@@ -2,27 +2,13 @@
 
 Deno Custom Nodes keeps file and network permissions on the ComfyUI host. A loaded workflow, node widget, or browser request cannot grant these permissions.
 
-## Images outside the input folder
+## Image sources and migration
 
-Images in ComfyUI's `input` folder work without additional configuration. To use an external image folder, set `DENO_EXTERNAL_IMAGE_ROOTS` in the environment that starts ComfyUI, then restart ComfyUI. Specify only the folders containing the images you intend to use.
+From 0.7.121, image loaders read only ComfyUI's `input` directory. External folder/file access, image URL downloads and their custom preview endpoints have been removed. `DENO_EXTERNAL_IMAGE_ROOTS` is no longer read and cannot enable those features.
 
-PowerShell example, before starting ComfyUI from that same terminal:
+Use Upload, Paste or Upload Folder to import images, then select them with Input Folder or a relative Input Path. Advanced Image Source Loader also accepts a connected IMAGE batch. Symlinks and junctions that leave input are rejected. Existing absolute paths inside input still execute, but should be selected as relative input paths for thumbnails.
 
-```powershell
-$env:DENO_EXTERNAL_IMAGE_ROOTS = 'D:\Media\References;D:\Media\Photos'
-```
-
-On Linux and macOS, separate folders with `:` instead of `;`:
-
-```sh
-export DENO_EXTERNAL_IMAGE_ROOTS='/home/user/media/references:/home/user/media/photos'
-```
-
-Use absolute local folder paths. Drive roots, network shares, device paths, and alternate data streams are not supported. Permissions apply to the resolved path, so a symlink or junction cannot expose files outside the permitted folders. External browsing also stays inside the folder selected in the browser.
-
-This applies to external paths in Advanced Image Source Loader and older absolute image paths saved in Multi Image Loader or MiniMax H3 reference workflows. Saved paths, enabled states, order, and connections stay intact. An enabled source outside the permitted folders fails with an error; upload the image into `input` or approve its containing folder on the host. Disabled sources do not require access.
-
-External folder browsing and external file thumbnails require a localhost connection and reject a mismatched browser origin. Thumbnails return decoded image pixels as a PNG with metadata removed; they do not expose the original file bytes. Image loading for generation still uses the original permitted image.
+Saved source strings, enabled states, order, node IDs and connections remain intact. An active external source fails with migration guidance; a disabled source is retained without being read. Recursive input folders, resizing, batch output and mixed-size image lists remain available.
 
 ## Custom translation servers
 
@@ -42,7 +28,7 @@ The selected engine and Custom URL remain saved as before. Unknown engine values
 
 ## Local LLM connections
 
-Local LLM Loader and Reviewer keep their existing localhost defaults and host-controlled LAN permissions. See [Local LLM usage](../README.md#deno-local-llm-loader). API keys stay in the host environment and are never stored in workflows. The translation and image-folder settings above do not grant Local LLM access or change its authentication.
+Local LLM Loader and Reviewer keep their existing localhost defaults and host-controlled LAN permissions. See [Local LLM usage](../README.md#deno-local-llm-loader). API keys stay in the host environment and are never stored in workflows. The translation setting above does not grant Local LLM access or change its authentication.
 
 ## Reporting a problem
 

@@ -2631,7 +2631,7 @@ def test_multi_image_loader_resolves_copy_path_inside_input_folder():
     assert outside_absolute_path is None
 
 
-def test_multi_image_loader_preserves_opted_in_legacy_absolute_paths_while_input_paths_stay_contained(monkeypatch):
+def test_multi_image_loader_rejects_legacy_external_paths_even_with_old_opt_in(monkeypatch):
     load_package()
     board = sys.modules["comfyui_deno_custom_nodes.deno_multi_image_board"]
     folder_paths = sys.modules["folder_paths"]
@@ -2648,12 +2648,12 @@ def test_multi_image_loader_preserves_opted_in_legacy_absolute_paths_while_input
             assert board._resolve_path("inside.png") == os.path.realpath(input_file)
             assert board._resolve_path(str(input_file)) == os.path.realpath(input_file)
             assert board._resolve_path("../outside.png") is None
-            assert board._resolve_path(str(outside_file)) == os.path.realpath(outside_file)
+            assert board._resolve_path(str(outside_file)) is None
             assert board._resolve_input_path("inside.png") == os.path.realpath(input_file)
             assert board._resolve_input_path(str(input_file)) is None
             assert board._resolve_input_path("../outside.png") is None
             assert board._resolve_input_path(str(outside_file)) is None
-            assert board._resolve_external_path(str(outside_file)) == str(outside_file)
+            assert board._resolve_input_source_path(str(outside_file)) is None
         finally:
             folder_paths.get_input_directory = original_get_input_directory
 
@@ -2667,7 +2667,7 @@ def test_multi_image_loader_executes_legacy_absolute_saved_path(monkeypatch, tmp
     outside_dir = tmp_path / "legacy"
     input_dir.mkdir()
     outside_dir.mkdir()
-    image_file = outside_dir / "saved-absolute.png"
+    image_file = input_dir / "saved-absolute.png"
     Image.new("RGB", (3, 2), color=(12, 34, 56)).save(image_file)
     monkeypatch.setattr(folder_paths, "get_input_directory", lambda: str(input_dir))
     monkeypatch.setenv("DENO_EXTERNAL_IMAGE_ROOTS", str(outside_dir))
@@ -2886,74 +2886,29 @@ def test_input_folder_browser_reparse_containment_policy_without_link_privileges
     assert str(outside_target) not in blocked_payloads
 
 
-def test_advanced_image_source_loader_lists_and_expands_external_folders(monkeypatch):
-    load_package()
-    advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        monkeypatch.setenv("DENO_EXTERNAL_IMAGE_ROOTS", temp_dir)
-        subfolder = Path(temp_dir) / "refs"
-        subfolder.mkdir()
-        root_file = Path(temp_dir) / "root.png"
-        nested_file = subfolder / "nested.webp"
-        ignored_file = subfolder / "note.txt"
-        root_file.write_bytes(b"root")
-        nested_file.write_bytes(b"nested")
-        ignored_file.write_text("ignore", encoding="utf-8")
-
-        root_listing = advanced._list_external_folder_entries(temp_dir)
-        nested_listing = advanced._list_external_folder_entries(temp_dir, "refs")
-        traversal_listing = advanced._list_external_folder_entries(temp_dir, "../outside")
-        flat_sources = advanced._expand_image_sources([temp_dir], recursive_folders=False)
-        recursive_sources = advanced._expand_image_sources([temp_dir], recursive_folders=True)
-        duplicate_sources = advanced._expand_image_sources([str(root_file), str(root_file)], recursive_folders=False)
-
-    assert root_listing["root"]
-    assert [entry["path"] for entry in root_listing["folders"]] == ["refs"]
-    assert [Path(entry["path"]).name for entry in root_listing["files"]] == ["root.png"]
-    assert nested_listing["path"] == "refs"
-    assert [Path(entry["path"]).name for entry in nested_listing["files"]] == ["nested.webp"]
-    assert traversal_listing["folders"] == []
-    assert [Path(path).name for path in flat_sources] == ["root.png"]
-    assert [Path(path).name for path in recursive_sources] == ["nested.webp", "root.png"]
-    assert [Path(path).name for path in duplicate_sources] == ["root.png", "root.png"]
+def test_advanced_image_source_loader_expands_input_folders(monkeypatch, tmp_path):
+    package = load_package()
+    advanced = sys.modules[f"{package.__name__}.deno_advanced_image_source_loader"]
+    monkeypatch.setattr(sys.modules["folder_paths"], "get_input_directory", lambda: str(tmp_path))
+    (tmp_path / "refs").mkdir()
+    (tmp_path / "root.png").write_bytes(b"root")
+    (tmp_path / "refs/nested.webp").write_bytes(b"nested")
+    (tmp_path / "refs/note.txt").write_text("ignore", encoding="utf8")
+    assert [Path(p).name for p in advanced._expand_image_sources([str(tmp_path)], False)] == ["root.png"]
+    assert [Path(p).name for p in advanced._expand_image_sources([str(tmp_path)], True)] == ["nested.webp", "root.png"]
+    assert advanced._expand_image_sources(["root.png", "root.png"]) == ["root.png", "root.png"]
 
 
-def test_advanced_image_source_loader_skips_unreadable_external_folder(monkeypatch):
-    load_package()
-    advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
-    original_listdir = advanced.os.listdir
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        monkeypatch.setenv("DENO_EXTERNAL_IMAGE_ROOTS", temp_dir)
-        def deny_listdir(path):
-            if Path(path) == Path(temp_dir):
-                raise PermissionError("access denied")
-            return original_listdir(path)
-
-        advanced.os.listdir = deny_listdir
-        try:
-            sources = advanced._expand_image_sources([temp_dir], recursive_folders=False)
-        finally:
-            advanced.os.listdir = original_listdir
-
-    assert sources == []
-
-
-def test_advanced_remote_image_redirect_revalidates_target(monkeypatch):
-    load_package()
-    advanced = sys.modules["comfyui_deno_custom_nodes.deno_advanced_image_source_loader"]
-
-    response = types.SimpleNamespace(
-        status=302,
-        headers={"Location": "http://127.0.0.1/private.png"},
-        close=lambda: None,
-        release_conn=lambda: None,
-    )
-    pool = types.SimpleNamespace(close=lambda: None)
-    monkeypatch.setattr(advanced, "_open_remote_image_response", lambda *_args: (pool, response))
-    with pytest.raises(ValueError, match="redirect target"):
-        advanced._read_remote_image_bytes("http://8.8.8.8/image.png")
+def test_advanced_image_source_loader_reports_unreadable_input_folder(monkeypatch, tmp_path):
+    package = load_package()
+    advanced = sys.modules[f"{package.__name__}.deno_advanced_image_source_loader"]
+    monkeypatch.setattr(sys.modules["folder_paths"], "get_input_directory", lambda: str(tmp_path))
+    def deny(_path):
+        raise PermissionError("access denied")
+    monkeypatch.setattr(advanced.os, "listdir", deny)
+    failures = []
+    assert advanced._expand_image_sources([str(tmp_path)], False, failures) == []
+    assert failures == [str(tmp_path)]
 
 
 def test_ltx_sequencer_declares_sync_controls():

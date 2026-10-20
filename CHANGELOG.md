@@ -4,6 +4,12 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.121 - 2026-10-20
+
+- Removed image URL downloading and direct external-folder/file reading from the image loaders, including their custom preview APIs. `DENO_EXTERNAL_IMAGE_ROOTS` no longer enables access outside ComfyUI input.
+- Use Upload, Paste, Upload Folder or Input Folder to import/select images, or connect the Advanced loader's IMAGE input. Input Path accepts paths relative to ComfyUI input. Existing node IDs, sockets, saved source strings, order and enabled states are retained; active legacy external sources report how to migrate instead of being silently skipped.
+- Preserved batch resizing, mixed-size image lists, recursive input folders and RTX processing.
+
 ## 0.7.120 - 2026-10-18
 
 - Validate Ideogram Director image-save source paths and output prefixes before resolving filesystem paths. Windows network/device paths, drive paths and alternate data streams are rejected before they can trigger filesystem access; normal relative image paths and output subfolders remain supported.

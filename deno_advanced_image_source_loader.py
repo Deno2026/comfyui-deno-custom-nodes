@@ -1,19 +1,10 @@
-import asyncio
 import hashlib
-import io
-import ipaddress
 import os
-import socket
-import urllib.error
-import urllib.parse
 from typing import List
 
 import numpy as np
 import torch
-import urllib3
-from aiohttp import web
 from PIL import Image, ImageOps
-from server import PromptServer
 
 from .deno_multi_image_board import (
     IMAGE_INTERPOLATION_MODES,
@@ -25,7 +16,7 @@ from .deno_multi_image_board import (
     _local_image_path_is_safe,
     _path_is_within_root,
     _resize_tensor,
-    _resolve_external_path as _resolve_path,
+    _resolve_input_source_path as _resolve_path,
     _split_paths,
 )
 from .deno_resolution_common import (
@@ -39,416 +30,11 @@ from .deno_resolution_common import (
 )
 
 
-REMOTE_IMAGE_TIMEOUT_SECONDS = 20
-REMOTE_IMAGE_MAX_BYTES = 64 * 1024 * 1024
-REMOTE_IMAGE_MAX_REDIRECTS = 5
-REMOTE_IMAGE_PREVIEW_MAX_SIZE = 640
-REMOTE_IMAGE_PREVIEW_MAX_PIXELS = 40 * 1024 * 1024
-_REMOTE_IMAGE_PREVIEW_SLOTS = asyncio.Semaphore(4)
 ADVANCED_RESIZE_METHODS = list(dict.fromkeys([
     *RESIZE_METHODS,
     "Top Crop (Fill)",
     "Bottom Crop (Fill)",
 ]))
-
-
-def _is_loopback_request(request) -> bool:
-    remote = getattr(request, "remote", None) or ""
-    if not remote and getattr(request, "transport", None) is not None:
-        peername = request.transport.get_extra_info("peername")
-        if peername:
-            remote = peername[0]
-
-    try:
-        return ipaddress.ip_address(str(remote)).is_loopback
-    except ValueError:
-        return str(remote).lower() in {"localhost", "::1"}
-
-
-def _local_request_origin_is_allowed(request) -> bool:
-    """Reject cross-origin reads and untrusted Host names, ignoring proxy headers."""
-    headers = getattr(request, "headers", {})
-    host = str(headers.get("Host", "")).strip()
-    origin = headers.get("Origin")
-    if not host:
-        return origin is None
-    scheme = str(getattr(request, "scheme", "http")).lower()
-    try:
-        target = urllib.parse.urlsplit(f"{scheme}://{host}")
-        if target.username or target.password or target.path or target.query or target.fragment:
-            return False
-        hostname = target.hostname or ""
-        if hostname.lower() != "localhost" and not ipaddress.ip_address(hostname).is_loopback:
-            return False
-        target_port = target.port if target.port is not None else (443 if scheme == "https" else 80)
-        if scheme not in {"http", "https"}:
-            return False
-        if origin is None:
-            return True
-        source = urllib.parse.urlsplit(str(origin))
-        if source.username or source.password or source.path or source.query or source.fragment:
-            return False
-        source_port = source.port if source.port is not None else (443 if source.scheme.lower() == "https" else 80)
-        return (
-            source.scheme.lower() == scheme
-            and source.hostname == target.hostname
-            and source_port == target_port
-        )
-    except ValueError:
-        return False
-
-
-def _normalize_external_root(root_path: str | None) -> str | None:
-    raw_path = str(root_path or "").strip().strip('"')
-    if not _local_image_path_is_safe(raw_path) or not os.path.isabs(raw_path):
-        return None
-    root = _resolve_path(raw_path)
-    if root is None:
-        return None
-    return root if os.path.isdir(root) else None
-
-
-def _normalize_external_relative_path(relative_path: str | None) -> str | None:
-    if relative_path and not _local_image_path_is_safe(str(relative_path)):
-        return None
-    raw_path = str(relative_path or "").replace("\\", "/").strip().strip("/")
-    if not raw_path or raw_path == ".":
-        return ""
-
-    normalized = os.path.normpath(raw_path).replace("\\", "/")
-    if normalized in {"", "."}:
-        return ""
-    if os.path.isabs(raw_path) or ":" in normalized or normalized == ".." or normalized.startswith("../"):
-        return None
-    return normalized
-
-
-def _resolve_external_browser_dir(root_dir: str, relative_path: str) -> str | None:
-    if not _local_image_path_is_safe(root_dir) or (relative_path and not _local_image_path_is_safe(relative_path)):
-        return None
-    base_dir = os.path.realpath(root_dir)
-    candidate_dir = os.path.realpath(os.path.join(base_dir, relative_path))
-
-    try:
-        common_path = os.path.commonpath([os.path.normcase(base_dir), os.path.normcase(candidate_dir)])
-    except ValueError:
-        return None
-
-    if common_path != os.path.normcase(base_dir) or not _image_path_is_allowed(candidate_dir):
-        return None
-    return candidate_dir if os.path.isdir(candidate_dir) else None
-
-
-def _to_external_relative_path(root_dir: str, full_path: str) -> str:
-    relative = os.path.relpath(full_path, root_dir)
-    if relative == ".":
-        return ""
-    return relative.replace("\\", "/")
-
-
-def _get_external_browser_parent(relative_path: str) -> str:
-    if not relative_path:
-        return ""
-    parent = os.path.dirname(relative_path).replace("\\", "/")
-    return "" if parent == "." else parent
-
-
-def _empty_external_folder_listing(root_path: str | None = None, relative_path: str = ""):
-    return {
-        "root": root_path or "",
-        "path": relative_path,
-        "parent": _get_external_browser_parent(relative_path),
-        "folders": [],
-        "files": [],
-    }
-
-
-def _list_external_folder_entries(root_path: str | None, relative_path: str | None = ""):
-    root_dir = _normalize_external_root(root_path)
-    if root_dir is None:
-        return _empty_external_folder_listing()
-
-    browser_path = _normalize_external_relative_path(relative_path)
-    if browser_path is None:
-        return _empty_external_folder_listing(root_dir)
-
-    current_dir = _resolve_external_browser_dir(root_dir, browser_path)
-    if current_dir is None:
-        return _empty_external_folder_listing(root_dir, browser_path)
-
-    folders = []
-    files = []
-    try:
-        for name in os.listdir(current_dir):
-            full_path = os.path.join(current_dir, name)
-            if not _path_is_within_root(root_dir, full_path) or not _image_path_is_allowed(full_path):
-                continue
-            try:
-                stat = os.stat(full_path)
-            except OSError:
-                continue
-            if os.path.isdir(full_path):
-                folders.append({
-                    "name": name,
-                    "path": _to_external_relative_path(root_dir, full_path),
-                    "mtime": stat.st_mtime,
-                })
-                continue
-            if os.path.isfile(full_path) and os.path.splitext(name)[1].lower() in INPUT_BROWSER_IMAGE_EXTENSIONS:
-                files.append({
-                    "name": _to_external_relative_path(root_dir, full_path),
-                    "display_name": name,
-                    "path": os.path.realpath(full_path),
-                    "mtime": stat.st_mtime,
-                    "size": stat.st_size,
-                })
-    except Exception as exc:
-        print(f"[DenoAdvancedImageSourceLoader] Failed to list external folder images: {exc}")
-        return _empty_external_folder_listing(root_dir, browser_path)
-
-    return {
-        "root": root_dir,
-        "path": browser_path,
-        "parent": _get_external_browser_parent(browser_path),
-        "folders": sorted(folders, key=lambda item: str(item["name"]).lower()),
-        "files": sorted(files, key=lambda item: (-float(item["mtime"]), str(item["name"]).lower())),
-    }
-
-
-@PromptServer.instance.routes.get("/deno/advanced/external-folder-images")
-async def deno_advanced_external_folder_images(request):
-    if not _is_loopback_request(request):
-        return web.json_response({"error": "External folder browsing is only available from localhost."}, status=403)
-    if not _local_request_origin_is_allowed(request):
-        return web.json_response({"error": "External folder browsing requires the same localhost origin."}, status=403)
-
-    root_path = request.query.get("root", "")
-    requested_path = request.query.get("path", "")
-    root_dir = _normalize_external_root(root_path)
-    if root_dir is None:
-        return web.json_response({"error": f"External folder is unavailable or not approved. {_external_image_access_notice()}"}, status=403)
-
-    browser_path = _normalize_external_relative_path(requested_path)
-    if browser_path is None:
-        return web.json_response({"error": "Invalid external subfolder path."}, status=400)
-    if _resolve_external_browser_dir(root_dir, browser_path) is None:
-        return web.json_response({"error": "External subfolder is unavailable or outside the approved folder."}, status=403)
-
-    return web.json_response(_list_external_folder_entries(root_dir, browser_path))
-
-
-@PromptServer.instance.routes.get("/deno/advanced/external-image-view")
-async def deno_advanced_external_image_view(request):
-    if not _is_loopback_request(request):
-        return web.json_response({"error": "External image previews are only available from localhost."}, status=403)
-    if not _local_request_origin_is_allowed(request):
-        return web.json_response({"error": "External image previews require the same localhost origin."}, status=403)
-
-    requested_path = str(request.query.get("path", "")).strip().strip('"')
-    if not _local_image_path_is_safe(requested_path) or not os.path.isabs(requested_path):
-        return web.json_response({"error": "Invalid image path."}, status=400)
-    full_path = _resolve_path(requested_path)
-    if full_path is None:
-        return web.json_response({"error": f"External image is unavailable or not approved. {_external_image_access_notice()}"}, status=403)
-    if not os.path.isfile(full_path) or os.path.splitext(full_path)[1].lower() not in INPUT_BROWSER_IMAGE_EXTENSIONS:
-        return web.json_response({"error": "Image not found."}, status=404)
-    headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
-    try:
-        async with _REMOTE_IMAGE_PREVIEW_SLOTS:
-            preview_bytes = await asyncio.to_thread(_local_image_preview_bytes, full_path)
-    except (OSError, ValueError, Image.DecompressionBombError):
-        return web.json_response({"error": "Image preview unavailable. Use a supported raster image."}, status=400, headers=headers)
-    return web.Response(body=preview_bytes, content_type="image/png", headers=headers)
-
-
-def _is_remote_image_url(source: str) -> bool:
-    try:
-        parsed = urllib.parse.urlparse(str(source or "").strip())
-    except ValueError:
-        return False
-    return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
-
-
-def _resolve_remote_image_addresses(source: str):
-    try:
-        parsed = urllib.parse.urlparse(str(source or "").strip())
-        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-            return []
-        if parsed.username or parsed.password:
-            return []
-        addr_infos = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
-    except (OSError, ValueError):
-        return []
-
-    for addr_info in addr_infos:
-        ip_text = addr_info[4][0]
-        try:
-            address = ipaddress.ip_address(ip_text)
-        except ValueError:
-            return []
-        # Match translation's explicit boundary rather than depending on a
-        # Python release's classification of addresses embedding another IP.
-        if isinstance(address, ipaddress.IPv6Address) and (
-            address.ipv4_mapped is not None or address.sixtofour is not None or address.teredo is not None
-        ):
-            return []
-        if (
-            not address.is_global
-            or address.is_private
-            or address.is_loopback
-            or address.is_link_local
-            or address.is_multicast
-            or address.is_reserved
-            or address.is_unspecified
-        ):
-            return []
-    return addr_infos
-
-
-def _open_remote_image_response(source: str, addresses):
-    parsed = urllib.parse.urlsplit(source)
-    hostname = parsed.hostname
-    authority = f"[{hostname}]" if ":" in hostname else hostname
-    if parsed.port is not None:
-        authority += f":{parsed.port}"
-    path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
-    headers = {
-        "Host": authority,
-        "User-Agent": "DENO-ComfyUI-Custom-Nodes/0.4",
-    }
-    last_error = None
-    for _family, _sock_type, _proto, _canonname, sockaddr in addresses:
-        # Connect to a validated IP while the original hostname still owns
-        # HTTP routing, TLS SNI and certificate hostname verification.
-        if parsed.scheme.lower() == "https":
-            pool = urllib3.HTTPSConnectionPool(
-                sockaddr[0], port=sockaddr[1], server_hostname=hostname,
-                assert_hostname=hostname, cert_reqs="CERT_REQUIRED",
-            )
-        else:
-            pool = urllib3.HTTPConnectionPool(sockaddr[0], port=sockaddr[1])
-        response = None
-        try:
-            response = pool.urlopen(
-                "GET", path, headers=headers, assert_same_host=False,
-                redirect=False, retries=False, preload_content=False,
-                decode_content=False, timeout=REMOTE_IMAGE_TIMEOUT_SECONDS,
-            )
-            return pool, response
-        except urllib3.exceptions.ConnectTimeoutError as exc:
-            # Includes NewConnectionError. Once an HTTP response arrives, do
-            # not retry another IP for its status, body or TLS validation.
-            last_error = exc
-        except urllib3.exceptions.HTTPError as exc:
-            raise urllib.error.URLError(exc) from exc
-        finally:
-            if response is None:
-                pool.close()
-    raise urllib.error.URLError(last_error or "No validated remote image address.")
-
-
-def _read_remote_image_bytes(source: str) -> bytes:
-    current_source = source
-    for _redirect_count in range(REMOTE_IMAGE_MAX_REDIRECTS + 1):
-        addresses = _resolve_remote_image_addresses(current_source)
-        if not addresses:
-            label = "redirect target" if _redirect_count else "URL"
-            raise ValueError(f"Remote image {label} is not allowed.")
-        pool, response = _open_remote_image_response(current_source, addresses)
-        try:
-            if response.status in {301, 302, 303, 307, 308}:
-                redirect_target = response.headers.get("Location")
-                if not redirect_target:
-                    raise ValueError("Remote image redirect did not include a Location header.")
-                current_source = urllib.parse.urljoin(current_source, redirect_target)
-                continue
-            if not 200 <= response.status < 300:
-                raise urllib.error.HTTPError(
-                    current_source, response.status, response.reason, response.headers, None,
-                )
-            content_type = str(response.headers.get("Content-Type", "")).lower()
-            if content_type and not (
-                content_type.startswith("image/")
-                or content_type.startswith("application/octet-stream")
-                or content_type.startswith("binary/octet-stream")
-            ):
-                raise ValueError(f"Remote URL did not return an image content type: {content_type}")
-
-            chunks = []
-            total = 0
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > REMOTE_IMAGE_MAX_BYTES:
-                    raise ValueError("Remote image is too large.")
-                chunks.append(chunk)
-            return b"".join(chunks)
-        except urllib3.exceptions.HTTPError as exc:
-            raise urllib.error.URLError(exc) from exc
-        finally:
-            try:
-                try:
-                    response.close()
-                finally:
-                    response.release_conn()
-            finally:
-                pool.close()
-    raise ValueError("Remote image redirected too many times.")
-
-
-def _remote_image_preview_bytes(source: str) -> bytes:
-    # Reuse the execution fetcher so a preview has the same URL, redirect,
-    # certificate and public-address boundaries as the image that is run.
-    return _raster_image_preview_bytes(_read_remote_image_bytes(source))
-
-
-def _local_image_preview_bytes(source: str) -> bytes:
-    resolved_path = _resolve_path(source)
-    if resolved_path is None or not os.path.isfile(resolved_path):
-        raise ValueError(_external_image_access_notice())
-    with open(resolved_path, "rb") as image_file:
-        image_bytes = image_file.read(REMOTE_IMAGE_MAX_BYTES + 1)
-    if len(image_bytes) > REMOTE_IMAGE_MAX_BYTES:
-        raise ValueError("Local image is too large for a preview.")
-    return _raster_image_preview_bytes(image_bytes)
-
-
-def _raster_image_preview_bytes(image_bytes: bytes) -> bytes:
-    with Image.open(io.BytesIO(image_bytes)) as image:
-        if image.width * image.height > REMOTE_IMAGE_PREVIEW_MAX_PIXELS:
-            raise ValueError("Image is too large for a preview.")
-        # Only raster pixels leave this endpoint, never remote HTML, SVG,
-        # original metadata or an unvalidated response body.
-        image.thumbnail((REMOTE_IMAGE_PREVIEW_MAX_SIZE, REMOTE_IMAGE_PREVIEW_MAX_SIZE))
-        has_alpha = "A" in image.getbands() or "transparency" in image.info
-        preview = ImageOps.exif_transpose(image).convert("RGBA" if has_alpha else "RGB")
-        preview.info.clear()
-        output = io.BytesIO()
-        preview.save(output, format="PNG")
-        return output.getvalue()
-
-
-@PromptServer.instance.routes.get("/deno/advanced/remote-image-preview")
-async def deno_advanced_remote_image_preview(request):
-    source = str(request.query.get("url", "")).strip()
-    headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
-    if not _is_remote_image_url(source):
-        return web.json_response(
-            {"error": "A direct public HTTP(S) image URL is required."}, status=400, headers=headers,
-        )
-    try:
-        # Network waits and image decoding must not stall ComfyUI's event loop.
-        async with _REMOTE_IMAGE_PREVIEW_SLOTS:
-            preview_bytes = await asyncio.to_thread(_remote_image_preview_bytes, source)
-    except (OSError, ValueError, urllib.error.URLError, Image.DecompressionBombError):
-        return web.json_response(
-            {"error": "Image preview unavailable. Check that the URL is a reachable public image."},
-            status=400,
-            headers=headers,
-        )
-    return web.Response(body=preview_bytes, content_type="image/png", headers=headers)
 
 
 def _open_image_source(source: str) -> Image.Image | None:
@@ -457,14 +43,11 @@ def _open_image_source(source: str) -> Image.Image | None:
         return None
 
     try:
-        if _is_remote_image_url(raw_source):
-            return Image.open(io.BytesIO(_read_remote_image_bytes(raw_source)))
-
         resolved_path = _resolve_path(raw_source)
         if resolved_path is None:
             return None
         return Image.open(resolved_path)
-    except (OSError, ValueError, urllib.error.URLError) as exc:
+    except (OSError, ValueError) as exc:
         print(f"[DenoAdvancedImageSourceLoader] Failed to open image source {raw_source}: {exc}")
         return None
 
@@ -485,9 +68,6 @@ def _expand_image_sources(
         if not raw_source:
             continue
 
-        if _is_remote_image_url(raw_source):
-            expanded.append(raw_source)
-            continue
         local_candidate = _resolve_path(raw_source)
         if local_candidate is None:
             _record_source_failure(failures, raw_source)
@@ -572,24 +152,12 @@ def _validate_active_sources(image_paths: str, disabled_image_paths: str) -> str
 
     for source in active_sources:
         raw_source = str(source or "").strip().strip('"')
-        try:
-            parsed = urllib.parse.urlparse(raw_source)
-        except ValueError:
-            invalid_sources.append(raw_source)
-            continue
-        if parsed.scheme.lower() in {"http", "https"}:
-            if not parsed.netloc or not parsed.hostname:
-                invalid_sources.append(raw_source)
-            continue
-        if "://" in raw_source:
-            invalid_sources.append(raw_source)
-            continue
         if _resolve_path(raw_source) is None:
             invalid_sources.append(raw_source)
 
     if invalid_sources:
         return (
-            "[DenoAdvancedImageSourceLoader] Active local image source(s) are missing, or a URL is invalid: "
+            "[DenoAdvancedImageSourceLoader] Active image source(s) are missing or outside the ComfyUI input folder: "
             f"{_format_source_preview(invalid_sources)}. Fix or disable the source, then run the workflow again. "
             f"{_external_image_access_notice()}"
         )
@@ -600,10 +168,6 @@ def _update_source_stat_hash(hasher, source: str) -> None:
     raw_source = str(source or "").strip().strip('"')
     hasher.update(raw_source.encode("utf-8", "surrogatepass"))
     hasher.update(b"\0")
-
-    if _is_remote_image_url(raw_source):
-        hasher.update(b"url\0")
-        return
 
     resolved_path = _resolve_path(raw_source)
     if resolved_path is None:
@@ -650,8 +214,8 @@ def _split_input_image_batch(images) -> List[torch.Tensor]:
 
 class DenoAdvancedImageSourceLoader:
     DESCRIPTION = (
-        "Advanced image source loader for users who need external folders, "
-        "absolute file paths, web URLs, batch output, and mixed-size image-list output. "
+        "Load uploaded images and ComfyUI input folders, or connect an IMAGE batch. "
+        "Provides batch output and mixed-size image-list output. External folders and image URLs are not supported. "
         "Click thumbnails to enable or disable sources. Disabled sources are skipped; "
         "enabled source badges update to 1, 2, 3, and so on in card order.\n"
         "Use the standard Multi Image Loader for simpler input-folder workflows.\n"
@@ -732,7 +296,7 @@ class DenoAdvancedImageSourceLoader:
         del images
 
         hasher = hashlib.sha256()
-        hasher.update(b"deno_advanced_image_source_loader_v1")
+        hasher.update(b"deno_advanced_image_source_loader_input_only_v2")
         for value in (
             mode,
             ratio_preset,
@@ -798,7 +362,7 @@ class DenoAdvancedImageSourceLoader:
         if not originals:
             raise RuntimeError(
                 "[DenoAdvancedImageSourceLoader] No active images are available. "
-                "Add an image path, URL, or folder, or connect the images input, then run the workflow again."
+                "Upload images, select a ComfyUI input folder, or connect the images input, then run the workflow again."
             )
 
         loaded_image_count = len(originals)

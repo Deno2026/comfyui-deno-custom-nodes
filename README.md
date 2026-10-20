@@ -35,7 +35,7 @@ This first example needs no generation model. Individual model and RTX nodes hav
 - **Organize or work in a browser:** try [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools), or the no-install [Web Tools](#web-tools).
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
-External image folders and custom translation servers require permission set on the ComfyUI host. See [file and translation access](docs/SECURITY_CONFIGURATION.md) before using these features or reopening workflows with external paths.
+Image loaders read only ComfyUI `input`. Upload external images before reopening workflows that used external paths or URLs. Custom translation servers still require host permission. See [file and translation access](docs/SECURITY_CONFIGURATION.md).
 The pack also includes lightweight frontend/browser helpers such as **Deno Visual Fold**, optional **Deno Floating Tools** for Free VRAM, ComfyUI Stable update checks, and GPT/Gemini-ready Error Help reports, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the **Discord Media Compressor** page (Korean-only interface).
 
 ## Web Tools
@@ -152,7 +152,7 @@ Main features:
 - `Input Folder` browser for reusing existing ComfyUI `input` images
 - input subfolder browsing with folder tiles, double-click navigation, and a `Parent` button
 - nested input images can be added while preserving their ComfyUI subfolder paths
-- external symlinks or junctions that leave ComfyUI's `input` folder are skipped for security; use `(Deno) Advanced Image Source Loader`'s External Folder mode for those sources
+- external symlinks or junctions that leave ComfyUI's `input` folder are skipped for security; upload those images into `input` instead
 - newest-first input image sorting based on file modified time
 - responsive input-folder thumbnails for smoother browsing with many images
 - `Keep Input Ratio`, `Preset Ratio`, or `Manual Input` size mode
@@ -253,23 +253,20 @@ Dynamic VRAM moves weights according to memory pressure and may intentionally le
 
 ### `(Deno) Advanced Image Source Loader`
 
-Advanced image source loader for workflows that need external folders, local file paths, web image URLs, and mixed-size image-list output.
+Advanced image source loader for uploaded images, ComfyUI input folders, connected IMAGE batches, and mixed-size image-list output.
+
+**Migration from 0.7.120 or earlier:** external folders and image URLs are no longer read or downloaded. Use `Upload` or `Upload Folder`, then replace each active legacy source with the uploaded input path. Saved sources, order, enabled states and connections are preserved. Disabled legacy sources do not block execution. `DENO_EXTERNAL_IMAGE_ROOTS` no longer grants access. Absolute saved paths inside ComfyUI input still execute; select their relative input path to restore thumbnails.
 
 This is a separate advanced node. The standard `(Deno) Multi Image Loader` remains the simpler recommended option for normal ComfyUI `input` folder workflows.
 
-![Deno Advanced Image Source Loader](docs/images/advanced-image-source-loader.png)
 
 Main features:
 
 - keeps the familiar Deno image-loader gallery workflow
-- supports existing ComfyUI `input` folder browsing
-- supports external local folder paths approved through the host's `DENO_EXTERNAL_IMAGE_ROOTS` setting
+- supports existing ComfyUI `input` folder browsing and relative `Input Path` entries
+- `Upload Folder` imports a browser-selected folder into ComfyUI input
 - supports folder tiles, nested-folder browsing, and a `Parent` button
-- supports `URL / Path` input for web image URLs, absolute local image paths, and local folder paths
-- web thumbnails use the same validated server fetch as execution; quoted paths from Windows `Copy as path` are also recognized for previews
 - use `Refresh previews` to retry thumbnails without changing sources, enabled state, or order; hover a failed preview for help
-- external local file previews require a localhost connection to ComfyUI and return decoded thumbnails rather than original file bytes
-- web image URLs use direct HTTP(S) connections to public addresses; private addresses and environment-proxy routing are not supported
 - supports upload, drag-and-drop, paste, and browser folder upload where the browser allows it
 - includes a visible `Paste` button plus normal Ctrl+V image paste
 - click thumbnails to disable/enable sources without deleting them
@@ -278,8 +275,6 @@ Main features:
 - drag thumbnail cards to reorder output sequence
 - the gallery follows the node's available height in both the classic canvas and Nodes 2.0
 - thumbnails use a masonry-style flow so mixed portrait/landscape references are easier to scan
-- `Load Path` reads an external folder directly without first importing it into ComfyUI `input`
-- `Upload Folder...` is an optional browser upload/import helper, not required for external path loading
 - `recursive_folders` option for loading nested folder images
 - `Keep Input Ratio`, `Preset Ratio`, or `Manual Input` size mode
 - ratio preset, megapixels, divisible-by sizing, or direct width/height control

@@ -111,7 +111,7 @@ NODE_INPUT_TOOLTIPS = {
         "text_encoder": "The exact CLIP/text encoder to unload. Connect the same CLIP used by every upstream encoding branch.",
     },
     "DenoAdvancedImageSourceLoader": {
-        "image_paths": "Files, folders, absolute paths, or web URLs selected by the advanced source UI.",
+        "image_paths": "Uploaded images or paths inside ComfyUI input. External folders and image URLs must be uploaded first.",
         "mode": "Choose how images are resized for the batch output.",
         "ratio_preset": "Target aspect ratio used in Preset Ratio mode.",
         "megapixels": "Target total image size in megapixels for automatic sizing modes.",

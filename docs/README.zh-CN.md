@@ -146,11 +146,7 @@ Dynamic VRAM 会根据显存压力移动权重，因此可能有意保留部分 
 
 ### `(Deno) Advanced Image Source Loader`
 
-适合需要外部文件夹、本地路径、网络图片 URL 和混合尺寸图像列表的高级图像源加载器。
-
-![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
-
-主要功能：支持 ComfyUI `input` 与外部本地文件夹、URL/Path 输入、上传与粘贴、缩略图启用/禁用、拖拽排序、masonry 样式图库、递归文件夹加载、batch tensor 与 `image_list` 输出。
+读取上传的图片、ComfyUI `input` 文件夹或连接的 `IMAGE` 批次。从 0.7.121 起，已移除外部文件夹直接读取和图片 URL 下载。请使用 `Upload Folder` 上传，再通过 `Input Folder` 或相对 `Input Path` 选择。已有来源、连接、顺序和启用状态保留；启用的旧外部来源会显示迁移说明。缩放、input 子文件夹递归读取、拖拽排序、混合尺寸 `image_list` 和 batch 输出仍然可用。
 
 ### `(Deno) Image Compare`
 

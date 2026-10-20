@@ -146,11 +146,7 @@ Dynamic VRAM mueve pesos según la presión de memoria y puede dejar deliberadam
 
 ### `(Deno) Advanced Image Source Loader`
 
-Cargador avanzado para workflows que usan carpetas externas, rutas locales, URLs web y listas de imágenes con tamaños mixtos.
-
-![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
-
-Funciones principales: soporte para `input` y carpetas externas, entrada URL/Path, upload y paste, activar/desactivar miniaturas, reordenar, galería tipo masonry, carpetas recursivas, salida batch tensor e `image_list`.
+Carga imágenes subidas, carpetas de ComfyUI `input` o un lote `IMAGE` conectado. Desde 0.7.121 se han eliminado la lectura directa de carpetas externas y las descargas de URLs de imagen. Usa `Upload Folder` y selecciona las imágenes con `Input Folder` o una ruta relativa en `Input Path`. Se conservan las fuentes guardadas, conexiones, orden y estado activo; las fuentes externas activas muestran instrucciones de migración. Se mantienen el redimensionado, carpetas input recursivas, reordenación, batch e `image_list` con tamaños mixtos.
 
 ### `(Deno) Image Compare`
 

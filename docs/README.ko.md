@@ -34,7 +34,7 @@ ComfyUI가 설치되어 정상 실행되는 환경에서 시작하세요.
 
 대부분의 Deno 노드는 ComfyUI 캔버스를 벗어나지 않고 도움말을 볼 수 있는 작은 초록색 `i` 버튼을 포함합니다. 새 Deno Custom Nodes 버전이 있으면 버튼이 노란색으로 바뀌고 작은 `!` 배지가 표시됩니다.
 
-외부 이미지 폴더와 사용자 지정 번역 서버는 ComfyUI 실행 환경에서 허용해야 사용할 수 있습니다. 외부 경로가 저장된 기존 워크플로에도 적용됩니다. 폴더는 `DENO_EXTERNAL_IMAGE_ROOTS`, LibreTranslate Custom URL의 서버 주소는 `DENO_TRANSLATION_ALLOWED_ORIGINS`로 지정한 뒤 ComfyUI를 재시작하세요. [파일·번역 접근 설정](SECURITY_CONFIGURATION.md)에 설정 예시와 적용 범위가 있습니다.
+이미지 로더는 ComfyUI `input` 폴더만 읽습니다. 기존 외부 경로·URL 이미지는 업로드한 뒤 다시 선택하세요. 사용자 지정 번역 서버는 `DENO_TRANSLATION_ALLOWED_ORIGINS` 설정이 필요합니다. [파일·번역 접근 설정](SECURITY_CONFIGURATION.md)을 참고하세요.
 
 ## Web Tools
 
@@ -129,7 +129,7 @@ ComfyUI용 해상도 도우미와 이미지 리사이즈 노드입니다.
 
 ![Deno Multi Image Loader](images/multi-image-loader.jpg)
 
-주요 기능: 고정 높이 갤러리, 드래그 정렬, 업로드, 드래그 앤 드롭, 이미지 붙여넣기, ComfyUI `input` 폴더 탐색, 중첩 폴더 이미지 추가, 최신순 정렬, 비율 유지/프리셋/직접 입력 리사이즈, `multi_output`, `width`, `height` 출력. 썸네일을 클릭하면 이미지를 켜거나 끌 수 있습니다. 꺼진 이미지는 출력에서 제외되고, 켜진 이미지에만 현재 카드 순서대로 1, 2, 3… 번호가 즉시 표시됩니다. 활성 이미지 수와 연결된 시퀀서의 이미지 수도 함께 갱신됩니다. 카드 순서와 꺼짐 상태는 워크플로우에 저장되며, 실행하려면 한 장 이상 켜야 합니다. 보안을 위해 `input` 폴더 밖으로 나가는 외부 심볼릭 링크·정션은 건너뛰며, 이런 소스는 `(Deno) Advanced Image Source Loader`의 External Folder를 사용합니다.
+주요 기능: 고정 높이 갤러리, 드래그 정렬, 업로드, 드래그 앤 드롭, 이미지 붙여넣기, ComfyUI `input` 폴더 탐색, 중첩 폴더 이미지 추가, 최신순 정렬, 비율 유지/프리셋/직접 입력 리사이즈, `multi_output`, `width`, `height` 출력. 썸네일을 클릭하면 이미지를 켜거나 끌 수 있습니다. 꺼진 이미지는 출력에서 제외되고, 켜진 이미지에만 현재 카드 순서대로 1, 2, 3… 번호가 즉시 표시됩니다. 활성 이미지 수와 연결된 시퀀서의 이미지 수도 함께 갱신됩니다. 카드 순서와 꺼짐 상태는 워크플로우에 저장되며, 실행하려면 한 장 이상 켜야 합니다. 보안을 위해 `input` 폴더 밖으로 나가는 외부 심볼릭 링크·정션은 건너뛰며, 이런 이미지는 먼저 `input` 폴더에 업로드하세요.
 
 ### `(Deno) MiniMax H3 Multi Reference Image Loader`
 
@@ -213,17 +213,13 @@ Dynamic VRAM은 메모리 압력에 따라 weight를 옮기므로 text encoder �
 
 ### `(Deno) Advanced Image Source Loader`
 
-외부 폴더, 로컬 경로, 웹 이미지 URL, 혼합 크기 이미지 리스트가 필요한 워크플로우용 고급 이미지 소스 로더입니다.
+업로드한 이미지, ComfyUI `input` 폴더와 연결된 `IMAGE` 배치를 받아 리사이즈 배치 및 원본 크기의 `image_list`로 출력합니다.
 
-ComfyUI `input` 폴더는 바로 사용할 수 있습니다. 그 밖의 폴더는 실행 환경의 `DENO_EXTERNAL_IMAGE_ROOTS`에 지정한 폴더만 읽으며, 워크플로 값으로 허용 범위를 넓힐 수 없습니다. 외부 파일 썸네일은 원본 파일 대신 메타데이터를 제거한 이미지 픽셀만 반환합니다. 생성에 쓰는 허용된 원본 이미지의 해상도와 내용은 유지합니다.
+**0.7.121 변경:** 외부 폴더 직접 읽기와 이미지 URL 다운로드를 제거했습니다. `DENO_EXTERNAL_IMAGE_ROOTS` 설정도 더는 외부 폴더 접근을 허용하지 않습니다. `Upload`, `Paste`, `Upload Folder`로 이미지를 가져온 뒤 `Input Folder`에서 선택하거나 `Input Path`에 input 기준 상대경로를 넣으세요. 기존 input 내부 절대경로는 실행할 수 있으며, 썸네일은 상대경로로 다시 선택하면 표시됩니다.
 
-웹 이미지 URL은 공개 주소로 직접 HTTP(S) 연결합니다. 내부 주소와 환경 프록시를 통한 연결은 지원하지 않습니다.
+기존 노드·연결·저장된 소스·순서·켜짐 상태는 보존됩니다. 켜진 외부 경로·URL은 업로드 안내와 함께 실행을 중단하며, 꺼진 소스는 실행을 막지 않습니다. 예전 소스를 자동 삭제하거나 몰래 건너뛰지 않습니다.
 
-URL 썸네일은 실행과 같은 서버 조회 경로로 읽습니다. Windows 탐색기의 ‘경로로 복사’처럼 큰따옴표가 붙은 경로도 미리보기에서 인식합니다. 썸네일이 나오지 않으면 `Refresh previews`로 다시 읽을 수 있으며, 실패한 카드에 마우스를 올리면 안내가 나옵니다. 새로고침은 소스·켜짐 상태·순서를 바꾸지 않습니다. 외부 로컬 파일의 미리보기는 ComfyUI에 localhost로 접속했을 때 사용할 수 있습니다.
-
-![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
-
-주요 기능: ComfyUI `input` 폴더와 외부 로컬 폴더 지원, URL/Path 입력, 업로드와 붙여넣기, 썸네일 enable/disable, 드래그 정렬, masonry 스타일 갤러리, 재귀 폴더 로드, 배치 텐서와 `image_list` 출력. 비활성 이미지는 삭제하지 않은 채 알아볼 수 있는 밝기로 유지되고, 켜진 카드에만 현재 순서대로 번호가 즉시 갱신됩니다. 갤러리는 기존 캔버스와 Nodes 2.0에서 노드 높이에 맞춰 유동적으로 배치됩니다.
+썸네일 켜기/끄기, 드래그 정렬, 비율 유지/프리셋/직접 입력 리사이즈, input 하위 폴더 재귀 로드, 혼합 크기 리스트와 배치 출력은 유지합니다. 켜진 카드에만 현재 순서대로 번호가 표시됩니다. `Refresh previews`는 input 썸네일만 다시 읽으며 소스·켜짐 상태·순서를 바꾸지 않습니다. 갤러리는 기존 캔버스와 Nodes 2.0에서 노드 높이에 맞춰 배치됩니다.
 
 ### `(Deno) Film Grain`
 

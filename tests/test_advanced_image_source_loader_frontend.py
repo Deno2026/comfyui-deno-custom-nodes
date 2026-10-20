@@ -28,10 +28,12 @@ def test_advanced_image_source_loader_frontend_harness() -> None:
     assert "advanced_image_source_loader_harness passed" in result.stdout
 
 
-def test_external_root_memory_is_runtime_only() -> None:
+def test_external_path_entry_and_request_helpers_are_removed() -> None:
     source = SCRIPT_PATH.read_text(encoding="utf-8")
 
-    assert "node.__denoAdvancedLastExternalRoot" in source
+    assert "__denoAdvancedLastExternalRoot" not in source
+    assert "/deno/advanced/" not in source
+    assert 'createActionButton("Upload Folder")' in source
     assert "node.properties.__denoAdvancedLastExternalRoot" not in source
     assert "localStorage" not in source
     assert "sessionStorage" not in source

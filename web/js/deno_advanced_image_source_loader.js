@@ -100,12 +100,12 @@ function setupAdvancedImageSourceLoader(node) {
     const uploadBtn = createActionButton("Upload");
     const pasteBtn = createActionButton("Paste");
     const inputFolderBtn = createActionButton("Input Folder");
-    const externalFolderBtn = createActionButton("External Folder");
-    const urlPathBtn = createActionButton("URL / Path");
+    const folderUploadBtn = createActionButton("Upload Folder");
+    const inputPathBtn = createActionButton("Input Path");
     const refreshPreviewsBtn = createActionButton("Refresh previews");
     refreshPreviewsBtn.title = "Reload thumbnails without changing sources, order or enabled images.";
     const clearBtn = createActionButton("Clear", true);
-    topBar.append(uploadBtn, pasteBtn, inputFolderBtn, externalFolderBtn, urlPathBtn, refreshPreviewsBtn, clearBtn);
+    topBar.append(uploadBtn, pasteBtn, inputFolderBtn, folderUploadBtn, inputPathBtn, refreshPreviewsBtn, clearBtn);
 
     const countLabel = document.createElement("div");
     countLabel.style.cssText = "margin-left:auto; color:#94f7af; font:600 11px sans-serif;";
@@ -358,7 +358,8 @@ function setupAdvancedImageSourceLoader(node) {
             });
             preview.appendChild(image);
         } else {
-            preview.textContent = getSourceKind(path);
+            preview.textContent = classifySourceLocation(path) === "input" ? getSourceKind(path) : "Upload required";
+            preview.title = previewFailureHint(path);
         }
 
         const name = document.createElement("div");
@@ -835,8 +836,9 @@ function setupAdvancedImageSourceLoader(node) {
 
     clearBtn.onclick = () => setPaths([]);
     inputFolderBtn.onclick = () => showInputFolderBrowser(node, setPaths, getPaths);
-    externalFolderBtn.onclick = () => showExternalFolderBrowser(node, setPaths, getPaths, folderUploadInput, uploadFiles);
-    urlPathBtn.onclick = () => showSourceTextDialog(node, setPaths, getPaths);
+    folderUploadBtn.onclick = () => folderUploadInput.click();
+    bindFolderUpload(folderUploadInput, uploadFiles);
+    inputPathBtn.onclick = () => showSourceTextDialog(node, setPaths, getPaths);
     refreshPreviewsBtn.onclick = () => {
         previewRefreshToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         render();
@@ -1077,69 +1079,29 @@ function showInputFolderBrowser(node, setPaths, getPaths) {
     });
 }
 
-function showExternalFolderBrowser(node, setPaths, getPaths, folderUploadInput, uploadFiles) {
-    const rootRow = document.createElement("div");
-    rootRow.style.cssText = "display:flex; gap:8px; align-items:center;";
-
-    const rootInput = document.createElement("input");
-    rootInput.type = "text";
-    rootInput.placeholder = "Paste an absolute folder path, for example D:\\Images\\Project";
-    rootInput.value = String(node.__denoAdvancedLastExternalRoot || "");
-    rootInput.style.cssText = inputStyle();
-
-    const loadBtn = createActionButton("Load Path");
-    const uploadFolderBtn = createActionButton("Upload Folder...");
-    rootRow.append(rootInput, loadBtn, uploadFolderBtn);
-
-    let refresh = null;
-    loadBtn.onclick = () => refresh?.("");
-    uploadFolderBtn.onclick = () => folderUploadInput.click();
-    const onFolderUpload = async (event) => {
+function bindFolderUpload(folderUploadInput, uploadFiles) {
+    folderUploadInput.onchange = async (event) => {
         const files = Array.from(event.target.files || []);
         const firstPath = String(files[0]?.webkitRelativePath || "");
         const rootName = sanitizePathPart(firstPath.split("/")[0] || "selected-folder");
         const uploadRoot = `deno_advanced_folder_uploads/${Date.now()}_${rootName}`;
         await uploadFiles(files, (file) => {
-            const relativePath = String(file.webkitRelativePath || file.name || "").replace(/\\/g, "/");
-            const parts = relativePath.split("/").filter(Boolean);
+            const parts = String(file.webkitRelativePath || file.name || "").replace(/\\/g, "/").split("/").filter(Boolean);
             parts.pop();
-            const folderParts = parts.slice(1).map(sanitizePathPart).filter(Boolean);
-            return [uploadRoot].concat(folderParts).join("/");
+            return [uploadRoot].concat(parts.slice(1).map(sanitizePathPart).filter(Boolean)).join("/");
         });
         folderUploadInput.value = "";
     };
-    folderUploadInput.onchange = onFolderUpload;
-
-    refresh = showBrowserModal({
-        ownerNode: node,
-        title: "Add images from an external folder",
-        rootControls: rootRow,
-        initialStatus: "Paste a folder path and click Load Path, or use Upload Folder... to import a folder.",
-        fetchEntries: async (folderPath, signal) => {
-            const rootPath = String(rootInput.value || "").trim();
-            return fetchExternalFolderImagesAndRemember(node, rootPath, folderPath, signal);
-        },
-        getPreviewUrls: (entry) => [externalImagePreviewUrl(entry.path)].filter(Boolean),
-        getSourceValue: (entry) => entry.path,
-        setPaths,
-        getPaths,
-        waitForManualLoad: true,
-        onClose: () => {
-            if (folderUploadInput.onchange === onFolderUpload) {
-                folderUploadInput.onchange = null;
-            }
-        },
-    });
 }
 
 function showSourceTextDialog(node, setPaths, getPaths) {
     node?.__denoCloseAdvancedFolderBrowser?.();
     let closed = false;
     const overlay = createOverlay();
-    const modal = createModal("Add URLs or file paths");
+    const modal = createModal("Add ComfyUI input paths");
 
     const text = document.createElement("textarea");
-    text.placeholder = "Paste one image URL, full file path, input-folder path, or folder path per line.";
+    text.placeholder = "Paste one path relative to ComfyUI input per line. To use images from elsewhere, upload them first.";
     text.value = "";
     text.style.cssText = `
         width: 100%;
@@ -1180,6 +1142,12 @@ function showSourceTextDialog(node, setPaths, getPaths) {
             return;
         }
         const added = text.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        if (added.some((path) => classifySourceLocation(path) !== "input")) {
+            text.setCustomValidity("Use paths inside ComfyUI input. Upload external images first.");
+            text.reportValidity();
+            return;
+        }
+        text.setCustomValidity("");
         setPaths(getPaths().concat(added));
         close();
     };
@@ -1567,51 +1535,6 @@ async function fetchInputFolderImages(folderPath = "", signal = undefined) {
     };
 }
 
-async function fetchExternalFolderImages(rootPath, folderPath = "", signal = undefined) {
-    const root = String(rootPath || "").trim();
-    if (!root) {
-        throw new Error("Paste a folder path first.");
-    }
-    const params = new URLSearchParams({ root, path: normalizeSlashPath(folderPath) });
-    const response = await api.fetchApi(`/deno/advanced/external-folder-images?${params.toString()}`, { cache: "no-store", signal });
-    if (response.status !== 200) {
-        let message = `External folder list failed (${response.status})`;
-        try {
-            const payload = await response.json();
-            message = payload.error || message;
-        } catch {
-            // Keep the generic HTTP message.
-        }
-        throw new Error(message);
-    }
-    const payload = await response.json();
-    return {
-        path: normalizeSlashPath(payload.path || folderPath),
-        parent: normalizeSlashPath(payload.parent || ""),
-        folders: (payload.folders || []).map((entry) => ({
-            name: entry.name || entry.path || "",
-            path: normalizeSlashPath(entry.path || entry.name || ""),
-        })).filter((entry) => entry.path),
-        files: (payload.files || []).map((entry) => ({
-            name: entry.name || entry.path || "",
-            display_name: entry.display_name || String(entry.name || entry.path || "").split(/[\\/]/).pop(),
-            path: entry.path || "",
-        })).filter((entry) => entry.path && IMAGE_RE.test(entry.path)),
-    };
-}
-
-async function fetchExternalFolderImagesAndRemember(node, rootPath, folderPath = "", signal = undefined) {
-    const root = String(rootPath || "").trim();
-    const payload = await fetchExternalFolderImages(root, folderPath, signal);
-    if (signal?.aborted) {
-        const error = new Error("Request aborted");
-        error.name = "AbortError";
-        throw error;
-    }
-    node.__denoAdvancedLastExternalRoot = root;
-    return payload;
-}
-
 function inputImagePreviewUrls(path) {
     const rawPath = String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
     const parts = String(path || "")
@@ -1649,13 +1572,6 @@ function inputImagePreviewUrl(path) {
     return inputImagePreviewUrls(path)[0] || "";
 }
 
-function externalImagePreviewUrl(path) {
-    if (!path) {
-        return "";
-    }
-    return `/deno/advanced/external-image-view?path=${encodeURIComponent(path)}`;
-}
-
 function normalizePreviewUrls(value) {
     const values = Array.isArray(value) ? value : [value];
     return Array.from(new Set(values.map((entry) => String(entry || "").trim()).filter(Boolean)));
@@ -1681,11 +1597,7 @@ function getPreviewUrls(path, refreshToken = "") {
     const text = normalizeSourceForPreview(path);
     const location = classifySourceLocation(text);
     let urls = [];
-    if (location === "url") {
-        urls = [`/deno/advanced/remote-image-preview?url=${encodeURIComponent(text)}`];
-    } else if (location === "external") {
-        urls = [externalImagePreviewUrl(text)].filter(Boolean);
-    } else if (IMAGE_RE.test(text)) {
+    if (location === "input" && IMAGE_RE.test(text)) {
         urls = inputImagePreviewUrls(text);
     }
     return urls.map((url) => {
@@ -1697,11 +1609,8 @@ function getPreviewUrls(path, refreshToken = "") {
 function previewFailureHint(path) {
     const retry = "Use Refresh previews to retry. If the node pack was just updated, restart ComfyUI first.";
     const location = classifySourceLocation(path);
-    if (location === "external") {
-        return `External file previews require a localhost connection and an existing image file. ${retry}`;
-    }
-    if (location === "url") {
-        return `Use a direct, reachable public image URL. Private addresses, login pages and oversized previews are unsupported. ${retry}`;
+    if (location !== "input") {
+        return "External paths and image URLs are no longer supported. Upload the image into ComfyUI input, then select it again.";
     }
     return `Check that the image exists in ComfyUI's input folder. ${retry}`;
 }
@@ -1726,7 +1635,7 @@ function classifySourceLocation(path) {
     if (/^https?:\/\//i.test(text)) {
         return "url";
     }
-    if (/^[a-zA-Z]:[\\/]/.test(text) || text.startsWith("\\\\") || text.startsWith("/")) {
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(text) || text.startsWith("\\") || text.startsWith("/") || text.replace(/\\/g, "/").split("/").includes("..")) {
         return "external";
     }
     return "input";
@@ -1910,7 +1819,7 @@ function sanitizePathPart(value) {
 if (typeof window !== "undefined" && typeof window.__DENO_ADVANCED_IMAGE_SOURCE_TEST_HOOK__ === "function") {
     window.__DENO_ADVANCED_IMAGE_SOURCE_TEST_HOOK__({
         classifySourceLocation,
-        fetchExternalFolderImagesAndRemember,
+        bindFolderUpload,
         getPreviewUrl,
         getPreviewUrls,
         previewFailureHint,

@@ -229,33 +229,12 @@ assert.equal(hooks.classifySourceLocation("/home/user/a.png"), "external");
 assert.equal(hooks.classifySourceLocation("folder/a.png"), "input");
 assert.equal(hooks.classifySourceLocation('"C:\\Images\\a.png"'), "external",
   "Explorer Copy as path must have the same source classification as backend execution");
-assert.equal(hooks.getPreviewUrl('"C:\\Images\\a.png"'),
-  "/deno/advanced/external-image-view?path=C%3A%5CImages%5Ca.png",
-  "outer quotes must not send a valid external path to the input-folder preview route");
-assert.equal(hooks.getSourceKind("/home/user/a.png"), "Path");
-assert.equal(
-  hooks.getPreviewUrl("/home/user/a.png"),
-  "/deno/advanced/external-image-view?path=%2Fhome%2Fuser%2Fa.png",
-);
+for (const source of ['"C:\\Images\\a.png"', "/home/user/a.png", "https://images.example/a.png?sig=secret", "file:///private/a.png", "../private/a.png"]) {
+  assert.equal(hooks.getPreviewUrl(source), "", "Retired sources must not issue preview requests");
+  assert.equal(hooks.getPreviewUrls(source, "retry-1").length, 0);
+  assert.match(hooks.previewFailureHint(source), /Upload/);
+}
 assert.match(hooks.getPreviewUrl("folder/a.png"), /^\/api\/view\?/);
-
-const signedImageUrl = "http://images.example.com/a.png?signature=one%2Btwo&size=full";
-const sameOriginPreview = hooks.getPreviewUrl(signedImageUrl);
-assert.match(sameOriginPreview, /^\/deno\/advanced\/remote-image-preview\?/,
-  "URL previews must share the backend fetch path instead of a browser cross-origin request");
-assert.equal(new URLSearchParams(sameOriginPreview.split("?")[1]).get("url"), signedImageUrl,
-  "the encoded preview request must preserve every original URL parameter");
-assert.equal(new URLSearchParams(hooks.getPreviewUrl(`"${signedImageUrl}"`).split("?")[1]).get("url"), signedImageUrl,
-  "a quoted URL accepted by execution must also get a web-image preview");
-const refreshedPreview = hooks.getPreviewUrls(signedImageUrl, "retry-1")[0];
-assert.equal(new URLSearchParams(refreshedPreview.split("?")[1]).get("url"), signedImageUrl);
-assert.equal(new URLSearchParams(refreshedPreview.split("?")[1]).get("_deno_preview"), "retry-1",
-  "refresh must bypass cached preview failures without altering the remote URL");
-assert.match(hooks.previewFailureHint("/home/user/a.png"), /localhost/,
-  "a failed external path preview must explain the existing localhost boundary");
-assert.match(hooks.previewFailureHint(signedImageUrl), /public image URL/);
-assert.match(hooks.previewFailureHint(signedImageUrl), /restart ComfyUI/,
-  "an extension loaded with an older backend must have an actionable error hint");
 
 const previewUrls = Array.from(hooks.inputImagePreviewUrls("folder name/a b.png"));
 assert.ok(previewUrls.length >= 4, "input previews must include Comfy-compatible encoding and route fallbacks");
@@ -394,20 +373,19 @@ assert.equal(windowTarget.listenerCount("mouseup"), 0);
 root.emit("mousedown", pointerEvent());
 assert.equal(canvasTarget.dispatched.length, 4);
 
-const node = { __denoAdvancedLastExternalRoot: "C:\\Previous" };
-await hooks.fetchExternalFolderImagesAndRemember(node, "  /home/user/images  ", "child");
-assert.equal(node.__denoAdvancedLastExternalRoot, "/home/user/images");
-
-responseStatus = 500;
-await assert.rejects(
-  hooks.fetchExternalFolderImagesAndRemember(node, "/failed/root", ""),
-  /blocked/,
-);
-assert.equal(
-  node.__denoAdvancedLastExternalRoot,
-  "/home/user/images",
-  "failed loads must not replace the last successful root",
-);
+const folderInput = { value: "chosen" };
+let uploadedFolder = null;
+hooks.bindFolderUpload(folderInput, async (files, directory) => {
+  uploadedFolder = files.map((file) => ({ name: file.name, directory: directory(file) }));
+});
+await folderInput.onchange({ target: { files: [
+  { name: "a.png", webkitRelativePath: "chosen/sub/a.png" },
+  { name: "b.png", webkitRelativePath: "chosen/b.png" },
+] } });
+assert.equal(uploadedFolder.length, 2);
+assert.match(uploadedFolder[0].directory, /^deno_advanced_folder_uploads\/\d+_chosen\/sub$/);
+assert.match(uploadedFolder[1].directory, /^deno_advanced_folder_uploads\/\d+_chosen$/);
+assert.equal(folderInput.value, "");
 
 const browserOwner = {};
 const browserFiles = Array.from({ length: 500 }, (_, index) => ({

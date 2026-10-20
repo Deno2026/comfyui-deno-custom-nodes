@@ -146,11 +146,7 @@ Dynamic VRAM は memory pressure に応じて weight を移動するため、tex
 
 ### `(Deno) Advanced Image Source Loader`
 
-外部フォルダー、ローカルパス、Web画像URL、サイズ混在の画像リストが必要なワークフロー向けの高度な画像ソースローダーです。
-
-![Deno Advanced Image Source Loader](images/advanced-image-source-loader.png)
-
-主な機能: ComfyUI `input` と外部ローカルフォルダー、URL/Path 入力、アップロードと貼り付け、サムネイルの有効/無効、ドラッグ並べ替え、masonry 風ギャラリー、再帰フォルダー読み込み、batch tensor と `image_list` 出力。
+アップロードした画像、ComfyUI `input` フォルダー、接続した `IMAGE` バッチを読み込みます。0.7.121 から外部フォルダーの直接読み込みと画像 URL のダウンロードを削除しました。`Upload Folder` で画像を取り込み、`Input Folder` または相対 `Input Path` で選択してください。保存済みソース・接続・順序・有効状態は保持され、古い外部ソースが有効な場合は移行案内を表示します。リサイズ、再帰的な input 読み込み、並べ替え、サイズ混在の `image_list` と batch 出力は引き続き利用できます。
 
 ### `(Deno) Image Compare`
 
