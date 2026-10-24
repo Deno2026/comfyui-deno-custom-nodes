@@ -2481,21 +2481,29 @@
         });
         const TRANSLATION_ENGINE_DEFAULT = "Google";
         const TRANSLATION_ENGINE_CUSTOM = "LibreTranslate Custom URL";
-        const TRANSLATION_ENGINES = ["Google", "MyMemory", "LibreTranslate", TRANSLATION_ENGINE_CUSTOM];
+        const TRANSLATION_ENGINES = ["Google", "MyMemory", "LibreTranslate"];
         const GOOGLE_BLOCK_REASON = "Google Translate can be blocked or rate-limited by your network/region; this is not a DENO node error.";
+        const RETIRED_CUSTOM_TRANSLATION_REASON = "LibreTranslate Custom URL has been removed; choose Google, MyMemory, or LibreTranslate.";
         const ENGINE_DESCRIPTIONS = {
           "Google": "Default. Fast when translate.googleapis.com is reachable.",
           "MyMemory": "Free public endpoint. Useful when Google is blocked, but auto-detect may be weaker.",
           "LibreTranslate": "Public LibreTranslate endpoint. May be rate-limited depending on the server.",
-          [TRANSLATION_ENGINE_CUSTOM]: "Use your own LibreTranslate server URL.",
         };
+        function isRetiredCustomTranslationEngine(v) {
+          const raw = String(v || "").trim();
+          const lower = raw.toLowerCase().replace(/[_-]+/g, " ");
+          return raw === TRANSLATION_ENGINE_CUSTOM
+            || lower === "libretranslate custom url"
+            || lower === "libre translate custom url"
+            || lower === "custom libretranslate";
+        }
         function normalizeTranslationEngine(v) {
           const raw = String(v || "").trim();
           const lower = raw.toLowerCase().replace(/[_-]+/g, " ");
           if (TRANSLATION_ENGINES.includes(raw)) return raw;
           if (lower === "mymemory" || lower === "my memory") return "MyMemory";
           if (lower === "libretranslate" || lower === "libre translate") return "LibreTranslate";
-          if (lower === "libretranslate custom url" || lower === "libre translate custom url" || lower === "custom libretranslate") return TRANSLATION_ENGINE_CUSTOM;
+          if (isRetiredCustomTranslationEngine(raw)) return TRANSLATION_ENGINE_CUSTOM;
           return TRANSLATION_ENGINE_DEFAULT;
         }
         function getTranslationEngine() {
@@ -2513,6 +2521,9 @@
         function translationFailureReason(payload, engine) {
           const msg = payload && typeof payload.reason === "string" && payload.reason.trim();
           if (msg) return msg;
+          if (isRetiredCustomTranslationEngine((payload && payload.engine) || engine)) {
+            return RETIRED_CUSTOM_TRANSLATION_REASON;
+          }
           return normalizeTranslationEngine(engine) === "Google"
             ? GOOGLE_BLOCK_REASON
             : "The selected translation engine did not respond. Choose another engine and retry.";
@@ -2647,7 +2658,7 @@
             const msg = el("div", "idd-engine-msg");
             let selected = current === "Google" ? "MyMemory" : current;
             if (!TRANSLATION_ENGINES.includes(selected)) selected = "MyMemory";
-            const choices = current === "Google" ? ["MyMemory", "LibreTranslate", TRANSLATION_ENGINE_CUSTOM] : TRANSLATION_ENGINES;
+            const choices = current === "Google" ? ["MyMemory", "LibreTranslate"] : TRANSLATION_ENGINES;
             function paintCards() {
               grid.innerHTML = "";
               for (const choice of choices) {
@@ -2661,11 +2672,10 @@
                   selected = choice;
                   msg.textContent = "";
                   paintCards();
-                  if (selected === TRANSLATION_ENGINE_CUSTOM) setTimeout(() => urlInput.focus(), 0);
                 };
                 grid.appendChild(card);
               }
-              urlInput.style.display = selected === TRANSLATION_ENGINE_CUSTOM ? "" : "none";
+              urlInput.style.display = "none";
             }
             const acts = el("div", "idd-modal-acts");
             const cancel = el("button", "idd-mbtn"); cancel.textContent = "Cancel";
@@ -2679,14 +2689,9 @@
             }, modal, [false]);
             const close = fallbackOwner.close;
             const doApply = async () => {
-              if (selected === TRANSLATION_ENGINE_CUSTOM && !String(urlInput.value || "").trim()) {
-                msg.textContent = "Enter a LibreTranslate server URL first.";
-                urlInput.focus();
-                return;
-              }
               apply.disabled = true;
               apply.textContent = "Retrying...";
-              setTranslationEngine(selected, urlInput.value);
+              setTranslationEngine(selected);
               paintTranslate();
               try {
                 const ok = await retry();

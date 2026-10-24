@@ -228,7 +228,7 @@ NODE_INPUT_TOOLTIPS = {
         "translate_output": "Final prompt language mode. Board text can stay in your language while output becomes English.",
         "view_language": "Language used to read and edit the board UI descriptions.",
         "translation_engine": "Translation engine used when refreshing board language or final English output.",
-        "libretranslate_url": "Custom LibreTranslate server URL, used only when the custom engine is selected.",
+        "libretranslate_url": "Legacy custom LibreTranslate URL slot kept for workflow compatibility; custom translation URLs are disabled.",
         "import_json": "Optional connected JSON prompt from an upstream LLM or Prompt Text node.",
         "input_width": "Optional connected output width. Snaps to a multiple of 16 and wins when width and height are both connected.",
         "input_height": "Optional connected output height. Snaps to a multiple of 16 and wins when width and height are both connected.",

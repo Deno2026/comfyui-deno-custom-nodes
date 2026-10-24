@@ -35,7 +35,7 @@ This first example needs no generation model. Individual model and RTX nodes hav
 - **Organize or work in a browser:** try [Visual Fold](#deno-visual-fold), [Floating Tools](#deno-floating-tools), or the no-install [Web Tools](#web-tools).
 
 Most Deno nodes include a small green `i` button in the top-right corner for quick node info without leaving the ComfyUI canvas. If a newer Deno Custom Nodes version is available, the button turns yellow and shows a small `!` badge.
-Image loaders read only ComfyUI `input`. Upload external images before reopening workflows that used external paths or URLs. Custom translation servers still require host permission. See [file and translation access](docs/SECURITY_CONFIGURATION.md).
+Image loaders read only ComfyUI `input`. Upload external images before reopening workflows that used external paths or URLs. Ideogram translation uses only the built-in Google, MyMemory, and LibreTranslate services. See [file and translation access](docs/SECURITY_CONFIGURATION.md).
 The pack also includes lightweight frontend/browser helpers such as **Deno Visual Fold**, optional **Deno Floating Tools** for Free VRAM, ComfyUI Stable update checks, and GPT/Gemini-ready Error Help reports, the no-install **Video Compare** page, the **Video to GIF/WebP** converter page, and the **Discord Media Compressor** page (Korean-only interface).
 
 ## Web Tools

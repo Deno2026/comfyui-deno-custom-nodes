@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.122 - 2026-10-24
+
+- Retired `LibreTranslate Custom URL` and `DENO_TRANSLATION_ALLOWED_ORIGINS`. Ideogram translation now uses only the built-in Google, MyMemory and LibreTranslate HTTPS endpoints with validated public addresses, TLS hostname verification, redirect rejection and bounded responses.
+- Preserved node IDs, sockets and saved `libretranslate_url` widget values. Workflows that still select `LibreTranslate Custom URL` fail with migration instructions to choose a built-in translation provider rather than silently sending text to another service.
+
 ## 0.7.121 - 2026-10-20
 
 - Removed image URL downloading and direct external-folder/file reading from the image loaders, including their custom preview APIs. `DENO_EXTERNAL_IMAGE_ROOTS` no longer enables access outside ComfyUI input.

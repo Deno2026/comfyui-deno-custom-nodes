@@ -11,7 +11,6 @@ from collections import OrderedDict
 import ipaddress
 import json
 import math
-import os
 import re
 import socket
 import ssl
@@ -171,10 +170,17 @@ TRANSLATION_ENGINE_CHOICES = (
     TRANSLATION_ENGINE_GOOGLE,
     TRANSLATION_ENGINE_MYMEMORY,
     TRANSLATION_ENGINE_LIBRETRANSLATE,
-    TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM,
 )
 TRANSLATION_ENGINE_DEFAULT = TRANSLATION_ENGINE_GOOGLE
 LIBRETRANSLATE_DEFAULT_URL = "https://libretranslate.com"
+RETIRED_CUSTOM_TRANSLATION_MESSAGE = (
+    "LibreTranslate Custom URL has been removed; choose Google, MyMemory, or LibreTranslate."
+)
+_RETIRED_CUSTOM_ENGINE_ALIASES = frozenset({
+    "libretranslate custom url",
+    "libre translate custom url",
+    "custom libretranslate",
+})
 
 _DISPLAY_TO_CODE = {display: code for code, display in LANG_DISPLAY.items()}
 _CACHE: OrderedDict[tuple[str, str, str, str, str], str] = OrderedDict()
@@ -188,7 +194,6 @@ _USER_AGENT = (
 )
 _MAX_TRANSLATION_RESPONSE_BYTES = 2 * 1024 * 1024
 _MAX_TRANSLATION_TIMEOUT_SECONDS = 30.0
-_TRANSLATION_ALLOWED_ORIGINS_ENV = "DENO_TRANSLATION_ALLOWED_ORIGINS"
 _BUILTIN_TRANSLATION_ORIGINS = frozenset({
     ("https", "translate.googleapis.com", 443),
     ("https", "api.mymemory.translated.net", 443),
@@ -218,11 +223,21 @@ def display_for_code(code: str | None) -> str:
     return LANG_DISPLAY.get(value, value)
 
 
+def is_retired_custom_translation_engine(engine: object) -> bool:
+    if not isinstance(engine, str):
+        return False
+    value = engine.strip()
+    lowered = value.lower().replace("_", " ").replace("-", " ")
+    return value == TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM or lowered in _RETIRED_CUSTOM_ENGINE_ALIASES
+
+
 def normalize_translation_engine(engine: str | None) -> str:
     if engine is not None and not isinstance(engine, str):
         raise ValueError("Translation engine must be one of the listed engine names")
     value = (engine or "").strip()
     lowered = value.lower().replace("_", " ").replace("-", " ")
+    if is_retired_custom_translation_engine(value):
+        raise ValueError(RETIRED_CUSTOM_TRANSLATION_MESSAGE)
     aliases = {
         "": TRANSLATION_ENGINE_DEFAULT,
         "google": TRANSLATION_ENGINE_GOOGLE,
@@ -232,9 +247,6 @@ def normalize_translation_engine(engine: str | None) -> str:
         "my memory": TRANSLATION_ENGINE_MYMEMORY,
         "libretranslate": TRANSLATION_ENGINE_LIBRETRANSLATE,
         "libre translate": TRANSLATION_ENGINE_LIBRETRANSLATE,
-        "libretranslate custom url": TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM,
-        "libre translate custom url": TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM,
-        "custom libretranslate": TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM,
     }
     if value in TRANSLATION_ENGINE_CHOICES:
         return value
@@ -244,6 +256,10 @@ def normalize_translation_engine(engine: str | None) -> str:
 
 
 def translation_failure_reason(engine: str | None, exc: Exception | None = None) -> str:
+    if exc is not None and RETIRED_CUSTOM_TRANSLATION_MESSAGE in str(exc):
+        return RETIRED_CUSTOM_TRANSLATION_MESSAGE
+    if is_retired_custom_translation_engine(engine):
+        return RETIRED_CUSTOM_TRANSLATION_MESSAGE
     engine = normalize_translation_engine(engine)
     if engine == TRANSLATION_ENGINE_GOOGLE:
         return (
@@ -252,9 +268,7 @@ def translation_failure_reason(engine: str | None, exc: Exception | None = None)
         )
     if engine == TRANSLATION_ENGINE_MYMEMORY:
         return "MyMemory did not respond or rejected the request; try LibreTranslate or Google."
-    if engine == TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM:
-        return "The custom LibreTranslate server did not respond; check the URL or choose another engine."
-    return "LibreTranslate did not respond or rejected the request; try another engine or a custom URL."
+    return "LibreTranslate did not respond or rejected the request; try Google or MyMemory."
 
 
 def short_exception_message(exc: Exception | None, limit: int = 180) -> str:
@@ -284,11 +298,7 @@ def _cache_set(key, value):
 
 
 def _translation_url_parts(url, *, allow_query=False):
-    """Validate syntax without DNS or network access.
-
-    Local self-hosted services are limited to literal loopback addresses and
-    localhost (which is pinned to 127.0.0.1 when connecting).
-    """
+    """Validate syntax without DNS or network access."""
     if not isinstance(url, str):
         raise ValueError("Translation URL must be a string")
     if any(ord(char) < 32 or ord(char) == 127 for char in url) or "\\" in url:
@@ -323,18 +333,14 @@ def _translation_url_parts(url, *, allow_query=False):
             for label in host.rstrip(".").split(".")
         ):
             raise ValueError("Translation URL has an invalid hostname")
-    is_local = host == "localhost" or (
-        address is not None
-        and ((address.version == 4 and address.is_loopback) or str(address) == "::1")
-    )
-    if parsed.scheme == "http" and not is_local:
+    if parsed.scheme != "https":
         raise ValueError("Remote translation URL must use https://")
-    if address is not None and not is_local and not _is_public_translation_address(address):
-        raise ValueError("Translation URL must use a public address or loopback")
+    if address is not None and not _is_public_translation_address(address):
+        raise ValueError("Translation URL must use a public address")
     authority = "[%s]" % host if ":" in host else host
     if port is not None:
         authority += ":%s" % port
-    return parsed._replace(netloc=authority), host, is_local
+    return parsed._replace(netloc=authority), host
 
 
 def _is_public_translation_address(address):
@@ -355,32 +361,21 @@ def _translation_origin(parsed):
     return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
 
 
-def _require_custom_translation_origin(parsed):
-    """Only the host process can approve custom destinations, never a workflow."""
-    allowed = os.environ.get(_TRANSLATION_ALLOWED_ORIGINS_ENV, "")
-    for entry in re.split(r"[;,]", allowed):
-        if not entry.strip():
-            continue
-        try:
-            approved, _host, _is_local = _translation_url_parts(entry)
-            if approved.path not in {"", "/"}:
-                raise ValueError("Expected an origin without a path")
-        except ValueError as exc:
-            raise ValueError("%s contains an invalid origin" % _TRANSLATION_ALLOWED_ORIGINS_ENV) from exc
-        if _translation_origin(approved) == _translation_origin(parsed):
-            return
-    raise ValueError(
-        "Custom translation origin is not approved in %s" % _TRANSLATION_ALLOWED_ORIGINS_ENV
-    )
+def _require_builtin_translation_origin(parsed):
+    """Only the fixed built-in HTTPS translation services are permitted."""
+    if _translation_origin(parsed) not in _BUILTIN_TRANSLATION_ORIGINS:
+        raise ValueError(RETIRED_CUSTOM_TRANSLATION_MESSAGE)
 
 
 def _translation_connection_addresses(host, port):
-    if host == "localhost":
-        return ("127.0.0.1",)
     try:
-        return (str(ipaddress.ip_address(host)),)
+        address = ipaddress.ip_address(host)
     except ValueError:
-        pass
+        address = None
+    if address is not None:
+        if not _is_public_translation_address(address):
+            raise ValueError("Translation hostname must resolve only to public addresses")
+        return (str(address),)
     records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     addresses = []
     for _family, _socktype, _proto, _canonname, sockaddr in records:
@@ -396,9 +391,8 @@ def _translation_connection_addresses(host, port):
 
 def _request_translation_json(url, *, timeout=10.0, method="GET", body=None):
     """Use validated, pinned IPs; never replay a request after a response."""
-    parsed, host, _is_local = _translation_url_parts(url, allow_query=True)
-    if _translation_origin(parsed) not in _BUILTIN_TRANSLATION_ORIGINS:
-        _require_custom_translation_origin(parsed)
+    parsed, host = _translation_url_parts(url, allow_query=True)
+    _require_builtin_translation_origin(parsed)
     try:
         seconds = float(timeout)
     except (TypeError, ValueError) as exc:
@@ -517,17 +511,19 @@ def _request_mymemory(text, src, tgt, timeout=10.0):
     return translated
 
 
-def _normalize_libretranslate_endpoint(url, require_custom=False):
+def _normalize_libretranslate_endpoint(url=None, require_custom=False):
     if url is not None and not isinstance(url, str):
         raise ValueError("Translation URL must be a string")
-    raw = url or ""
-    if not raw.strip():
-        if require_custom:
-            raise ValueError("LibreTranslate Custom URL is empty")
+    raw = (url or "").strip()
+    if require_custom:
+        if not raw:
+            raise ValueError(RETIRED_CUSTOM_TRANSLATION_MESSAGE)
+        _translation_url_parts(raw)
+        raise ValueError(RETIRED_CUSTOM_TRANSLATION_MESSAGE)
+    if not raw:
         raw = LIBRETRANSLATE_DEFAULT_URL
-    parsed, _host, _is_local = _translation_url_parts(raw)
-    if require_custom or _translation_origin(parsed) != ("https", "libretranslate.com", 443):
-        _require_custom_translation_origin(parsed)
+    parsed, _host = _translation_url_parts(raw)
+    _require_builtin_translation_origin(parsed)
     path = parsed.path
     if not path.rstrip("/").endswith("/translate"):
         path = path.rstrip("/") + "/translate"
@@ -563,15 +559,6 @@ def _request_translation(text, src, tgt, timeout=10.0, engine=None, libretransla
         return _request_mymemory(text, src, tgt, timeout=timeout)
     if engine == TRANSLATION_ENGINE_LIBRETRANSLATE:
         return _request_libretranslate(text, src, tgt, timeout=timeout)
-    if engine == TRANSLATION_ENGINE_LIBRETRANSLATE_CUSTOM:
-        return _request_libretranslate(
-            text,
-            src,
-            tgt,
-            timeout=timeout,
-            url=libretranslate_url,
-            require_custom=True,
-        )
     data = _request_gtx(text, src, tgt, timeout=timeout)
     return "".join(seg[0] for seg in (data[0] or []) if seg and seg[0]) or text
 

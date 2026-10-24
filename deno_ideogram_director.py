@@ -974,11 +974,12 @@ class DenoIdeogramDirector:
             translate_output = translate_engine.ORIGINAL_DISPLAY
         view_language = _normalize_view_language(view_language)
         view_language_code = translate_engine.code_for_display(view_language)
-        translation_engine = translate_engine.normalize_translation_engine(translation_engine)
         if not isinstance(libretranslate_url, str):
             libretranslate_url = ""
         if view_language_code and translate_output == translate_engine.ORIGINAL_DISPLAY:
             translate_output = translate_engine.DIRECTOR_ENGLISH_DISPLAY
+        if not translate_engine.is_retired_custom_translation_engine(translation_engine):
+            translation_engine = translate_engine.normalize_translation_engine(translation_engine)
         if not isinstance(caption_data, str):
             caption_data = ""
         if not isinstance(import_json, str):
@@ -1014,7 +1015,6 @@ class DenoIdeogramDirector:
             prompt, out_width, out_height, out_seed, out_bboxes = result
             target_display = translate_engine.display_for_code(target_code)
             source_code = view_language_code or "auto"
-            translate_opts = _translation_opts(translation_engine, libretranslate_url)
             if source_code != "auto" and source_code == target_code:
                 translation_payload = {
                     "ok": True,
@@ -1024,6 +1024,7 @@ class DenoIdeogramDirector:
                 }
             else:
                 try:
+                    translate_opts = _translation_opts(translation_engine, libretranslate_url)
                     caption = translate_engine.loads_caption(prompt)
                     if caption is not None:
                         translated, changed, sent = _translate_caption_text_safe(
@@ -1131,8 +1132,13 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
             engine_value = data.get("translation_engine")
         try:
             translation_engine = translate_engine.normalize_translation_engine(engine_value)
-        except (TypeError, ValueError):
-            return web.json_response({"error": "Unknown translation engine. Choose a supported engine."}, status=400)
+        except (TypeError, ValueError) as exc:
+            message = (
+                str(exc)
+                if translate_engine.is_retired_custom_translation_engine(engine_value)
+                else "Unknown translation engine. Choose a supported engine."
+            )
+            return web.json_response({"error": message, "reason": message}, status=400)
         libretranslate_url = data.get("libretranslate_url") or ""
         if not isinstance(libretranslate_url, str):
             libretranslate_url = ""

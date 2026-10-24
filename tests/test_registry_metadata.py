@@ -37,7 +37,7 @@ def test_known_registry_scanner_false_positive_literals_stay_out_of_package_sour
     source_checks = {
         "deno_local_llm_refiner.py": ("os.environ.get(", "os.environ[", "os.getenv("),
         "deno_sos_report.py": ("os.environ.get(", "os.environ[", "os.getenv("),
-        "deno_translate_engine.py": ('"su"', "'su'"),
+        "deno_translate_engine.py": ('"su"', "'su'", "os.environ", "os.getenv", "getenv"),
         "web/js/deno_ideogram_director.js": (".bind(",),
         "web/js/deno_local_llm_refiner.js": (".bind(",),
         "web/js/deno_node_help.js": ("raw.githubusercontent.com",),
@@ -599,6 +599,7 @@ def test_packaged_files_contain_no_scanner_trigger_literals():
     triggers = (
         "subprocess.Popen(", "os.system(", "os.popen(", ".connect(",
         "socket.socket(", "socket.create_connection(",
+        "os.environ.get(", "os.environ[", "os.getenv(", "os.putenv(", "os.unsetenv(",
         # Registry's Python HTTP-client pattern also matches a JS Map name
         # ending in Requests. Playback ownership maps should use token names.
         "Requests.get(", "Requests.delete(",

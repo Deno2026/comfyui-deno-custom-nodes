@@ -10,21 +10,13 @@ Use Upload, Paste or Upload Folder to import images, then select them with Input
 
 Saved source strings, enabled states, order, node IDs and connections remain intact. An active external source fails with migration guidance; a disabled source is retained without being read. Recursive input folders, resizing, batch output and mixed-size image lists remain available.
 
-## Custom translation servers
+## Translation services
 
-Google, MyMemory, and the built-in LibreTranslate provider use their fixed service addresses. Selecting a translation engine sends the caption fields being translated to that service. Error Help reports are displayed locally and copied only when you choose to copy them; they are not automatically sent to ChatGPT or Gemini.
+From 0.7.122, Ideogram translation uses only the built-in Google, MyMemory, and LibreTranslate HTTPS services (`translate.googleapis.com`, `api.mymemory.translated.net`, and `libretranslate.com`). `LibreTranslate Custom URL` and `DENO_TRANSLATION_ALLOWED_ORIGINS` have been retired. Error Help reports are displayed locally and copied only when you choose to copy them; they are not automatically sent to ChatGPT or Gemini.
 
-For **LibreTranslate Custom URL**, the host operator must approve the server's exact origin in `DENO_TRANSLATION_ALLOWED_ORIGINS`, then restart ComfyUI. An origin is the scheme, hostname, and port, without a path, query, credentials, or fragment. Separate multiple origins with commas or semicolons.
+Connections use validated public addresses directly, preserve TLS hostname verification, ignore environment proxies, and reject redirects rather than forwarding caption text to another address. Responses have a size limit and requests have a timeout.
 
-```powershell
-$env:DENO_TRANSLATION_ALLOWED_ORIGINS = 'http://127.0.0.1:5000,https://translate.example.org'
-```
-
-The node's Custom URL may include the service path, such as `https://translate.example.org/api`. Its origin must match the host setting. Approve only servers you operate or trust with your caption text. A URL stored in a workflow cannot add an approved origin.
-
-Loopback servers support HTTP or HTTPS. Remote servers require HTTPS and public addresses; approving an origin does not enable private LAN, link-local, or cloud metadata destinations. Connections use validated addresses directly, preserve TLS hostname verification, ignore environment proxies, and reject redirects rather than forwarding caption text to another address. Responses have a size limit and requests have a timeout.
-
-The selected engine and Custom URL remain saved as before. Unknown engine values fail explicitly instead of silently sending text to a different provider.
+Existing node IDs, sockets, and saved `libretranslate_url` widget values remain intact. Workflows that still have `LibreTranslate Custom URL` selected fail with instructions to choose `Google`, `MyMemory`, or `LibreTranslate` instead of silently sending text to a different provider. Unknown engine values also fail explicitly.
 
 ## Local LLM connections
 

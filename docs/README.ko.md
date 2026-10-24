@@ -34,7 +34,7 @@ ComfyUI가 설치되어 정상 실행되는 환경에서 시작하세요.
 
 대부분의 Deno 노드는 ComfyUI 캔버스를 벗어나지 않고 도움말을 볼 수 있는 작은 초록색 `i` 버튼을 포함합니다. 새 Deno Custom Nodes 버전이 있으면 버튼이 노란색으로 바뀌고 작은 `!` 배지가 표시됩니다.
 
-이미지 로더는 ComfyUI `input` 폴더만 읽습니다. 기존 외부 경로·URL 이미지는 업로드한 뒤 다시 선택하세요. 사용자 지정 번역 서버는 `DENO_TRANSLATION_ALLOWED_ORIGINS` 설정이 필요합니다. [파일·번역 접근 설정](SECURITY_CONFIGURATION.md)을 참고하세요.
+이미지 로더는 ComfyUI `input` 폴더만 읽습니다. 기존 외부 경로·URL 이미지는 업로드한 뒤 다시 선택하세요. 번역 기능은 기본 제공되는 Google, MyMemory, LibreTranslate만 사용합니다. [파일·번역 접근 설정](SECURITY_CONFIGURATION.md)을 참고하세요.
 
 ## Web Tools
 

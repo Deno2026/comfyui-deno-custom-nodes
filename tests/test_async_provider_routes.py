@@ -99,6 +99,28 @@ def test_translation_route_rejects_unknown_engine_before_provider_io(monkeypatch
     assert "private caption" not in str(payload)
 
 
+@pytest.mark.parametrize("engine_value", ["LibreTranslate Custom URL", "custom libretranslate"])
+def test_translation_route_rejects_retired_custom_engine_with_migration_guidance(monkeypatch, engine_value):
+    package = load_package()
+    director = sys.modules[f"{package.__name__}.deno_ideogram_director"]
+    monkeypatch.setattr(director.web, "json_response", lambda payload, status=200: (status, payload))
+    monkeypatch.setattr(director, "_translate_caption_for_view", lambda *_args:
+                        pytest.fail("retired custom engine must not send caption text"))
+
+    class Request:
+        async def json(self):
+            return {
+                "caption": {"high_level_description": "private caption"},
+                "engine": engine_value,
+                "libretranslate_url": "https://custom.example/translate",
+            }
+
+    status, payload = asyncio.run(director._deno_ideogram_director_translate_caption(Request()))
+    assert status == 400
+    assert "LibreTranslate Custom URL has been removed" in payload["error"]
+    assert "private caption" not in str(payload)
+
+
 def test_translation_cache_remains_bounded_under_concurrent_routes(monkeypatch):
     package = load_package()
     engine = sys.modules[f"{package.__name__}.deno_translate_engine"]

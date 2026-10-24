@@ -62,10 +62,12 @@ def test_language_display_contract():
         "Google",
         "MyMemory",
         "LibreTranslate",
-        "LibreTranslate Custom URL",
     )
     assert engine.normalize_translation_engine("my memory") == "MyMemory"
     assert engine.translation_failure_reason("Google").startswith("Google Translate can be blocked")
+    assert engine.translation_failure_reason("LibreTranslate Custom URL") == (
+        engine.RETIRED_CUSTOM_TRANSLATION_MESSAGE
+    )
     assert deno_ideogram_director.VIEW_LANGUAGE_DEFAULT == "English"
     assert deno_ideogram_director._VIEW_LANGUAGE_CHOICES[0] == "English"
     assert "Original (as written)" not in deno_ideogram_director._VIEW_LANGUAGE_CHOICES
@@ -460,20 +462,53 @@ def test_translate_caption_passes_selected_engine(monkeypatch):
     assert calls == [("고양이", "ko", "en")]
 
 
-def test_libretranslate_custom_url_validation(monkeypatch):
+def test_libretranslate_custom_url_is_retired_and_preserves_inactive_workflows(monkeypatch):
     monkeypatch.setenv("DENO_TRANSLATION_ALLOWED_ORIGINS", "https://example.com")
-    assert engine._normalize_libretranslate_endpoint(
-        "https://example.com/api/translate",
-        require_custom=True,
-    ) == "https://example.com/api/translate"
-    assert engine._normalize_libretranslate_endpoint(
-        "https://example.com/api",
-        require_custom=True,
-    ) == "https://example.com/api/translate"
+    assert engine._normalize_libretranslate_endpoint() == "https://libretranslate.com/translate"
+    assert engine._normalize_libretranslate_endpoint("https://libretranslate.com/translate") == (
+        "https://libretranslate.com/translate"
+    )
+    with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
+        engine._normalize_libretranslate_endpoint(
+            "https://example.com/api/translate",
+            require_custom=True,
+        )
+    with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
+        engine._normalize_libretranslate_endpoint("https://example.com/api")
     with pytest.raises(ValueError, match="https"):
         engine._normalize_libretranslate_endpoint("http://example.com", require_custom=True)
-    with pytest.raises(ValueError, match="empty"):
+    with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
         engine._normalize_libretranslate_endpoint("", require_custom=True)
+
+    node = deno_ideogram_director.DenoIdeogramDirector()
+    inactive = node.build(
+        width=1024,
+        height=1024,
+        seed=1,
+        high_level_description="English scene",
+        background="studio",
+        style_mode="none",
+        view_language="English",
+        translate_output="No translation (keep as written)",
+        translation_engine="LibreTranslate Custom URL",
+        libretranslate_url="https://example.com/translate",
+    )
+    prompt = json.loads(_director_result(inactive)[0])
+    assert prompt["high_level_description"] == "English scene"
+
+    with pytest.raises(RuntimeError, match="LibreTranslate Custom URL has been removed"):
+        node.build(
+            width=1024,
+            height=1024,
+            seed=1,
+            high_level_description="한국어 원문",
+            background="배경",
+            style_mode="none",
+            view_language="한국어",
+            translate_output="English",
+            translation_engine="LibreTranslate Custom URL",
+            libretranslate_url="https://example.com/translate",
+        )
 
 
 def test_translate_caption_skips_explicit_same_english_source(monkeypatch):

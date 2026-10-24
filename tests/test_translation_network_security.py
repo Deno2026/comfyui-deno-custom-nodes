@@ -30,7 +30,6 @@ def network(monkeypatch):
         body=b'{"translatedText":"hello"}', response_closed=False, pool_closed=False,
         connection_errors={}, read_error=None, closed_pools=[],
     )
-    monkeypatch.delenv(engine._TRANSLATION_ALLOWED_ORIGINS_ENV, raising=False)
 
     def resolve(host, port, **kwargs):
         state.dns.append((host, port, kwargs))
@@ -104,58 +103,41 @@ def test_custom_url_rejects_ambiguous_or_credential_bearing_urls(network, url):
     "[fc00::1]", "[fe80::1]", "[ff02::1]", "[::]",
     "[::ffff:127.0.0.1]", "[::ffff:8.8.8.8]", "[2002:0a00:0001::1]",
 ])
-def test_private_metadata_and_transition_literals_are_never_allowed(network, monkeypatch, address):
+def test_private_metadata_and_transition_literals_are_never_allowed(network, address):
     url = "https://" + address
-    monkeypatch.setenv(engine._TRANSLATION_ALLOWED_ORIGINS_ENV, url)
-    with pytest.raises(ValueError, match="public address or loopback"):
+    with pytest.raises(ValueError, match="public address"):
         engine._normalize_libretranslate_endpoint(url, require_custom=True)
     assert network.dns == network.requests == []
 
 
-def test_custom_origin_requires_host_configuration_even_for_loopback(network):
-    for url in ("https://custom.example", "http://localhost:5000", "http://127.0.0.1:5000"):
-        with pytest.raises(ValueError, match="DENO_TRANSLATION_ALLOWED_ORIGINS"):
-            engine._normalize_libretranslate_endpoint(url, require_custom=True)
+@pytest.mark.parametrize("url", [
+    "https://custom.example",
+    "https://custom.example/api",
+    "https://custom.example/api/translate",
+    "https://libretranslate.com:8443/translate",
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+    "http://[::1]:5000",
+])
+def test_custom_and_local_origins_are_rejected_even_if_env_is_set(network, monkeypatch, url):
+    monkeypatch.setenv("DENO_TRANSLATION_ALLOWED_ORIGINS", url)
+    with pytest.raises(ValueError):
+        engine._normalize_libretranslate_endpoint(url)
+    with pytest.raises(ValueError):
+        engine._normalize_libretranslate_endpoint(url, require_custom=True)
     assert network.dns == network.requests == []
 
 
-def test_transport_itself_rejects_unapproved_custom_origin(network):
-    with pytest.raises(ValueError, match="not approved"):
+def test_transport_itself_rejects_non_builtin_origin(network, monkeypatch):
+    monkeypatch.setenv("DENO_TRANSLATION_ALLOWED_ORIGINS", "https://custom.example")
+    with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
         engine._request_translation_json("https://custom.example/translate", body=b"private prompt")
     assert network.dns == network.requests == []
 
 
-def test_custom_origin_match_is_exact_and_dns_free(network, monkeypatch):
-    monkeypatch.setenv(
-        engine._TRANSLATION_ALLOWED_ORIGINS_ENV,
-        "https://other.example; https://CUSTOM.example:443, http://localhost:5000",
-    )
-    assert engine._normalize_libretranslate_endpoint(
-        "https://custom.example/api", require_custom=True,
-    ) == "https://custom.example/api/translate"
-    assert engine._normalize_libretranslate_endpoint(
-        "http://localhost:5000/", require_custom=True,
-    ) == "http://localhost:5000/translate"
-    assert engine._normalize_libretranslate_endpoint(
-        "https://custom.example/api/translate/", require_custom=True,
-    ) == "https://custom.example/api/translate/"
-    for url in ("https://custom.example:444", "https://custom.example.attacker.test", "http://127.0.0.1:5000"):
-        with pytest.raises(ValueError, match="not approved"):
-            engine._normalize_libretranslate_endpoint(url, require_custom=True)
-    assert network.dns == network.requests == []
-
-
-def test_plain_http_cannot_be_enabled_for_a_remote_origin(network, monkeypatch):
-    monkeypatch.setenv(engine._TRANSLATION_ALLOWED_ORIGINS_ENV, "http://custom.example")
-    with pytest.raises(ValueError, match="https"):
-        engine._normalize_libretranslate_endpoint("http://custom.example", require_custom=True)
-    assert network.dns == network.requests == []
-
-
-def test_invalid_allowlist_path_cannot_approve_an_origin(network, monkeypatch):
-    monkeypatch.setenv(engine._TRANSLATION_ALLOWED_ORIGINS_ENV, "https://custom.example/api")
-    with pytest.raises(ValueError, match="invalid origin"):
-        engine._normalize_libretranslate_endpoint("https://custom.example", require_custom=True)
+def test_translation_engine_does_not_access_process_environment():
+    assert not hasattr(engine, "os")
+    assert not hasattr(engine, "_TRANSLATION_ALLOWED_ORIGINS_ENV")
 
 
 @pytest.mark.parametrize("addresses", [
@@ -301,20 +283,17 @@ def test_real_urllib3_connection_keeps_numeric_destination_and_tls_identity():
         pool.close()
 
 
-@pytest.mark.parametrize("url, address, host", [
-    ("http://localhost:5000", "127.0.0.1", "localhost:5000"),
-    ("http://127.0.0.2:5000", "127.0.0.2", "127.0.0.2:5000"),
-    ("http://[::1]:5000", "::1", "[::1]:5000"),
+@pytest.mark.parametrize("url", [
+    "http://localhost:5000",
+    "http://127.0.0.2:5000",
+    "http://[::1]:5000",
+    "https://127.0.0.1:5000",
 ])
-def test_opted_in_local_server_is_pinned_without_dns(network, monkeypatch, url, address, host):
-    monkeypatch.setenv(engine._TRANSLATION_ALLOWED_ORIGINS_ENV, url)
-    assert engine._request_libretranslate("안녕", "ko", "en", url=url, require_custom=True) == "hello"
-    assert network.dns == []
-    assert network.pools[0]["host"] == address
-    args, kwargs = network.requests[0]
-    assert args == ("POST", "/translate")
-    assert kwargs["headers"]["Host"] == host
-    assert json.loads(kwargs["body"])["q"] == "안녕"
+def test_local_server_urls_are_rejected_without_dns_or_network(network, monkeypatch, url):
+    monkeypatch.setenv("DENO_TRANSLATION_ALLOWED_ORIGINS", url)
+    with pytest.raises(ValueError):
+        engine._request_libretranslate("안녕", "ko", "en", url=url, require_custom=True)
+    assert network.dns == network.requests == []
 
 
 @pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
@@ -376,10 +355,23 @@ def test_provider_results_and_routing_remain_compatible(network):
 @pytest.mark.parametrize("alias, expected", [
     (None, "Google"), ("", "Google"), ("gtx", "Google"), ("google-translate", "Google"),
     ("my_memory", "MyMemory"), ("libre translate", "LibreTranslate"),
-    ("custom libretranslate", "LibreTranslate Custom URL"),
 ])
 def test_known_engine_aliases_keep_their_meaning(alias, expected):
     assert engine.normalize_translation_engine(alias) == expected
+
+
+@pytest.mark.parametrize("alias", [
+    "LibreTranslate Custom URL",
+    "libretranslate custom url",
+    "libre_translate_custom_url",
+    "custom libretranslate",
+])
+def test_retired_custom_engine_aliases_fail_with_migration_guidance(network, alias):
+    with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
+        engine.normalize_translation_engine(alias)
+    with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
+        engine.translate_text("private prompt", "ko", "en", engine=alias)
+    assert network.dns == network.requests == []
 
 
 def test_unknown_engine_cannot_silently_send_text_to_google(network):
