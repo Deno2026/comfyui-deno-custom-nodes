@@ -364,7 +364,7 @@ LTX 2.5 파일은 Hugging Face 로그인 후 **Agree and Access** 승인이 필�
 
 ### `(Deno) Multi LoRA Loader`
 
-일반 ComfyUI diffusion 워크플로용 다중 LoRA 로더입니다. 연결한 `MODEL`과 선택형 `CLIP`에 최대 8개 LoRA를 적용하고, 저장된 선택을 잃지 않은 채 슬롯별 enable/disable, model/CLIP strength, trigger word와 note, 슬롯 순서 변경을 관리한 뒤 패치된 `model`과 `clip`을 출력합니다.
+일반 ComfyUI diffusion 워크플로용 다중 LoRA 로더입니다. 연결한 `MODEL`과 선택형 `CLIP`에 최대 64개 LoRA를 적용하고, 저장된 선택을 잃지 않은 채 슬롯별 enable/disable, model/CLIP strength, trigger word와 note, 슬롯 순서 변경을 관리한 뒤 패치된 `model`과 `clip`을 출력합니다. `+ Add LoRA`로 필요한 만큼 슬롯을 추가할 수 있습니다. 기존 8개 슬롯 워크플로와 API 프롬프트의 선택값·강도·트리거·메모·연결은 그대로 유지합니다.
 
 ### `(Deno) LTX Multi LoRA Loader`
 

@@ -25,3 +25,15 @@ def test_multi_lora_boolean_harness() -> None:
     )
     assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
     assert "multi_lora_boolean_harness passed" in result.stdout
+
+
+def test_multi_lora_capacity_and_saved_workflow_harness() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node executable is required for the frontend harness")
+    result = subprocess.run(
+        [node, str(HARNESS_PATH.with_name("multi_lora_capacity_harness.mjs"))],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, f"node harness failed:\n{result.stdout}\n{result.stderr}"
+    assert "multi_lora_capacity_harness passed" in result.stdout

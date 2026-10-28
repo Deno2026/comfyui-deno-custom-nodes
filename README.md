@@ -552,7 +552,7 @@ Creator preset link guide:
 
 General-purpose multi LoRA loader for ordinary ComfyUI diffusion workflows.
 
-Main features: apply up to eight LoRAs to a connected `MODEL` and optional `CLIP`, enable or disable each saved slot without losing its selection, set separate model and CLIP strengths, keep trigger words and notes beside each LoRA, reorder slots, and pass the patched `model` and `clip` downstream.
+Main features: apply up to 64 LoRAs to a connected `MODEL` and optional `CLIP`, enable or disable each saved slot without losing its selection, set separate model and CLIP strengths, keep trigger words and notes beside each LoRA, reorder slots, and pass the patched `model` and `clip` downstream. Use `+ Add LoRA` to add slots as needed. Existing eight-slot workflows and API prompts retain their saved selections, strengths, trigger words, notes, and connections.
 
 ### `(Deno) LTX Multi LoRA Loader`
 

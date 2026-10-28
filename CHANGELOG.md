@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.123 - 2026-10-29
+
+- Expanded `(Deno) Multi LoRA Loader` from 8 to 64 slots with per-slot enable, model/CLIP strengths, trigger words, notes, reordering, and removal.
+- Preserved existing eight-slot workflows, older saves without notes, and API prompts by appending optional slots after the original saved widget values. The Add LoRA control reports when a running server needs a restart to expose the extra slots.
+
 ## 0.7.122 - 2026-10-24
 
 - Retired `LibreTranslate Custom URL` and `DENO_TRANSLATION_ALLOWED_ORIGINS`. Ideogram translation now uses only the built-in Google, MyMemory and LibreTranslate HTTPS endpoints with validated public addresses, TLS hostname verification, redirect rejection and bounded responses.

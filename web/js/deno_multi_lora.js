@@ -3,11 +3,12 @@ import { api } from "../../scripts/api.js";
 
 const NODE_NAME = "DenoMultiLoraLoader";
 const UI_VERSION = "generic-lora-v1";
-const MAX_SLOTS = 8;
+const LEGACY_SLOTS = 8;
+const MAX_SLOTS = 64;
 const MIN_WIDTH = 450;
 const NONE_VALUE = "__none__";
 const GENERATED_PREFIX = "deno_multi_lora_";
-const SAVE_RESTORE_REV = "multi-lora-save-reload-v1";
+const SAVE_RESTORE_REV = "multi-lora-save-reload-v2";
 const MARGIN = 10;
 const ROW_HORIZONTAL_INSET = 15;
 const INNER_MARGIN = MARGIN * 0.33;
@@ -82,20 +83,23 @@ app.registerExtension({
     },
 });
 
-function multiLoraSerializedWidgetNames() {
+function multiLoraSerializedWidgetNames(slotCount = MAX_SLOTS) {
     const names = ["active_loras"];
-    for (let index = 1; index <= MAX_SLOTS; index += 1) {
-        names.push(`enabled_${index}`, `lora_${index}`, `model_strength_${index}`, `clip_strength_${index}`);
-    }
-    for (let index = 1; index <= MAX_SLOTS; index += 1) {
-        names.push(`trigger_${index}`, `description_${index}`);
+    // Required legacy widgets precede the newly appended optional widgets.
+    for (const [first, last] of [[1, Math.min(LEGACY_SLOTS, slotCount)], [LEGACY_SLOTS + 1, slotCount]]) {
+        for (let index = first; index <= last; index += 1) {
+            names.push(`enabled_${index}`, `lora_${index}`, `model_strength_${index}`, `clip_strength_${index}`);
+        }
+        for (let index = first; index <= last; index += 1) {
+            names.push(`trigger_${index}`, `description_${index}`);
+        }
     }
     return names;
 }
 
 function multiLoraLegacySerializedWidgetNames() {
     const names = ["active_loras"];
-    for (let index = 1; index <= MAX_SLOTS; index += 1) {
+    for (let index = 1; index <= LEGACY_SLOTS; index += 1) {
         names.push(`enabled_${index}`, `lora_${index}`, `model_strength_${index}`, `clip_strength_${index}`);
     }
     return names;
@@ -109,6 +113,10 @@ function captureMultiLoraSerializedWidgetValues(info) {
     const names = multiLoraSerializedWidgetNames();
     if (values.length >= names.length) {
         return Object.fromEntries(names.map((name, index) => [name, values[index]]));
+    }
+    const eightSlotNames = multiLoraSerializedWidgetNames(LEGACY_SLOTS);
+    if (values.length === eightSlotNames.length) {
+        return Object.fromEntries(eightSlotNames.map((name, index) => [name, values[index]]));
     }
     const legacyNames = multiLoraLegacySerializedWidgetNames();
     if (values.length >= legacyNames.length) {
@@ -698,7 +706,10 @@ class DenoAddLoraWidget extends DenoBaseWidget {
     }
 
     draw(ctx, node, width, y, height) {
-        drawWidgetButton(ctx, { size: [width - ROW_HORIZONTAL_INSET * 2, height], pos: [ROW_HORIZONTAL_INSET, y] }, "+ Add LoRA", this.isMouseDownedAndOver);
+        const capacity = slotCapacity(node);
+        const label = activeCount(node) < capacity ? "+ Add LoRA" : capacity < MAX_SLOTS
+            ? `Restart ComfyUI for ${MAX_SLOTS} slots` : `LoRA limit reached (${MAX_SLOTS})`;
+        drawWidgetButton(ctx, { size: [width - ROW_HORIZONTAL_INSET * 2, height], pos: [ROW_HORIZONTAL_INSET, y] }, label, this.isMouseDownedAndOver);
     }
 
     onMouseClick(event, pos, node) {
@@ -708,7 +719,7 @@ class DenoAddLoraWidget extends DenoBaseWidget {
             rebuildUi(node);
             return true;
         }
-        if (current >= MAX_SLOTS) {
+        if (current >= slotCapacity(node)) {
             return true;
         }
         const next = current + 1;
@@ -890,7 +901,7 @@ function hideWidget(widget) {
 }
 
 function normalizeBackendValues(node) {
-    normalizeNumber(node, "active_loras", 1, 0, MAX_SLOTS, true);
+    normalizeNumber(node, "active_loras", 1, 0, slotCapacity(node), true);
     for (let index = 1; index <= MAX_SLOTS; index += 1) {
         normalizeBool(node, `enabled_${index}`, true);
         normalizeNumber(node, `model_strength_${index}`, 1, -10, 10);
@@ -936,7 +947,12 @@ function redraw(node) {
 
 function activeCount(node) {
     const value = Number(getValue(node, "active_loras", 1));
-    return Number.isFinite(value) ? clamp(Math.round(value), 0, MAX_SLOTS) : 1;
+    return Number.isFinite(value) ? clamp(Math.round(value), 0, slotCapacity(node)) : 1;
+}
+
+function slotCapacity(node) {
+    // Files can be updated while a running server still has its old schema.
+    return getWidget(node, `lora_${MAX_SLOTS}`) ? MAX_SLOTS : LEGACY_SLOTS;
 }
 
 function allRowsEnabled(node) {
@@ -1557,6 +1573,14 @@ if (typeof window !== "undefined" && typeof window.__DENO_MULTI_LORA_TEST_HOOK__
     window.__DENO_MULTI_LORA_TEST_HOOK__({
         coerceBooleanValue,
         normalizeBool,
+        multiLoraSerializedWidgetNames,
+        captureMultiLoraSerializedWidgetValues,
+        applyMultiLoraSerializedValuesToWidgets,
+        syncMultiLoraSerializedWidgetValues,
+        moveLoraSlot,
+        removeLoraSlot,
+        DenoAddLoraWidget,
+        activeCount,
     });
 }
 

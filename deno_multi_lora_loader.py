@@ -9,7 +9,8 @@ import comfy.utils
 import folder_paths
 
 
-MAX_LORA_SLOTS = 8
+LEGACY_LORA_SLOTS = 8
+MAX_LORA_SLOTS = 64
 LORA_NONE_OPTION = "__none__"
 
 
@@ -61,7 +62,7 @@ def _validate_range(kwargs, key: str, label: str, minimum: float, maximum: float
 
 class DenoMultiLoraLoader:
     DESCRIPTION = (
-        "Stack multiple LoRAs in one compact node for general ComfyUI model + CLIP workflows.\n"
+        "Stack up to 64 LoRAs in one compact node for general ComfyUI model + CLIP workflows.\n"
         "Each slot has enable/disable, model strength, CLIP strength, reorder/remove controls, trigger words, and notes.\n"
         "Use the LTX Multi LoRA Loader instead when you need LTX video/audio strength controls.\n"
         "YouTube: https://www.youtube.com/@Denoise-AI"
@@ -75,23 +76,25 @@ class DenoMultiLoraLoader:
         }
 
         lora_options = _get_lora_options()
-        for index in range(1, MAX_LORA_SLOTS + 1):
-            required[_slot_key("enabled", index)] = ("BOOLEAN", {"default": True})
-            required[_slot_key("lora", index)] = (lora_options, {"default": LORA_NONE_OPTION})
-            required[_slot_key("model_strength", index)] = (
-                "FLOAT",
-                {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01},
-            )
-            required[_slot_key("clip_strength", index)] = (
-                "FLOAT",
-                {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01},
-            )
+        def add_slots(inputs, first, last):
+            for index in range(first, last + 1):
+                inputs[_slot_key("enabled", index)] = ("BOOLEAN", {"default": True})
+                inputs[_slot_key("lora", index)] = (lora_options, {"default": LORA_NONE_OPTION})
+                for prefix in ("model_strength", "clip_strength"):
+                    inputs[_slot_key(prefix, index)] = (
+                        "FLOAT",
+                        {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01},
+                    )
+            for index in range(first, last + 1):
+                inputs[_slot_key("trigger", index)] = ("STRING", {"default": "", "multiline": False})
+                inputs[_slot_key("description", index)] = ("STRING", {"default": "", "multiline": True})
 
-        for index in range(1, MAX_LORA_SLOTS + 1):
-            required[_slot_key("trigger", index)] = ("STRING", {"default": "", "multiline": False})
-            required[_slot_key("description", index)] = ("STRING", {"default": "", "multiline": True})
-
-        return {"required": required, "optional": {"clip": ("CLIP",)}}
+        # Keep the original 49 widget values and the optional CLIP socket in place.
+        # Additional slots are optional so existing API prompts remain executable.
+        add_slots(required, 1, LEGACY_LORA_SLOTS)
+        optional = {"clip": ("CLIP",)}
+        add_slots(optional, LEGACY_LORA_SLOTS + 1, MAX_LORA_SLOTS)
+        return {"required": required, "optional": optional}
 
     RETURN_TYPES = ("MODEL", "CLIP")
     RETURN_NAMES = ("model", "clip")
