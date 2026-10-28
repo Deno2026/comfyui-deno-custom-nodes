@@ -114,13 +114,19 @@ function captureMultiLoraSerializedWidgetValues(info) {
     if (values.length >= names.length) {
         return Object.fromEntries(names.map((name, index) => [name, values[index]]));
     }
+    // LiteGraph versions can append null values for non-serialized custom rows.
+    // Restore the known old prefix and reset new widgets that those nulls touched.
+    const restoreLegacy = (savedNames) => ({
+        ...Object.fromEntries(names.map((name) => [name, defaultSerializedValue(name)])),
+        ...Object.fromEntries(savedNames.map((name, index) => [name, values[index]])),
+    });
     const eightSlotNames = multiLoraSerializedWidgetNames(LEGACY_SLOTS);
-    if (values.length === eightSlotNames.length) {
-        return Object.fromEntries(eightSlotNames.map((name, index) => [name, values[index]]));
+    if (values.length >= eightSlotNames.length) {
+        return restoreLegacy(eightSlotNames);
     }
     const legacyNames = multiLoraLegacySerializedWidgetNames();
     if (values.length >= legacyNames.length) {
-        return Object.fromEntries(legacyNames.map((name, index) => [name, values[index]]));
+        return restoreLegacy(legacyNames);
     }
     return null;
 }

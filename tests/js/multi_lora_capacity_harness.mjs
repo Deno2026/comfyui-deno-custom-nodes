@@ -39,17 +39,21 @@ function makeNode() {
 function value(node, name) { return node.widgets.find(w => w.name === name).value; }
 function set(node, name, v) { node.widgets.find(w => w.name === name).value = v; }
 
-for (const length of [33, 49]) {
+for (const [length, trailingRows] of [[33, 0], [49, 0], [33, 11], [49, 11]]) {
     const saved = oldNames.slice(0, length).map(name => name === "active_loras" ? 8 :
         name.startsWith("enabled_") ? false : name.startsWith("model_strength_") ? 0.3 :
         name.startsWith("clip_strength_") ? -0.2 : `${name}-saved`);
-    const restored = hooks.captureMultiLoraSerializedWidgetValues({ widgets_values: saved });
+    const restored = hooks.captureMultiLoraSerializedWidgetValues({ widgets_values: [...saved, ...Array(trailingRows).fill(null)] });
     const node = makeNode();
+    // Native configure applies trailing custom-row nulls to the new widgets.
+    for (const name of names.slice(49, 49 + trailingRows)) set(node, name, null);
     hooks.applyMultiLoraSerializedValuesToWidgets(node, restored);
     hooks.syncMultiLoraSerializedWidgetValues(node);
     assert.deepEqual(Array.from(node.widgets_values.slice(0, length)), saved);
     assert.equal(value(node, "lora_9"), "__none__");
     assert.equal(value(node, "enabled_9"), true);
+    assert.equal(value(node, "model_strength_9"), 1);
+    assert.equal(value(node, "clip_strength_9"), 1);
 }
 
 const node = makeNode();
