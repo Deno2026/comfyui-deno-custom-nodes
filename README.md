@@ -356,6 +356,10 @@ Main features:
 
 Too heavy to run the node? Use the no-install browser tool: **https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/** (also linked at the bottom of the node).
 
+In the browser tool, hover a loaded filename to see its full name. Choose **Side by Side**, then **Left / Right** or **Top / Bottom** to preview the combined layout. **Save MP4** exports both full videos as H.264 MP4 at 24, 30 (default), or 60 fps, using the current Swap order, Sync mode and selected A/B audio (or mute). Both videos are fitted to a common height for horizontal output, or common width for vertical output, preserving their proportions without cropping. Output uses A’s full duration: Time sync holds B’s last frame if B ends first; Ratio sync fits B’s entire duration to A, including B audio when selected. Zoom and preview playback speed do not affect the saved video.
+
+Saving runs locally in your browser; files are never uploaded. The video engine downloads about 30 MB on first use, so an internet connection is needed to prepare it. Large or long videos can take time and browser memory; **Cancel** stops the export, and a completed MP4 can be downloaded again from the save dialog.
+
 ![Deno Video Compare - Slider](docs/images/video-compare.png)
 
 ![Deno Video Compare - Side by Side](docs/images/video-compare-sbs.png)

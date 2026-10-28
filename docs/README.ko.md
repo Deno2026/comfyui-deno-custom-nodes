@@ -278,6 +278,10 @@ ComfyUI 캔버스 안에서 두 이미지를 빠르게 비교하는 A/B 비교 �
 
 설치가 부담스러우면 브라우저 도구를 사용할 수 있습니다: https://deno2026.github.io/comfyui-deno-custom-nodes/video-compare/
 
+브라우저 도구에서 상단 파일명에 마우스를 올리면 전체 이름이 표시됩니다. **Side by Side**에서 **Left / Right**(좌우) 또는 **Top / Bottom**(위아래)을 선택해 합본 배치를 확인한 뒤 **Save MP4**로 저장하세요. H.264 MP4, 24·30(기본)·60 fps를 지원하며 현재 Swap 순서, Sync 모드, 선택한 A/B 오디오 또는 음소거를 반영합니다. 좌우는 두 영상의 높이, 위아래는 너비를 맞추고 원본 비율을 유지해 잘림 없이 합칩니다. 저장 길이는 A 전체 길이 기준이며 Time에서는 먼저 끝난 B의 마지막 화면을 유지하고, Ratio에서는 B 전체 영상과 선택된 B 오디오의 길이를 A에 맞춥니다. 미리보기의 확대·재생 속도는 저장 영상에 적용되지 않습니다.
+
+파일은 브라우저에서만 처리하며 서버에 업로드하지 않습니다. 처음 저장할 때 약 30 MB의 영상 엔진을 내려받으므로 인터넷 연결이 필요합니다. 큰 영상은 처리 시간과 메모리가 많이 필요할 수 있으며 **Cancel**로 중단할 수 있습니다. 저장이 끝나면 저장 창의 다운로드 링크로 같은 MP4를 다시 받을 수 있습니다.
+
 ![Deno Video Compare - Slider](images/video-compare.png)
 
 ![Deno Video Compare - Side by Side](images/video-compare-sbs.png)

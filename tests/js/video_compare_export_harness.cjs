@@ -1,0 +1,37 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = require('node:path');
+const source = process.argv[2] || path.join(__dirname, '../../docs/video-compare/save.js');
+const context = { window: {} };
+vm.runInNewContext(fs.readFileSync(source, 'utf8'), context);
+const { geometry, plan } = context.window.DenoCompareExport;
+const a = { width: 1920, height: 1080, duration: 4 };
+const b = { width: 1280, height: 720, duration: 2 };
+const options = { a, b, layout: 'horizontal', swapped: false, ratio: false, audio: 'A', fps: 30 };
+let p = plan(options);
+assert.equal(p.width, 2560); assert.equal(p.height, 720); assert.equal(p.duration, 4);
+assert.match(p.args.join(' '), /\[v0\]\[v1\]hstack/);
+assert.match(p.args.join(' '), /-map 0:a:0\?/);
+assert.match(p.args.join(' '), /tpad=stop_mode=clone:stop_duration=4/);
+p = plan({ ...options, layout: 'vertical', swapped: true, ratio: true, audio: 'B', fps: 60 });
+assert.equal(p.width, 1280); assert.equal(p.height, 1440);
+assert.match(p.args.join(' '), /\[v1\]\[v0\]vstack/);
+assert.match(p.args.join(' '), /setpts=2\*\(PTS-STARTPTS\)/);
+assert.match(p.args.join(' '), /-map 1:a:0\?/);
+assert.match(p.args.join(' '), /atempo=0.5/);
+assert.match(p.args.join(' '), /fps=60/);
+const mixed = geometry(a, { width: 720, height: 1280 }, 'horizontal');
+assert.equal(mixed.height, 1080); assert.equal(mixed.width, 2528);
+assert.equal(mixed.B.width % 2, 0);
+p = plan({ ...options, audio: 'none' }); assert.ok(p.args.includes('-an'));
+assert.throws(() => plan({ ...options, a: { ...a, duration: Infinity } }), /finite/);
+assert.throws(() => plan({ ...options, fps: 0 }), /frame rate/);
+for (const duration of [0.1, 40]) {
+  p = plan({ ...options, b: { ...b, duration }, ratio: true, audio: 'B' });
+  const af = p.args[p.args.indexOf('-af') + 1];
+  const rates = [...af.matchAll(/atempo=([\d.]+)/g)].map(m => Number(m[1]));
+  assert.ok(rates.every(n => n >= 0.5 && n <= 2));
+  assert.ok(Math.abs(rates.reduce((x, y) => x*y, 1) - duration/a.duration) < 1e-6);
+}
+console.log('video_compare_export_harness passed');

@@ -62,6 +62,18 @@
   .slots{position:absolute;left:50%;top:50%;
     transform:translate(-50%,-50%);
     display:flex;align-items:center;gap:44px;flex-wrap:nowrap;z-index:5}
+  @media(max-width:1600px){
+    .slots{position:static;transform:none;order:3;flex-basis:100%;justify-content:center;gap:20px}
+  }
+  @media(max-width:620px){
+    header{gap:8px;padding:8px}
+    .slots{gap:6px;width:100%;min-width:0}.slots .slot{width:0;min-width:0;flex:1 1 0}
+    #swapBtn{padding:8px 10px}
+    .slots .slot.has{padding:8px}.slot .name{min-width:0;flex:1}
+    .slot button[data-pick]{font-size:12px;padding:8px}
+    .brand small{display:none}.modes{margin-left:0;gap:4px}
+    .modes .btn{padding:6px 9px}
+  }
   /* empty slot: no box — just badge + bold "Load Video X" text */
   .slot{
     display:flex;align-items:center;gap:9px;background:none;border:0;
@@ -77,6 +89,7 @@
   .slot .name{display:none}
   .slot.has .name{display:inline-block;max-width:150px;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap;color:var(--txt);font-weight:600}
+  .slot.has .name:focus-visible{outline:1px solid var(--accent);outline-offset:3px}
   .slot button[data-pick]{font-size:18px;font-weight:900;color:var(--accent);
     background:var(--accent-dim);border:1px solid var(--line);
     border-radius:999px;padding:10px 24px;cursor:pointer;white-space:nowrap;
@@ -94,6 +107,7 @@
   #stage.pan{cursor:grab}
   #stage.pan.grabbing{cursor:grabbing}
   #frame{
+    --a-share:50%;--b-share:50%;
     position:relative;width:100%;height:100%;
     transition:transform .04s linear;will-change:transform;
   }
@@ -114,15 +128,19 @@
   #stage.m-slider #divider{display:block}
 
   /* Side by side */
-  #stage.m-sxs #vidA{width:50%;left:0;object-position:right center}
-  #stage.m-sxs #vidB{width:50%;left:50%;object-position:left center}
+  #stage.m-sxs #vidA{width:var(--a-share);left:0;height:100%;object-position:center}
+  #stage.m-sxs #vidB{width:var(--b-share);left:var(--a-share);height:100%;object-position:center}
+  #stage.m-sxs.swapped #vidA{left:var(--b-share);object-position:center}
+  #stage.m-sxs.swapped #vidB{left:0;object-position:center}
+  #stage.m-sxs.vertical #vidA{width:100%;height:var(--a-share);left:0;top:0}
+  #stage.m-sxs.vertical #vidB{width:100%;height:var(--b-share);left:0;top:var(--a-share)}
+  #stage.m-sxs.vertical.swapped #vidA{left:0;top:var(--b-share)}
+  #stage.m-sxs.vertical.swapped #vidB{left:0;top:0}
 
   /* Swap = exchange sides only, no reload */
   #stage.m-slider.swapped #vidA{clip-path:none;z-index:1}
   #stage.m-slider.swapped #vidB{
     clip-path:inset(0 calc((1 - var(--split)) * 100%) 0 0);z-index:2}
-  #stage.m-sxs.swapped #vidA{left:50%;object-position:left center}
-  #stage.m-sxs.swapped #vidB{left:0;object-position:right center}
 
   /* Difference */
   #stage.m-diff #vidA{mix-blend-mode:difference}
@@ -144,6 +162,7 @@
     display:flex;align-items:center;justify-content:center;pointer-events:none;
   }
   #badgeA{left:14px}#badgeB{right:14px}
+  #stage.m-sxs.vertical #badgeB{top:auto;bottom:14px;left:14px;right:auto}
   #stage.m-tgl #badgeA,#stage.m-tgl #badgeB{display:none}
   #stage.m-tgl .tgl-badge{display:flex}
   .tgl-badge{display:none;left:14px}
@@ -245,6 +264,21 @@
     opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;
   }
   .toast.show{opacity:1}
+  [hidden]{display:none!important}
+  .layout-controls{display:inline-flex;gap:5px}
+  dialog{margin:auto;width:min(440px,calc(100% - 24px));max-height:90vh;overflow:auto;
+    padding:22px;border:1px solid var(--line);border-radius:14px;background:var(--panel);
+    color:var(--txt);box-shadow:0 18px 60px #0009;line-height:1.6}
+  dialog::backdrop{background:#000a}
+  dialog h2{font-size:18px;color:var(--txt-strong);margin-bottom:14px}
+  dialog label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}
+  dialog select{font:inherit;background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    border-radius:6px;padding:6px}
+  dialog p{font-size:12px;color:var(--txt-soft);margin:10px 0}
+  dialog .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+  dialog progress{width:100%;accent-color:var(--accent);margin-top:10px}
+  #saveStatus{white-space:normal;overflow-wrap:anywhere;min-height:20px}
+  #saveDownload{color:var(--accent)}
   input[type=file]{display:none}
 </style>
 </head>
@@ -253,11 +287,11 @@
   <div class="brand"><span class="dot"></span>Video Compare
     <small>· synced A/B · shared timeline</small></div>
   <div class="slots">
-    <div class="slot" id="slotA"><b>A</b><span class="name">Load video…</span>
+    <div class="slot" id="slotA"><b>A</b><span class="name" tabindex="0">Load video…</span>
       <button data-pick="A">Load Video A</button>
       <button class="clr" data-clear="A" title="Remove A">✕</button></div>
     <button class="btn" id="swapBtn" title="Swap A/B (S)">⇄ Swap</button>
-    <div class="slot" id="slotB"><b>B</b><span class="name">Load video…</span>
+    <div class="slot" id="slotB"><b>B</b><span class="name" tabindex="0">Load video…</span>
       <button data-pick="B">Load Video B</button>
       <button class="clr" data-clear="B" title="Remove B">✕</button></div>
   </div>
@@ -347,6 +381,11 @@
     <button class="btn icn" id="zoomRst" title="Reset zoom (R)">⤢</button>
     <span class="sep"></span>
     <button class="btn" id="syncBtn" title="Timeline lock mode">Sync: Time</button>
+    <span class="layout-controls" id="layoutControls" hidden aria-label="Side by Side layout">
+      <button class="btn on" id="horizontalBtn" aria-pressed="true">↔ Left / Right</button>
+      <button class="btn" id="verticalBtn" aria-pressed="false">↕ Top / Bottom</button>
+    </span>
+    <button class="btn" id="saveBtn" disabled title="Load two videos and choose Side by Side">↓ Save MP4</button>
     <span class="time" id="time">00:00.00 / 00:00.00</span>
     <div class="meta">
       <span id="metaA">A —</span><span id="metaB">B —</span>
@@ -359,6 +398,19 @@
 <input type="file" id="fileA" accept="video/*">
 <input type="file" id="fileB" accept="video/*">
 
+<dialog id="saveDialog" aria-labelledby="saveTitle">
+  <h2 id="saveTitle">Save Side by Side</h2>
+  <label>Layout <select id="saveLayout"><option value="horizontal">Left / Right · 좌우</option><option value="vertical">Top / Bottom · 위아래</option></select></label>
+  <label>Frame rate <select id="saveFps"><option value="24">24 fps</option><option value="30" selected>30 fps</option><option value="60">60 fps</option></select></label>
+  <p id="saveSummary"></p>
+  <p>Full videos, original proportions. Uses A’s full duration, the current Sync mode and selected audio. Zoom and playback speed affect preview only.</p>
+  <p>전체 영상을 원본 비율로 합칩니다. 길이는 A 기준이며 현재 Sync·오디오 선택을 반영합니다. 파일은 브라우저에서만 처리됩니다.</p>
+  <progress id="saveProgress" max="100" hidden></progress>
+  <p id="saveStatus" role="status" aria-live="polite"></p>
+  <a id="saveDownload" hidden>Download MP4 · 다시 다운로드</a>
+  <div class="actions"><button class="btn" id="saveClose">Close</button><button class="btn" id="saveStart">Save MP4</button></div>
+</dialog>
+<script src="save.js"></script>
 <script>
 (() => {
   "use strict";
@@ -375,7 +427,7 @@
     syncRatio:false, zoom:1, panX:0, panY:0, tglShow:"A",
     haveA:false, haveB:false, scrubbing:false, draggingSplit:false,
     panning:false, panStart:null, durA:0, durB:0, fpsA:30, fpsB:30,
-    audio:"A", swapped:false,
+    audio:"A", swapped:false, layout:"horizontal", files:{ A:null, B:null },
   };
   const labelOf = side => S.swapped ? (side==="A"?"B":"A") : side;
   function updateLabels(){
@@ -387,22 +439,33 @@
 
   /* ---------- loading ---------- */
   function loadInto(which, file){
-    if(!file) return;
+    if(!file || saveJob) return;
     if(file.type && !file.type.startsWith("video/") &&
        !/\.(mp4|webm|mov|mkv|m4v|ogv)$/i.test(file.name)){
       toast("Not a video file: "+file.name); return;
     }
     const v = which==="A" ? vidA : vidB;
+    if(which==="A"){ S.haveA=false; S.durA=0; } else { S.haveB=false; S.durB=0; }
+    S.files[which]=file;
+    clearDownload();
+    refreshDropState();
     if(v.src) URL.revokeObjectURL(v.src);
     v.src = URL.createObjectURL(file);
     v.load();
     const slot=$("slot"+which);
     slot.classList.add("has");
-    slot.querySelector(".name").textContent=file.name;
+    const name=slot.querySelector(".name");
+    name.textContent=file.name; name.title=file.name; name.setAttribute("aria-label",file.name);
+    slot.title=file.name;
     v.onloadedmetadata=()=>{
       if(which==="A"){ S.haveA=true; S.durA=v.duration; S.fpsA=guessFps(v); }
       else { S.haveB=true; S.durB=v.duration; S.fpsB=guessFps(v); }
       onMediaReady();
+    };
+    v.onerror=()=>{
+      if(which==="A"){ S.haveA=false; S.durA=0; } else { S.haveB=false; S.durB=0; }
+      refreshDropState();
+      toast("Cannot play "+file.name+" — try MP4 (H.264) or WebM");
     };
   }
   function guessFps(v){
@@ -423,9 +486,12 @@
     stage.classList.toggle("miss-b", a && !b);
     hint.classList.toggle("hide", a || b);
     playBtn.disabled = !(a || b);
+    $("saveBtn").disabled = !(a && b && S.mode==="sxs");
+    $("saveBtn").title = a && b && S.mode==="sxs" ? "Save the combined videos as MP4" : "Load two videos and choose Side by Side";
     if(S.mode==="tgl") applyTgl();
   }
   function unload(which){
+    if(saveJob) return;
     const v = which==="A" ? vidA : vidB;
     if(which==="A"){ S.haveA=false; S.durA=0; }
     else { S.haveB=false; S.durB=0; }
@@ -435,8 +501,10 @@
     v.removeAttribute("src");
     try{ v.load(); }catch(e){}
     const slot=$("slot"+which);
+    S.files[which]=null; clearDownload(); slot.removeAttribute("title");
     slot.classList.remove("has");
-    slot.querySelector(".name").textContent="Load video…";
+    const name=slot.querySelector(".name");
+    name.textContent="Load video…"; name.removeAttribute("title"); name.removeAttribute("aria-label");
     S.time=0; S._down=null; S._starting=false;
     refreshDropState(); updateMeta(); applyAudio(); render();
     toast(which+" removed");
@@ -582,6 +650,15 @@
     }
     stage.style.setProperty("--split",S.split);
     divider.style.left=`calc(${S.split} * 100%)`;
+    if(S.mode==="sxs" && S.haveA && S.haveB){
+      const g=window.DenoCompareExport.geometry(
+        {width:vidA.videoWidth,height:vidA.videoHeight}, {width:vidB.videoWidth,height:vidB.videoHeight}, S.layout);
+      const rect=stage.getBoundingClientRect(), scale=Math.min(rect.width/g.width,rect.height/g.height);
+      frame.style.width=(g.width*scale)+"px"; frame.style.height=(g.height*scale)+"px";
+      const axis=S.layout==="vertical"?"height":"width";
+      frame.style.setProperty("--a-share",(g.A[axis]/g[axis]*100)+"%");
+      frame.style.setProperty("--b-share",(g.B[axis]/g[axis]*100)+"%");
+    } else { frame.style.width="100%"; frame.style.height="100%"; }
     frame.style.transform=
       `translate(${S.panX}px,${S.panY}px) scale(${S.zoom})`;
   }
@@ -628,6 +705,8 @@
     document.querySelectorAll(".mode").forEach(b=>
       b.classList.toggle("on", b.dataset.mode===mode));
     $("tglBadge").textContent=S.tglShow;
+    $("layoutControls").hidden=mode!=="sxs";
+    refreshDropState();
     render();
   }
   function cycleMode(){
@@ -746,6 +825,16 @@
   });
 
   /* ---------- controls ---------- */
+  function setLayout(layout){
+    S.layout=layout; stage.classList.toggle("vertical",layout==="vertical");
+    for(const value of ["horizontal","vertical"]){
+      $(value+"Btn").classList.toggle("on",value===layout);
+      $(value+"Btn").setAttribute("aria-pressed",String(value===layout));
+    }
+    render();
+  }
+  $("horizontalBtn").onclick=()=>setLayout("horizontal");
+  $("verticalBtn").onclick=()=>setLayout("vertical");
   document.querySelectorAll(".mode").forEach(b=>
     b.onclick=()=>setMode(b.dataset.mode));
   playBtn.onclick=togglePlay;
@@ -836,7 +925,7 @@
 
   /* ---------- keyboard ---------- */
   window.addEventListener("keydown",e=>{
-    if(e.target.tagName==="INPUT") return;
+    if($("saveDialog").open || ["INPUT","SELECT","BUTTON","A"].includes(e.target.tagName)) return;
     const k=e.key;
     if(k===" "||k==="k"||k==="K"){e.preventDefault();togglePlay();}
     else if(k==="ArrowLeft") seekAll(master().currentTime-(e.shiftKey?1:1/Math.max(fps(),1)));
@@ -852,6 +941,62 @@
     else if(k>="0"&&k<="9"){ const m=master();
       if(m&&m.duration) seekAll(m.duration*(+k/10)); }
   });
+
+  /* ---------- MP4 save ---------- */
+  let saveJob=null, downloadURL=null;
+  const saveDialog=$("saveDialog"), saveStatus=$("saveStatus"), saveProgress=$("saveProgress");
+  function clearDownload(){
+    if(downloadURL) URL.revokeObjectURL(downloadURL);
+    downloadURL=null; $("saveDownload").hidden=true; $("saveDownload").removeAttribute("href");
+  }
+  function saveOptions(){
+    return { a:{width:vidA.videoWidth,height:vidA.videoHeight,duration:S.durA},
+      b:{width:vidB.videoWidth,height:vidB.videoHeight,duration:S.durB}, layout:S.layout,
+      swapped:S.swapped, ratio:S.syncRatio, audio:S.audio, fps:Number($("saveFps").value) };
+  }
+  function saveSummary(){
+    const p=window.DenoCompareExport.plan(saveOptions());
+    const first=S.swapped?"B":"A", second=S.swapped?"A":"B";
+    $("saveSummary").textContent=`${first} ${S.layout==="vertical"?"↓":"→"} ${second} · ${p.width}×${p.height} · ${fmt(p.duration)} · ${S.audio==="none"?"No audio":S.audio+" audio"} · Sync: ${S.syncRatio?"Ratio":"Time"}`;
+  }
+  $("saveBtn").onclick=()=>{
+    if($("saveBtn").disabled) return;
+    pause(); $("saveLayout").value=S.layout; saveSummary();
+    saveStatus.textContent=""; saveProgress.hidden=true; saveDialog.showModal();
+  };
+  $("saveLayout").onchange=()=>{setLayout($("saveLayout").value);saveSummary();};
+  $("saveFps").onchange=saveSummary;
+  function closeSave(){if(saveJob) saveJob.abort();saveDialog.close();}
+  $("saveClose").onclick=closeSave;
+  saveDialog.addEventListener("cancel",()=>{if(saveJob) saveJob.abort();});
+  $("saveStart").onclick=async()=>{
+    if(saveJob) return;
+    const controller=new AbortController(); saveJob=controller; clearDownload();
+    $("saveStart").disabled=true; $("saveLayout").disabled=true; $("saveFps").disabled=true;
+    $("saveClose").textContent="Cancel"; saveProgress.hidden=false; saveProgress.removeAttribute("value");
+    try{
+      const options=saveOptions();
+      const blob=await window.DenoCompareExport.encode(options,S.files.A,S.files.B,controller.signal,(pct,message)=>{
+        saveStatus.textContent=message;
+        if(pct==null) saveProgress.removeAttribute("value"); else saveProgress.value=pct;
+      });
+      controller.signal.throwIfAborted();
+      downloadURL=URL.createObjectURL(blob);
+      const link=$("saveDownload"), order=S.swapped?["B","A"]:["A","B"];
+      const base=which=>S.files[which].name.replace(/\.[^.]+$/,"").replace(/[<>:"/\\|?*\x00-\x1f]/g,"_").slice(0,60);
+      link.href=downloadURL; link.download=order.map(base).join("_vs_")+`_${S.layout==="vertical"?"top-bottom":"left-right"}.mp4`;
+      link.hidden=false; link.click(); saveProgress.value=100;
+      saveStatus.textContent="MP4 ready · 저장 완료. 아래 링크로 다시 받을 수 있습니다.";
+    }catch(error){
+      saveProgress.hidden=true;
+      saveStatus.textContent=controller.signal.aborted?"Save cancelled · 저장을 취소했습니다.":
+        (error.message||"Save failed. Try smaller or shorter videos.");
+    }finally{
+      saveJob=null; $("saveStart").disabled=false; $("saveLayout").disabled=false; $("saveFps").disabled=false;
+      $("saveClose").textContent="Close";
+    }
+  };
+  window.addEventListener("beforeunload",()=>{if(saveJob)saveJob.abort();clearDownload();});
 
   /* ---------- init ---------- */
   vidA.addEventListener("ended",()=>{ if(S.loop&&S.haveA) seekAll(0); });
