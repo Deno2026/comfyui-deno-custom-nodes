@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize("harness_name", [
     "video_compare_split_position_harness.mjs",
     "video_compare_export_harness.cjs",
+    "video_compare_audio_harness.cjs",
 ])
 def test_video_compare_frontend_harness(harness_name: str) -> None:
     harness_path = REPO_ROOT / "tests" / "js" / harness_name

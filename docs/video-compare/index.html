@@ -510,6 +510,9 @@
     toast(which+" removed");
   }
   function applyAudio(){
+    // Drop the old follower correction before its sound becomes audible.
+    vidA.muted=true; vidB.muted=true;
+    setRate(vidA,baseRate(vidA)); setRate(vidB,baseRate(vidB));
     vidA.muted = !(S.haveA && S.audio==="A");
     vidB.muted = !(S.haveB && S.audio==="B");
     $("audN").classList.toggle("on", S.audio==="none");
@@ -536,6 +539,14 @@
   const other  = () => S.haveA ? (S.haveB?vidB:null) : null;
   const masterDur = () => S.haveA ? S.durA : S.durB;
 
+  function baseRate(v){
+    return S.speed * (v===vidB && S.haveA && S.haveB && S.syncRatio && S.durA>0
+      ? S.durB/S.durA : 1);
+  }
+  function setRate(v,rate){
+    if(Math.abs(v.playbackRate-rate)>0.001) v.playbackRate=rate;
+  }
+
   function mapTime(t){
     const o=other(); if(!o) return t;
     if(S.syncRatio && masterDur()>0)
@@ -544,34 +555,27 @@
   }
   function syncOther(force){
     const o=other(); if(!o) return;
-    const tgt=mapTime(master().currentTime);
-    const diff=o.currentTime - tgt;          // + : follower is ahead
-    const A=Math.abs(diff);
-    // big jump (scrub / loop) -> single hard seek
-    if(force || A > 0.5){
-      try{ o.currentTime = tgt; }catch(e){}
-      o.playbackRate = S.speed;
-      return;
+    let follower=o, target=mapTime(master().currentTime);
+    // A still owns the shared duration. While B is audible, only silent A
+    // follows B's clock; repeatedly stretching/seeking audible media causes pops.
+    if(S.playing && !force && S.audio==="B"){
+      if(!S.syncRatio && (vidB.ended || (vidB.currentTime>=S.durB-0.02 && vidA.currentTime>=S.durB))){
+        setRate(vidA,baseRate(vidA)); return; // let A finish after a shorter B
+      }
+      follower=vidA;
+      target=S.syncRatio ? vidB.currentTime*S.durA/S.durB : vidB.currentTime;
+      target=Math.min(target,S.durA);
     }
-    if(!S.playing){
-      // paused: only seek if visibly off; sub-frame stays (no decode flash)
-      if(A > 0.02){ try{ o.currentTime = tgt; }catch(e){} }
-      o.playbackRate = S.speed;
-      return;
+    const diff=follower.currentTime-target, drift=Math.abs(diff), rate=baseRate(follower);
+    if(force || !S.playing || drift>0.2){
+      if((force || !follower.seeking) && (force || drift>0.02)){
+        try{ follower.currentTime=target; }catch(e){}
+      }
+      setRate(follower,rate); return;
     }
-    // safety net (post-resume / stall) — corrective seek before it's seen
-    if(A > 0.18){
-      try{ o.currentTime = tgt; }catch(e){}
-      o.playbackRate = S.speed;
-      return;
-    }
-    // steady state: strong-but-smooth rate correction, sub-frame lock
-    if(A < 0.004){
-      o.playbackRate = S.speed;
-    } else {
-      const k=Math.min(0.6, A*8);
-      o.playbackRate = S.speed * (diff>0 ? (1-k) : (1+k));
-    }
+    // Only muted media receives drift correction; ignore clock quantization.
+    const correction=drift<0.02 ? 0 : Math.min(0.1,drift*0.8)*(diff>0?-1:1);
+    setRate(follower,rate*(1+correction));
   }
   function seekAll(t){
     const m=master(); if(!m) return;
@@ -586,13 +590,13 @@
     if(m.ended || m.currentTime>=(m.duration-0.05)){
       m.currentTime=0; if(o){ try{ o.currentTime=0; }catch(e){} }
     }
-    m.playbackRate=S.speed;
+    setRate(m,baseRate(m));
     if(!o){ m.play().catch(()=>{}); return; }
     // align follower first, then start BOTH together when both are ready
     const tgt=mapTime(m.currentTime);
     const needSeek=Math.abs(o.currentTime-tgt) > 0.008;
     if(needSeek){ try{ o.currentTime=tgt; }catch(e){} }
-    o.playbackRate=S.speed;
+    setRate(o,baseRate(o));
     S._starting=true;
     const startBoth=()=>{
       if(!S._starting) return;
@@ -600,7 +604,8 @@
       o.removeEventListener("seeked",startBoth);
       o.removeEventListener("canplay",startBoth);
       if(!S.playing) return;
-      o.play().catch(()=>{}); m.play().catch(()=>{}); // heavier side first
+      if(!o.ended) o.play().catch(()=>{});
+      m.play().catch(()=>{});
     };
     if(!needSeek && o.readyState>=2){
       startBoth();
@@ -617,6 +622,10 @@
     syncOther(false);          // snap only if visibly off; else instant
   }
   function togglePlay(){ S.playing?pause():play(); }
+  function finishTimeline(){
+    if(!S.playing) return;
+    if(S.loop){ seekAll(0); play(); } else pause();
+  }
 
   /* ---------- main loop ---------- */
   function loop(){
@@ -625,11 +634,11 @@
       if(S.playing && !S._starting){
         const o=other();
         if(o){
-          if(o.paused) o.play().catch(()=>{});
+          if(o.paused && !o.ended) o.play().catch(()=>{});
           syncOther(false);
         }
         if(m.duration && m.currentTime>=m.duration-0.03){
-          if(S.loop) seekAll(0); else pause();
+          finishTimeline();
         }
       }
       render();
@@ -845,7 +854,7 @@
   $("fwdBtn").onclick=()=>step(1);
   spdBtn.onclick=()=>{
     S.speed=SPEEDS[(SPEEDS.indexOf(S.speed)+1)%SPEEDS.length];
-    vidA.playbackRate=S.speed; vidB.playbackRate=S.speed;
+    setRate(vidA,baseRate(vidA)); setRate(vidB,baseRate(vidB));
     spdBtn.textContent=S.speed.toFixed(2).replace(/0$/,"")+"×";
   };
   function setAudio(which){
@@ -860,6 +869,7 @@
   $("zoomRst").onclick=()=>setZoom(1);
   syncBtn.onclick=()=>{
     S.syncRatio=!S.syncRatio;
+    setRate(vidA,baseRate(vidA)); setRate(vidB,baseRate(vidB));
     syncBtn.textContent="Sync: "+(S.syncRatio?"Ratio":"Time");
     syncBtn.classList.toggle("on",S.syncRatio);
     syncOther(true); toast(S.syncRatio
@@ -999,8 +1009,8 @@
   window.addEventListener("beforeunload",()=>{if(saveJob)saveJob.abort();clearDownload();});
 
   /* ---------- init ---------- */
-  vidA.addEventListener("ended",()=>{ if(S.loop&&S.haveA) seekAll(0); });
-  vidB.addEventListener("ended",()=>{ if(S.loop&&!S.haveA) seekAll(0); });
+  vidA.addEventListener("ended",()=>{ if(S.haveA) finishTimeline(); });
+  vidB.addEventListener("ended",()=>{ if(!S.haveA) finishTimeline(); });
   setMode("slider");
   refreshDropState();
   applyAudio();
