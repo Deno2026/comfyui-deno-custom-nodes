@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.124 - 2026-10-30
+
+- Republished the 0.7.123 Multi LoRA 64-slot update. Nodes, sockets and saved workflows are unchanged from 0.7.123.
+- The browser Video Compare page, including its MP4 export, stays on the hosted page linked from the Video Compare node and is no longer copied into the installed node package, like the other browser-only tools.
+
 ## 0.7.123 - 2026-10-29
 
 - Expanded `(Deno) Multi LoRA Loader` from 8 to 64 slots with per-slot enable, model/CLIP strengths, trigger words, notes, reordering, and removal.

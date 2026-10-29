@@ -315,6 +315,15 @@ def test_registry_package_links_public_rtx_installer_but_excludes_flagged_files(
     assert "tools/DENO_RTX_VFX_runtime_path.txt" in comfyignore
 
 
+def test_registry_package_excludes_browser_only_pages_tools():
+    comfyignore = COMFYIGNORE_PATH.read_text(encoding="utf-8")
+    pages_tools = sorted(path.parent.name for path in (REPO_ROOT / "docs").glob("*/index.html"))
+
+    assert "video-compare" in pages_tools
+    for tool in pages_tools:
+        assert f"docs/{tool}/" in comfyignore, tool
+
+
 def test_registry_package_excludes_local_authority_and_work_artifacts():
     comfyignore = COMFYIGNORE_PATH.read_text(encoding="utf-8")
 
