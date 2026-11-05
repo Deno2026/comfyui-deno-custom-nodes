@@ -628,6 +628,11 @@ def test_minimax_h3_nodes_are_skipped_together_when_stock_h3_is_unavailable(monk
     assert caplog.text.count("MiniMax H3 nodes require ComfyUI >= 0.30.0") == 1
 
 
+# ComfyUI V3 schema nodes need comfy_api, which this stub package does not load;
+# test_minimax_h3_tiled_sampler.py checks the same description and tooltip rules.
+V3_SCHEMA_NODES_CHECKED_SEPARATELY = {"DenoMiniMaxH3TiledSampler"}
+
+
 def test_public_nodes_expose_complete_object_info_metadata():
     package = load_package()
     public_nodes = json.loads((REPO_ROOT / "node_list.json").read_text(encoding="utf-8"))
@@ -635,6 +640,8 @@ def test_public_nodes_expose_complete_object_info_metadata():
     failures = []
 
     for node_id in public_nodes:
+        if node_id in V3_SCHEMA_NODES_CHECKED_SEPARATELY:
+            continue
         node_cls = package.NODE_CLASS_MAPPINGS[node_id]
         input_types = node_cls.INPUT_TYPES()
         description = getattr(node_cls, "DESCRIPTION", "")

@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.126 - 2026-11-05
+
+- Added `(Deno) MiniMax H3 Tiled Sampler`. It finishes an upscaled MiniMax H3 video+audio latent in overlapping tiles: at every step all tiles read the same frame and are blended before one shared update, the model loads once, and the original audio is kept. Tile width, tile height and the two overlaps are set directly in multiples of 32 px. The defaults (896 x 704, overlap 256 x 320) are the tested 16GB setting for a 15-second 1920 x 1088 finishing pass.
+- Existing nodes, inputs, widgets and saved workflows are unchanged.
+
 ## 0.7.125 - 2026-11-05
 
 - `(Deno) Local LLM Loader`: Custom, llama.cpp, vLLM, llama-swap and Unsloth accept only a server address and port with an optional `/v1`; queries and other paths are rejected with a hint. Refresh Models, Unload and Stop for Ollama and LM Studio always use their fixed local servers, the same ones the node runs with. Server errors show the server's JSON error message instead of its raw response.

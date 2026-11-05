@@ -218,6 +218,30 @@ Standard active UI workflows saved with the v0.7.92-v0.7.94 three-output loader 
 
 LoRA weights and workflows are not bundled with Deno Custom Nodes. Download the weights from Alibaba and build or adapt your own native ComfyUI workflow.
 
+### `(Deno) MiniMax H3 Tiled Sampler`
+
+Finishes an upscaled MiniMax H3 video+audio latent in overlapping tiles, so a 16GB GPU can run the final high-resolution pass. At every step all tiles read the same frame, their predictions are blended with cosine weights in the overlaps, and one shared update follows. The model loads once for all tiles, and the original audio latent passes through unchanged.
+
+Typical place in a native H3 graph:
+
+```text
+First pass: SamplerCustomAdvanced with SplitSigmas high_sigmas
+-> MiniMax H3 Latent Upscale With Model (ComfyUI 0.44.0+) or another H3 latent upscaler
+-> (Deno) MiniMax H3 Tiled Sampler with SplitSigmas low_sigmas
+-> VAE Decode for video, audio decode for sound
+```
+
+- `model`: the H3 model after LoRAs, sigma shift and any attention or memory nodes. H3-Optimizations sparse attention and memory optimization work in front of this node. ComfyUI's core `BlockSparseAttention` is rejected with a message for now.
+- `positive`: the same positive conditioning as the first pass. R2V reference images stay global. Keyframe conditioning is cropped to each tile and prepared per tile. Regional conditioning and ControlNet are rejected.
+- `latent`: the upscaled H3 latent, without a noise mask.
+- `sigmas`: only the final 1-3 steps of the first-pass schedule, for example `SplitSigmas` `low_sigmas`. Other schedules are rejected with a hint.
+- `seed`: noise that brings the upscaled latent back to the first of those sigmas.
+- `Tile width`, `Tile height`, `Overlap X`, `Overlap Y`: pixel sizes in multiples of 32. Overlaps must be smaller than the tile. The tile count follows from the frame size. A tile at least as large as the frame runs it in one piece.
+
+The defaults (896 x 704 tiles, at least 256 x 320 overlap) are the tested 16GB setting. On a 16GB GPU with 32GB system RAM, a 15-second 1920 x 1088 clip ran as 6 tiles, and its one final step took about 520 seconds. Larger tiles repeat less overlap work but need more VRAM. Sizes above these defaults have not been measured by DENO yet.
+
+Each run prints the tile count, grid, sizes, per-tile seconds and PyTorch peak memory to the console and adds the same report to the node's output text, so you or an agent can choose the next sizes. Requires ComfyUI with native MiniMax H3 support (0.30.0 or newer); tested on ComfyUI 0.41.3 to 0.44.0.
+
 ### MiniMax H3 R2V Audio Reference workflow
 
 The [beginner audio-reference workflow](docs/workflows/minimax-h3-r2v-audio-reference.json) keeps ComfyUI's stock MiniMax H3 reference-audio path and adds an automatic prompt-direction lane:

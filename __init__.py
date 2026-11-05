@@ -490,6 +490,11 @@ _OPTIONAL_NODES = (
         "DenoMiniMaxH3AccLoader",
         "(Deno) MiniMax H3 Acc LoRA Loader",
     ),
+    (
+        "deno_minimax_h3_tiled_sampler",
+        "DenoMiniMaxH3TiledSampler",
+        "(Deno) MiniMax H3 Tiled Sampler",
+    ),
     ("deno_audio_transcript", "DenoAudioTranscript", "(Deno) Audio Transcript"),
     (
         "deno_audio_analysis_finalize",

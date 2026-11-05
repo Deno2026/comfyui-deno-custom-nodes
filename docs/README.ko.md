@@ -178,6 +178,30 @@ v0.7.92~v0.7.94의 3출력 버전으로 저장한 표준 활성 UI 워크플로�
 
 Deno Custom Nodes에는 LoRA 가중치와 워크플로우를 포함하지 않습니다. 가중치는 Alibaba 저장소에서 각자 내려받고, ComfyUI 순정 워크플로우를 직접 구성하거나 기존 그래프에 연결해 사용합니다.
 
+### `(Deno) MiniMax H3 Tiled Sampler`
+
+확대한 MiniMax H3 영상+오디오 latent를 겹치는 조각으로 나눠 마무리합니다. 16GB GPU에서도 고해상도 마지막 패스를 돌릴 수 있습니다. 매 스텝 모든 조각이 같은 화면을 읽고, 겹친 부분의 예측을 코사인 가중치로 섞은 뒤 한 번에 갱신합니다. 모델은 모든 조각에 한 번만 올리고, 원래 오디오 latent는 바꾸지 않고 그대로 내보냅니다.
+
+순정 H3 그래프에서의 위치:
+
+```text
+1차 패스: SplitSigmas high_sigmas를 쓰는 SamplerCustomAdvanced
+-> MiniMax H3 Latent Upscale With Model(ComfyUI 0.44.0 이상) 또는 다른 H3 latent 확대 노드
+-> SplitSigmas low_sigmas를 연결한 (Deno) MiniMax H3 Tiled Sampler
+-> 영상은 VAE Decode, 소리는 오디오 디코드
+```
+
+- `model`: LoRA, sigma shift, 어텐션·메모리 노드를 거친 H3 모델입니다. H3-Optimizations의 sparse attention과 memory optimization은 이 노드 앞에 두면 됩니다. ComfyUI 코어 `BlockSparseAttention`은 아직 지원하지 않아 안내와 함께 거절합니다.
+- `positive`: 1차 패스와 같은 positive conditioning입니다. R2V 참조 이미지는 전체 화면 기준으로 그대로 쓰고, 키프레임 conditioning은 조각마다 잘라 조각별로 준비합니다. 영역 conditioning과 ControlNet은 거절합니다.
+- `latent`: noise mask가 없는 확대된 H3 latent입니다.
+- `sigmas`: 1차 스케줄의 마지막 1~3스텝만 연결합니다(예: `SplitSigmas`의 `low_sigmas`). 다른 스케줄은 안내와 함께 거절합니다.
+- `seed`: 확대된 latent에 그 스케줄의 첫 sigma만큼 노이즈를 다시 입힐 때 쓰는 값입니다.
+- `Tile width`, `Tile height`, `Overlap X`, `Overlap Y`: 32의 배수인 픽셀 크기입니다. 겹침은 조각보다 작아야 합니다. 조각 수는 화면 크기에서 정해지고, 조각이 화면보다 크거나 같으면 나누지 않고 한 번에 처리합니다.
+
+기본값(조각 896 x 704, 겹침 최소 256 x 320)은 16GB에서 시험한 설정입니다. 16GB GPU·시스템 메모리 32GB에서 15초 1920 x 1088 영상이 6조각으로 나뉘었고, 마지막 1스텝이 약 520초 걸렸습니다. 조각이 클수록 겹침을 다시 계산하는 양은 줄지만 VRAM이 더 필요합니다. 기본값보다 큰 크기는 아직 DENO가 측정하지 않았습니다.
+
+실행할 때마다 조각 수, 배치, 크기, 조각별 시간, PyTorch 최대 메모리를 콘솔에 남기고 같은 보고를 노드 출력 텍스트에도 붙입니다. 사용자나 에이전트가 이 값을 보고 다음 크기를 정할 수 있습니다. 순정 MiniMax H3를 지원하는 ComfyUI(0.30.0 이상)가 필요하며, ComfyUI 0.41.3~0.44.0에서 시험했습니다.
+
 ### MiniMax H3 R2V 오디오 레퍼런스 워크플로
 
 [초보자용 오디오 레퍼런스 워크플로](workflows/minimax-h3-r2v-audio-reference.json)는 ComfyUI 순정 MiniMax H3 오디오 레퍼런스 경로를 유지하면서 자동 프롬프트 연출 단계를 더합니다.
