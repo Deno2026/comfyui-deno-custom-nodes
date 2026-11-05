@@ -125,6 +125,9 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "image and video compare" in description
     assert "Video to GIF/WebP" in description
     assert "visual workflow utilities" in description
+    # Comfy Registry rejected a 1043-character description ("description is too
+    # long", 2026-11-05) after accepting 980 characters; keep it within that.
+    assert len(description) <= 980
     keywords = pyproject["project"]["keywords"]
     required_keywords = {
         "comfyui",
