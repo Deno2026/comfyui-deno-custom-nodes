@@ -89,7 +89,7 @@ class DenoMultiLoraLoader:
                 inputs[_slot_key("trigger", index)] = ("STRING", {"default": "", "multiline": False})
                 inputs[_slot_key("description", index)] = ("STRING", {"default": "", "multiline": True})
 
-        # Keep the original 49 widget values and the optional CLIP socket in place.
+        # Keep the original 49 widget values and the optional CLIP input in place.
         # Additional slots are optional so existing API prompts remain executable.
         add_slots(required, 1, LEGACY_LORA_SLOTS)
         optional = {"clip": ("CLIP",)}
