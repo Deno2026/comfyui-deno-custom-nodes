@@ -68,6 +68,9 @@ docs/PORTABLE_TEST_BASELINE.md
 docs/RTX_VFX_INSTALL_GUIDE.md
 docs/images/rtx-vfx-install/
 
+# README screenshots shown on GitHub only. Not needed inside Manager installs.
+docs/images/readme/
+
 # Browser-only helper page served on GitHub Pages. Not a runtime node file.
 docs/rtx-vfx-install/
 docs/video-to-gif/
