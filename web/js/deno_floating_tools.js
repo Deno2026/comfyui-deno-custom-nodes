@@ -1888,8 +1888,16 @@ function installSosEventListeners() {
     });
 }
 
-function installSosRuntimeHooks() {
+// Event listeners never replace ComfyUI functions, so they stay installed even
+// while the floating tools are switched off.
+function installSosPassiveHooks() {
     installSosEventListeners();
+}
+
+// The wrapping hooks (fetchApi, queuePrompt, toast) and the page-wide validation
+// observer only feed the SOS report, so they wait until the floating tools setting is on.
+function installSosRuntimeHooks() {
+    installSosPassiveHooks();
     installSosPromptFailureHooks();
     scheduleSosToastHooks();
     installSosValidationObserver();
@@ -1909,7 +1917,7 @@ app.registerExtension({
         },
     ],
     setup() {
-        installSosRuntimeHooks();
+        installSosPassiveHooks();
         queueMicrotask(updateToolsVisibility);
     },
 });

@@ -689,6 +689,10 @@ function buildUi(node, rootWidget, presetsWidget) {
                     setStatus("This row has no URL yet.", true);
                     return;
                 }
+                if (!isWebDownloadUrl(file.url)) {
+                    setStatus("Download link must be a web address starting with http or https.", true);
+                    return;
+                }
                 window.open(file.url, "_blank", "noopener,noreferrer");
                 setStatus(`Opened download link: ${file.filename || file.target_subdir || "download link"}`);
             };
@@ -1188,6 +1192,15 @@ function resolveCivitaiLocally(rawUrl) {
         size: 0,
         download_url: `https://civitai.com/api/download/models/${versionId}`,
     };
+}
+
+function isWebDownloadUrl(value) {
+    try {
+        const { protocol } = new URL(String(value || ""));
+        return protocol === "https:" || protocol === "http:";
+    } catch (error) {
+        return false;
+    }
 }
 
 function createModelPathField(value, modelSubdirs = []) {

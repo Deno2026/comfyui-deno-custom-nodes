@@ -1327,10 +1327,25 @@ def test_sos_report_redacts_warning_strings(monkeypatch):
 
 def test_same_origin_request_policy():
     class Request:
-        def __init__(self, headers):
+        def __init__(self, headers, remote="127.0.0.1"):
             self.headers = headers
+            self.remote = remote
 
     assert deno_sos_report._is_same_origin_request(Request({})) is True
+    assert deno_sos_report._is_same_origin_request(Request({}, remote="127.0.0.2")) is True
+    assert deno_sos_report._is_same_origin_request(Request({}, remote="::1")) is True
+    assert deno_sos_report._is_same_origin_request(Request({}, remote="::ffff:127.0.0.1")) is True
+    assert deno_sos_report._is_same_origin_request(Request({}, remote="192.168.0.20")) is False
+    assert deno_sos_report._is_same_origin_request(Request({}, remote="203.0.113.9")) is False
+    assert deno_sos_report._is_same_origin_request(Request({}, remote="2001:db8::1")) is False
+    assert deno_sos_report._is_same_origin_request(Request({}, remote=None)) is False
+    assert deno_sos_report._is_same_origin_request(Request({}, remote="")) is False
+    assert deno_sos_report._is_same_origin_request(Request({}, remote="not-an-address")) is False
+    assert deno_sos_report._is_same_origin_request(Request({"Origin": "  "}, remote="10.0.0.5")) is False
+    assert deno_sos_report._is_same_origin_request(Request({
+        "Origin": "http://192.168.0.20:8188",
+        "Host": "192.168.0.20:8188",
+    }, remote="192.168.0.20")) is True
     assert deno_sos_report._is_same_origin_request(Request({
         "Origin": "http://127.0.0.1:8188",
         "Host": "127.0.0.1:8188",

@@ -11,6 +11,10 @@ import json
 import logging
 import math
 import os
+# Reads only the host-side settings named by the *_ENV constants below: the LAN allow-list
+# (DENO_LOCAL_LLM_ALLOWED_HOSTS) and the optional API keys (DENO_LOCAL_LLM_API_KEY,
+# DENO_LOCAL_LLM_LM_STUDIO_API_KEY, DENO_LOCAL_LLM_UNSLOTH_API_KEY). The values stay on the
+# ComfyUI host and are never saved in a workflow or sent anywhere but the chosen local server.
 from os import getenv as _read_process_environment
 import queue
 import random
@@ -771,20 +775,42 @@ def _url_with_path(parsed: urllib.parse.ParseResult, path: str) -> str:
     )).rstrip("/")
 
 
+_OPENAI_COMPATIBLE_SERVER_PATH = r"(?:/v1)?(?:/chat/completions|/completions|/models)?"
+_OPENAI_COMPATIBLE_SERVER_URL_HINT = f"Enter only the server address, for example {CUSTOM_SERVER_DEFAULT}."
+
+
 def _normalize_openai_compatible_urls(provider: str, server_url: str) -> Tuple[str, str]:
     raw = _strip_trailing_slash(server_url or _default_openai_compatible_server(provider))
     parsed = _parse_local_llm_url(raw)
-    path = (parsed.path or "").rstrip("/")
-    for suffix in ("/chat/completions", "/completions", "/models"):
-        if path.endswith(suffix):
-            path = path[: -len(suffix)].rstrip("/")
-    if path.endswith("/v1"):
-        root_path = path[:-3].rstrip("/")
-    else:
-        root_path = path
-    server_root = _url_with_path(parsed, root_path)
+    # The user supplies a server address only. The endpoint path is always chosen by this node, so a
+    # query, fragment, parameters or any path other than the usual /v1 forms is refused.
+    if (
+        parsed.query
+        or parsed.fragment
+        or parsed.params
+        or any(mark in raw for mark in ("?", "#", ";"))
+        or not re.fullmatch(_OPENAI_COMPATIBLE_SERVER_PATH, (parsed.path or "").rstrip("/"))
+    ):
+        raise RuntimeError(_OPENAI_COMPATIBLE_SERVER_URL_HINT)
+    server_root = _url_with_path(parsed, "")
     openai_base = f"{server_root}/v1"
     return server_root, openai_base
+
+
+def _effective_local_llm_server_url(provider: str, server_url: Any = "") -> str:
+    """Server address a request for this provider actually uses.
+
+    Ollama and LM Studio always use their fixed local default, the same address the node uses
+    when it runs, so a saved or posted address cannot redirect them. The
+    OpenAI-compatible providers use the typed address (or their default) and are checked by
+    _normalize_openai_compatible_urls.
+    """
+    provider = _normalize_provider(provider)
+    if provider == PROVIDER_LM_STUDIO:
+        return LM_STUDIO_DEFAULT_SERVER
+    if provider in OPENAI_COMPATIBLE_PROVIDERS:
+        return str(server_url or "").strip() or _default_openai_compatible_server(provider)
+    return OLLAMA_DEFAULT_SERVER
 
 
 def _canonical_local_llm_state_url(provider: str, server_url: str) -> str:
@@ -840,30 +866,57 @@ def _looks_like_model_unavailable_error(message: str) -> bool:
     )
 
 
-def _extract_local_llm_error_detail(data: str) -> str:
+LOCAL_LLM_ERROR_DETAIL_LIMIT = 300
+
+
+def _json_error_message(data: str) -> str:
+    """Return only the error text of a JSON error body; anything else yields ''."""
     text = str(data or "").strip()
     if not text:
         return ""
     try:
         payload = json.loads(text)
     except Exception:
-        return text
-    error = payload.get("error") if isinstance(payload, dict) else None
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    error = payload.get("error")
+    candidates: List[Any] = []
     if isinstance(error, dict):
-        return str(error.get("message") or error.get("type") or error)
-    if error is not None:
-        return str(error)
-    return text
+        candidates.extend([error.get("message"), error.get("type")])
+    else:
+        candidates.append(error)
+    candidates.extend([payload.get("message"), payload.get("detail")])
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return " ".join(candidate.split())[:LOCAL_LLM_ERROR_DETAIL_LIMIT]
+    return ""
+
+
+def _extract_local_llm_error_detail(data: str) -> str:
+    return _json_error_message(data)
 
 
 def _local_llm_http_error(status: int, data: str, payload: Optional[Dict[str, Any]] = None) -> RuntimeError:
-    detail = _extract_local_llm_error_detail(data)
+    detail = _json_error_message(data)
     model = ""
     if isinstance(payload, dict):
         model = str(payload.get("model") or payload.get("instance_id") or "").strip()
-    if status in {400, 404, 405} and model and _looks_like_model_unavailable_error(detail):
+    # Match on the raw text so a server that answers 404 without JSON still gets the model hint,
+    # but never show that raw text: only a JSON error message is passed on to the user.
+    if status in {400, 404, 405} and model and _looks_like_model_unavailable_error(detail or data):
         return RuntimeError(_model_unavailable_message(model, detail))
-    return RuntimeError(f"Local LLM server returned HTTP {status}: {str(data or '')[:800]}")
+    suffix = f": {detail}" if detail else ""
+    return RuntimeError(f"Local LLM server returned HTTP {status}{suffix}")
+
+
+def _local_llm_transport_error(exc: BaseException) -> RuntimeError:
+    """Describe a failed call without echoing bytes the server sent."""
+    if isinstance(exc, OSError):
+        reason = str(exc)
+    else:
+        reason = f"invalid HTTP response ({exc.__class__.__name__})"
+    return RuntimeError(f"Could not reach local LLM server: {reason}")
 
 
 def _http_json(
@@ -891,7 +944,7 @@ def _http_json(
         if response.status >= 400:
             raise _local_llm_http_error(response.status, _redact_local_llm_credentials(data, headers), payload)
     except (TimeoutError, OSError, http.client.HTTPException) as exc:
-        raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
+        raise _local_llm_transport_error(exc) from exc
     finally:
         try:
             connection.close()
@@ -926,7 +979,7 @@ def _http_expect_success(
             raise _local_llm_http_error(response.status, _redact_local_llm_credentials(data, headers), error_payload)
         return response.status, data
     except (TimeoutError, OSError, http.client.HTTPException) as exc:
-        raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
+        raise _local_llm_transport_error(exc) from exc
     finally:
         try:
             connection.close()
@@ -951,7 +1004,7 @@ def _http_stream_json_lines(
                 continue
             yield json.loads(line)
     except (TimeoutError, OSError, http.client.HTTPException) as exc:
-        raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
+        raise _local_llm_transport_error(exc) from exc
 
 
 def _http_stream_sse(
@@ -986,7 +1039,7 @@ def _http_stream_sse(
             if data and data != "[DONE]":
                 yield event_name, _redact_local_llm_response_error(json.loads(data), headers)
     except (TimeoutError, OSError, http.client.HTTPException) as exc:
-        raise RuntimeError(f"Could not reach local LLM server: {exc}") from exc
+        raise _local_llm_transport_error(exc) from exc
 
 
 def _iter_cancellable_response_lines(
@@ -1524,6 +1577,7 @@ def _candidate_stop_keys(provider: str, server_url: str, model: str) -> List[str
 
 def stop_local_llm_generation(provider: str, server_url: str, model: str) -> Dict[str, Any]:
     provider = _normalize_provider(provider)
+    server_url = _effective_local_llm_server_url(provider, server_url)
     model = str(model or "").strip()
     if not model:
         raise RuntimeError("Select a local LLM model before stopping.")
@@ -2929,6 +2983,7 @@ def _cached_llama_swap_model_target(server_root: str, model: str) -> str:
 
 def list_local_llm_models(provider: str, server_url: str) -> List[Dict[str, Any]]:
     provider = _normalize_provider(provider)
+    server_url = _effective_local_llm_server_url(provider, server_url)
     if provider == PROVIDER_OLLAMA:
         base = _normalize_ollama_url(server_url)
         payload = _http_json(f"{base}/api/tags", timeout=10.0)
@@ -3390,6 +3445,7 @@ def _vllm_wake_if_needed(server_root: str, model: str) -> Dict[str, Any]:
 
 def unload_local_llm_model(provider: str, server_url: str, model: str) -> Dict[str, Any]:
     provider = _normalize_provider(provider)
+    server_url = _effective_local_llm_server_url(provider, server_url)
     model = str(model or "").strip()
     if not model:
         raise RuntimeError("Select a local LLM model before unloading.")
@@ -3750,14 +3806,12 @@ class DenoLocalLLMRefiner:
         ) and ollama_model_value and not _looks_like_url(ollama_model_value):
             lm_studio_model_value = ollama_model_value
 
+        server_value = _effective_local_llm_server_url(provider_value, custom_server_value)
         if provider_value == PROVIDER_LM_STUDIO:
-            server_value = LM_STUDIO_DEFAULT_SERVER
             model_value = lm_studio_model_value
         elif provider_value in OPENAI_COMPATIBLE_PROVIDERS:
-            server_value = custom_server_value or _default_openai_compatible_server(provider_value)
             model_value = custom_model_value
         else:
-            server_value = OLLAMA_DEFAULT_SERVER
             model_value = ollama_model_value
         system_value = str(_extract_scalar(system_prompt, "") or "")
         thinking_value = _safe_bool(thinking, False)

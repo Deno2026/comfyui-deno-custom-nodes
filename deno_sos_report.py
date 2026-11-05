@@ -1,5 +1,6 @@
 import configparser
 import importlib.metadata
+import ipaddress
 import json
 import os
 from os import getenv as _read_process_environment
@@ -1191,11 +1192,24 @@ def _redact_data(value):
     return value
 
 
+def _is_loopback_remote(request):
+    try:
+        address = ipaddress.ip_address(str(getattr(request, "remote", "") or "").strip())
+        mapped = getattr(address, "ipv4_mapped", None)
+        if mapped is not None:
+            address = mapped
+        return bool(address.is_loopback)
+    except Exception:
+        return False
+
+
 def _is_same_origin_request(request):
     try:
         origin = str(request.headers.get("Origin") or "").strip()
         if not origin:
-            return True
+            # Browser UI posts always carry Origin; a request without one is
+            # accepted only from this machine (scripts, curl).
+            return _is_loopback_remote(request)
         if origin.lower() == "null":
             return False
         origin_host = urlparse(origin).netloc.lower()

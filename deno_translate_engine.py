@@ -183,7 +183,7 @@ _RETIRED_CUSTOM_ENGINE_ALIASES = frozenset({
 })
 
 _DISPLAY_TO_CODE = {display: code for code, display in LANG_DISPLAY.items()}
-_CACHE: OrderedDict[tuple[str, str, str, str, str], str] = OrderedDict()
+_CACHE: OrderedDict[tuple[str, str, str, str], str] = OrderedDict()
 _CACHE_LIMIT = 512
 _CACHE_LOCK = threading.Lock()
 _last_call = [0.0]
@@ -511,27 +511,15 @@ def _request_mymemory(text, src, tgt, timeout=10.0):
     return translated
 
 
-def _normalize_libretranslate_endpoint(url=None, require_custom=False):
-    if url is not None and not isinstance(url, str):
-        raise ValueError("Translation URL must be a string")
-    raw = (url or "").strip()
-    if require_custom:
-        if not raw:
-            raise ValueError(RETIRED_CUSTOM_TRANSLATION_MESSAGE)
-        _translation_url_parts(raw)
-        raise ValueError(RETIRED_CUSTOM_TRANSLATION_MESSAGE)
-    if not raw:
-        raw = LIBRETRANSLATE_DEFAULT_URL
-    parsed, _host = _translation_url_parts(raw)
+def _libretranslate_endpoint():
+    parsed, _host = _translation_url_parts(LIBRETRANSLATE_DEFAULT_URL)
     _require_builtin_translation_origin(parsed)
-    path = parsed.path
-    if not path.rstrip("/").endswith("/translate"):
-        path = path.rstrip("/") + "/translate"
+    path = parsed.path.rstrip("/") + "/translate"
     return urllib.parse.urlunsplit(parsed._replace(path=path))
 
 
-def _request_libretranslate(text, src, tgt, timeout=10.0, url=None, require_custom=False):
-    endpoint = _normalize_libretranslate_endpoint(url, require_custom=require_custom)
+def _request_libretranslate(text, src, tgt, timeout=10.0):
+    endpoint = _libretranslate_endpoint()
     payload = json.dumps(
         {
             "q": text,
@@ -553,7 +541,7 @@ def _request_libretranslate(text, src, tgt, timeout=10.0, url=None, require_cust
     return translated
 
 
-def _request_translation(text, src, tgt, timeout=10.0, engine=None, libretranslate_url=""):
+def _request_translation(text, src, tgt, timeout=10.0, engine=None):
     engine = normalize_translation_engine(engine)
     if engine == TRANSLATION_ENGINE_MYMEMORY:
         return _request_mymemory(text, src, tgt, timeout=timeout)
@@ -599,7 +587,6 @@ def translate_text(
     tgt: str,
     timeout=10.0,
     engine=None,
-    libretranslate_url="",
     attempts=3,
 ) -> str:
     """Translate one string through the selected online translation endpoint.
@@ -612,10 +599,9 @@ def translate_text(
     src_code = code_for_display(src) or "auto"
     tgt_code = code_for_display(tgt)
     engine_name = normalize_translation_engine(engine)
-    libretranslate_url = libretranslate_url or ""
     if should_skip_translation(text, src_code, tgt_code):
         return text
-    key = (engine_name, libretranslate_url, src_code, tgt_code, text)
+    key = (engine_name, src_code, tgt_code, text)
     cached = _cache_get(key)
     if cached is not None:
         return cached
@@ -639,7 +625,6 @@ def translate_text(
                 tgt_code,
                 timeout=timeout,
                 engine=engine_name,
-                libretranslate_url=libretranslate_url,
             ) or text
             _cache_set(key, translated)
             return translated
@@ -683,7 +668,6 @@ def translate_caption(obj, src, tgt, opts=None):
     opts = opts or {}
     translate_text_fields = bool(opts.get("translate_text_fields", False))
     engine = normalize_translation_engine(opts.get("engine"))
-    libretranslate_url = opts.get("libretranslate_url") or ""
     timeout = opts.get("timeout", 10.0)
     attempts = opts.get("attempts", 3)
     changed = 0
@@ -702,7 +686,6 @@ def translate_caption(obj, src, tgt, opts=None):
             tgt,
             timeout=timeout,
             engine=engine,
-            libretranslate_url=libretranslate_url,
             attempts=attempts,
         )
         if out != value:

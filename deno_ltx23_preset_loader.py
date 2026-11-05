@@ -1,7 +1,5 @@
-import importlib.util
 import inspect
 import os
-import sys
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
@@ -280,137 +278,44 @@ def _load_ltx_audio_vae_file(audio_vae_name: str):
     return vae
 
 
-_GGUF_MODULE = None
-_GGUF_LOAD_ERROR: Optional[Exception] = None
-
-
-def _load_gguf_module():
-    global _GGUF_MODULE, _GGUF_LOAD_ERROR
-    if _GGUF_MODULE is not None:
-        return _GGUF_MODULE
-    if _GGUF_LOAD_ERROR is not None:
-        raise _GGUF_LOAD_ERROR
-
-    custom_nodes_dir = _find_custom_nodes_root()
-    gguf_dir = custom_nodes_dir / "ComfyUI-GGUF"
-    init_path = gguf_dir / "__init__.py"
-    if not init_path.exists():
-        _GGUF_LOAD_ERROR = RuntimeError(GGUF_INSTALL_MESSAGE)
-        raise _GGUF_LOAD_ERROR
-
-    module_name = "deno_comfyui_gguf_bridge"
-    if module_name in sys.modules:
-        _GGUF_MODULE = sys.modules[module_name]
-        return _GGUF_MODULE
-
-    spec = importlib.util.spec_from_file_location(
-        module_name,
-        str(init_path),
-        submodule_search_locations=[str(gguf_dir)],
-    )
-    if spec is None or spec.loader is None:
-        _GGUF_LOAD_ERROR = RuntimeError(
-            "[Deno] ComfyUI-GGUF was found, but it could not be loaded.\n"
-            "Update or reinstall ComfyUI-GGUF from ComfyUI Manager, then restart ComfyUI."
-        )
-        raise _GGUF_LOAD_ERROR
-
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    try:
-        spec.loader.exec_module(module)
-    except Exception as exc:
-        _GGUF_LOAD_ERROR = RuntimeError(
-            "[Deno] ComfyUI-GGUF is installed, but failed to import.\n"
-            "Update or reinstall ComfyUI-GGUF from ComfyUI Manager, then restart ComfyUI.\n"
-            f"Original import error: {exc}"
-        )
-        raise _GGUF_LOAD_ERROR
-
-    _GGUF_MODULE = module
-    return module
-
-
-_KJ_MODULE = None
-_KJ_LOAD_ERROR: Optional[Exception] = None
-
-
-def _load_kj_nodes_module():
-    global _KJ_MODULE, _KJ_LOAD_ERROR
-    if _KJ_MODULE is not None:
-        return _KJ_MODULE
-    if _KJ_LOAD_ERROR is not None:
-        raise _KJ_LOAD_ERROR
-
-    custom_nodes_dir = _find_custom_nodes_root()
-    module_path = custom_nodes_dir / "comfyui-kjnodes" / "nodes" / "nodes.py"
-    if not module_path.exists():
-        _KJ_LOAD_ERROR = RuntimeError(KJ_INSTALL_MESSAGE)
-        raise _KJ_LOAD_ERROR
-
-    module_name = "deno_comfyui_kjnodes_bridge"
-    if module_name in sys.modules:
-        _KJ_MODULE = sys.modules[module_name]
-        return _KJ_MODULE
-
-    spec = importlib.util.spec_from_file_location(module_name, str(module_path))
-    if spec is None or spec.loader is None:
-        _KJ_LOAD_ERROR = RuntimeError(
-            "[Deno] comfyui-kjnodes was found, but it could not be loaded.\n"
-            "Update or reinstall comfyui-kjnodes from ComfyUI Manager, then restart ComfyUI."
-        )
-        raise _KJ_LOAD_ERROR
-
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    try:
-        spec.loader.exec_module(module)
-    except Exception as exc:
-        _KJ_LOAD_ERROR = RuntimeError(
-            "[Deno] comfyui-kjnodes is installed, but failed to import.\n"
-            "Update or reinstall comfyui-kjnodes from ComfyUI Manager, then restart ComfyUI.\n"
-            f"Original import error: {exc}"
-        )
-        raise _KJ_LOAD_ERROR
-
-    _KJ_MODULE = module
-    return module
-
-
 def _get_node_mapping_class(key: str):
     mapping = getattr(nodes, "NODE_CLASS_MAPPINGS", {})
     return mapping.get(key)
+
+
+GGUF_NOT_LOADED_MESSAGE = (
+    "[Deno] ComfyUI-GGUF is installed, but its GGUF UNet loader is not loaded in ComfyUI.\n"
+    "Enable it in ComfyUI Manager or fix its startup error, restart ComfyUI completely, then run again."
+)
+KJ_NOT_LOADED_MESSAGE = (
+    "[Deno] comfyui-kjnodes is installed, but its VAELoaderKJ node is not loaded in ComfyUI.\n"
+    "Enable it in ComfyUI Manager or fix its startup error, restart ComfyUI completely, then run again."
+)
+
+
+def _custom_node_pack_installed(folder_name: str) -> bool:
+    try:
+        return (_find_custom_nodes_root() / folder_name).is_dir()
+    except OSError:
+        return False
 
 
 def _get_gguf_loader_class():
     cls = _get_node_mapping_class("UnetLoaderGGUFAdvanced") or _get_node_mapping_class("UnetLoaderGGUF")
     if cls is not None:
         return cls
-
-    gguf_module = _load_gguf_module()
-    mapping = getattr(gguf_module, "NODE_CLASS_MAPPINGS", {})
-    cls = mapping.get("UnetLoaderGGUFAdvanced") or mapping.get("UnetLoaderGGUF")
-    if cls is None:
-        raise RuntimeError(
-            "[Deno] ComfyUI-GGUF is installed, but its GGUF UNet loader was not found.\n"
-            "Update ComfyUI-GGUF from ComfyUI Manager, restart ComfyUI completely, then run again."
-        )
-    return cls
+    if _custom_node_pack_installed("ComfyUI-GGUF"):
+        raise RuntimeError(GGUF_NOT_LOADED_MESSAGE)
+    raise RuntimeError(GGUF_INSTALL_MESSAGE)
 
 
 def _get_kj_vae_loader_class():
     cls = _get_node_mapping_class("VAELoaderKJ")
     if cls is not None:
         return cls
-
-    kj_module = _load_kj_nodes_module()
-    cls = getattr(kj_module, "VAELoaderKJ", None)
-    if cls is None:
-        raise RuntimeError(
-            "[Deno] comfyui-kjnodes is installed, but VAELoaderKJ was not found.\n"
-            "Update comfyui-kjnodes from ComfyUI Manager, restart ComfyUI completely, then run again."
-        )
-    return cls
+    if _custom_node_pack_installed("comfyui-kjnodes"):
+        raise RuntimeError(KJ_NOT_LOADED_MESSAGE)
+    raise RuntimeError(KJ_INSTALL_MESSAGE)
 
 
 def _assert_comfy_supports_ltx23_gguf_metadata():

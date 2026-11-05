@@ -142,6 +142,7 @@ def test_floating_tools_sos_surface_is_simple_and_read_only():
     assert "function handleSosStatusEvent(detail)" in script
     assert "function installSosRuntimeHooks()" in script
     assert "installSosRuntimeHooks();" in script
+    assert "function installSosPassiveHooks()" in script
     assert "detail?.exec_info?.queue_remaining" in script
     assert "detail?.status?.exec_info?.queue_remaining" in script
     assert "markSosErrorSticky();" in script
@@ -270,3 +271,38 @@ def test_floating_tools_translation_surface_is_removed():
     assert "canvasTranslate" not in script
     assert "deno_floating_tools" not in init_py
     assert not (REPO_ROOT / "deno_floating_tools.py").exists()
+
+
+def test_floating_tools_do_not_wrap_comfyui_functions_while_disabled():
+    script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
+
+    def body(signature):
+        start = script.index(signature)
+        return script[start:script.index("\n}\n", start)]
+
+    passive = body("function installSosPassiveHooks()")
+    runtime = body("function installSosRuntimeHooks()")
+    visibility = body("function updateToolsVisibility(value)")
+    setup = script[script.index("    setup() {"):]
+
+    # The listener installer only registers event listeners; it never reassigns functions.
+    listeners = body("function installSosEventListeners()")
+    assert "api.fetchApi =" not in listeners and "app.queuePrompt =" not in listeners
+    assert "addEventListener" in listeners
+
+    assert "installSosEventListeners();" in passive
+    assert "installSosValidationObserver" not in passive
+    assert "installSosPromptFailureHooks" not in passive
+    assert "scheduleSosToastHooks" not in passive
+
+    assert "installSosPassiveHooks();" in runtime
+    assert "installSosPromptFailureHooks();" in runtime
+    assert "scheduleSosToastHooks();" in runtime
+    assert "installSosValidationObserver();" in runtime
+
+    assert "installSosPassiveHooks();" in setup
+    assert "installSosRuntimeHooks" not in setup
+    assert "installSosPromptFailureHooks" not in setup
+
+    enabled_branch = visibility[visibility.index("if (enabled) {"):visibility.index("} else")]
+    assert "installSosRuntimeHooks();" in enabled_branch

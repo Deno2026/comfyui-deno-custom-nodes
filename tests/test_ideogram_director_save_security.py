@@ -158,3 +158,47 @@ def test_symlink_escape_is_rejected_after_canonical_containment(director, monkey
     status, _body = invoke(route, {"filename": "image.png", "subfolder": "linked"})
     assert status == 404
     assert calls == []
+
+
+@pytest.mark.parametrize("name", [
+    "image.png", "photo.jpg", "photo.jpeg", "shot.webp", "frame.gif", "scan.bmp",
+    "scan.tif", "scan.tiff", "pic.avif", "UPPER.PNG", "Mixed.JpG", "dotted.name.png",
+])
+def test_image_extensions_are_saved_with_original_bytes_and_extension(director, name):
+    _module, roots, route = director
+    source = roots["temp"] / name
+    source.write_bytes(b"image bytes for " + name.encode())
+    status, body = invoke(route, {"filename": name, "type": "temp", "prefix": "Director"})
+    assert status == 200
+    assert os.path.splitext(body["saved"])[1] == os.path.splitext(name)[1]
+    assert (roots["output"] / body["saved"]).read_bytes() == source.read_bytes()
+
+
+@pytest.mark.parametrize("name", [
+    "notes.txt", "workflow.json", "script.py", "run.bat", "page.html", "vector.svg",
+    "clip.mp4", "archive.zip", "model.safetensors", "noextension", "image.png.txt",
+    "image.png.", "image.png ", ".png",
+])
+def test_non_image_files_are_rejected_without_copying(director, monkeypatch, name):
+    module, roots, route = director
+    try:
+        (roots["temp"] / name).write_bytes(b"not a savable image")
+    except OSError:
+        pass  # Some names (trailing dot or space) cannot exist on every filesystem.
+    calls = []
+    monkeypatch.setattr(module.shutil, "copyfile", lambda *args: calls.append(args))
+    status, body = invoke(route, {"filename": name, "type": "temp", "prefix": "Director"})
+    assert status == 400
+    assert body["error"] == "Only image files can be saved."
+    assert calls == []
+    assert list(roots["output"].iterdir()) == []
+
+
+def test_extension_helper_is_case_insensitive_and_strict(director):
+    helper = director[0]._savable_image_extension
+    assert helper("a.PNG") == ".png"
+    assert helper("a.webp") == ".webp"
+    assert helper("a.txt") is None
+    assert helper("png") is None
+    assert helper("") is None
+    assert helper(None) is None

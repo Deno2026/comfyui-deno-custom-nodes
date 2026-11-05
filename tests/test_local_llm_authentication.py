@@ -352,14 +352,14 @@ def test_http_error_redacts_only_request_bearer_and_preserves_status(
         else:
             list(module._http_stream_sse("http://127.0.0.1:8000/v1/chat/completions", {"model": "local-model"}, headers=auth))
     assert token not in str(error.value)
-    assert "[redacted]" in str(error.value)
-    assert "other-token-is-diagnostic" in str(error.value)
     if body_format == "escaped_json":
-        decoded_error = json.loads(str(error.value).partition(": ")[2])
-        assert token not in json.dumps(decoded_error)
-        assert decoded_error["error"]["request"] == {
-            "reflected_key": "[redacted]", "[redacted]": "reflected property name",
-        }
+        # A JSON error shows only its message, with the request key redacted.
+        assert "[redacted]" in str(error.value)
+        assert "other-token-is-diagnostic" in str(error.value)
+        assert "reflected" not in str(error.value)
+    else:
+        # A non-JSON body is never passed on to the user.
+        assert str(error.value) == "Local LLM server returned HTTP 503"
     assert calls[0][3]["Authorization"] == f"Bearer {token}"
     assert token not in str(calls[0][2])
 

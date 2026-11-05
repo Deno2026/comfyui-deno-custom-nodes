@@ -1,3 +1,4 @@
+import inspect
 import json
 import shutil
 import subprocess
@@ -14,7 +15,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TRANSLATE_OPTS = {
     "translate_text_fields": False,
     "engine": engine.TRANSLATION_ENGINE_GOOGLE,
-    "libretranslate_url": "",
 }
 
 
@@ -94,7 +94,7 @@ def test_smart_english_typography_skips_network_without_changing_text(monkeypatc
 def test_translate_text_attempt_limit_is_opt_in_and_default_stays_three(monkeypatch):
     calls = []
 
-    def fail_request(text, src, tgt, timeout=10.0, engine=None, libretranslate_url=""):
+    def fail_request(text, src, tgt, timeout=10.0, engine=None):
         calls.append(timeout)
         raise RuntimeError("offline")
 
@@ -464,21 +464,25 @@ def test_translate_caption_passes_selected_engine(monkeypatch):
 
 def test_libretranslate_custom_url_is_retired_and_preserves_inactive_workflows(monkeypatch):
     monkeypatch.setenv("DENO_TRANSLATION_ALLOWED_ORIGINS", "https://example.com")
-    assert engine._normalize_libretranslate_endpoint() == "https://libretranslate.com/translate"
-    assert engine._normalize_libretranslate_endpoint("https://libretranslate.com/translate") == (
-        "https://libretranslate.com/translate"
-    )
-    with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
-        engine._normalize_libretranslate_endpoint(
-            "https://example.com/api/translate",
-            require_custom=True,
-        )
-    with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
-        engine._normalize_libretranslate_endpoint("https://example.com/api")
-    with pytest.raises(ValueError, match="https"):
-        engine._normalize_libretranslate_endpoint("http://example.com", require_custom=True)
-    with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
-        engine._normalize_libretranslate_endpoint("", require_custom=True)
+    assert engine._libretranslate_endpoint() == "https://libretranslate.com/translate"
+    # The engine has no parameter that could carry a custom address.
+    for function in (
+        engine._libretranslate_endpoint,
+        engine._request_libretranslate,
+        engine._request_translation,
+        engine.translate_text,
+        deno_ideogram_director._translation_opts,
+        deno_ideogram_director._translate_caption_for_view,
+    ):
+        names = inspect.signature(function).parameters
+        assert "url" not in names
+        assert "require_custom" not in names
+        assert "libretranslate_url" not in names
+    assert "libretranslate_url" not in deno_ideogram_director._translation_opts("LibreTranslate")
+    assert not hasattr(engine, "_normalize_libretranslate_endpoint")
+    for alias in ("LibreTranslate Custom URL", "libre-translate_custom url", "custom libretranslate"):
+        with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
+            engine.normalize_translation_engine(alias)
 
     node = deno_ideogram_director.DenoIdeogramDirector()
     inactive = node.build(
@@ -590,7 +594,7 @@ def test_ideogram_director_final_output_uses_selected_translation_engine(monkeyp
         (
             "ko",
             "en",
-            {"translate_text_fields": False, "engine": "MyMemory", "libretranslate_url": ""},
+            {"translate_text_fields": False, "engine": "MyMemory"},
         )
     ]
     assert packet["ui"]["idd_translate"][0]["engine"] == "MyMemory"
@@ -1736,6 +1740,13 @@ def test_ideogram_director_frontend_view_language_contract():
     assert "Save and Retry" in script
     assert 'setW("translation_engine"' in script
     assert 'setW("libretranslate_url"' in script
+    # The old hidden custom-address input and its request field are gone.
+    assert "getLibreTranslateUrl" not in script
+    assert "idd-engine-url" not in script
+    assert "your-libretranslate-server" not in script
+    assert "libretranslate_url:" not in script
+    assert 'getW("libretranslate_url"' in script  # saved-value type repair only
+    assert len([line for line in script.splitlines() if "libretranslate_url" in line]) == 1
     assert '"/deno/ideogram_director/translate_caption"' in script
     assert "idd-lang-full" in script
     assert "idd-langgrid" in script

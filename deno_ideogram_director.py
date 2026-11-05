@@ -81,6 +81,21 @@ def _save_path_is_safe_relative(value, *, allow_empty=False):
     return True
 
 
+# Result images arrive from ComfyUI's Preview/Save nodes (PNG by default; custom save nodes may
+# write the other still-image formats). Anything else is not a Director result and is not copied.
+_SAVABLE_IMAGE_EXTENSIONS = frozenset({
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif",
+})
+
+
+def _savable_image_extension(name):
+    """Return the lowercase image extension of ``name``, or None when it is not a savable image."""
+    if not isinstance(name, str):
+        return None
+    ext = os.path.splitext(name)[1].lower()
+    return ext if ext in _SAVABLE_IMAGE_EXTENSIONS else None
+
+
 # --------------------------------------------------------------------------- #
 # Pure logic (no ComfyUI dependency) — unit-tested by test_build.py            #
 # --------------------------------------------------------------------------- #
@@ -444,11 +459,10 @@ def _normalize_view_language(view_language):
     return VIEW_LANGUAGE_DEFAULT
 
 
-def _translation_opts(translation_engine=None, libretranslate_url="", timeout=None, attempts=None):
+def _translation_opts(translation_engine=None, timeout=None, attempts=None):
     opts = {
         "translate_text_fields": False,
         "engine": translate_engine.normalize_translation_engine(translation_engine),
-        "libretranslate_url": libretranslate_url if isinstance(libretranslate_url, str) else "",
     }
     if timeout is not None:
         opts["timeout"] = timeout
@@ -527,7 +541,6 @@ def _translate_caption_for_view(
     source_language="auto",
     view_language=VIEW_LANGUAGE_DEFAULT,
     translation_engine=translate_engine.TRANSLATION_ENGINE_DEFAULT,
-    libretranslate_url="",
     timeout=None,
     attempts=None,
 ):
@@ -545,7 +558,7 @@ def _translate_caption_for_view(
         caption,
         source_code,
         target_code,
-        _translation_opts(translation_engine, libretranslate_url, timeout, attempts),
+        _translation_opts(translation_engine, timeout, attempts),
     )
     return translated, changed, sent, translate_engine.display_for_code(target_code)
 
@@ -891,6 +904,7 @@ class DenoIdeogramDirector:
                     "default": translate_engine.TRANSLATION_ENGINE_DEFAULT,
                     **SL,
                 }),
+                # Legacy slot: kept so saved workflows keep their widget order; the value is ignored.
                 "libretranslate_url": ("STRING", {"default": "", **SL}),
                 # forceInput: import_json is meant to be WIRED (upstream LLM / Prompt-Text caption JSON),
                 # so it is a real top input socket rather than a hidden widget. Declared after all serialized
@@ -974,8 +988,6 @@ class DenoIdeogramDirector:
             translate_output = translate_engine.ORIGINAL_DISPLAY
         view_language = _normalize_view_language(view_language)
         view_language_code = translate_engine.code_for_display(view_language)
-        if not isinstance(libretranslate_url, str):
-            libretranslate_url = ""
         if view_language_code and translate_output == translate_engine.ORIGINAL_DISPLAY:
             translate_output = translate_engine.DIRECTOR_ENGLISH_DISPLAY
         if not translate_engine.is_retired_custom_translation_engine(translation_engine):
@@ -1024,7 +1036,7 @@ class DenoIdeogramDirector:
                 }
             else:
                 try:
-                    translate_opts = _translation_opts(translation_engine, libretranslate_url)
+                    translate_opts = _translation_opts(translation_engine)
                     caption = translate_engine.loads_caption(prompt)
                     if caption is not None:
                         translated, changed, sent = _translate_caption_text_safe(
@@ -1050,7 +1062,6 @@ class DenoIdeogramDirector:
                             source_code,
                             target_code,
                             engine=translation_engine,
-                            libretranslate_url=libretranslate_url,
                         )
                         result = (prompt, out_width, out_height, out_seed, out_bboxes)
                         translation_payload = {
@@ -1139,9 +1150,7 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
                 else "Unknown translation engine. Choose a supported engine."
             )
             return web.json_response({"error": message, "reason": message}, status=400)
-        libretranslate_url = data.get("libretranslate_url") or ""
-        if not isinstance(libretranslate_url, str):
-            libretranslate_url = ""
+        # A "libretranslate_url" in the request body is a legacy field and is ignored.
         is_queue_preflight = data.get("purpose") == "queue_preflight"
         try:
             translated, changed, sent, display = await asyncio.to_thread(
@@ -1150,7 +1159,6 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
                 source,
                 target,
                 translation_engine,
-                libretranslate_url,
                 5.0 if is_queue_preflight else None,
                 1 if is_queue_preflight else None,
             )
@@ -1195,6 +1203,8 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
             or not _save_path_is_safe_relative(prefix)
         ):
             return web.json_response({"error": "Image paths and save prefix must be safe relative paths."}, status=400)
+        if _savable_image_extension(filename) is None:
+            return web.json_response({"error": "Only image files can be saved."}, status=400)
 
         base = folder_paths.get_directory_by_type(ftype)
         if not base or not filename:
@@ -1203,11 +1213,13 @@ if _HAS_COMFY and getattr(PromptServer, "instance", None) is not None:
         src = os.path.realpath(os.path.join(base, subfolder, filename))
         if not _path_is_within_base(base, src) or not os.path.isfile(src):
             return web.json_response({"error": "source not found"}, status=404)
+        if _savable_image_extension(src) is None:
+            return web.json_response({"error": "Only image files can be saved."}, status=400)
 
         out_dir = folder_paths.get_output_directory()
         full_output_folder, fname, counter, subfolder_out, _ = \
             folder_paths.get_save_image_path(prefix, out_dir)
-        ext = os.path.splitext(src)[1] or ".png"
+        ext = os.path.splitext(src)[1]
         out_name = "%s_%05d%s" % (fname, counter, ext)
         dst = os.path.join(full_output_folder, out_name)
         try:

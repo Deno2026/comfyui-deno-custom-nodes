@@ -121,6 +121,32 @@ def test_translation_route_rejects_retired_custom_engine_with_migration_guidance
     assert "private caption" not in str(payload)
 
 
+@pytest.mark.parametrize("engine_value", ["Google", "MyMemory", "LibreTranslate"])
+def test_translation_route_ignores_a_request_body_address(monkeypatch, engine_value):
+    package = load_package()
+    director = sys.modules[f"{package.__name__}.deno_ideogram_director"]
+    captured = []
+    monkeypatch.setattr(director.web, "json_response", lambda payload, status=200: (status, payload))
+    monkeypatch.setattr(director, "_translate_caption_for_view", lambda *args:
+                        captured.append(args) or ({"high_level_description": "ok"}, 1, 1, "English"))
+
+    class Request:
+        async def json(self):
+            return {
+                "caption": {"high_level_description": "원문"},
+                "engine": engine_value,
+                "libretranslate_url": "https://custom.example/translate",
+                "url": "https://custom.example/translate",
+            }
+
+    status, payload = asyncio.run(director._deno_ideogram_director_translate_caption(Request()))
+    assert status == 200
+    assert payload["engine"] == engine_value
+    # (caption, source, target, engine, timeout, attempts): no address travels with the request.
+    assert len(captured[0]) == 6
+    assert "custom.example" not in repr(captured)
+
+
 def test_translation_cache_remains_bounded_under_concurrent_routes(monkeypatch):
     package = load_package()
     engine = sys.modules[f"{package.__name__}.deno_translate_engine"]

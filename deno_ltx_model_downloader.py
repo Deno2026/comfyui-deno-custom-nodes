@@ -507,6 +507,23 @@ def _guess_filename(url: str) -> str:
     return name if name and "." in name else ""
 
 
+DOWNLOAD_LINK_ERROR = "Download link must be a web address starting with http or https."
+
+
+def _safe_web_link(url) -> str:
+    """Return the link unchanged only when it is an http(s) web address with a host."""
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    try:
+        parts = urlsplit(text)
+        if parts.scheme.lower() in {"http", "https"} and parts.hostname:
+            return text
+    except ValueError:
+        pass
+    return ""
+
+
 def _expected_size(row: Dict) -> int:
     try:
         return max(0, int(float(row.get("size") or row.get("expected_size") or 0)))
@@ -652,8 +669,9 @@ def _model_subdirs(models_root: str) -> List[str]:
 
 def _public_custom_file(models_root: str, row: Dict, index: int) -> Dict:
     row = _normalize_package({"files": [row]})["files"][0]
-    url = str(row.get("url") or "").strip()
-    filename = str(row.get("filename") or "").strip() or _guess_filename(url)
+    raw_url = str(row.get("url") or "").strip()
+    url = _safe_web_link(raw_url)
+    filename = str(row.get("filename") or "").strip() or _guess_filename(raw_url)
     target_subdir = str(row.get("target_subdir") or "").strip()
     label = target_subdir or filename or f"File #{index + 1}"
     size = _expected_size(row)
@@ -675,6 +693,9 @@ def _public_custom_file(models_root: str, row: Dict, index: int) -> Dict:
         downloaded = 0
         found_by = ""
         error = str(exc)
+
+    if raw_url and not url and not error:
+        error = DOWNLOAD_LINK_ERROR
 
     return {
         "id": str(row.get("id") or f"custom_{index + 1}"),

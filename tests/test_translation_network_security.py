@@ -91,9 +91,9 @@ def network(monkeypatch):
     "https://custom.example:65536",
     "https://%31%32%37.0.0.1",
 ])
-def test_custom_url_rejects_ambiguous_or_credential_bearing_urls(network, url):
+def test_transport_rejects_ambiguous_or_credential_bearing_urls(network, url):
     with pytest.raises(ValueError):
-        engine._normalize_libretranslate_endpoint(url, require_custom=True)
+        engine._request_translation_json(url, method="POST", body=b"private prompt")
     assert network.dns == network.requests == []
 
 
@@ -106,7 +106,7 @@ def test_custom_url_rejects_ambiguous_or_credential_bearing_urls(network, url):
 def test_private_metadata_and_transition_literals_are_never_allowed(network, address):
     url = "https://" + address
     with pytest.raises(ValueError, match="public address"):
-        engine._normalize_libretranslate_endpoint(url, require_custom=True)
+        engine._request_translation_json(url, method="POST", body=b"private prompt")
     assert network.dns == network.requests == []
 
 
@@ -122,9 +122,7 @@ def test_private_metadata_and_transition_literals_are_never_allowed(network, add
 def test_custom_and_local_origins_are_rejected_even_if_env_is_set(network, monkeypatch, url):
     monkeypatch.setenv("DENO_TRANSLATION_ALLOWED_ORIGINS", url)
     with pytest.raises(ValueError):
-        engine._normalize_libretranslate_endpoint(url)
-    with pytest.raises(ValueError):
-        engine._normalize_libretranslate_endpoint(url, require_custom=True)
+        engine._request_translation_json(url, method="POST", body=b"private prompt")
     assert network.dns == network.requests == []
 
 
@@ -133,6 +131,29 @@ def test_transport_itself_rejects_non_builtin_origin(network, monkeypatch):
     with pytest.raises(ValueError, match="LibreTranslate Custom URL has been removed"):
         engine._request_translation_json("https://custom.example/translate", body=b"private prompt")
     assert network.dns == network.requests == []
+
+
+def test_engine_functions_accept_no_custom_address_and_use_only_builtin_origins(network):
+    import inspect
+
+    for function in (
+        engine._request_libretranslate, engine._request_translation, engine.translate_text,
+    ):
+        assert not {"url", "require_custom", "libretranslate_url"} & set(inspect.signature(function).parameters)
+    assert engine._libretranslate_endpoint() == "https://libretranslate.com/translate"
+    network.body = b'{"translatedText":"hello","responseData":{"translatedText":"hello"}}'
+    for name in ("Google", "MyMemory", "LibreTranslate"):
+        network.body = {
+            "Google": b'[[["hello",null,null]]]',
+            "MyMemory": b'{"responseData":{"translatedText":"hello"}}',
+            "LibreTranslate": b'{"translatedText":"hello"}',
+        }[name]
+        engine._CACHE.clear()
+        assert engine.translate_text("private prompt", "ko", "en", engine=name, attempts=1) == "hello"
+    assert {record[0] for record in network.dns} == {
+        "translate.googleapis.com", "api.mymemory.translated.net", "libretranslate.com",
+    }
+    assert {pool["server_hostname"] for pool in network.pools} == {record[0] for record in network.dns}
 
 
 def test_translation_engine_does_not_access_process_environment():
@@ -292,7 +313,7 @@ def test_real_urllib3_connection_keeps_numeric_destination_and_tls_identity():
 def test_local_server_urls_are_rejected_without_dns_or_network(network, monkeypatch, url):
     monkeypatch.setenv("DENO_TRANSLATION_ALLOWED_ORIGINS", url)
     with pytest.raises(ValueError):
-        engine._request_libretranslate("안녕", "ko", "en", url=url, require_custom=True)
+        engine._request_translation_json(url, method="POST", body=b"private prompt")
     assert network.dns == network.requests == []
 
 
@@ -388,7 +409,7 @@ def test_non_string_engine_is_a_clear_validation_error(network, value):
 
 
 @pytest.mark.parametrize("value", [1, False, [], {}])
-def test_non_string_custom_url_is_a_clear_validation_error(network, value):
+def test_non_string_transport_url_is_a_clear_validation_error(network, value):
     with pytest.raises(ValueError, match="must be a string"):
-        engine._normalize_libretranslate_endpoint(value, require_custom=True)
+        engine._request_translation_json(value, method="POST", body=b"private prompt")
     assert network.dns == network.requests == []

@@ -953,8 +953,6 @@
 .idd-engine-card.on{border-color:rgba(66,189,127,.72);background:rgba(66,189,127,.14);box-shadow:inset 0 0 0 1px rgba(66,189,127,.22);}
 .idd-engine-card b{display:block;color:#e4e8e5;font-weight:700;}
 .idd-engine-card span{display:block;color:#8d978f;font-size:11px;margin-top:3px;}
-.idd-engine-url{width:100%;box-sizing:border-box;margin-top:8px;background:#0c100e;border:1px solid rgba(255,255,255,.10);border-radius:8px;color:#e4e8e5;padding:9px 10px;font:12px "Cascadia Code","Consolas",ui-monospace,monospace;}
-.idd-engine-url:focus{outline:none;border-color:rgba(66,189,127,.55);box-shadow:0 0 0 2px rgba(66,189,127,.10);}
 .idd-engine-msg{min-height:16px;color:#ffb6a7;font:11px/1.35 "Segoe UI Variable Text","Segoe UI",sans-serif;margin-top:7px;}
 .idd-modal-panel.idd-import-panel{width:500px;max-width:92%;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
 .idd-importlist{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
@@ -1346,8 +1344,6 @@
       .idd-engine-card.on{border-color:var(--g);background:rgba(72,255,132,.14);box-shadow:inset 0 0 0 1px rgba(72,255,132,.22);}
       .idd-engine-card b{display:block;color:var(--txt);font-weight:700;}
       .idd-engine-card span{display:block;color:var(--dim);font-size:11px;margin-top:3px;}
-      .idd-engine-url{width:100%;box-sizing:border-box;margin-top:8px;background:#050a08;border:1px solid var(--gfaint);border-radius:8px;color:var(--txt);padding:9px 10px;font:12px monospace;}
-      .idd-engine-url:focus{outline:none;border-color:var(--gdim);box-shadow:0 0 0 2px rgba(72,255,132,.10);}
       .idd-engine-msg{min-height:16px;color:#ffb6a7;font:11px/1.35 'Segoe UI';margin-top:7px;}
       .idd-modal-panel.idd-import-panel{width:500px;max-width:92%;height:auto;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;}
       .idd-importlist{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
@@ -2511,12 +2507,8 @@
           if (val !== getW("translation_engine", TRANSLATION_ENGINE_DEFAULT)) setW("translation_engine", val);
           return val;
         }
-        function getLibreTranslateUrl() {
-          return String(getW("libretranslate_url", "") || "").trim();
-        }
-        function setTranslationEngine(engine, url) {
+        function setTranslationEngine(engine) {
           setW("translation_engine", normalizeTranslationEngine(engine));
-          if (url !== undefined) setW("libretranslate_url", String(url || "").trim());
         }
         function translationFailureReason(payload, engine) {
           const msg = payload && typeof payload.reason === "string" && payload.reason.trim();
@@ -2608,9 +2600,6 @@
         }
         async function translateCaptionViaRoute(caption, target, source = "auto", options = {}) {
           const engine = normalizeTranslationEngine(options.engine || getTranslationEngine());
-          const libretranslateUrl = options.libretranslate_url !== undefined
-            ? String(options.libretranslate_url || "").trim()
-            : getLibreTranslateUrl();
           const res = await api.fetchApi("/deno/ideogram_director/translate_caption", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2620,7 +2609,6 @@
               target,
               engine,
               translation_engine: engine,
-              libretranslate_url: libretranslateUrl,
               purpose: options.purpose === "queue_preflight" ? "queue_preflight" : undefined,
             }),
           });
@@ -2651,10 +2639,6 @@
             const reason = el("div", "idd-engine-reason");
             reason.textContent = translationFailureReason(payload, current);
             const grid = el("div", "idd-engine-grid");
-            const urlInput = el("input", "idd-engine-url");
-            urlInput.type = "url";
-            urlInput.placeholder = "https://your-libretranslate-server.com";
-            urlInput.value = getLibreTranslateUrl();
             const msg = el("div", "idd-engine-msg");
             let selected = current === "Google" ? "MyMemory" : current;
             if (!TRANSLATION_ENGINES.includes(selected)) selected = "MyMemory";
@@ -2675,13 +2659,12 @@
                 };
                 grid.appendChild(card);
               }
-              urlInput.style.display = "none";
             }
             const acts = el("div", "idd-modal-acts");
             const cancel = el("button", "idd-mbtn"); cancel.textContent = "Cancel";
             const apply = el("button", "idd-mbtn save"); apply.textContent = "Save and Retry";
             acts.append(el("span", "sp"), cancel, apply);
-            panel.append(h, hint, reason, grid, urlInput, msg, acts);
+            panel.append(h, hint, reason, grid, msg, acts);
             modal.append(panel); document.body.appendChild(modal);
             const fallbackOwner = ownBodyOverlay((value) => {
               try { modal.remove(); } catch (e) {}
@@ -2706,7 +2689,7 @@
             modal.addEventListener("keydown", (e) => {
               e.stopPropagation();
               if (e.key === "Escape") { e.preventDefault(); close(false); }
-              if (e.key === "Enter" && e.target !== urlInput) { e.preventDefault(); doApply(); }
+              if (e.key === "Enter") { e.preventDefault(); doApply(); }
             });
             modal.addEventListener("pointerdown", (e) => { if (e.target === modal) close(false); });
             cancel.onclick = (e) => { e.stopPropagation(); close(false); };
@@ -5414,6 +5397,7 @@
           if (normalizeTranslateValue(getW("translate_output", NO_TRANSLATION)) !== ENGLISH_PROMPT) setW("translate_output", ENGLISH_PROMPT);
           const ev = normalizeTranslationEngine(getW("translation_engine", TRANSLATION_ENGINE_DEFAULT));
           if (ev !== getW("translation_engine", TRANSLATION_ENGINE_DEFAULT)) setW("translation_engine", ev);
+          // Legacy slot: no longer used by the editor; only keep its saved value a string.
           if (typeof getW("libretranslate_url", "") !== "string") setW("libretranslate_url", "");
           if (typeof getW("save_prefix", "") !== "string" || !getW("save_prefix", "")) setW("save_prefix", "Ideogram_Director");
           const ar = getW("aspect_ratio", "");

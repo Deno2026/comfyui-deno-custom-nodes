@@ -4,6 +4,14 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.125 - 2026-11-05
+
+- `(Deno) Local LLM Loader`: Custom, llama.cpp, vLLM, llama-swap and Unsloth accept only a server address and port with an optional `/v1`; queries and other paths are rejected with a hint. Refresh Models, Unload and Stop for Ollama and LM Studio always use their fixed local servers, the same ones the node runs with. Server errors show the server's JSON error message instead of its raw response.
+- `(Deno) LTX Model Loader` uses ComfyUI-GGUF and comfyui-kjnodes only after ComfyUI has loaded them and reports an installed but unloaded pack, instead of loading that pack's files itself.
+- `(Deno) Easy Model Download Helper` opens only web links (http or https). `(Deno) Ideogram Director` Save Image copies only image files, and its hidden custom-translation URL field is gone; saved `libretranslate_url` values are kept and ignored.
+- The SOS report answers the ComfyUI page or the same computer only, and DENO floating tools hooks into ComfyUI's request functions only while the tools are switched on.
+- Node IDs, inputs, widgets and saved workflows are unchanged.
+
 ## 0.7.124 - 2026-10-30
 
 - Republished the 0.7.123 Multi LoRA 64-slot update. Nodes, sockets and saved workflows are unchanged from 0.7.123.
