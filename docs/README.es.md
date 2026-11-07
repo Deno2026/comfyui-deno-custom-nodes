@@ -124,20 +124,15 @@ Define el aspecto final y la resolución.
 
 ### 05 · Organizar
 
-Mantén legibles los grafos grandes y a la vista el estado de tu equipo.
+Mantén legibles los grafos grandes.
 
 <p align="center">
   <img src="images/readme/visual-fold.webp" alt="Visual Fold: tres nodos seleccionados se pliegan en una sola píldora Folded · 3" width="880">
 </p>
 
-<p align="center">
-  <img src="images/readme/resource-monitor-topbar.webp" alt="Medidores de Resource Monitor y botón de limpieza en la barra superior de ComfyUI" width="678">
-</p>
-
 | Herramienta | Qué hace | Requisitos |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | Pliega los nodos seleccionados o un grupo en una sola píldora compacta, sin subgrafo | — |
-| [Resource Monitor](#deno-resource-monitor) | Medidores de CPU, RAM, GPU, VRAM y temperatura, más limpieza de modelos, en la barra superior | NVIDIA NVML para las lecturas de GPU |
 | [Floating Tools](#deno-floating-tools) | Liberar VRAM, estado de actualización de ComfyUI Stable y Error Help listo para GPT/Gemini | Desactivado por defecto |
 | [Node info button](#node-info-button) | Ayuda rápida y notas de actualización en cada nodo Deno | — |
 
@@ -821,40 +816,6 @@ También puedes seleccionar un grupo normal de ComfyUI y usar `Fold Group` para 
 
 Esto es distinto de ComfyUI Subgraph. Subgraph mueve los nodos a un grafo hijo, lo cual puede ser potente, pero puede no ser lo ideal cuando un workflow depende de mantener visibles en el grafo principal los nodos `Get` / `Set` o la estructura padre-hijo del grafo. Visual Fold está pensado solo para una organización visual sencilla. No convierte los nodos seleccionados en un subgrafo ni cambia la lógica del workflow.
 
-#### Deno Resource Monitor
-
-Deno Resource Monitor añade a la barra superior de ComfyUI medidores compactos de CPU, RAM, GPU, VRAM y temperatura de la GPU, y un botón de limpieza de modelos/caché. Las dos funciones son independientes y por defecto están en **Auto** en `Settings > DENO > Tools > Resource Monitor`.
-
-<img src="images/readme/resource-monitor-topbar.webp" alt="Resource Monitor en la barra superior de ComfyUI junto al botón Run" width="678">
-
-Arrastra el asa de seis puntos para mover la barra DENO a cualquier parte de la ventana. Mientras arrastras, aparece un destino **Dock to top** en la posición de su barra superior; suéltala ahí para volver a acoplarla. El botón de rotación de la barra flotante alterna entre disposiciones horizontal y vertical manteniendo las etiquetas derechas. La posición y la orientación se recuerdan en este navegador. En `Settings > DENO > Tools > Resource Monitor`, `DENO resource monitor placement` ofrece `Top / Floating`, incluida una forma de devolver a la barra superior una barra que haya quedado mal colocada.
-
-<details>
-<summary>Modo Auto, Crystools, limpieza y disposiciones</summary>
-
-Los medidores coinciden con el aspecto horizontal por defecto de Crystools: barras de 60 × 30 px, separación de 5 px, la misma colocación y colores de etiqueta/valor, y un relleno de temperatura que cambia de verde a rojo. El botón de limpieza de DENO se queda junto a ellos; las ventanas estrechas usan la fila compacta independiente sin mover los controles existentes de la barra de herramientas.
-
-| Configuración existente | Medidores de recursos en Auto | Botón de limpieza en Auto |
-| --- | --- | --- |
-| Crystools cargado, botón de limpieza completa existente visible | Conservar Crystools sin cambios | Conservar el botón existente |
-| Crystools cargado, falta el botón de limpieza completa | Conservar Crystools sin cambios | Añadir solo el botón DENO |
-| Sin Crystools, botón de limpieza completa existente visible | Añadir los medidores DENO | Añadir el botón DENO; conservar también el botón existente |
-| Ninguno disponible | Añadir los medidores DENO | Añadir el botón DENO |
-
-Cuando Crystools no está, la barra DENO completa (medidores y botón de limpieza) es la opción por defecto, independientemente de otros botones de limpieza. Solo cuando Crystools está presente, Auto usa un botón de limpieza completa existente y visible en lugar de añadir el de DENO. Los ajustes Off explícitos siguen teniendo prioridad.
-
-Auto no toca los ajustes, elementos ni controladores de eventos de otras extensiones. También respeta un Crystools que el usuario haya ocultado intencionadamente, y no inicia el sondeo de hardware de DENO mientras Crystools esté registrado. Si falla la detección de extensiones, Auto retiene los medidores por precaución. Las etiquetas Desktop/portable y los flags de inicio de Manager por sí solos no deciden el resultado: primero va la presencia de Crystools y después la barra superior visible real. Un botón que solo descarga modelos no equivale a una limpieza completa de modelos y caché de ejecución.
-
-`DENO resource monitor` ofrece `Auto / DENO / Off`; `DENO` sustituye explícitamente los medidores de Crystools. `DENO memory cleanup button` ofrece por separado `Auto / Show / Off`. Pon ambos en `Off` para desactivar las dos adiciones. La limpieza usa el endpoint integrado `/free` de ComfyUI y se bloquea cuando la cola está ocupada, su estado es desconocido o la descarga manual está desactivada en los ajustes de ComfyUI. La notificación confirma la solicitud, no una cantidad garantizada de VRAM liberada. No borra archivos de modelo ni cachés de disco.
-
-Las lecturas de GPU usan actualmente NVIDIA NVML; los campos de GPU no admitidos o no disponibles se ocultan, mientras que CPU/RAM y la limpieza siguen siendo utilizables. En sistemas con varias GPU, la barra muestra el índice 0 de GPU NVIDIA (o la primera GPU disponible), no necesariamente la GPU seleccionada para la generación. El monitor toma muestras solo mientras su pestaña del navegador está visible y no ejecuta un hilo de difusión permanente. El modo de solo botón no hace ninguna solicitud de telemetría de DENO. El comportamiento del monitor de recursos y la selección de métricas de NVIDIA están adaptados de ComfyUI-Crystools, con licencia MIT; consulta los [avisos de terceros](../THIRD_PARTY_NOTICES.md).
-
-La disposición vertical es un carril de 44px de ancho, con pequeñas etiquetas sobre lecturas tabulares centradas, símbolos de unidad más pequeños y líneas de uso finas. Su asa y los botones de limpieza/rotación forman una columna compacta para colocar el monitor a lo largo de un lateral del canvas.
-
-En modo Top, las ventanas estrechas o saturadas mueven solo los controles DENO a una fila compacta bajo la barra superior; los controles existentes se quedan donde están. Al ensanchar la ventana, DENO vuelve a la barra superior cuando hay espacio. El modo Floating conserva la posición elegida y ajusta la barra dentro de la ventana tras cambiar su tamaño. Al acoplarla siempre se muestra una barra horizontal.
-
-</details>
-
 #### Deno Floating Tools
 
 Deno Floating Tools es un ayudante opcional en `Settings > DENO > Tools`. Está desactivado por defecto.
@@ -880,7 +841,6 @@ Deno Custom Nodes mantiene por defecto un manejo restringido de archivos, red y 
 - **Traducción:** la traducción de Ideogram usa solo los servicios integrados Google, MyMemory y LibreTranslate.
 - **Enlaces de modelos:** Easy Model Download Helper abre enlaces web oficiales en tu navegador y nunca descarga archivos desde Python.
 - **Informes:** Error Help es de solo lectura, muestra el informe antes de copiarlo y enmascara secretos habituales como tokens, cookies, contraseñas y claves privadas.
-- **Telemetría:** Resource Monitor toma muestras solo mientras su pestaña del navegador está visible; el modo de solo botón no hace ninguna solicitud de telemetría de DENO.
 
 Consulta [acceso a archivos y traducción](SECURITY_CONFIGURATION.md) para ver las reglas exactas.
 
@@ -917,7 +877,7 @@ Para actualizar manualmente, ejecuta `git pull --ff-only`, vuelve a instalar `re
 
 Los nodos, documentos, ejemplos, workflows y recursos locales del proyecto que pertenecen a Deno en este repositorio se publican bajo GNU GPL v3.0 (`GPL-3.0-only`). Puedes usarlos, estudiarlos, modificarlos y redistribuirlos, también con fines comerciales, bajo los [términos de GPL-3.0](../LICENSE). Las versiones modificadas que se distribuyan deben seguir GPL-3.0 y conservar los avisos de licencia y copyright requeridos.
 
-Los modelos, checkpoints, LoRAs, bibliotecas, herramientas y servicios de terceros mantienen sus propias licencias y condiciones. Consulta la licencia aplicable antes de usar, compartir o vender resultados de un modelo o recurso concreto. El comportamiento del monitor de recursos está adaptado de ComfyUI-Crystools, con licencia MIT; consulta los [avisos de terceros](../THIRD_PARTY_NOTICES.md).
+Los modelos, checkpoints, LoRAs, bibliotecas, herramientas y servicios de terceros mantienen sus propias licencias y condiciones. Consulta la licencia aplicable antes de usar, compartir o vender resultados de un modelo o recurso concreto.
 
 ## Notas de versión
 

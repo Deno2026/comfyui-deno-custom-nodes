@@ -124,20 +124,15 @@ Tentukan tampilan dan resolusi akhir.
 
 ### 05 · Penataan
 
-Jaga graph besar tetap mudah dibaca dan kondisi mesinmu tetap terlihat.
+Jaga graph besar tetap mudah dibaca.
 
 <p align="center">
   <img src="images/readme/visual-fold.webp" alt="Visual Fold: tiga node terpilih dilipat menjadi satu pill Folded · 3" width="880">
 </p>
 
-<p align="center">
-  <img src="images/readme/resource-monitor-topbar.webp" alt="Meter Resource Monitor dan tombol pembersihan di top bar ComfyUI" width="678">
-</p>
-
 | Alat | Fungsinya | Kebutuhan |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | Melipat node terpilih atau sebuah group menjadi satu pill ringkas, tanpa subgraph | — |
-| [Resource Monitor](#deno-resource-monitor) | Meter CPU, RAM, GPU, VRAM, dan suhu plus pembersihan model di top bar | NVIDIA NVML untuk pembacaan GPU |
 | [Floating Tools](#deno-floating-tools) | Free VRAM, status update ComfyUI Stable, dan Error Help siap-GPT/Gemini | Nonaktif secara default |
 | [Node info button](#node-info-button) | Bantuan singkat dan catatan update pada setiap node Deno | — |
 
@@ -821,40 +816,6 @@ Kamu juga dapat memilih satu group ComfyUI biasa dan menggunakan `Fold Group` un
 
 Ini berbeda dari Subgraph ComfyUI. Subgraph memindahkan node ke child graph, yang bisa sangat berguna, tetapi mungkin kurang ideal saat workflow bergantung pada node `Get` / `Set` atau struktur parent-child graph yang tetap terlihat di graph utama. Visual Fold hanya ditujukan untuk perapian visual yang sederhana. Fitur ini tidak mengubah node terpilih menjadi subgraph atau mengubah logika workflow.
 
-#### Deno Resource Monitor
-
-Deno Resource Monitor menambahkan meter CPU, RAM, GPU, VRAM, dan suhu GPU yang ringkas serta tombol pembersihan model/cache ke top bar ComfyUI. Kedua fitur ini independen dan default-nya **Auto** di `Settings > DENO > Tools > Resource Monitor`.
-
-<img src="images/readme/resource-monitor-topbar.webp" alt="Resource Monitor di top bar ComfyUI di samping tombol Run" width="678">
-
-Seret handle enam titik untuk memindahkan bar DENO ke mana saja di jendela. Saat menyeret, target **Dock to top** muncul di posisinya pada top bar; lepaskan di sana untuk memasangnya kembali. Tombol rotasi pada bar mengambang beralih antara layout horizontal dan vertikal sambil menjaga label tetap tegak. Posisi dan orientasi diingat di browser ini. Di `Settings > DENO > Tools > Resource Monitor`, `DENO resource monitor placement` menawarkan `Top / Floating`, termasuk cara untuk mengembalikan bar yang salah tempat ke atas.
-
-<details>
-<summary>Mode Auto, Crystools, pembersihan, dan layout</summary>
-
-Meter mengikuti tampilan horizontal default Crystools: bar 60 × 30 px, jarak 5 px, penempatan label/nilai dan warna yang sama, serta isi suhu yang berubah dari hijau ke merah. Tombol pembersihan DENO tetap berada di samping meter; jendela sempit memakai baris kompak terpisah tanpa memindahkan kontrol toolbar yang sudah ada.
-
-| Pengaturan yang ada | Meter resource di Auto | Tombol pembersihan di Auto |
-| --- | --- | --- |
-| Crystools dimuat, tombol full-cleanup yang ada terlihat | Biarkan Crystools tidak berubah | Pertahankan tombol yang ada |
-| Crystools dimuat, tombol full-cleanup tidak ada | Biarkan Crystools tidak berubah | Tambahkan hanya tombol DENO |
-| Tanpa Crystools, tombol full-cleanup yang ada terlihat | Tambahkan meter DENO | Tambahkan tombol DENO; pertahankan juga tombol yang ada |
-| Keduanya tidak tersedia | Tambahkan meter DENO | Tambahkan tombol DENO |
-
-Saat Crystools tidak ada, bar DENO lengkap (meter dan tombol pembersihan) adalah defaultnya, terlepas dari tombol pembersihan lain. Hanya saat Crystools ada, Auto memakai tombol full-cleanup yang sudah terlihat, bukan menambahkan milik DENO. Pengaturan Off yang eksplisit tetap diprioritaskan.
-
-Auto tidak mengubah pengaturan, elemen, dan event handler ekstensi lain. Auto juga menghormati Crystools yang sengaja disembunyikan pengguna, dan tidak memulai polling hardware DENO selama Crystools terdaftar. Jika deteksi ekstensi gagal, Auto secara konservatif menahan meter. Label Desktop/portable dan flag startup Manager saja tidak menentukan hasil: keberadaan Crystools didahulukan, lalu top bar yang benar-benar terlihat. Tombol yang hanya meng-unload model tidak setara dengan pembersihan penuh model dan cache eksekusi.
-
-`DENO resource monitor` menawarkan `Auto / DENO / Off`; `DENO` secara eksplisit menggantikan meter Crystools. `DENO memory cleanup button` secara terpisah menawarkan `Auto / Show / Off`. Set keduanya ke `Off` untuk menonaktifkan kedua tambahan. Pembersihan memakai endpoint `/free` bawaan ComfyUI dan diblokir saat antrean sibuk, statusnya tidak diketahui, atau unloading manual dinonaktifkan di pengaturan ComfyUI. Notifikasi mengonfirmasi permintaan, bukan jumlah VRAM yang dijamin terlepas. Pembersihan tidak menghapus file model atau cache disk.
-
-Pembacaan GPU saat ini memakai NVIDIA NVML; field GPU yang tidak didukung atau tidak tersedia disembunyikan, sementara CPU/RAM dan pembersihan tetap dapat dipakai. Pada sistem multi-GPU, bar menampilkan GPU NVIDIA indeks 0 (atau GPU pertama yang tersedia), belum tentu GPU yang dipilih untuk generasi. Monitor hanya mengambil sampel saat tab browsernya terlihat dan tidak menjalankan thread broadcast permanen. Mode khusus tombol tidak membuat request telemetri DENO. Perilaku resource monitor dan pemilihan metrik NVIDIA diadaptasi dari ComfyUI-Crystools berlisensi MIT; lihat [Third-Party Notices](../THIRD_PARTY_NOTICES.md).
-
-Layout vertikal adalah rail selebar 44px, dengan label kecil di atas pembacaan tabular yang terpusat, simbol satuan yang lebih kecil, dan garis penggunaan yang tipis. Handle serta tombol pembersihan/rotasinya membentuk satu kolom ringkas untuk menempatkan monitor di sisi canvas.
-
-Pada mode Top, jendela yang sempit atau penuh hanya memindahkan kontrol DENO ke baris kompak di bawah top bar; kontrol yang sudah ada tetap di tempatnya. Memperlebar jendela mengembalikan DENO ke top bar bila ada ruang. Mode Floating mempertahankan posisi yang dipilih dan menyesuaikan bar ke dalam jendela setelah ukuran diubah. Docking selalu menampilkan bar horizontal.
-
-</details>
-
 #### Deno Floating Tools
 
 Deno Floating Tools adalah helper opsional di `Settings > DENO > Tools`. Fitur ini nonaktif secara default.
@@ -880,7 +841,6 @@ Deno Custom Nodes menjaga penanganan file, jaringan, dan rahasia tetap sempit se
 - **Terjemahan:** terjemahan Ideogram hanya memakai layanan bawaan Google, MyMemory, dan LibreTranslate.
 - **Tautan model:** Easy Model Download Helper membuka tautan web resmi di browser-mu dan tidak pernah mengunduh file lewat Python.
 - **Laporan:** Error Help bersifat read-only, menampilkan laporan sebelum disalin, dan menyamarkan rahasia umum seperti token, cookie, password, dan private key.
-- **Telemetri:** Resource Monitor hanya mengambil sampel saat tab browsernya terlihat; mode khusus tombol tidak membuat request telemetri DENO.
 
 Lihat [akses file dan terjemahan](SECURITY_CONFIGURATION.md) untuk aturan yang tepat.
 
@@ -917,7 +877,7 @@ Untuk update manual, jalankan `git pull --ff-only`, instal ulang `requirements.t
 
 Node, dokumen, contoh, workflow, dan aset lokal proyek milik Deno di repo ini dirilis di bawah GNU GPL v3.0 (`GPL-3.0-only`). Kamu dapat menggunakan, mempelajari, memodifikasi, dan mendistribusikan ulang semuanya, termasuk secara komersial, berdasarkan [ketentuan GPL-3.0](../LICENSE). Versi modifikasi yang didistribusikan harus mengikuti GPL-3.0 dan mempertahankan pemberitahuan lisensi serta hak cipta yang diperlukan.
 
-Model, checkpoint, LoRA, library, tool, dan layanan pihak ketiga tetap mengikuti lisensi dan ketentuannya masing-masing. Periksa lisensi yang berlaku sebelum menggunakan, membagikan, atau menjual output dari model atau aset tertentu. Perilaku resource-monitor diadaptasi dari ComfyUI-Crystools berlisensi MIT; lihat [Third-Party Notices](../THIRD_PARTY_NOTICES.md).
+Model, checkpoint, LoRA, library, tool, dan layanan pihak ketiga tetap mengikuti lisensi dan ketentuannya masing-masing. Periksa lisensi yang berlaku sebelum menggunakan, membagikan, atau menjual output dari model atau aset tertentu.
 
 ## Catatan Rilis
 

@@ -4,6 +4,12 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.127 - 2026-11-07
+
+- Removed the top-bar Resource Monitor (CPU, RAM, GPU and VRAM meters and its cleanup button). It took the same top-bar spot as ComfyUI-Crystools; install ComfyUI-Crystools for hardware meters. DENO Floating Tools (`Settings > DENO > Tools`) still frees VRAM.
+- The pack no longer installs `psutil` or `nvidia-ml-py`. Old monitor settings are ignored.
+- Nodes, inputs, widgets and saved workflows are unchanged.
+
 ## 0.7.126 - 2026-11-05
 
 - Added `(Deno) MiniMax H3 Tiled Sampler`. It finishes an upscaled MiniMax H3 video+audio latent in overlapping tiles: at every step all tiles read the same frame and are blended before one shared update, the model loads once, and the original audio is kept. Tile width, tile height and the two overlaps are set directly in multiples of 32 px. The defaults (896 x 704, overlap 256 x 320) are the tested 16GB setting for a 15-second 1920 x 1088 finishing pass.

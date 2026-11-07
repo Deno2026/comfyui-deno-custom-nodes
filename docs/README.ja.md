@@ -124,20 +124,15 @@ ComfyUI が動作する環境から始めてください。
 
 ### 05 · 整理
 
-大きなグラフを読みやすく保ち、マシンの状態を見えるようにします。
+大きなグラフを読みやすく保ちます。
 
 <p align="center">
   <img src="images/readme/visual-fold.webp" alt="Visual Fold: 選択した3つのノードが1つの Folded · 3 ピルに折りたたまれる様子" width="880">
 </p>
 
-<p align="center">
-  <img src="images/readme/resource-monitor-topbar.webp" alt="ComfyUI のトップバーにある Resource Monitor のメーターとクリーンアップボタン" width="678">
-</p>
-
 | ツール | 内容 | 必要なもの |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | サブグラフを使わずに、選択したノードやグループを1つのコンパクトなピルに折りたたみ | — |
-| [Resource Monitor](#deno-resource-monitor) | CPU、RAM、GPU、VRAM、温度のメーターとモデルのクリーンアップを、トップバーに表示 | GPU の表示に NVIDIA NVML |
 | [Floating Tools](#deno-floating-tools) | VRAM の解放、ComfyUI Stable の更新状況、GPT/Gemini 向けの Error Help | 初期状態ではオフ |
 | [Node info button](#node-info-button) | 各 Deno ノードのクイックヘルプと更新ノート | — |
 
@@ -821,40 +816,6 @@ Deno Visual Fold は、大きな ComfyUI グラフを整理するための、視
 
 これは ComfyUI Subgraph とは異なります。Subgraph はノードを子グラフに移動するため強力ですが、ワークフローが `Get` / `Set` ノードや親子のグラフ構造をメインのグラフに見える状態で保つことに依存している場合は、向かないことがあります。Visual Fold は、シンプルな視覚的整理だけを目的としています。選択したノードをサブグラフに変えたり、ワークフローのロジックを変えたりすることはありません。
 
-#### Deno Resource Monitor
-
-Deno Resource Monitor は、CPU、RAM、GPU、VRAM、GPU 温度のコンパクトなメーターと、モデル/キャッシュのクリーンアップボタンを、ComfyUI のトップバーに追加します。この2つの機能は独立しており、`Settings > DENO > Tools > Resource Monitor` の既定は **Auto** です。
-
-<img src="images/readme/resource-monitor-topbar.webp" alt="ComfyUI のトップバーで Run ボタンの隣にある Resource Monitor" width="678">
-
-6つの点のハンドルをドラッグすると、DENO バーをウィンドウ内の好きな位置に移動できます。ドラッグ中は、トップバーの位置に **Dock to top** のターゲットが表示されます。そこにドロップすると、元の位置に戻ります。フローティングバーの回転ボタンで、ラベルを正立に保ったまま、横向きと縦向きのレイアウトを切り替えられます。位置と向きは、このブラウザに記憶されます。`Settings > DENO > Tools > Resource Monitor` の `DENO resource monitor placement` には `Top / Floating` があり、位置がずれたバーをトップに戻す方法も含まれます。
-
-<details>
-<summary>Auto モード、Crystools、クリーンアップ、レイアウト</summary>
-
-メーターは Crystools の既定の横向きの見た目に合わせています。60 × 30 px のバー、5 px の間隔、同じラベル/値の配置と色で、温度の塗りは緑から赤に変化します。DENO のクリーンアップボタンはそれらと並んで表示されます。狭いウィンドウでは、既存のツールバーのコントロールを動かさずに、別のコンパクトな行を使います。
-
-| 既存の環境 | Auto でのリソースメーター | Auto でのクリーンアップボタン |
-| --- | --- | --- |
-| Crystools が読み込まれ、既存の完全なクリーンアップボタンが表示されている | Crystools をそのまま維持 | 既存のボタンを維持 |
-| Crystools が読み込まれ、完全なクリーンアップボタンがない | Crystools をそのまま維持 | DENO のボタンだけを追加 |
-| Crystools がなく、既存の完全なクリーンアップボタンが表示されている | DENO のメーターを追加 | DENO のボタンを追加し、既存のボタンも維持 |
-| どちらもない | DENO のメーターを追加 | DENO のボタンを追加 |
-
-Crystools がない場合は、他のクリーンアップボタンの有無に関わらず、DENO のバー全体(メーターとクリーンアップボタン)が既定になります。Auto が追加の代わりに既存の表示中の完全なクリーンアップボタンを使うのは、Crystools がある場合だけです。明示的な Off の設定は、常に優先されます。
-
-Auto は、他の拡張機能の設定、要素、イベントハンドラーには手を触れません。ユーザーが意図的に隠した Crystools も尊重し、Crystools が登録されている間は DENO のハードウェアのポーリングを開始しません。拡張機能の検出に失敗した場合、Auto は慎重にメーターを出さないようにします。Desktop/portable のラベルや Manager の起動フラグだけでは結果は決まりません。判断は、まず Crystools の有無、次に実際に表示されているトップバーの順です。モデルの unload だけを行うボタンは、モデルと実行キャッシュの完全なクリーンアップと同等ではありません。
-
-`DENO resource monitor` には `Auto / DENO / Off` があり、`DENO` は Crystools のメーターを明示的に置き換えます。`DENO memory cleanup button` には別に `Auto / Show / Off` があります。両方を `Off` にすると、2つの追加機能がどちらも無効になります。クリーンアップは ComfyUI 組み込みの `/free` エンドポイントを使い、キューが実行中のとき、状態が不明なとき、または ComfyUI の設定で手動 unload が無効になっているときはブロックされます。通知はリクエストを受け付けたことを知らせるもので、解放される VRAM の量を保証するものではありません。モデルファイルやディスクキャッシュは削除しません。
-
-GPU の読み取りは現在 NVIDIA NVML を使っており、対応していない、または利用できない GPU のフィールドは非表示になりますが、CPU/RAM とクリーンアップは使えます。複数 GPU のシステムでは、バーには NVIDIA GPU のインデックス 0(または最初に使える GPU)が表示され、生成に選ばれた GPU とは限りません。モニターはブラウザのタブが表示されている間だけサンプリングを行い、常時ブロードキャストするスレッドは動かしません。ボタンのみのモードでは、DENO のテレメトリのリクエストは行われません。リソースモニターの挙動と NVIDIA のメトリクスの選択は、MIT ライセンスの ComfyUI-Crystools を元にしています。[サードパーティの通知](../THIRD_PARTY_NOTICES.md)を参照してください。
-
-縦向きのレイアウトは幅 44px のレールで、小さなラベルの下に、中央揃えで桁幅が揃った数値、より小さな単位記号、細い使用率の線が並びます。ハンドルとクリーンアップ/回転ボタンは1本のコンパクトな列を成し、キャンバスの端に沿ってモニターを置くのに向いています。
-
-Top モードでは、狭いウィンドウや混み合ったウィンドウで、DENO のコントロールだけがトップバーの下のコンパクトな行に移り、既存のコントロールはそのままです。ウィンドウを広げて余裕ができると、DENO はトップバーに戻ります。Floating モードでは、選んだ位置を保ち、リサイズ後にバーをウィンドウ内に収めます。Dock すると、常に横向きのバーが表示されます。
-
-</details>
-
 #### Deno Floating Tools
 
 Deno Floating Tools は、`Settings > DENO > Tools` にある任意の補助機能です。初期状態ではオフです。
@@ -880,7 +841,6 @@ Deno Custom Nodes は、ファイル、ネットワーク、機密情報の扱�
 - **翻訳:** Ideogram の翻訳には、組み込みの Google、MyMemory、LibreTranslate のサービスだけを使います。
 - **モデルのリンク:** Easy Model Download Helper は、公式のウェブリンクをブラウザで開くだけで、Python でファイルをダウンロードすることはありません。
 - **レポート:** Error Help は読み取り専用で、コピーする前にレポートを表示し、token、cookie、password、private key といった一般的な機密情報をマスクします。
-- **テレメトリ:** Resource Monitor は、ブラウザのタブが表示されている間だけサンプリングを行います。ボタンのみのモードでは、DENO のテレメトリのリクエストは行われません。
 
 正確なルールは、[ファイルと翻訳へのアクセス](SECURITY_CONFIGURATION.md)を参照してください。
 
@@ -917,7 +877,7 @@ python -m pip install -r requirements.txt
 
 このリポジトリ内の Deno 所有のノード、ドキュメント、サンプル、ワークフロー、プロジェクト内のアセットは、GNU GPL v3.0(`GPL-3.0-only`)で公開されています。商用利用を含め、[GPL-3.0 の条件](../LICENSE)のもとで、使用、学習、変更、再配布ができます。変更版を配布する場合は GPL-3.0 に従い、必要なライセンス表示と著作権表示を保持してください。
 
-外部のモデル、チェックポイント、LoRA、ライブラリ、ツール、サービスには、それぞれのライセンスと利用条件があります。特定のモデルやアセットから得た出力を使用、共有、販売する前に、該当するライセンスを確認してください。リソースモニターの挙動は、MIT ライセンスの ComfyUI-Crystools を元にしています。[サードパーティの通知](../THIRD_PARTY_NOTICES.md)を参照してください。
+外部のモデル、チェックポイント、LoRA、ライブラリ、ツール、サービスには、それぞれのライセンスと利用条件があります。特定のモデルやアセットから得た出力を使用、共有、販売する前に、該当するライセンスを確認してください。
 
 ## リリースノート
 

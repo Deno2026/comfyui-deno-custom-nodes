@@ -124,20 +124,15 @@ ComfyUI가 설치되어 정상 실행되는 환경에서 시작하세요.
 
 ### 05 · 정리
 
-큰 그래프를 읽기 쉽게 유지하고 PC 상태를 눈에 보이게 합니다.
+큰 그래프를 읽기 쉽게 유지합니다.
 
 <p align="center">
   <img src="images/readme/visual-fold.webp" alt="Visual Fold: 선택한 노드 3개가 Folded · 3 알약 하나로 접힙니다" width="880">
 </p>
 
-<p align="center">
-  <img src="images/readme/resource-monitor-topbar.webp" alt="ComfyUI 상단 바의 Resource Monitor 계기판과 정리 버튼" width="678">
-</p>
-
 | 도구 | 기능 | 필요 조건 |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | 서브그래프 없이 선택한 노드나 그룹을 알약 하나로 접습니다 | — |
-| [Resource Monitor](#deno-resource-monitor) | 상단 바에서 CPU, RAM, GPU, VRAM, 온도 계기판과 모델 정리 | GPU 수치는 NVIDIA NVML |
 | [Floating Tools](#deno-floating-tools) | VRAM 비우기, ComfyUI Stable 업데이트 상태, GPT/Gemini용 Error Help | 기본은 꺼짐 |
 | [Node info button](#node-info-button) | 각 Deno 노드의 빠른 도움말과 업데이트 안내 | — |
 
@@ -821,40 +816,6 @@ Deno Visual Fold는 큰 ComfyUI 그래프를 시각적으로 정리하는 전용
 
 ComfyUI Subgraph와는 다릅니다. Subgraph는 노드를 하위 그래프로 옮기는 강력한 기능이지만, `Get` / `Set` 노드나 부모-자식 그래프 구조를 메인 그래프에 그대로 보이게 두어야 하는 워크플로우에는 맞지 않을 수 있습니다. Visual Fold는 단순한 시각 정리용입니다. 선택한 노드를 서브그래프로 바꾸거나 워크플로우 로직을 바꾸지 않습니다.
 
-#### Deno Resource Monitor
-
-Deno Resource Monitor는 ComfyUI 상단 바에 작은 CPU, RAM, GPU, VRAM, GPU 온도 계기판과 모델·캐시 정리 버튼을 추가합니다. 두 기능은 **서로 독립적**이며, `Settings > DENO > Tools > Resource Monitor`에서 각각 기본값인 **Auto**로 동작합니다.
-
-<img src="images/readme/resource-monitor-topbar.webp" alt="ComfyUI 상단 바의 Run 버튼 옆에 놓인 Resource Monitor" width="678">
-
-왼쪽 여섯 점 손잡이를 끌면 DENO 표시를 창 안에서 자유롭게 옮길 수 있습니다. 끄는 동안 원래 상단 자리에 **상단에 고정** 영역이 나타나며, 그곳에 놓으면 다시 붙습니다. 분리된 표시의 회전 버튼을 누르면 숫자와 항목명을 똑바로 유지하면서 가로형·세로형으로 전환합니다. 위치와 방향은 이 브라우저에 저장됩니다. `Settings > DENO > Tools > Resource Monitor`의 `DENO resource monitor placement`에서 `Top / Floating`을 선택할 수도 있으며, 위치를 찾기 어려울 때 `Top`으로 되돌리면 됩니다.
-
-<details>
-<summary>Auto 모드, Crystools, 정리, 레이아웃</summary>
-
-계기판은 Crystools의 기본 가로형 외관과 맞췄습니다. 각 칸은 60 × 30 px, 간격은 5 px이며 항목명·숫자의 위치와 색상, 초록에서 빨강으로 바뀌는 온도 막대도 동일한 기준을 사용합니다. DENO 정리 버튼은 옆에 유지하고, 좁은 창에서는 기존 도구를 옮기지 않고 DENO만 별도의 작은 줄에 표시합니다.
-
-| 기존 환경 | Auto 수치 표시 | Auto 정리 버튼 |
-| --- | --- | --- |
-| Crystools와 기존 전체 정리 버튼이 보임 | Crystools 그대로 유지 | 기존 버튼 그대로 유지 |
-| Crystools는 있고 전체 정리 버튼은 없음 | Crystools 그대로 유지 | DENO 버튼만 추가 |
-| Crystools는 없고 기존 전체 정리 버튼은 보임 | DENO 계기판 추가 | DENO 버튼 추가, 기존 버튼도 그대로 유지 |
-| 둘 다 없음 | DENO 계기판 추가 | DENO 버튼 추가 |
-
-Crystools가 없으면 다른 정리 버튼 유무와 관계없이 **DENO 계기판과 정리 버튼을 모두 표시하는 것이 기본**입니다. Crystools가 있을 때만 기존 전체 정리 버튼을 우선하고, 그 버튼이 없으면 DENO 버튼으로 보충합니다. 사용자가 명시적으로 선택한 `Off`는 그대로 우선합니다.
-
-Auto는 다른 확장의 설정·요소·클릭 동작을 바꾸지 않습니다. 사용자가 일부러 숨긴 Crystools도 존중하며, Crystools 확장이 등록돼 있으면 DENO 하드웨어 조회를 시작하지 않습니다. 확장 확인에 실패한 경우에도 중복 방지를 위해 계기판을 켜지 않습니다. 데스크탑·포터블 이름이나 Manager 실행 옵션만으로 추측하지 않고, Crystools 유무를 먼저 판단한 뒤 실제 상단 버튼을 확인합니다. 모델만 해제하는 버튼은 모델·실행 캐시를 함께 비우는 버튼과 구분합니다.
-
-`DENO resource monitor`는 `Auto / DENO / Off`를 제공합니다. `DENO`는 사용자가 명시적으로 Crystools 계기판 대신 DENO를 선택하는 옵션입니다. `DENO memory cleanup button`은 별도로 `Auto / Show / Off`를 제공합니다. 두 기능을 모두 끄려면 각각 `Off`로 설정하세요. 정리는 ComfyUI 기본 `/free` 요청을 사용하며, 생성·대기 큐가 있거나 큐 상태를 확인할 수 없거나 ComfyUI에서 수동 메모리 해제를 금지한 경우 실행하지 않습니다. 알림은 정리 요청 접수를 뜻하며 특정 VRAM 감소량을 보장하지 않습니다. 모델 파일이나 디스크 캐시는 삭제하지 않습니다.
-
-현재 GPU 수치는 NVIDIA NVML을 사용합니다. 지원되지 않거나 읽을 수 없는 GPU 항목은 숨기고 CPU·RAM과 정리 버튼은 사용할 수 있습니다. 여러 GPU가 있으면 NVIDIA GPU index 0(없으면 첫 번째로 확인된 GPU)을 표시하므로 생성에 선택한 GPU와 다를 수 있습니다. 수치는 탭이 보일 때만 조회하고 상시 방송 스레드는 실행하지 않습니다. 정리 버튼만 표시되는 상태에서는 DENO 하드웨어 조회가 발생하지 않습니다. 리소스 항목과 NVIDIA 측정 방식은 MIT 라이선스의 ComfyUI-Crystools를 바탕으로 조정했으며 고지는 [Third-Party Notices](../THIRD_PARTY_NOTICES.md)에 있습니다.
-
-세로형은 폭 44px의 얇은 띠 형태입니다. 작은 항목명 아래에 자릿수 폭이 일정한 수치를 가운데 정렬하고, 단위는 작게 구분해 표시합니다. 얇은 사용량 선과 손잡이·정리·회전 버튼도 한 열로 배치해 캔버스 옆에 붙여 두기 편하게 구성했습니다.
-
-`Top`에서는 창이 좁거나 상단 공간이 부족하면 DENO 표시만 그 아래 별도 줄로 내려갑니다. 기존 버튼은 그대로 두며, 창을 넓혀 공간이 생기면 DENO도 다시 상단에 붙습니다. `Floating`에서는 선택한 위치를 유지하고 창 크기가 바뀌어도 표시가 창 안에 들어오도록 조정합니다. 상단에 붙일 때는 항상 가로형으로 표시합니다.
-
-</details>
-
 #### Deno Floating Tools
 
 Deno Floating Tools는 `Settings > DENO > Tools`에서 직접 켜는 선택 기능이며 기본값은 꺼짐입니다.
@@ -880,7 +841,6 @@ Deno Custom Nodes는 파일, 네트워크, 비밀 정보 처리를 기본적으�
 - **번역:** Ideogram 번역은 기본 제공되는 Google, MyMemory, LibreTranslate만 사용합니다.
 - **모델 링크:** Easy Model Download Helper는 공식 웹 링크를 브라우저로 열 뿐, Python에서 파일을 내려받지 않습니다.
 - **보고서:** Error Help는 읽기 전용이며, 복사하기 전에 보고서를 먼저 보여 주고 token, cookie, password, private key 같은 흔한 비밀 값을 가립니다.
-- **텔레메트리:** Resource Monitor는 브라우저 탭이 보일 때만 수치를 조회하며, 버튼만 표시하는 모드에서는 DENO 텔레메트리 요청을 보내지 않습니다.
 
 정확한 규칙은 [파일·번역 접근 설정](SECURITY_CONFIGURATION.md)을 참고하세요.
 
@@ -917,7 +877,7 @@ python -m pip install -r requirements.txt
 
 Deno 소유 노드, 문서, 예시, 워크플로우, 프로젝트 내 에셋은 GNU GPL v3.0 (`GPL-3.0-only`)으로 배포됩니다. [GPL-3.0 조건](../LICENSE)에 따라 사용, 학습, 수정, 재배포할 수 있으며 상업적 이용도 가능합니다. 수정본을 배포할 때는 GPL-3.0을 따르고 필요한 라이선스와 저작권 고지를 유지해야 합니다.
 
-외부 모델, 체크포인트, LoRA, 라이브러리, 도구, 서비스는 각각의 라이선스와 이용 조건을 따릅니다. 특정 모델이나 에셋을 사용하거나 그 결과물을 공유·판매하기 전에 해당 조건을 확인하세요. 리소스 모니터의 동작은 MIT 라이선스의 ComfyUI-Crystools를 바탕으로 조정했으며, [Third-Party Notices](../THIRD_PARTY_NOTICES.md)를 참고하세요.
+외부 모델, 체크포인트, LoRA, 라이브러리, 도구, 서비스는 각각의 라이선스와 이용 조건을 따릅니다. 특정 모델이나 에셋을 사용하거나 그 결과물을 공유·판매하기 전에 해당 조건을 확인하세요.
 
 ## 릴리스 노트
 

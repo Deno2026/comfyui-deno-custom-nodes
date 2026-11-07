@@ -124,20 +124,15 @@ Set the final look and resolution.
 
 ### 05 · Organize
 
-Keep large graphs readable and your machine visible.
+Keep large graphs readable.
 
 <p align="center">
   <img src="docs/images/readme/visual-fold.webp" alt="Visual Fold: three selected nodes fold into one Folded · 3 pill" width="880">
 </p>
 
-<p align="center">
-  <img src="docs/images/readme/resource-monitor-topbar.webp" alt="Resource Monitor meters and cleanup button in the ComfyUI top bar" width="678">
-</p>
-
 | Tool | What it does | Needs |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | Folds selected nodes or a group into one compact pill, without a subgraph | — |
-| [Resource Monitor](#deno-resource-monitor) | CPU, RAM, GPU, VRAM, and temperature meters plus model cleanup in the top bar | NVIDIA NVML for GPU readings |
 | [Floating Tools](#deno-floating-tools) | Free VRAM, ComfyUI Stable update status, and GPT/Gemini-ready Error Help | Off by default |
 | [Node info button](#node-info-button) | Quick help and update notes on each Deno node | — |
 
@@ -821,40 +816,6 @@ You can also select one normal ComfyUI group and use `Fold Group` to collapse th
 
 This is different from ComfyUI Subgraph. Subgraph moves nodes into a child graph, which can be powerful, but it may not be ideal when a workflow depends on keeping `Get` / `Set` nodes or parent-child graph structure visible in the main graph. Visual Fold is meant for simple visual organization only. It does not turn the selected nodes into a subgraph or change the workflow logic.
 
-#### Deno Resource Monitor
-
-Deno Resource Monitor adds compact CPU, RAM, GPU, VRAM, and GPU temperature meters and a model/cache cleanup button to the ComfyUI top bar. The two features are independent and default to **Auto** under `Settings > DENO > Tools > Resource Monitor`.
-
-<img src="docs/images/readme/resource-monitor-topbar.webp" alt="Resource Monitor in the ComfyUI top bar next to the Run button" width="678">
-
-Drag the six-dot handle to move the DENO bar anywhere in the window. While dragging, a **Dock to top** target appears at its top-bar position; drop there to snap it back. The floating bar's rotation button switches between horizontal and vertical layouts while keeping labels upright. Position and orientation are remembered in this browser. Under `Settings > DENO > Tools > Resource Monitor`, `DENO resource monitor placement` offers `Top / Floating`, including a way to return a misplaced bar to the top.
-
-<details>
-<summary>Auto mode, Crystools, cleanup, and layouts</summary>
-
-The meters match Crystools' default horizontal appearance: 60 × 30 px bars, 5 px gaps, the same label/value placement and colors, and a temperature fill that changes from green to red. DENO's cleanup button stays alongside them; narrow windows use the separate compact row without moving existing toolbar controls.
-
-| Existing setup | Resource meters in Auto | Cleanup button in Auto |
-| --- | --- | --- |
-| Crystools loaded, existing full-cleanup button visible | Keep Crystools unchanged | Keep the existing button |
-| Crystools loaded, full-cleanup button missing | Keep Crystools unchanged | Add only the DENO button |
-| No Crystools, existing full-cleanup button visible | Add DENO meters | Add the DENO button; keep the existing button too |
-| Neither available | Add DENO meters | Add the DENO button |
-
-When Crystools is absent, the complete DENO bar (meters and cleanup button) is the default, regardless of other cleanup buttons. Only when Crystools is present does Auto use an existing visible full-cleanup button instead of adding DENO's. Explicit Off settings still take priority.
-
-Auto leaves other extensions' settings, elements, and event handlers alone. It also respects Crystools that a user intentionally hid, and does not start DENO hardware polling while Crystools is registered. If extension detection fails, Auto conservatively withholds the meters. Desktop/portable labels and Manager startup flags alone do not decide the result: Crystools presence comes first, then the actual visible top bar. A model-unload-only button is not equivalent to full model-and-execution-cache cleanup.
-
-`DENO resource monitor` offers `Auto / DENO / Off`; `DENO` explicitly replaces Crystools' meters. `DENO memory cleanup button` separately offers `Auto / Show / Off`. Set both to `Off` to disable both additions. Cleanup uses ComfyUI's built-in `/free` endpoint and is blocked when the queue is busy, its status is unknown, or manual unloading is disabled in ComfyUI settings. The notification acknowledges the request, not a guaranteed amount of released VRAM. It does not delete model files or disk caches.
-
-GPU readings currently use NVIDIA NVML; unsupported or unavailable GPU fields are hidden, while CPU/RAM and cleanup remain usable. On multi-GPU systems the bar shows NVIDIA GPU index 0 (or the first available GPU), not necessarily the GPU selected for generation. The monitor samples only while its browser tab is visible and does not run a permanent broadcast thread. Button-only mode makes no DENO telemetry requests. Resource-monitor behavior and NVIDIA metric selection are adapted from MIT-licensed ComfyUI-Crystools; see [Third-Party Notices](THIRD_PARTY_NOTICES.md).
-
-The vertical layout is a 44px-wide rail, with small labels above centered tabular readings, smaller unit symbols, and thin usage lines. Its handle and cleanup/rotation buttons form one compact column for placing the monitor along a side of the canvas.
-
-In Top mode, narrow or crowded windows move only the DENO controls to a compact row beneath the top bar; existing controls stay in place. Widening the window returns DENO to the top bar when there is room. Floating mode keeps the chosen position and fits the bar inside the window after resizing. Docking always displays a horizontal bar.
-
-</details>
-
 #### Deno Floating Tools
 
 Deno Floating Tools is an optional helper under `Settings > DENO > Tools`. It is off by default.
@@ -880,7 +841,6 @@ Deno Custom Nodes keeps file, network, and secret handling narrow by default.
 - **Translation:** Ideogram translation uses only the built-in Google, MyMemory, and LibreTranslate services.
 - **Model links:** Easy Model Download Helper opens official web links in your browser and never downloads files in Python.
 - **Reports:** Error Help is read-only, shows the report before copying, and masks common secrets such as tokens, cookies, passwords, and private keys.
-- **Telemetry:** the Resource Monitor samples only while its browser tab is visible; button-only mode makes no DENO telemetry requests.
 
 See [file and translation access](docs/SECURITY_CONFIGURATION.md) for the exact rules.
 
@@ -917,7 +877,7 @@ For a manual update, run `git pull --ff-only`, reinstall `requirements.txt` with
 
 Deno-owned nodes, docs, examples, workflows, and project-local assets in this repo are released under GNU GPL v3.0 (`GPL-3.0-only`). You may use, study, modify, and redistribute them, including commercially, under the [GPL-3.0 terms](LICENSE). Distributed modified versions must follow GPL-3.0 and preserve the required license and copyright notices.
 
-Third-party models, checkpoints, LoRAs, libraries, tools, and services keep their own licenses and terms. Check the applicable license before using, sharing, or selling outputs from a specific model or asset. Resource-monitor behavior is adapted from MIT-licensed ComfyUI-Crystools; see [Third-Party Notices](THIRD_PARTY_NOTICES.md).
+Third-party models, checkpoints, LoRAs, libraries, tools, and services keep their own licenses and terms. Check the applicable license before using, sharing, or selling outputs from a specific model or asset.
 
 ## Release Notes
 

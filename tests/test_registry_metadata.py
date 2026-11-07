@@ -181,7 +181,6 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "workflow-diagnostics",
         "gpt-gemini-report",
         "free-vram",
-        "resource-monitor",
         "comfyui-stable",
         "portable-comfyui",
         "unsloth",
@@ -195,8 +194,6 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "License :: OSI Approved :: GNU General Public License v3 (GPLv3)" in classifiers
     assert pyproject["project"]["dependencies"] == [
         "openai-whisper>=20250625",
-        "nvidia-ml-py>=12",
-        "psutil>=5.9",
         "urllib3>=2.7,<3",
     ]
     requirements = [
@@ -224,6 +221,13 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert BANNER_PATH.exists()
     assert BANNER_PATH.stat().st_size > 100_000
     assert "docs/images/deno-custom-nodes-banner.jpg" in README_PATH.read_text(encoding="utf-8")
+
+
+def test_resource_monitor_stays_removed():
+    # 0.7.127 removed the top-bar Resource Monitor; ComfyUI-Crystools covers it.
+    assert not (REPO_ROOT / "deno_resource_monitor.py").exists()
+    assert not (REPO_ROOT / "web" / "js" / "deno_resource_monitor.js").exists()
+    assert "deno_resource_monitor" not in (REPO_ROOT / "__init__.py").read_text(encoding="utf-8")
 
 
 def test_manager_node_list_matches_public_node_registration():

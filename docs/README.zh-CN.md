@@ -124,20 +124,15 @@
 
 ### 05 · 整理
 
-让大型工作流图保持清晰易读，并随时掌握机器状态。
+让大型工作流图保持清晰易读。
 
 <p align="center">
   <img src="images/readme/visual-fold.webp" alt="Visual Fold：三个选中的节点折叠成一个 Folded · 3 标签" width="880">
 </p>
 
-<p align="center">
-  <img src="images/readme/resource-monitor-topbar.webp" alt="ComfyUI 顶部栏中的 Resource Monitor 仪表和清理按钮" width="678">
-</p>
-
 | 工具 | 功能 | 需要 |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | 把选中的节点或组折叠成一个紧凑标签，无需使用子图 | — |
-| [Resource Monitor](#deno-resource-monitor) | 在顶部栏显示 CPU、RAM、GPU、VRAM 和温度仪表，并提供模型清理 | 读取 GPU 数据需要 NVIDIA NVML |
 | [Floating Tools](#deno-floating-tools) | 释放 VRAM、查看 ComfyUI Stable 更新状态，以及可直接交给 GPT/Gemini 的 Error Help | 默认关闭 |
 | [Node info button](#node-info-button) | 在每个 Deno 节点上提供快速说明和更新记录 | — |
 
@@ -821,40 +816,6 @@ Deno Visual Fold 是用于整理大型 ComfyUI 图的、仅作视觉用途的辅
 
 这与 ComfyUI Subgraph 不同。Subgraph 会把节点移入子图，功能强大，但当工作流依赖于在主图中保留 `Get` / `Set` 节点或父子图结构时，可能不太合适。Visual Fold 仅用于简单的视觉整理。它不会把所选节点变成子图，也不会改变工作流逻辑。
 
-#### Deno Resource Monitor
-
-Deno Resource Monitor 会在 ComfyUI 顶部栏加入紧凑的 CPU、RAM、GPU、VRAM 和 GPU 温度仪表，以及一个模型/缓存清理按钮。这两项功能相互独立，在 `Settings > DENO > Tools > Resource Monitor` 下默认都是 **Auto**。
-
-<img src="images/readme/resource-monitor-topbar.webp" alt="ComfyUI 顶部栏中 Run 按钮旁边的 Resource Monitor" width="678">
-
-拖动六点手柄，可把 DENO 栏移动到窗口中的任意位置。拖动时，其顶部栏位置会出现 **Dock to top** 目标；在此处放开即可吸附回去。浮动栏的旋转按钮可在水平和垂直布局之间切换，并保持标签直立。位置和方向会记录在此浏览器中。在 `Settings > DENO > Tools > Resource Monitor` 下，`DENO resource monitor placement` 提供 `Top / Floating`，包括把放错位置的栏恢复到顶部的方法。
-
-<details>
-<summary>Auto 模式、Crystools、清理与布局</summary>
-
-这些仪表与 Crystools 默认的水平外观一致：60 × 30 px 的条、5 px 的间距、相同的标签/数值位置和颜色，温度填充会从绿色渐变为红色。DENO 的清理按钮与它们并排显示；窗口较窄时会使用单独的紧凑行，而不移动现有的工具栏控件。
-
-| 现有设置 | Auto 下的资源仪表 | Auto 下的清理按钮 |
-| --- | --- | --- |
-| 已加载 Crystools，已有的完整清理按钮可见 | 保持 Crystools 不变 | 保留现有按钮 |
-| 已加载 Crystools，缺少完整清理按钮 | 保持 Crystools 不变 | 仅添加 DENO 按钮 |
-| 无 Crystools，已有的完整清理按钮可见 | 添加 DENO 仪表 | 添加 DENO 按钮；同时保留现有按钮 |
-| 两者都没有 | 添加 DENO 仪表 | 添加 DENO 按钮 |
-
-没有 Crystools 时，无论是否有其他清理按钮，默认都使用完整的 DENO 栏（仪表和清理按钮）。只有存在 Crystools 时，Auto 才会使用已有的、可见的完整清理按钮，而不是添加 DENO 的按钮。显式设为 Off 的设置仍然优先。
-
-Auto 不会改动其他扩展的设置、元素和事件处理程序。它也尊重用户有意隐藏的 Crystools，并且在 Crystools 已注册时不会启动 DENO 的硬件轮询。如果扩展检测失败，Auto 会保守地不加入仪表。仅凭桌面版/便携版标签和 Manager 启动参数并不能决定结果：先看 Crystools 是否存在，然后看实际可见的顶部栏。仅卸载模型的按钮不等同于完整的模型和执行缓存清理。
-
-`DENO resource monitor` 提供 `Auto / DENO / Off`；`DENO` 会明确替换 Crystools 的仪表。`DENO memory cleanup button` 另外提供 `Auto / Show / Off`。把两者都设为 `Off` 即可同时停用这两项功能。清理使用 ComfyUI 内置的 `/free` 端点，当队列繁忙、状态未知或 ComfyUI 设置中禁用了手动卸载时会被阻止。通知只确认请求已发出，不保证释放了多少 VRAM。它不会删除模型文件或磁盘缓存。
-
-GPU 读数目前使用 NVIDIA NVML；不支持或不可用的 GPU 字段会被隐藏，而 CPU/RAM 和清理功能仍可使用。在多 GPU 系统上，该栏显示 NVIDIA GPU 索引 0（或第一个可用的 GPU），不一定是用于生成的 GPU。监控仅在其浏览器标签页可见时采样，不会运行常驻的广播线程。仅按钮模式不会发出任何 DENO 遥测请求。资源监控行为和 NVIDIA 指标的选择改编自采用 MIT 许可证的 ComfyUI-Crystools；参见 [Third-Party Notices](../THIRD_PARTY_NOTICES.md)。
-
-垂直布局是一条 44px 宽的侧栏，小标签位于居中的等宽数字读数之上，单位符号更小，并带有细的使用率线。其手柄以及清理/旋转按钮构成紧凑的一列，便于将监控放置在画布的某一侧。
-
-在 Top 模式下，窗口狭窄或拥挤时，只有 DENO 控件会移到顶部栏下方的紧凑行；现有控件保持原位。窗口变宽、空间足够时，DENO 会回到顶部栏。Floating 模式会保持所选位置，并在调整大小后让该栏适配窗口。停靠时始终显示水平栏。
-
-</details>
-
 #### Deno Floating Tools
 
 Deno Floating Tools 是位于 `Settings > DENO > Tools` 下的可选辅助功能，默认关闭。
@@ -880,7 +841,6 @@ Deno Custom Nodes 默认从严限制文件、网络和密钥的处理。
 - **翻译：**Ideogram 翻译仅使用内置的 Google、MyMemory 和 LibreTranslate 服务。
 - **模型链接：**Easy Model Download Helper 在浏览器中打开官方网页链接，绝不会用 Python 下载文件。
 - **报告：**Error Help 是只读的，先显示报告再复制，并遮蔽 token、cookie、password 和 private key 等常见敏感信息。
-- **遥测：**Resource Monitor 仅在其浏览器标签页可见时采样；仅按钮模式不会发出任何 DENO 遥测请求。
 
 具体规则请参阅[文件与翻译访问](SECURITY_CONFIGURATION.md)。
 
@@ -917,7 +877,7 @@ python -m pip install -r requirements.txt
 
 本仓库中由 Deno 拥有的节点、文档、示例、工作流和项目内素材，采用 GNU GPL v3.0（`GPL-3.0-only`）发布。你可以在 [GPL-3.0 条款](../LICENSE)下使用、学习、修改和再分发，包括用于商业用途。分发修改版本时必须遵循 GPL-3.0，并保留所需的许可证和版权声明。
 
-第三方模型、checkpoint、LoRA、库、工具和服务仍适用各自的许可证和条款。在使用、分享或销售特定模型或素材的输出之前，请确认适用的许可证。资源监控的行为改编自采用 MIT 许可证的 ComfyUI-Crystools；参见 [Third-Party Notices](../THIRD_PARTY_NOTICES.md)。
+第三方模型、checkpoint、LoRA、库、工具和服务仍适用各自的许可证和条款。在使用、分享或销售特定模型或素材的输出之前，请确认适用的许可证。
 
 ## 发布说明
 
