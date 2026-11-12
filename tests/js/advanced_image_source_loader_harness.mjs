@@ -467,4 +467,53 @@ assert.equal(
   false,
 );
 
+// A different picture uploaded or picked again under a name the page already
+// showed must get a new thumbnail address; untouched paths keep the plain one.
+assert.doesNotMatch(hooks.getPreviewUrl("versioned/a.png"), /_deno_preview=/,
+  "a saved path the page never changed keeps its plain preview address");
+hooks.markInputPreviewChanged("versioned/a.png");
+const firstVersionUrl = hooks.getPreviewUrl("versioned/a.png");
+assert.match(firstVersionUrl, /filename=a\.png/);
+assert.match(firstVersionUrl, /_deno_preview=/, "a changed path gets a per-page preview version");
+assert.equal(hooks.getPreviewUrl("versioned/a.png"), firstVersionUrl, "redraws reuse the same address");
+assert.doesNotMatch(hooks.getPreviewUrl("versioned/b.png"), /_deno_preview=/, "other paths stay untouched");
+hooks.markInputPreviewChanged("versioned\\a.png");
+assert.notEqual(hooks.getPreviewUrl("versioned/a.png"), firstVersionUrl,
+  "the same name changed again (any separator) requests the new file");
+assert.ok(hooks.getPreviewUrls("versioned/a.png", "retry-2").every((url) => /_deno_preview=[^&]*-retry-2/.test(url)),
+  "Refresh previews keeps working on top of the version");
+hooks.markInputPreviewChanged("https://images.example/a.png");
+assert.equal(hooks.getPreviewUrls("https://images.example/a.png").length, 0, "retired sources still issue no request");
+
+const pickOwner = {};
+const pickedPaths = [];
+const loadPickFolder = hooks.showBrowserModal({
+  ownerNode: pickOwner,
+  title: "Pick input image",
+  initialStatus: "Waiting",
+  async fetchEntries() {
+    return { path: "", parent: "", folders: [], files: [{ name: "picked/replaced.png", display_name: "replaced.png" }] };
+  },
+  getPreviewUrls(entry) {
+    return hooks.inputImagePreviewUrls(entry.name);
+  },
+  getSourceValue(entry) {
+    return entry.name;
+  },
+  setPaths(paths) {
+    pickedPaths.push(...paths);
+  },
+  getPaths() {
+    return [];
+  },
+  waitForManualLoad: true,
+});
+await loadPickFolder("");
+assert.doesNotMatch(hooks.getPreviewUrl("picked/replaced.png"), /_deno_preview=/);
+walkElements(documentTarget.body).find((element) => element.dataset.denoAdvancedBrowserCard === "true").onclick();
+walkElements(documentTarget.body).find((element) => element.tagName === "BUTTON" && element.textContent === "Add Selected").onclick();
+assert.deepEqual(pickedPaths, ["picked/replaced.png"]);
+assert.match(hooks.getPreviewUrl("picked/replaced.png"), /_deno_preview=/,
+  "a file picked from the input folder may have been replaced on disk, so its thumbnail is requested again");
+
 console.log("advanced_image_source_loader_harness passed");

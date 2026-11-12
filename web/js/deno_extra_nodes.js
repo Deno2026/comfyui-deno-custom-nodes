@@ -1343,7 +1343,9 @@ function setupMultiImageLoader(node, options = {}) {
             }
             const payload = await response.json();
             const name = String(payload?.name || "").trim();
-            return name ? (payload.subfolder ? `${payload.subfolder}/${name}` : name) : "";
+            const uploadedPath = name ? (payload.subfolder ? `${payload.subfolder}/${name}` : name) : "";
+            markInputPreviewChanged(uploadedPath);
+            return uploadedPath;
         }, maxImages === null ? null : remaining);
         let limitSkippedCount = skippedCount;
         if (uploaded.length) {
@@ -1884,7 +1886,10 @@ function setupMultiImageLoader(node, options = {}) {
             if (!selected.size) {
                 return;
             }
-            appendPaths(Array.from(selected));
+            // The file may have been replaced on disk under the same name.
+            const chosen = Array.from(selected);
+            chosen.forEach(markInputPreviewChanged);
+            appendPaths(chosen);
             closeInputFolderBrowser();
         };
 
@@ -2061,6 +2066,34 @@ function readInputImageSize(path) {
     });
 }
 
+// Thumbnails address an input image by its name. After a different picture was
+// uploaded again under a name this page had already shown, the browser could
+// reuse its earlier copy of that address: the card kept the old picture while
+// execution read the new file. Uploads and input-folder picks give the path a
+// per-page preview version. It changes only the preview request, never the
+// saved path or what runs, and stays fixed between redraws so they reuse the
+// image already shown.
+const inputPreviewVersions = new Map();
+let inputPreviewVersionCount = 0;
+
+function inputPreviewKey(path) {
+    return String(path || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function markInputPreviewChanged(path) {
+    const key = inputPreviewKey(path);
+    if (!key) {
+        return;
+    }
+    inputPreviewVersionCount += 1;
+    inputPreviewVersions.set(key, `${Date.now().toString(36)}.${inputPreviewVersionCount.toString(36)}`);
+}
+
+function withInputPreviewVersion(url, path) {
+    const version = inputPreviewVersions.get(inputPreviewKey(path));
+    return version ? `${url}&_deno_preview=${encodeURIComponent(version)}` : url;
+}
+
 function createInputImageViewUrl(path) {
     return createInputImageViewUrls(path)[0] || "/api/view?filename=&type=input";
 }
@@ -2095,7 +2128,7 @@ function createInputImageViewUrls(path) {
         urls.push(`/view?${params.toString()}`);
     }
 
-    return Array.from(new Set(urls));
+    return Array.from(new Set(urls)).map((url) => withInputPreviewVersion(url, path));
 }
 
 function setInputImageSource(image, path) {

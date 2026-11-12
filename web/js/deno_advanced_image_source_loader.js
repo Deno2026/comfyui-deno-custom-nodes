@@ -805,7 +805,9 @@ function setupAdvancedImageSourceLoader(node) {
                 continue;
             }
             const payload = await response.json();
-            uploaded.push(payload.subfolder ? `${payload.subfolder}/${payload.name}` : payload.name);
+            const uploadedPath = payload.subfolder ? `${payload.subfolder}/${payload.name}` : payload.name;
+            markInputPreviewChanged(uploadedPath);
+            uploaded.push(uploadedPath);
         }
         if (uploaded.length) {
             setPaths(getPaths().concat(uploaded));
@@ -1072,7 +1074,7 @@ function showInputFolderBrowser(node, setPaths, getPaths) {
         rootControls: null,
         initialStatus: "Loading input folder list...",
         fetchEntries: fetchInputFolderImages,
-        getPreviewUrls: (entry) => inputImagePreviewUrls(entry.name),
+        getPreviewUrls: (entry) => inputImagePreviewUrls(entry.name).map((url) => withInputPreviewVersion(url, entry.name)),
         getSourceValue: (entry) => entry.name,
         setPaths,
         getPaths,
@@ -1148,6 +1150,7 @@ function showSourceTextDialog(node, setPaths, getPaths) {
             return;
         }
         text.setCustomValidity("");
+        added.forEach(markInputPreviewChanged);
         setPaths(getPaths().concat(added));
         close();
     };
@@ -1425,7 +1428,10 @@ function showBrowserModal(options) {
     list.addEventListener("scroll", scheduleVirtualRender, { passive: true });
     window.addEventListener("resize", scheduleVirtualRender);
     addBtn.onclick = () => {
-        options.setPaths(options.getPaths().concat(Array.from(selected)));
+        // The file may have been replaced on disk under the same name.
+        const chosen = Array.from(selected);
+        chosen.forEach(markInputPreviewChanged);
+        options.setPaths(options.getPaths().concat(chosen));
         closeModal();
     };
 
@@ -1593,6 +1599,38 @@ function setImagePreviewSources(image, sources, onExhausted = undefined) {
     return urls;
 }
 
+// Thumbnails address an input image by its name. After a different picture was
+// uploaded again under a name this page had already shown, the browser could
+// reuse its earlier copy of that address: the card kept the old picture while
+// execution read the new file. Uploads, input-folder picks and typed paths give
+// the path a per-page preview version. It changes only the preview request,
+// never the saved source or what runs, and stays fixed between redraws so they
+// reuse the image already shown.
+const inputPreviewVersions = new Map();
+let inputPreviewVersionCount = 0;
+
+function inputPreviewKey(path) {
+    return normalizeSourceForPreview(path).replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function markInputPreviewChanged(path) {
+    const key = inputPreviewKey(path);
+    if (!key) {
+        return;
+    }
+    inputPreviewVersionCount += 1;
+    inputPreviewVersions.set(key, `${Date.now().toString(36)}.${inputPreviewVersionCount.toString(36)}`);
+}
+
+function inputPreviewVersionOf(path) {
+    return inputPreviewVersions.get(inputPreviewKey(path)) || "";
+}
+
+function withInputPreviewVersion(url, path) {
+    const version = inputPreviewVersionOf(path);
+    return version ? `${url}&_deno_preview=${encodeURIComponent(version)}` : url;
+}
+
 function getPreviewUrls(path, refreshToken = "") {
     const text = normalizeSourceForPreview(path);
     const location = classifySourceLocation(text);
@@ -1600,8 +1638,9 @@ function getPreviewUrls(path, refreshToken = "") {
     if (location === "input" && IMAGE_RE.test(text)) {
         urls = inputImagePreviewUrls(text);
     }
+    const previewToken = [inputPreviewVersionOf(text), refreshToken].filter(Boolean).join("-");
     return urls.map((url) => {
-        const refreshed = refreshToken ? `${url}&_deno_preview=${encodeURIComponent(refreshToken)}` : url;
+        const refreshed = previewToken ? `${url}&_deno_preview=${encodeURIComponent(previewToken)}` : url;
         return typeof api.apiURL === "function" ? api.apiURL(refreshed) : refreshed;
     });
 }
@@ -1822,6 +1861,7 @@ if (typeof window !== "undefined" && typeof window.__DENO_ADVANCED_IMAGE_SOURCE_
         bindFolderUpload,
         getPreviewUrl,
         getPreviewUrls,
+        markInputPreviewChanged,
         previewFailureHint,
         getSourceKind,
         inputImagePreviewUrls,

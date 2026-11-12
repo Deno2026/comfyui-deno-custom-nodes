@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.128 - 2026-11-12
+
+- `(Deno) Multi Image Loader`, `(Deno) MiniMax H3 Reference to Video` and `(Deno) Advanced Image Source Loader`: when a different picture is uploaded again under a file name used before (for example after deleting the old image), the thumbnail now shows the new picture. Before, the card could keep the old picture until the page was reloaded, even though runs already used the new file.
+- Nodes, inputs, widgets and saved workflows are unchanged.
+
 ## 0.7.127 - 2026-11-07
 
 - Removed the top-bar Resource Monitor (CPU, RAM, GPU and VRAM meters and its cleanup button). It took the same top-bar spot as ComfyUI-Crystools; install ComfyUI-Crystools for hardware meters. DENO Floating Tools (`Settings > DENO > Tools`) still frees VRAM.

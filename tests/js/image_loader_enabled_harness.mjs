@@ -114,7 +114,7 @@ const cases = [
   { name: "Advanced", nodeType: "DenoAdvancedImageSourceLoader", script: "deno_advanced_image_source_loader.js" },
 ];
 
-async function createRuntime(spec) {
+async function createRuntime(spec, { uploads = false } = {}) {
   const timers = new Map();
   const frames = new Map();
   let timerId = 0;
@@ -123,6 +123,7 @@ async function createRuntime(spec) {
   const window = new FakeEventTarget();
   const notifications = [];
   const measuredPaths = [];
+  const uploadRequests = [];
   const sequencer = { id: 2, type: "DenoLTXSequencer", _syncImageCount: (count) => notifications.push(count) };
   const graph = {
     links: { 1: { target_id: 2 } }, getNodeById: () => sequencer, setDirtyCanvas: noop,
@@ -149,6 +150,19 @@ async function createRuntime(spec) {
     cancelAnimationFrame(id) { frames.delete(id); },
     getComputedStyle: () => ({ width: "120px" }),
   };
+  if (uploads) {
+    // Only ComfyUI's upload route is faked; like the real server it keeps the plain name.
+    context.FormData = class {
+      constructor() { this.fields = new Map(); }
+      append(key, value) { this.fields.set(key, value); }
+    };
+    context.api.fetchApi = async (route, options = {}) => {
+      assert.equal(route, "/upload/image", "image loaders upload only through ComfyUI's image upload route");
+      const file = options.body.fields.get("image");
+      uploadRequests.push(file.name);
+      return { status: 200, ok: true, async json() { return { name: file.name, subfolder: "", type: "input" }; } };
+    };
+  }
   Object.assign(window, { setTimeout: context.setTimeout, clearTimeout: context.clearTimeout });
   const filename = path.join(repoRoot, "web/js", spec.script);
   const source = fs.readFileSync(filename, "utf8").replace(/^import .*;\r?\n/gm, "");
@@ -221,7 +235,7 @@ async function createRuntime(spec) {
       `${spec.name}: hiding fields must preserve every serialized widget slot`);
     return node;
   }
-  return { create, flush, notifications, measuredPaths };
+  return { create, flush, notifications, measuredPaths, uploadRequests };
 }
 
 const widget = (node, name) => node.widgets.find((entry) => entry.name === name);
@@ -441,6 +455,44 @@ for (const spec of cases) {
     previewNode.onRemoved?.();
   }
   for (const current of [node, reopened, oldWorkflow]) current.onRemoved?.();
+}
+
+// A different picture uploaded again under a name the page already showed must
+// get a new thumbnail address, or the browser reuses its copy of the old picture
+// while execution reads the new file. The saved path stays the plain name, and
+// redraws keep the address so nothing downloads again.
+for (const spec of cases) {
+  const runtime = await createRuntime(spec, { uploads: true });
+  const label = `${spec.name} same-name upload`;
+  const node = await runtime.create(["kept.png"]);
+  const thumb = (imagePath) => card(node, imagePath)?.querySelector("img")?.src || "";
+  const fileInput = node.panel.querySelectorAll("input").find((input) => input.type === "file" && !input.webkitdirectory);
+  assert.ok(fileInput, `${label}: the upload input exists`);
+  const upload = async (name) => {
+    await fileInput.onchange({ target: { files: [{ name }] } });
+    await runtime.flush();
+  };
+  assert.doesNotMatch(thumb("kept.png"), /_deno_preview=/, `${label}: saved paths keep their plain address`);
+
+  await upload("flower.png");
+  const first = thumb("flower.png");
+  assert.match(first, /filename=flower\.png/, `${label}: the card shows the uploaded file`);
+  assert.match(first, /_deno_preview=/, `${label}: an upload gets a per-page preview version`);
+  assert.deepEqual(savedPaths(node), ["kept.png", "flower.png"], `${label}: the saved path stays the plain name`);
+
+  card(node, "kept.png").querySelector("button").click();
+  await runtime.flush();
+  assert.equal(thumb("flower.png"), first, `${label}: redrawing the cards reuses the same address`);
+
+  card(node, "flower.png").querySelector("button").click();
+  await runtime.flush();
+  await upload("flower.png");
+  const second = thumb("flower.png");
+  assert.match(second, /_deno_preview=/, `${label}: the second upload is versioned too`);
+  assert.notEqual(second, first, `${label}: uploading the same name again must request the new file`);
+  assert.deepEqual(savedPaths(node), ["flower.png"], `${label}: the saved path stays the plain name`);
+  assert.deepEqual(runtime.uploadRequests, ["flower.png", "flower.png"]);
+  node.onRemoved?.();
 }
 
 console.log("image_loader_enabled_harness passed");
