@@ -24,6 +24,10 @@
 </p>
 
 > [!NOTE]
+> **v0.7.129** 根据 Comfy Registry 的安全审查调整了 Local LLM Loader。它现在只通过固定的本机地址连接到与 ComfyUI 运行在同一台计算机上的 Ollama 或 LM Studio。
+>
+> 如果已保存的工作流使用其他服务，请打开工作流，选择 **Ollama** 或 **LM Studio**，点击 **Refresh Models**，然后选择已安装的模型。SOS 诊断报告已移除。Floating Tools 仍提供 **Free VRAM** 和 **Check Updates**。
+>
 > **v0.7.126 新增：**[`(Deno) MiniMax H3 Tiled Sampler`](#deno-minimax-h3-tiled-sampler) 以重叠分块的方式完成放大后的 MiniMax H3 视频+音频 latent，使 16GB GPU 也能运行最后的高分辨率阶段。
 >
 > **v0.7.125** 收紧了 Local LLM 服务器地址、Easy Model Download Helper 链接以及 Ideogram Director 的图像保存。节点 ID、输入和已保存的工作流均未改变。详见 [CHANGELOG](../CHANGELOG.md)。
@@ -133,7 +137,7 @@
 | 工具 | 功能 | 需要 |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | 把选中的节点或组折叠成一个紧凑标签，无需使用子图 | — |
-| [Floating Tools](#deno-floating-tools) | 释放 VRAM、查看 ComfyUI Stable 更新状态，以及可直接交给 GPT/Gemini 的 Error Help | 默认关闭 |
+| [Floating Tools](#deno-floating-tools) | 释放显存并检查 ComfyUI 稳定版 | 默认关闭 |
 | [Node info button](#node-info-button) | 在每个 Deno 节点上提供快速说明和更新记录 | — |
 
 ## 网页工具
@@ -549,8 +553,7 @@ Dynamic VRAM 会根据显存压力移动权重，可能有意保留部分 text e
 
 主要功能：
 
-- 在 ComfyUI 中调用本地的 Ollama、LM Studio、llama.cpp、vLLM、Custom OpenAI-compatible、llama-swap 或 Unsloth Studio 模型
-- 默认仅限 localhost 的服务器安全策略：使用 `127.0.0.1` 或 `localhost`，或通过 `DENO_LOCAL_LLM_ALLOWED_HOSTS` 明确允许一个私有局域网 `IP:port`
+- 在运行 ComfyUI 的同一台电脑上使用 Ollama 或 LM Studio。
 - 在节点中刷新各 provider 专属的模型列表
 - 在卸载模型之前停止正在运行的本地 LLM 请求
 - 通过一次节点运行连接提示词批次，使本地模型在批次完成前保持加载
@@ -564,12 +567,9 @@ Dynamic VRAM 会根据显存压力移动权重，可能有意保留部分 text e
 <details>
 <summary>服务器地址、API 密钥与 provider 说明</summary>
 
-Custom、llama.cpp、vLLM、llama-swap 和 Unsloth 的服务器字段只接受服务器地址和端口，并可带可选的 `/v1`，例如 `http://127.0.0.1:8000/v1`；带 query 或其他路径的地址会被拒绝并给出提示。Ollama 和 LM Studio 的 Refresh Models、Unload 和 Stop 始终使用其固定的本地服务器，即节点运行时使用的同一个服务器。服务器出错时，会显示服务器返回的 JSON 错误信息，而不是原始响应。
+Ollama 使用 `127.0.0.1:11434`，LM Studio 使用 `127.0.0.1:1234`。如果旧工作流使用其他服务，请选择这两者之一，刷新模型列表，然后选择已安装的模型。
 
 - 在多次刷新和切换 provider 时只保留一个检测到的模型选择器，并移除旧前端会话留下的已知重复选择器，同时保留当前选择的模型
-- 使用 llama-swap 的实时运行状态与管理 API 进行手动卸载或运行后卸载；llama-swap 服务器上配置的任何超时仍负责自动卸载
-- 仅在使用 Unsloth Studio 服务器时才使用 `Unsloth` provider（默认 `http://127.0.0.1:8888/v1`）；如果 Unsloth 的 GGUF 是在 LM Studio 中运行，请选择 `LM Studio`
-- 列出 Unsloth Studio 模型，发送不含 tool 定义或 tool-choice 字段的 OpenAI 兼容 chat 请求，并使用 Unsloth Studio 的管理 API 进行手动或运行后卸载；`Keep for minutes` 不会安排定时的 Unsloth 卸载
 - 浏览器中已有的 System Prompt 预设可一次性导入，浏览器中的副本保持不变作为备份
 - 在节点和编辑器中显示实际应用的 System Prompt 预设名称；经过编辑而无法匹配的文本显示为 `Custom`
 
@@ -578,15 +578,9 @@ API 认证从 ComfyUI 主机的环境变量中读取：
 | Provider | API 密钥环境变量 |
 | --- | --- |
 | LM Studio | 可选 `DENO_LOCAL_LLM_LM_STUDIO_API_KEY`；未设置专用密钥时回退到 `DENO_LOCAL_LLM_API_KEY` |
-| llama.cpp, vLLM, Custom, llama-swap | 可选 `DENO_LOCAL_LLM_API_KEY` |
-| Unsloth | 必需 `DENO_LOCAL_LLM_UNSLOTH_API_KEY`；不使用通用密钥 |
 | Ollama | 不发送通用密钥 |
 
-请在启动 ComfyUI 之前设置相应的变量，修改后需重启 ComfyUI。密钥会以 Bearer token 的形式发送，用于模型发现、chat，以及 provider 支持的管理请求，包括 LM Studio 卸载和 llama-swap 管理。未配置密钥时，可选认证的 provider 仍可在没有认证头的情况下工作。密钥绝不会保存到工作流或 PNG metadata 中。
-
-对于同一台 PC 上由 Docker 托管的 LLM 服务器，请把服务器端口发布到主机的 loopback 上，并使用相应的本地 URL。认证不会改变 localhost/私有局域网的 URL 规则；请只使用可信的服务器，因为配置的密钥会发送给所选的受支持 provider。
-
-远程 LM Studio 说明：专用的 `LM Studio` provider 目前使用 `http://127.0.0.1:1234/v1`。要调用同一可信局域网内你自己的另一台 PC 上的 LM Studio，请在那台 PC 上启用 **Serve on Local Network**，在启动 ComfyUI 之前设置精确的允许列表（例如 `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`），重启 ComfyUI，然后选择 `Custom`，并把 `http://192.168.1.50:1234/v1` 作为 Custom Server URL。如果该服务器需要认证，还要在重启之前在 ComfyUI 主机上设置 `DENO_LOCAL_LLM_API_KEY`。允许列表只接受精确的私有 IP 与端口组合，并且绝不会保存到工作流或 PNG metadata 中。Custom 不使用 LM Studio 专用的卸载辅助功能，因此请用主机防火墙把该服务器端口限制为仅 ComfyUI 所在的 PC 可访问，并在 LM Studio 中管理远程模型。
+如果 LM Studio 需要密钥，请在启动 ComfyUI 前在本机设置。更改密钥后请重启 ComfyUI。
 
 LM Studio 兼容性说明：如果 LM Studio 在任何生成输出开始之前就拒绝可选的 reasoning-control 字段，节点会去掉该字段重试一次。之后由所选的服务器和模型决定其默认的 reasoning 行为；Thinking 开关无法强制开启服务器未提供的 reasoning 模式。
 
@@ -820,11 +814,7 @@ Deno Visual Fold 是用于整理大型 ComfyUI 图的、仅作视觉用途的辅
 
 Deno Floating Tools 是位于 `Settings > DENO > Tools` 下的可选辅助功能，默认关闭。
 
-启用后，ComfyUI 画面上会出现一个可拖动的小型 Deno 图标。面板可通过 ComfyUI 内置的内存清理端点释放 ComfyUI 的 VRAM，以只读方式显示 ComfyUI Stable 核心版本的当前/最新状态，并在运行失败时打开 Error Help 报告。
-
-Error Help 会生成可直接交给 GPT/Gemini 的报告，其中包含当前工作流、Python 可执行文件与环境类型、软件包版本、GPU 详情、最近的 traceback/日志上下文以及自定义节点摘要。它是只读的，先打开报告窗口，只有在你点击 `Copy Report` 时才会复制。token、cookie、password、private key 和 URL 凭据等常见敏感信息在复制前会被遮蔽。
-
-Floating Tools 不会安装、更新、重启、修复或修改工作流。仅在工具开启期间，它才会挂接 ComfyUI 的请求函数。
+打开可拖动的 Deno 图标，即可释放显存或检查是否有更新的 ComfyUI 稳定版。
 
 #### Node info button
 
@@ -837,10 +827,9 @@ Floating Tools 不会安装、更新、重启、修复或修改工作流。仅�
 Deno Custom Nodes 默认从严限制文件、网络和密钥的处理。
 
 - **文件：**图像加载器只读取 ComfyUI 的 `input` 文件夹。在重新打开使用过外部路径或 URL 的工作流之前，请先上传外部图像。Ideogram Director 的 Save Image 只复制图像文件。
-- **Local LLM：**服务器默认仅限 localhost。私有局域网服务器只有通过精确的 `DENO_LOCAL_LLM_ALLOWED_HOSTS` 允许列表才能使用，API 密钥从 ComfyUI 主机的环境变量读取，绝不会保存到工作流或 PNG metadata 中。
+- **Local LLM** LM Studio 密钥从运行 ComfyUI 的电脑读取，仅发送至本机固定的 LM Studio 服务地址。
 - **翻译：**Ideogram 翻译仅使用内置的 Google、MyMemory 和 LibreTranslate 服务。
 - **模型链接：**Easy Model Download Helper 在浏览器中打开官方网页链接，绝不会用 Python 下载文件。
-- **报告：**Error Help 是只读的，先显示报告再复制，并遮蔽 token、cookie、password 和 private key 等常见敏感信息。
 
 具体规则请参阅[文件与翻译访问](SECURITY_CONFIGURATION.md)。
 

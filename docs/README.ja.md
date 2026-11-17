@@ -24,6 +24,10 @@
 </p>
 
 > [!NOTE]
+> **v0.7.129** では、Comfy Registry のセキュリティ審査を受け、Local LLM Loader の接続先を ComfyUI と同じコンピューター上の Ollama と LM Studio の固定ローカルアドレスに限定しました。
+>
+> 別のプロバイダーで保存したワークフローは、開いて **Ollama** または **LM Studio** を選び、**Refresh Models** を押してインストール済みのモデルを選択してください。SOS 診断レポートは廃止しました。Floating Tools の **Free VRAM** と **Check Updates** は引き続き使えます。
+>
 > **v0.7.126 の新機能:** [`(Deno) MiniMax H3 Tiled Sampler`](#deno-minimax-h3-tiled-sampler) は、アップスケールした MiniMax H3 の動画+音声 latent を重なりのある tile に分けて仕上げます。これにより 16GB GPU でも最終の高解像度パスを実行できます。
 >
 > **v0.7.125** では、Local LLM のサーバーアドレス、Easy Model Download Helper のリンク、Ideogram Director の画像保存を厳格にしました。ノード ID、入力、保存済みワークフローは変わりません。[CHANGELOG](../CHANGELOG.md) を参照してください。
@@ -133,7 +137,7 @@ ComfyUI が動作する環境から始めてください。
 | ツール | 内容 | 必要なもの |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | サブグラフを使わずに、選択したノードやグループを1つのコンパクトなピルに折りたたみ | — |
-| [Floating Tools](#deno-floating-tools) | VRAM の解放、ComfyUI Stable の更新状況、GPT/Gemini 向けの Error Help | 初期状態ではオフ |
+| [Floating Tools](#deno-floating-tools) | VRAM の解放と ComfyUI Stable のバージョン確認 | 初期状態ではオフ |
 | [Node info button](#node-info-button) | 各 Deno ノードのクイックヘルプと更新ノート | — |
 
 ## ウェブツール
@@ -549,8 +553,7 @@ system prompt、user prompt、テンプレート、JSON テキストのための
 
 主な機能:
 
-- ローカルの Ollama、LM Studio、llama.cpp、vLLM、Custom OpenAI-compatible、llama-swap、Unsloth Studio のモデルを ComfyUI から呼び出し
-- 既定で localhost に限定するサーバーの安全策: `127.0.0.1` または `localhost` を使うか、`DENO_LOCAL_LLM_ALLOWED_HOSTS` で1つのプライベート LAN の `IP:port` を明示的に許可します
+- ComfyUI と同じ PC で動作する Ollama または LM Studio を呼び出します。
 - ノードから、プロバイダーごとのモデルリストを更新
 - モデルを unload する前に、実行中のローカル LLM リクエストを停止
 - プロンプトのバッチを1回のノード実行でつなげることで、バッチが終わるまでローカルモデルを読み込んだままにできます
@@ -564,12 +567,9 @@ system prompt、user prompt、テンプレート、JSON テキストのための
 <details>
 <summary>サーバーアドレス、API キー、プロバイダーの注意点</summary>
 
-Custom、llama.cpp、vLLM、llama-swap、Unsloth のサーバー欄には、サーバーアドレスとポート、および任意の `/v1` だけを指定できます。たとえば `http://127.0.0.1:8000/v1` です。query やその他のパスは、ヒント付きで拒否されます。Ollama と LM Studio の Refresh Models、Unload、Stop は、ノードの実行に使うものと同じ、固定のローカルサーバーを常に使います。サーバーのエラーには、生のレスポンスではなく、サーバーの JSON エラーメッセージが表示されます。
+Ollama は `127.0.0.1:11434`、LM Studio は `127.0.0.1:1234` を使用します。他のプロバイダーで保存したワークフローでは、どちらかを選び、一覧を更新してインストール済みのモデルを選んでください。
 
 - 更新を繰り返したりプロバイダーを変えたりしても、検出したモデルのセレクターは1つに保ち、古いフロントエンドのセッションに由来する既知の重複セレクターは、選択したモデルを保ったまま取り除きます
-- 手動または実行後の unload には、llama-swap のライブ実行状態と管理 API を使います。llama-swap サーバーに設定したタイムアウトがあれば、自動 unload はそれに従います
-- `Unsloth` プロバイダーは Unsloth Studio サーバー(既定は `http://127.0.0.1:8888/v1`)でのみ使います。Unsloth の GGUF を LM Studio の中で動かしている場合は、`LM Studio` を選んでください
-- Unsloth Studio のモデル一覧の取得、tool-definition や tool-choice のフィールドを含まない OpenAI 互換のチャットリクエストの送信、手動または実行後の unload のための Unsloth Studio 管理 API の利用ができます。`Keep for minutes` は、時間指定の Unsloth unload を予約しません
 - ブラウザ内の既存の System Prompt プリセットは一度だけインポートでき、ブラウザ側のコピーはバックアップとして手を加えずに残ります
 - 実際に適用されている System Prompt プリセット名を、ノードとエディターの両方で確認できます。一致しない編集済みのテキストは `Custom` と表示されます
 
@@ -578,15 +578,9 @@ API 認証は、ComfyUI を動かしているホストの環境から読み込�
 | プロバイダー | API キーの環境変数 |
 | --- | --- |
 | LM Studio | 任意の `DENO_LOCAL_LLM_LM_STUDIO_API_KEY`。専用のキーが未設定の場合は `DENO_LOCAL_LLM_API_KEY` を使います |
-| llama.cpp, vLLM, Custom, llama-swap | 任意の `DENO_LOCAL_LLM_API_KEY` |
-| Unsloth | 必須の `DENO_LOCAL_LLM_UNSLOTH_API_KEY`。共通のキーは使いません |
 | Ollama | 共通のキーは送信されません |
 
-ComfyUI を起動する前に適切な変数を設定し、変更した後は ComfyUI を再起動してください。キーは、モデルの検出、チャット、プロバイダーが対応する管理リクエスト(LM Studio の unload と llama-swap の管理を含む)に、Bearer トークンとして送られます。任意のプロバイダーは、キーが設定されていない場合は認証ヘッダーなしで引き続き動作します。キーがワークフローや PNG メタデータに保存されることはありません。
-
-同じ PC 上の Docker でホストした LLM サーバーでは、サーバーのポートをホストのループバックに公開し、対応するローカル URL を使ってください。認証があっても localhost/プライベート LAN の URL のルールは変わりません。設定したキーは選択した対応プロバイダーに送られるため、信頼できるサーバーだけを使ってください。
-
-リモートの LM Studio についての注意: 専用の `LM Studio` プロバイダーは、現在 `http://127.0.0.1:1234/v1` を使います。同じ信頼できる LAN 上にある自分の別の PC の LM Studio を呼び出すには、その PC で **Serve on Local Network** を有効にし、ComfyUI を起動する前に厳密な許可リストを設定します(例: `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`)。ComfyUI を再起動した後、`Custom` を選び、Custom Server URL に `http://192.168.1.50:1234/v1` を使います。そのサーバーが認証を必要とする場合は、再起動する前に ComfyUI のホストに `DENO_LOCAL_LLM_API_KEY` も設定してください。許可リストが受け付けるのは、プライベート IP とポートの組を正確に指定したものだけで、ワークフローや PNG メタデータに保存されることはありません。Custom は LM Studio 固有の unload ヘルパーを使わないため、サーバーのポートはホストのファイアウォールで ComfyUI の PC に限定し、リモートのモデルは LM Studio から管理してください。
+LM Studio で認証が必要な場合は、ComfyUI の起動前に同じ PC でキーを設定してください。変更後は ComfyUI を再起動してください。
 
 LM Studio の互換性についての注意: 生成された出力が始まる前に、LM Studio が任意の reasoning 制御フィールドを拒否した場合、ノードはそのフィールドを除いて1回だけ再試行します。その後は、選択したサーバーとモデルが既定の reasoning の挙動を決めます。サーバーが公開していない reasoning モードを、Thinking トグルで強制することはできません。
 
@@ -820,11 +814,7 @@ Deno Visual Fold は、大きな ComfyUI グラフを整理するための、視
 
 Deno Floating Tools は、`Settings > DENO > Tools` にある任意の補助機能です。初期状態ではオフです。
 
-有効にすると、ComfyUI の画面に、ドラッグできる小さな Deno アイコンが追加されます。パネルから、ComfyUI 組み込みのメモリクリーンアップのエンドポイントを使って ComfyUI の VRAM を解放し、ComfyUI Stable のコアリリースの現在/最新の状況を読み取り専用で確認し、実行が失敗したときに Error Help のレポートを開けます。
-
-Error Help は、現在のワークフロー、Python 実行ファイルと環境の種類、パッケージのバージョン、GPU の詳細、直近の traceback/ログの文脈、カスタムノードの概要をまとめた、GPT/Gemini 向けのレポートを作成します。読み取り専用で、まずレポートのウィンドウを開き、`Copy Report` をクリックしたときだけコピーします。token、cookie、password、private key、URL の認証情報といった一般的な機密情報は、コピーする前にマスクされます。
-
-Floating Tools は、インストール、更新、再起動、修復、ワークフローの変更を一切行いません。ツールがオンの間だけ、ComfyUI のリクエスト関数にフックします。
+移動できる Deno アイコンから VRAM を解放したり、ComfyUI Stable の新しいバージョンを確認したりできます。
 
 #### Node info button
 
@@ -837,10 +827,9 @@ Floating Tools は、インストール、更新、再起動、修復、ワー�
 Deno Custom Nodes は、ファイル、ネットワーク、機密情報の扱いを、既定で狭く保ちます。
 
 - **ファイル:** 画像ローダーが読み込むのは、ComfyUI の `input` フォルダーだけです。外部のパスや URL を使っていたワークフローを開き直す前に、外部の画像をアップロードしてください。Ideogram Director の Save Image がコピーするのは、画像ファイルだけです。
-- **Local LLM:** サーバーは既定で localhost です。プライベート LAN のサーバーは、`DENO_LOCAL_LLM_ALLOWED_HOSTS` の厳密な許可リストを通した場合にだけ動作し、API キーは ComfyUI のホストの環境から読み込まれて、ワークフローや PNG メタデータには保存されません。
+- **Local LLM** LM Studio の認証キーは ComfyUI の PC から読み取り、その PC 上の固定の LM Studio サーバーにだけ送信します。
 - **翻訳:** Ideogram の翻訳には、組み込みの Google、MyMemory、LibreTranslate のサービスだけを使います。
 - **モデルのリンク:** Easy Model Download Helper は、公式のウェブリンクをブラウザで開くだけで、Python でファイルをダウンロードすることはありません。
-- **レポート:** Error Help は読み取り専用で、コピーする前にレポートを表示し、token、cookie、password、private key といった一般的な機密情報をマスクします。
 
 正確なルールは、[ファイルと翻訳へのアクセス](SECURITY_CONFIGURATION.md)を参照してください。
 

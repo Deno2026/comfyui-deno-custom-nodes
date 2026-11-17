@@ -342,7 +342,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 name: "DenoLocalLLMRefiner",
                 input: {{
                     required: {{
-                        provider: [["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap"], {{ default: "Ollama" }}],
+                        provider: [["Ollama", "LM Studio"], {{ default: "Ollama" }}],
                         ollama_model: [["gemma3:1b"], {{ default: "gemma3:1b" }}],
                         lm_studio_model: [["google/gemma-4-e4b"], {{ default: "google/gemma-4-e4b" }}],
                         custom_server_url: ["STRING", {{ default: "http://127.0.0.1:8000/v1" }}],
@@ -883,7 +883,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                     title: "DenoLocalLLMRefiner",
                     graph,
                     widgets: [
-                        {{ name: "provider", label: "Provider", type: "combo", value: "Ollama", options: {{ values: ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap"] }} }},
+                        {{ name: "provider", label: "Provider", type: "combo", value: "Ollama", options: {{ values: ["Ollama", "LM Studio"] }} }},
                         {{ name: "ollama_model", label: "Ollama Model", type: "combo", value: "gemma3:1b", options: {{ values: ["gemma3:1b"] }} }},
                         {{ name: "lm_studio_model", label: "LM Studio Model", type: "combo", value: "google/gemma-4-e4b", options: {{ values: ["google/gemma-4-e4b"] }} }},
                         {{ name: "custom_server_url", label: "Server URL", type: "text", value: "http://127.0.0.1:8000/v1" }},
@@ -935,7 +935,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(api.getWidget(copiedLoaderNode, "thinking").value === true, "Loader copy/paste setup must restore Thinking On");
             assert(api.getWidget(copiedLoaderNode, "seed").value === 42, "Loader copy/paste setup must restore the saved seed");
             assert(api.getWidget(copiedLoaderNode, "prompt").value === "Prompt text", "Loader copy/paste setup must restore the saved prompt text");
-            assert(api.getLocalLLMNodeState(copiedLoaderNode).thinking === "", "Loader copy/paste setup must not restore saved private Thinking");
+            assert(api.getLocalLLMNodeState(copiedLoaderNode).thinking.includes("Choose Ollama or LM Studio"), "Restoring a retired provider shows how to migrate");
             assert(copiedLoaderNode.properties.deno_local_llm_state.thinking === "", "Loader copy/paste setup must scrub private Thinking from properties");
             assert(copiedLoaderNode.inputs.filter((input) => input.name === "audio_context").length === 1, "Fresh setup must add one audio analysis socket");
             const copiedPromptWidget = api.getWidget(copiedLoaderNode, "prompt");
@@ -948,7 +948,11 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             copiedLoaderNode.size = [590, 630];
             const restoredPromptLayout = copiedPromptWidget.computeLayoutSize(copiedLoaderNode);
             assert(grownPromptLayout.minHeight === 90 && restoredPromptLayout.minHeight === 90, "Growing a Loader must not ratchet its Prompt minimum and block shrinking back to the saved height");
+            const copiedProvider = api.getWidget(copiedLoaderNode, "provider");
+            copiedProvider.value = "LM Studio";
+            copiedProvider.callback?.("LM Studio");
             api.setupNode(copiedLoaderNode);
+            assert(copiedProvider.value === "LM Studio", "Repeated setup must keep a provider chosen after a legacy workflow opens");
             assert(copiedLoaderNode.inputs.filter((input) => input.name === "audio_context").length === 1, "Repeated setup must keep one audio analysis socket");
             assert(typeof copiedPromptWidget.computeSize === "undefined" && copiedPromptWidget.computeLayoutSize(copiedLoaderNode).minHeight === 90, "Repeated setup must preserve the non-ratcheting native Prompt layout");
             const legacyPromptNode = makeCopiedLoaderNode(149);
@@ -1120,11 +1124,6 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 repairedUrlPrompt === false && urlPromptWidget.value.startsWith("https://example.com/reference.png"),
                 "A real prompt that starts with a URL must never be erased as shifted legacy data"
             );
-            assert(
-                api.normalizeServerUrlValue("127.0.0.1:8080/v1") === "http://127.0.0.1:8080/v1",
-                "Scheme-less local server addresses must be normalized instead of silently replaced"
-            );
-            assert(api.normalizeServerUrlValue("127.0.0.1:99999/v1") === "", "Out-of-range server ports must be rejected");
             assert(api.isShiftedCustomModelValue("model:1234") === false, "A colon-bearing saved model id must not be misclassified as a server URL");
             let originalBeforeQueuedCalls = 0;
             let originalAfterQueuedCalls = 0;
@@ -1147,8 +1146,8 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             }};
             api.installLocalLLMQueueCallbacks(queueLifecycleNode);
             queueLifecycleNode.widgets[1].beforeQueued();
-            assert(originalBeforeQueuedCalls === 1, "Server URL wrapper must preserve the original beforeQueued callback");
-            assert(queueLifecycleNode.widgets[1].value === "http://127.0.0.1:8080/v1", "Queue preflight must normalize a scheme-less server URL in place");
+            assert(originalBeforeQueuedCalls === 1, "The original legacy callback must be left untouched");
+            assert(queueLifecycleNode.widgets[1].value === "127.0.0.1:8080/v1", "Ignored legacy URL slot must not be used during queueing");
             assert(queueLifecycleNode.widgets[2].value === 40, "Seed must not change before a queue succeeds");
             queueLifecycleNode.widgets[2].afterQueued();
             assert(originalAfterQueuedCalls === 1, "Seed wrapper must preserve the original afterQueued callback");

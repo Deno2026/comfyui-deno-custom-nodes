@@ -36,7 +36,6 @@ ZIP_INSTALLER_URL = "https://github.com/Deno2026/comfyui-deno-custom-nodes/raw/r
 def test_known_registry_scanner_false_positive_literals_stay_out_of_package_sources():
     source_checks = {
         "deno_local_llm_refiner.py": ("os.environ.get(", "os.environ[", "os.getenv("),
-        "deno_sos_report.py": ("os.environ.get(", "os.environ[", "os.getenv("),
         "deno_translate_engine.py": ('"su"', "'su'", "os.environ", "os.getenv", "getenv"),
         "web/js/deno_ideogram_director.js": (".bind(",),
         "web/js/deno_local_llm_refiner.js": (".bind(",),
@@ -117,7 +116,7 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
     assert "LTX 2.5" in description
     assert "Bernini Prompt Guide" in description
     assert "Local LLM Loader and Reviewer" in description
-    assert "GPT/Gemini-ready Error Help reports" in description
+    assert "Ollama and LM Studio" in description
     assert "audio/image review gates" in description
     assert "Bernini conditioning" in description
     assert "Wan 2.2" in description
@@ -175,16 +174,9 @@ def test_pyproject_declares_registry_metadata_for_comfy_manager_discovery():
         "multi-image-loader",
         "visual-fold",
         "floating-tools",
-        "error-help",
-        "comfyui-error-help",
-        "sos-report",
-        "workflow-diagnostics",
-        "gpt-gemini-report",
         "free-vram",
         "comfyui-stable",
         "portable-comfyui",
-        "unsloth",
-        "unsloth-studio",
     }
     assert required_keywords.issubset(set(keywords))
     assert pyproject["project"]["requires-python"] == ">=3.10"

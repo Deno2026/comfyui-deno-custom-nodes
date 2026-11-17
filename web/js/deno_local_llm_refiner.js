@@ -10,7 +10,6 @@ const GATE_DISPLAY_NAME = "(Deno) Local LLM Reviewer";
 const GATE_LEGACY_DISPLAY_NAMES = new Set(["(Deno) AI Review Gate", "(Deno) Local LLM Gate"]);
 const GENERATED_PREFIX = "deno_local_llm_";
 const GATE_GENERATED_PREFIX = "deno_local_llm_gate_";
-const OPENAI_MODEL_PICKER_NAME = `${GENERATED_PREFIX}model_picker`;
 const DEFAULT_WIDTH = 560;
 const GATE_DEFAULT_WIDTH = 420;
 const PREVIEW_HEIGHT = 150;
@@ -54,36 +53,9 @@ const LOADER_WIDGET_SOCKET_NAMES = new Set([
 ]);
 const PROVIDER_OLLAMA = "Ollama";
 const PROVIDER_LM_STUDIO = "LM Studio";
-const PROVIDER_LLAMA_CPP = "llama.cpp";
-const PROVIDER_VLLM = "vLLM";
-const PROVIDER_CUSTOM = "Custom";
-const PROVIDER_LLAMA_SWAP = "llama-swap";
-const PROVIDER_UNSLOTH = "Unsloth";
-const LEGACY_PROVIDER_CUSTOM = "Custom Local Server";
-const PROVIDER_VALUES = [
-    PROVIDER_OLLAMA,
-    PROVIDER_LM_STUDIO,
-    PROVIDER_LLAMA_CPP,
-    PROVIDER_VLLM,
-    PROVIDER_CUSTOM,
-    PROVIDER_LLAMA_SWAP,
-    PROVIDER_UNSLOTH,
-];
-const OPENAI_COMPATIBLE_PROVIDERS = new Set([
-    PROVIDER_LLAMA_CPP,
-    PROVIDER_VLLM,
-    PROVIDER_CUSTOM,
-    PROVIDER_LLAMA_SWAP,
-    PROVIDER_UNSLOTH,
-]);
-const OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434";
-const LM_STUDIO_DEFAULT_URL = "http://127.0.0.1:1234/v1";
-const LLAMA_CPP_DEFAULT_URL = "http://127.0.0.1:8080/v1";
-const VLLM_DEFAULT_URL = "http://127.0.0.1:8000/v1";
-const CUSTOM_DEFAULT_URL = "http://127.0.0.1:8000/v1";
-const LLAMA_SWAP_DEFAULT_URL = "http://127.0.0.1:8080/v1";
-const UNSLOTH_DEFAULT_URL = "http://127.0.0.1:8888/v1";
-const LEGACY_CUSTOM_DEFAULT_URL = CUSTOM_DEFAULT_URL;
+const PROVIDER_VALUES = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO];
+// Older workflows could serialize an extra model-picker row for these providers.
+const LEGACY_CUSTOM_PROVIDERS = new Set(["llama.cpp", "vLLM", "Custom", "llama-swap", "Unsloth", "Custom Local Server"]);
 const MODEL_MEMORY_VALUES = ["Unload after run", "Keep for minutes", "Keep loaded"];
 const MODEL_MEMORY_ALIASES = {
     "Free VRAM after batch": "Unload after run",
@@ -104,7 +76,6 @@ const GATE_SERIALIZED_WIDGET_COUNT = 3;
 const LOADER_STATE_PROPERTY = "deno_local_llm_state";
 const LOADER_STATE_SCHEMA = 1;
 const LOADER_STATE_TEXT_LIMIT = 120000;
-const LOADER_SERVER_URLS_BY_PROVIDER_PROPERTY = "denoLocalLLMServerUrlsByProvider";
 const LOADER_SERIALIZED_WIDGET_NAMES = [
     "provider",
     "ollama_model",
@@ -133,7 +104,7 @@ const MISSING_SAVED_MODEL_PREFIX = "Missing saved model: ";
 const LEGACY_CONTROL_AFTER_GENERATE_VALUES = new Set(["fixed", "randomize", "increment", "decrement", "random"]);
 const SHIFTED_MODEL_WIDGET_VALUES = new Set([
     ...PROVIDER_VALUES,
-    LEGACY_PROVIDER_CUSTOM,
+    ...LEGACY_CUSTOM_PROVIDERS,
     ...MODEL_MEMORY_VALUES,
     ...COMFY_VRAM_VALUES,
     ...Object.keys(COMFY_VRAM_ALIASES),
@@ -1218,7 +1189,7 @@ function normalizeLocalLLMLoaderGeneratedPickerValues(values) {
     const shiftedSeed = normalized[8];
     const likelyGeneratedPickerValue =
         normalized.length > LOADER_SERIALIZED_WIDGET_COUNT &&
-        OPENAI_COMPATIBLE_PROVIDERS.has(provider) &&
+        LEGACY_CUSTOM_PROVIDERS.has(provider) &&
         customModel &&
         (extraAfterCustomModel === customModel ||
             extraAfterCustomModel === "Detected Models" ||
@@ -1306,7 +1277,6 @@ function preserveLocalLLMLoaderSavedComboOptions(node, values) {
     if (!node || !Array.isArray(values)) {
         return;
     }
-    preserveWidgetOption(getWidget(node, "provider"), values[0]);
     preserveSavedModelWidgetOption(getWidget(node, "ollama_model"), values[1]);
     preserveSavedModelWidgetOption(getWidget(node, "lm_studio_model"), values[2]);
 }
@@ -1407,9 +1377,6 @@ function applyLocalLLMLoaderSavedWidgetValues(node, values) {
             continue;
         }
         let value = values[index];
-        if (name === "provider") {
-            preserveWidgetOption(widget, value);
-        }
         if (name === "ollama_model" || name === "lm_studio_model") {
             value = displayModelValueForCurrentChoices(widget, value);
             if (value && !isMissingSavedModelDisplayValue(value)) {
@@ -1642,21 +1609,6 @@ function advanceLocalLLMSeedAfterQueued(node, fallbackMode) {
     return true;
 }
 
-function normalizeLocalLLMServerBeforeQueue(node) {
-    const widget = getWidget(node, "custom_server_url");
-    if (!widget) {
-        return false;
-    }
-    const normalized = normalizeServerUrlValue(widget.value);
-    if (!normalized || normalized === String(widget.value || "").trim()) {
-        return false;
-    }
-    widget.value = normalized;
-    rememberOpenAIProviderServerUrl(node, currentProvider(node), normalized);
-    markGraphDirty(node);
-    return true;
-}
-
 function installLocalLLMQueueCallbacks(node) {
     const seedWidget = getWidget(node, "seed");
     if (seedWidget && !seedWidget.__denoLocalLLMSeedAfterQueued) {
@@ -1667,17 +1619,6 @@ function installLocalLLMQueueCallbacks(node) {
             return result;
         };
         seedWidget.__denoLocalLLMSeedAfterQueued = true;
-    }
-
-    const serverWidget = getWidget(node, "custom_server_url");
-    if (serverWidget && !serverWidget.__denoLocalLLMServerBeforeQueued) {
-        const originalBeforeQueued = serverWidget.beforeQueued;
-        serverWidget.beforeQueued = function () {
-            const result = originalBeforeQueued?.apply(this, arguments);
-            normalizeLocalLLMServerBeforeQueue(node);
-            return result;
-        };
-        serverWidget.__denoLocalLLMServerBeforeQueued = true;
     }
 }
 
@@ -2282,7 +2223,6 @@ if (typeof globalThis !== "undefined" && typeof globalThis.__DENO_LOCAL_LLM_REVI
         previewTextDialogTitle,
         setPreviewTextDialogContent,
         previewTextWidth,
-        normalizeServerUrlValue,
         ownLocalLLMBodyOverlay,
         pruneLocalLLMPromptGraphs,
         rememberLocalLLMPromptBundleGraph,
@@ -2906,6 +2846,7 @@ function setupNode(node) {
         repairLegacyProviderValues(node);
         repairSavedWidgetValues(node);
         applyLocalLLMLoaderSavedWidgetValues(node, node.__denoLocalLLMSavedWidgetValues);
+        node.__denoLocalLLMSavedWidgetValues = null;
         repairSavedWidgetValues(node);
         installLocalLLMQueueCallbacks(node);
         restoreLocalLLMStateFromProperties(node);
@@ -2929,7 +2870,6 @@ function setupNode(node) {
         setActiveProviderModelVisibility(node);
         wrapProviderCallback(node);
         wrapModelCallback(node);
-        wrapServerCallback(node);
         wrapModelMemoryCallback(node);
         addRefreshButton(node);
         addStopButton(node);
@@ -4360,11 +4300,7 @@ function normalizeModelMemoryValue(value) {
 }
 
 function normalizeProviderValue(value) {
-    const text = String(value ?? "").trim();
-    if (text === LEGACY_PROVIDER_CUSTOM) {
-        return PROVIDER_CUSTOM;
-    }
-    return PROVIDER_VALUES.includes(text) ? text : PROVIDER_OLLAMA;
+    return String(value ?? "").trim();
 }
 
 function normalizeComfyVramValue(value) {
@@ -4849,8 +4785,7 @@ function createInputWidgetFromNodeData(node, name, label) {
     const inputOptions = Array.isArray(spec) && spec[1] && typeof spec[1] === "object" ? spec[1] : {};
     const values = Array.isArray(inputType) ? inputType.map((value) => String(value)) : [];
     const widgetType = values.length ? "combo" : inputType === "BOOLEAN" ? "toggle" : inputType === "INT" || inputType === "FLOAT" ? "number" : "text";
-    const fallback = name === "custom_server_url" ? LEGACY_CUSTOM_DEFAULT_URL : values[0] || "";
-    const initialValue = inputOptions.default ?? fallback;
+    const initialValue = inputOptions.default ?? values[0] ?? "";
     if (typeof node.addWidget !== "function") {
         return null;
     }
@@ -4927,21 +4862,6 @@ function repairSavedWidgetValues(node) {
         }
     }
 
-    const customServerWidget = getWidget(node, "custom_server_url");
-    if (customServerWidget) {
-        const value = String(customServerWidget.value || "").trim();
-        const normalizedValue = normalizeServerUrlValue(value);
-        if (normalizedValue) {
-            customServerWidget.value = normalizedValue;
-            if (normalizedValue !== LEGACY_CUSTOM_DEFAULT_URL) {
-                delete customServerWidget.__denoLocalLLMRepairedBlankServerUrl;
-            }
-        } else {
-            customServerWidget.value = LEGACY_CUSTOM_DEFAULT_URL;
-            customServerWidget.__denoLocalLLMRepairedBlankServerUrl = true;
-        }
-    }
-
     const seedWidget = getWidget(node, "seed");
     if (seedWidget) {
         const seed = Number(seedWidget.value);
@@ -4995,11 +4915,6 @@ function repairSavedWidgetValues(node) {
 }
 
 function repairLegacyProviderValues(node) {
-    const providerWidget = getWidget(node, "provider");
-    if (providerWidget) {
-        providerWidget.value = normalizeProviderValue(providerWidget.value);
-    }
-
     const customServerWidget = getWidget(node, "custom_server_url");
     const customModelWidget = getWidget(node, "custom_model");
     const thinkingWidget = getWidget(node, "thinking");
@@ -5018,12 +4933,12 @@ function repairLegacyProviderValues(node) {
             (customModelValue && isShiftedCustomModelValue(customModelValue))
         );
 
-    if (!shiftedFromOldTwoProviderNode) {
+    if (!PROVIDER_VALUES.includes(currentProvider(node)) || !shiftedFromOldTwoProviderNode) {
         return;
     }
 
     if (customServerWidget) {
-        customServerWidget.value = LEGACY_CUSTOM_DEFAULT_URL;
+        customServerWidget.value = "";
     }
     if (customModelWidget && isShiftedCustomModelValue(customModelValue)) {
         customModelWidget.value = firstWidgetChoice(customModelWidget);
@@ -5230,288 +5145,37 @@ function polishInputLabels(node) {
 }
 
 function currentProvider(node) {
-    const value = String(getWidgetValue(node, "provider", PROVIDER_OLLAMA) || PROVIDER_OLLAMA);
+    const value = getWidgetValue(node, "provider", PROVIDER_OLLAMA);
     return normalizeProviderValue(value);
 }
 
 function activeModelNameForProvider(provider) {
-    if (provider === PROVIDER_LM_STUDIO) {
-        return "lm_studio_model";
-    }
-    if (OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
-        return "custom_model";
-    }
-    return "ollama_model";
+    if (provider === PROVIDER_OLLAMA) return "ollama_model";
+    if (provider === PROVIDER_LM_STUDIO) return "lm_studio_model";
+    return null;
 }
 
 function activeModelWidget(node) {
     return getWidget(node, activeModelNameForProvider(currentProvider(node)));
 }
 
-function llamaSwapStatusCopy(node) {
-    const modelMemory = normalizeModelMemoryValue(getWidget(node, "model_memory")?.value);
-    if (modelMemory === "Unload after run") {
-        return "llama-swap generation uses its OpenAI-compatible /v1 endpoint. After the run, the selected model is unloaded through llama-swap's management API.";
-    }
-    if (modelMemory === "Keep loaded") {
-        return "llama-swap generation uses its OpenAI-compatible /v1 endpoint. DENO leaves the selected model loaded after the run, while llama-swap's own server-side timeout may still unload it; Unload LLM uses its management API immediately.";
-    }
-    return "llama-swap generation uses its OpenAI-compatible /v1 endpoint. How long the model stays loaded is controlled by llama-swap's server-side unload timeout; Unload LLM uses its management API immediately.";
-}
-
-function unslothStatusCopy(node) {
-    const modelMemory = normalizeModelMemoryValue(getWidget(node, "model_memory")?.value);
-    if (modelMemory === "Unload after run") {
-        return "Unsloth Studio generation uses its OpenAI-compatible /v1 endpoint. With Unload after run selected, DENO requests model unload through Unsloth Studio's management API after generation.";
-    }
-    return "Unsloth Studio generation uses its OpenAI-compatible /v1 endpoint. DENO leaves the selected model loaded after the run; Unload LLM uses Unsloth Studio's management API immediately.";
-}
-
-function providerStatusCopy(node, provider) {
-    if (provider === PROVIDER_LLAMA_SWAP) {
-        return llamaSwapStatusCopy(node);
-    }
-    if (provider === PROVIDER_UNSLOTH) {
-        return unslothStatusCopy(node);
-    }
-    return "";
-}
-
-function defaultServerForProvider(provider, node) {
-    if (provider === PROVIDER_LM_STUDIO) {
-        return LM_STUDIO_DEFAULT_URL;
-    }
-    if (provider === PROVIDER_LLAMA_CPP) {
-        return serverUrlForOpenAIProvider(node, LLAMA_CPP_DEFAULT_URL);
-    }
-    if (provider === PROVIDER_VLLM) {
-        return serverUrlForOpenAIProvider(node, VLLM_DEFAULT_URL);
-    }
-    if (provider === PROVIDER_CUSTOM) {
-        return serverUrlForOpenAIProvider(node, CUSTOM_DEFAULT_URL);
-    }
-    if (provider === PROVIDER_LLAMA_SWAP) {
-        return serverUrlForOpenAIProvider(node, LLAMA_SWAP_DEFAULT_URL);
-    }
-    if (provider === PROVIDER_UNSLOTH) {
-        return serverUrlForOpenAIProvider(node, UNSLOTH_DEFAULT_URL);
-    }
-    return OLLAMA_DEFAULT_URL;
-}
-
-function serverUrlForOpenAIProvider(node, fallback) {
-    const value = String(getWidget(node, "custom_server_url")?.value || "").trim();
-    return value || fallback;
-}
-
-function defaultOpenAIProviderUrl(provider) {
-    if (provider === PROVIDER_LLAMA_CPP) {
-        return LLAMA_CPP_DEFAULT_URL;
-    }
-    if (provider === PROVIDER_VLLM) {
-        return VLLM_DEFAULT_URL;
-    }
-    if (provider === PROVIDER_LLAMA_SWAP) {
-        return LLAMA_SWAP_DEFAULT_URL;
-    }
-    if (provider === PROVIDER_UNSLOTH) {
-        return UNSLOTH_DEFAULT_URL;
-    }
-    return CUSTOM_DEFAULT_URL;
-}
-
-function applyOpenAIProviderServerDefault(node, provider) {
-    const widget = getWidget(node, "custom_server_url");
-    const previousProviderRaw = String(node.__denoLocalLLMLastProvider || "").trim();
-    const previousProvider = previousProviderRaw ? normalizeProviderValue(previousProviderRaw) : "";
-    const current = String(widget?.value || "").trim();
-    if (previousProvider && previousProvider !== provider && OPENAI_COMPATIBLE_PROVIDERS.has(previousProvider)) {
-        rememberOpenAIProviderServerUrl(node, previousProvider, current);
-    }
-    if (!OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
-        node.__denoLocalLLMLastProvider = provider;
-        node.__denoLocalLLMProviderInitialized = true;
-        return;
-    }
-    if (!widget) {
-        node.__denoLocalLLMLastProvider = provider;
-        node.__denoLocalLLMProviderInitialized = true;
-        return;
-    }
-    const providerDefault = defaultOpenAIProviderUrl(provider);
-    const cached = openAIProviderServerUrl(node, provider);
-    const providerChanged = Boolean(previousProvider && previousProvider !== provider);
-    const repairedBlankServerUrl = Boolean(widget.__denoLocalLLMRepairedBlankServerUrl);
-    if (cached && (providerChanged || !current)) {
-        widget.value = cached;
-        if (cached === providerDefault) {
-            widget.__denoLocalLLMAppliedServerDefault = providerDefault;
-        } else {
-            delete widget.__denoLocalLLMAppliedServerDefault;
-        }
-        delete widget.__denoLocalLLMRepairedBlankServerUrl;
-        rememberOpenAIProviderServerUrl(node, provider, widget.value);
-        node.__denoLocalLLMLastProvider = provider;
-        node.__denoLocalLLMProviderInitialized = true;
-        return;
-    }
-    const activeCurrent = String(widget.value || "").trim();
-    if (!current || repairedBlankServerUrl) {
-        widget.value = providerDefault;
-        widget.__denoLocalLLMAppliedServerDefault = providerDefault;
-    } else if (
-        widget.__denoLocalLLMAppliedServerDefault === activeCurrent ||
-        providerChanged
-    ) {
-        widget.value = providerDefault;
-        widget.__denoLocalLLMAppliedServerDefault = providerDefault;
-    } else if (String(widget.value || "").trim() !== providerDefault) {
-        delete widget.__denoLocalLLMAppliedServerDefault;
-    }
-    delete widget.__denoLocalLLMRepairedBlankServerUrl;
-    rememberOpenAIProviderServerUrl(node, provider, widget.value);
-    node.__denoLocalLLMLastProvider = provider;
-    node.__denoLocalLLMProviderInitialized = true;
-}
-
-function openAIProviderServerUrlCache(node) {
-    node.properties = node.properties || {};
-    const current = node.properties[LOADER_SERVER_URLS_BY_PROVIDER_PROPERTY];
-    if (current && typeof current === "object" && !Array.isArray(current)) {
-        return current;
-    }
-    const cache = {};
-    node.properties[LOADER_SERVER_URLS_BY_PROVIDER_PROPERTY] = cache;
-    return cache;
-}
-
-function openAIProviderServerUrl(node, provider) {
-    const cache = node?.properties?.[LOADER_SERVER_URLS_BY_PROVIDER_PROPERTY];
-    if (!cache || typeof cache !== "object" || Array.isArray(cache)) {
-        return "";
-    }
-    return String(cache[normalizeProviderValue(provider)] || "").trim();
-}
-
-function rememberOpenAIProviderServerUrl(node, provider, value) {
-    const providerKey = normalizeProviderValue(provider);
-    const url = normalizeServerUrlValue(value);
-    if (!OPENAI_COMPATIBLE_PROVIDERS.has(providerKey) || !url) {
-        return;
-    }
-    const cache = openAIProviderServerUrlCache(node);
-    cache[providerKey] = url;
-}
-
-function openAIModelChoicesForProvider(node, provider) {
-    const providerKey = normalizeProviderValue(provider);
-    const stored = node?.properties?.denoLocalLLMModelChoicesByProvider?.[providerKey];
-    return normalizeModelChoices(Array.isArray(stored) ? stored : []);
-}
-
-function openAIModelPickerValues(choices) {
-    const seen = new Set();
-    const values = [];
-    for (const choice of choices || []) {
-        const id = String(choice?.id || "").trim();
-        if (!id || seen.has(id)) {
-            continue;
-        }
-        seen.add(id);
-        values.push(id);
-    }
-    return values;
-}
-
-function isOpenAIModelPickerWidget(widget) {
-    const name = String(widget?.name || "");
-    // Frontends that normalize duplicate names may append #1, #2, etc.
-    return /^deno_local_llm_model_picker(?:#\d+)*$/.test(name) ||
-        (/^Detected Models(?:#\d+)*$/.test(name) && widget?.type === "combo");
-}
-
-function removeOpenAIModelPickerRows(node, keep = null) {
-    for (const widget of [...(node.widgets || [])]) {
-        if (!isOpenAIModelPickerWidget(widget) || widget === keep) {
-            continue;
-        }
-        removeWidgetElement(widget);
-        try {
-            node.removeWidget?.(widget);
-        } catch {
-            // Older frontends may expose only the widgets array.
-        }
-        if ((node.widgets || []).includes(widget)) {
-            node.widgets = node.widgets.filter((candidate) => candidate !== widget);
-        }
-    }
-}
-
-function syncOpenAIModelPicker(node, provider) {
-    const providerKey = normalizeProviderValue(provider);
-    const modelWidget = getWidget(node, "custom_model");
-    if (!OPENAI_COMPATIBLE_PROVIDERS.has(providerKey) || !modelWidget) {
-        removeOpenAIModelPickerRows(node);
-        return null;
-    }
-    const values = openAIModelPickerValues(openAIModelChoicesForProvider(node, providerKey));
-    if (!values.length) {
-        removeOpenAIModelPickerRows(node);
-        return null;
-    }
-    if (!hasUsableSavedModelValue(modelWidget.value)) {
-        modelWidget.value = values[0];
-    }
-    let picker = getWidget(node, OPENAI_MODEL_PICKER_NAME);
-    removeOpenAIModelPickerRows(node, picker);
-    if (!picker) {
-        // New frontends register widget names in a value store. Renaming after
-        // creation can fail if an older row left state under the internal name.
-        picker = node.addWidget?.("combo", OPENAI_MODEL_PICKER_NAME, values[0], () => {
-            const selected = String(picker?.value || "").trim();
-            if (!selected) {
-                return;
-            }
-            modelWidget.value = selected;
-            setLocalLLMNodeState(node, {
-                provider: currentProvider(node),
-                model: selected,
-                status: "ready",
-                thinking: "Detected model copied into the Model field.",
-            });
-            refreshNode(node);
-        }, { values, list: values, serialize: false });
-        if (!picker) {
-            return null;
-        }
-    }
-    picker.label = "Detected Models";
-    picker.type = "combo";
-    picker.serialize = false;
-    picker.options = { ...(picker.options || {}), values, list: values, serialize: false };
-    picker.serializeValue = () => undefined;
-    const current = String(modelWidget.value || "").trim();
-    picker.value = values.includes(current) ? current : values[0];
-    setWidgetHidden(picker, false);
-    moveWidgetAfter(node, picker, modelWidget);
-    return picker;
-}
-
 function setActiveProviderModelVisibility(node) {
     const provider = currentProvider(node);
     const modelMemory = normalizeModelMemoryValue(getWidget(node, "model_memory")?.value);
-    const usesOpenAICompatible = OPENAI_COMPATIBLE_PROVIDERS.has(provider);
-    applyOpenAIProviderServerDefault(node, provider);
+    const providerWidget = getWidget(node, "provider");
+    if (providerWidget) {
+        providerWidget.options = { ...providerWidget.options, values: PROVIDER_VALUES, list: PROVIDER_VALUES };
+    }
     setWidgetHidden(getWidget(node, "ollama_model"), provider !== PROVIDER_OLLAMA);
     setWidgetHidden(getWidget(node, "lm_studio_model"), provider !== PROVIDER_LM_STUDIO);
-    setWidgetHidden(getWidget(node, "custom_server_url"), !usesOpenAICompatible);
-    setWidgetHidden(getWidget(node, "custom_model"), !usesOpenAICompatible);
+    setWidgetHidden(getWidget(node, "custom_server_url"), true);
+    setWidgetHidden(getWidget(node, "custom_model"), true);
     setWidgetHidden(getWidget(node, "system_prompt"), true);
     setWidgetHidden(getWidget(node, "prompt"), true);
     setWidgetHidden(getWidget(node, "model_memory"), false);
     setWidgetHidden(
         getWidget(node, "keep_minutes"),
-        modelMemory !== "Keep for minutes" || provider === PROVIDER_LLAMA_SWAP,
+        modelMemory !== "Keep for minutes",
     );
     for (const name of ["ollama_model", "lm_studio_model"]) {
         const widget = getWidget(node, name);
@@ -5520,15 +5184,14 @@ function setActiveProviderModelVisibility(node) {
             widget.value = displayModelValueForCurrentChoices(widget, widget.value);
         }
     }
-    const customModelWidget = getWidget(node, "custom_model");
-    if (customModelWidget) {
-        customModelWidget.type = usesOpenAICompatible ? "text" : customModelWidget.type;
-        customModelWidget.label = "Model";
-    }
-    syncOpenAIModelPicker(node, provider);
-    const customServerWidget = getWidget(node, "custom_server_url");
-    if (customServerWidget) {
-        customServerWidget.label = "Server URL";
+    if (!PROVIDER_VALUES.includes(provider)) {
+        setLocalLLMNodeState(node, {
+            status: "unsupported provider",
+            provider,
+            model: "",
+            thinking: `Saved provider "${provider}" is unavailable. Choose Ollama or LM Studio to continue.`,
+        });
+        return;
     }
     const activeValue = String(activeModelWidget(node)?.value || "").trim();
     setLocalLLMNodeState(node, {
@@ -5556,13 +5219,6 @@ function wrapModelMemoryCallback(node) {
         const result = original?.apply(this, arguments);
         memoryWidget.value = normalizeModelMemoryValue(memoryWidget.value);
         setActiveProviderModelVisibility(node);
-        const provider = currentProvider(node);
-        if (provider === PROVIDER_LLAMA_SWAP || provider === PROVIDER_UNSLOTH) {
-            setLocalLLMNodeState(node, {
-                status: "ready",
-                thinking: providerStatusCopy(node, provider),
-            });
-        }
         refreshNode(node);
         return result;
     };
@@ -5570,7 +5226,7 @@ function wrapModelMemoryCallback(node) {
 }
 
 function wrapModelCallback(node) {
-    for (const name of ["ollama_model", "lm_studio_model", "custom_model"]) {
+    for (const name of ["ollama_model", "lm_studio_model"]) {
         const modelWidget = getWidget(node, name);
         if (!modelWidget || modelWidget.__denoLocalLLMWrapped) {
             continue;
@@ -5580,9 +5236,7 @@ function wrapModelCallback(node) {
             invalidateLocalLLMAsyncAction(node, "model changed");
             const result = original?.apply(this, arguments);
             repairModelWidgetValue(modelWidget);
-            if (name !== "custom_model") {
-                modelWidget.value = displayModelValueForCurrentChoices(modelWidget, modelWidget.value);
-            }
+            modelWidget.value = displayModelValueForCurrentChoices(modelWidget, modelWidget.value);
             if (name === activeModelNameForProvider(currentProvider(node))) {
                 const value = String(modelWidget.value || "");
                 setLocalLLMNodeState(node, {
@@ -5600,24 +5254,6 @@ function wrapModelCallback(node) {
     }
 }
 
-function wrapServerCallback(node) {
-    const serverWidget = getWidget(node, "custom_server_url");
-    if (!serverWidget || serverWidget.__denoLocalLLMServerWrapped) {
-        return;
-    }
-    const original = serverWidget.callback;
-    serverWidget.callback = function () {
-        invalidateLocalLLMAsyncAction(node, "server changed");
-        const result = original?.apply(this, arguments);
-        const provider = currentProvider(node);
-        if (OPENAI_COMPATIBLE_PROVIDERS.has(provider)) {
-            rememberOpenAIProviderServerUrl(node, provider, serverWidget.value);
-        }
-        return result;
-    };
-    serverWidget.__denoLocalLLMServerWrapped = true;
-}
-
 function wrapProviderCallback(node) {
     const providerWidget = getWidget(node, "provider");
     if (!providerWidget || providerWidget.__denoLocalLLMWrapped) {
@@ -5629,12 +5265,14 @@ function wrapProviderCallback(node) {
         const result = original?.apply(this, arguments);
         const provider = currentProvider(node);
         setActiveProviderModelVisibility(node);
-        setLocalLLMNodeState(node, {
-            provider,
-            model: String(activeModelWidget(node)?.value || ""),
-            status: "ready",
-            thinking: providerStatusCopy(node, provider),
-        });
+        if (PROVIDER_VALUES.includes(provider)) {
+            setLocalLLMNodeState(node, {
+                provider,
+                model: String(activeModelWidget(node)?.value || ""),
+                status: "ready",
+                thinking: "",
+            });
+        }
         removeRefreshButtonWidgets(node);
         removeStopButtonWidgets(node);
         removeUnloadButtonWidgets(node);
@@ -5661,7 +5299,7 @@ function addRefreshButton(node) {
     button.serialize = false;
     button.options = { ...(button.options || {}), serialize: false };
     button.serializeValue = () => undefined;
-    moveWidgetAfter(node, button, getWidget(node, `${GENERATED_PREFIX}model_picker`) || modelWidget);
+    moveWidgetAfter(node, button, modelWidget);
     ensureSingleRefreshButton(node);
 }
 
@@ -5721,10 +5359,7 @@ function ensureSingleRefreshButton(node) {
     const keep = refreshes[0];
     node.widgets = (node.widgets || []).filter((widget) => !isRefreshButtonWidget(widget) || widget === keep);
     const modelWidget = activeModelWidget(node);
-    const picker = getWidget(node, OPENAI_MODEL_PICKER_NAME);
-    if (picker) {
-        moveWidgetAfter(node, keep, picker);
-    } else if (modelWidget) {
+    if (modelWidget) {
         moveWidgetAfter(node, keep, modelWidget);
     }
     resetLocalLLMGeneratedWidgetValues(node);
@@ -5852,12 +5487,15 @@ function isLocalLLMBusyState(node) {
 }
 
 async function stopLocalModel(node) {
+    if (!PROVIDER_VALUES.includes(currentProvider(node))) {
+        setActiveProviderModelVisibility(node);
+        return;
+    }
     const action = beginLocalLLMAsyncAction(node, "stop");
     if (!action) {
         return;
     }
     const provider = currentProvider(node);
-    const serverUrl = defaultServerForProvider(provider, node);
     const modelWidget = activeModelWidget(node);
     repairModelWidgetValue(modelWidget);
     const model = String(modelWidget?.value || "").trim();
@@ -5883,7 +5521,7 @@ async function stopLocalModel(node) {
         const response = await fetch("/deno/local_llm/stop", localLLMAsyncFetchOptions(action, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ provider, server_url: serverUrl, model }),
+            body: JSON.stringify({ provider, model }),
         }));
         if (!isLocalLLMAsyncActionCurrent(node, action)) {
             return;
@@ -5920,14 +5558,12 @@ async function stopLocalModel(node) {
     }
 }
 
-function isManualUnloadUnavailableMessage(message) {
-    const lowered = String(message || "").toLowerCase();
-    return lowered.includes("no standard unload api") || lowered.includes("do not share a standard unload api");
-}
-
 async function unloadLocalModel(node) {
+    if (!PROVIDER_VALUES.includes(currentProvider(node))) {
+        setActiveProviderModelVisibility(node);
+        return;
+    }
     const provider = currentProvider(node);
-    const serverUrl = defaultServerForProvider(provider, node);
     const modelWidget = activeModelWidget(node);
     repairModelWidgetValue(modelWidget);
     const model = String(modelWidget?.value || "").trim();
@@ -5959,11 +5595,7 @@ async function unloadLocalModel(node) {
         answer: "",
         thinking: invalidModel
             ? "Refresh Models and select an installed local LLM model before unloading."
-            : provider === PROVIDER_LLAMA_SWAP
-              ? "Requesting unload through llama-swap's management API."
-              : provider === PROVIDER_UNSLOTH
-                ? "Requesting unload through Unsloth Studio's management API."
-              : "Requesting unload from the local LLM server.",
+            : "Requesting unload from the local LLM server.",
     });
     refreshNode(node);
     if (invalidModel) {
@@ -5979,7 +5611,7 @@ async function unloadLocalModel(node) {
         const response = await fetch("/deno/local_llm/unload", localLLMAsyncFetchOptions(action, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ provider, server_url: serverUrl, model }),
+            body: JSON.stringify({ provider, model }),
         }));
         if (!isLocalLLMAsyncActionCurrent(node, action)) {
             return;
@@ -5992,9 +5624,8 @@ async function unloadLocalModel(node) {
         if (!response.ok && !payloadMessage) {
             throw new Error(payload?.error || `HTTP ${response.status}`);
         }
-        const manualUnavailable = !payload.ok && !payload.busy && (payload?.manual_unavailable || isManualUnloadUnavailableMessage(payloadMessage));
         setLocalLLMNodeState(node, {
-            status: payload.ok ? "LLM unloaded" : (payload.busy ? "unload blocked" : (manualUnavailable ? "manual unload unavailable" : "LLM unload failed")),
+            status: payload.ok ? "LLM unloaded" : (payload.busy ? "unload blocked" : "LLM unload failed"),
             provider,
             model,
             answer: "",
@@ -6019,12 +5650,15 @@ async function unloadLocalModel(node) {
 }
 
 async function refreshModels(node) {
+    if (!PROVIDER_VALUES.includes(currentProvider(node))) {
+        setActiveProviderModelVisibility(node);
+        return;
+    }
     const action = beginLocalLLMAsyncAction(node, "refresh");
     if (!action) {
         return;
     }
     const provider = currentProvider(node);
-    const serverUrl = defaultServerForProvider(provider, node);
     const modelWidget = activeModelWidget(node);
     const savedModel = originalModelValueFromDisplay(modelWidget?.value);
     setLocalLLMNodeState(node, {
@@ -6037,7 +5671,7 @@ async function refreshModels(node) {
         const response = await fetch("/deno/local_llm/models", localLLMAsyncFetchOptions(action, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ provider, server_url: serverUrl }),
+            body: JSON.stringify({ provider }),
         }));
         if (!isLocalLLMAsyncActionCurrent(node, action)) {
             return;
@@ -6111,6 +5745,7 @@ function normalizeModelChoices(models) {
 
 function updateModelChoices(node, provider, choices) {
     const providerKey = normalizeProviderValue(provider);
+    if (!PROVIDER_VALUES.includes(providerKey)) return;
     node.properties = node.properties || {};
     node.properties.denoLocalLLMModelChoicesByProvider = {
         ...(node.properties.denoLocalLLMModelChoicesByProvider || {}),
@@ -6120,13 +5755,6 @@ function updateModelChoices(node, provider, choices) {
     if (widget) {
         widget.__denoLocalLLMPreservedSavedModels = new Set();
         widget.__denoLocalLLMModelChoicesAuthoritative = true;
-    }
-    if (OPENAI_COMPATIBLE_PROVIDERS.has(providerKey)) {
-        if (widget && Array.isArray(choices) && choices.length && !hasUsableSavedModelValue(widget.value)) {
-            widget.value = String(choices[0]?.id || "");
-        }
-        syncOpenAIModelPicker(node, providerKey);
-        return;
     }
     if (widget && Array.isArray(choices) && choices.length) {
         const savedValue = String(widget.value || "").trim();
@@ -6272,38 +5900,6 @@ function setWidgetValue(node, name, value, callCallback = true) {
 
 function isLikelyUrl(value) {
     return /^https?:\/\//i.test(String(value || "").trim());
-}
-
-function normalizeServerUrlValue(value) {
-    const text = String(value || "").trim();
-    if (!text) {
-        return "";
-    }
-    let candidate = "";
-    if (/^https?:\/\//i.test(text)) {
-        candidate = text;
-    } else if (
-        /^(?:localhost|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:]+\]):\d{1,5}(?:\/[^\s]*)?$/i.test(text)
-    ) {
-        candidate = `http://${text}`;
-    } else {
-        return "";
-    }
-    try {
-        const parsed = new URL(candidate);
-        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-            return "";
-        }
-        if (parsed.port) {
-            const port = Number(parsed.port);
-            if (!Number.isInteger(port) || port < 1 || port > 65535) {
-                return "";
-            }
-        }
-        return candidate;
-    } catch {
-        return "";
-    }
 }
 
 function firstWidgetChoice(widget) {

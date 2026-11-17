@@ -4066,19 +4066,9 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
 
     original_list_models = module.list_local_llm_models
 
-    def fake_list_models(provider, server_url):
+    def fake_list_models(provider, server_url=None):
         if provider == "LM Studio":
             return [{"id": "lm-studio-model-b", "label": "LM Studio Model B", "loaded": False}]
-        if provider == "llama.cpp":
-            return [{"id": "llama-cpp-model-c", "label": "llama.cpp Model C", "loaded": False}]
-        if provider == "vLLM":
-            return [{"id": "vllm-model-d", "label": "vLLM Model D", "loaded": False}]
-        if provider == "Custom":
-            return [{"id": "custom-model-e", "label": "Custom Model E", "loaded": False}]
-        if provider == "llama-swap":
-            return [{"id": "llama-swap-model-f", "label": "llama-swap Model F", "loaded": False}]
-        if provider == "Unsloth":
-            return [{"id": "unsloth-model-g", "label": "Unsloth Model G", "loaded": False}]
         return [{"id": "ollama-model-a", "label": "Ollama Model A", "loaded": False}]
 
     module.list_local_llm_models = fake_list_models
@@ -4103,22 +4093,17 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"]) == node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"])
     assert node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"], video_seconds=[8.0]) != node_cls.IS_CHANGED(seed_mode=["fixed"], seed=[1], prompt=["same"], video_seconds=[9.0])
     assert "help rewrite or review prompt text" in node_cls.DESCRIPTION
-    assert "Ollama, LM Studio, llama.cpp, vLLM, Custom, llama-swap, or Unsloth" in node_cls.DESCRIPTION
+    assert "Ollama" in node_cls.DESCRIPTION and "LM Studio" in node_cls.DESCRIPTION
     assert "An optional IMAGE input" in node_cls.DESCRIPTION
     assert "connect STRING into Prompt" in node_cls.DESCRIPTION
     assert "AUDIO" not in node_cls.DESCRIPTION
-    assert required["provider"][0] == ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap", "Unsloth"]
-    assert "llama-swap" in required["provider"][1]["tooltip"]
-    assert "Unsloth Studio" in required["provider"][1]["tooltip"]
+    assert required["provider"][0] == ["Ollama", "LM Studio"]
     assert "server_url" not in required
     assert "model" not in required
     assert required["ollama_model"][0] == ["ollama-model-a"]
     assert required["lm_studio_model"][0] == ["lm-studio-model-b"]
     assert required["custom_server_url"][0] == "STRING"
-    assert required["custom_server_url"][1]["default"] == "http://127.0.0.1:8000/v1"
-    assert "llama-swap" in required["custom_server_url"][1]["tooltip"]
-    assert "http://127.0.0.1:8888/v1" in required["custom_server_url"][1]["tooltip"]
-    assert "DENO_LOCAL_LLM_UNSLOTH_API_KEY" in required["custom_server_url"][1]["tooltip"]
+    assert required["custom_server_url"][1]["default"] == ""
     assert required["custom_model"][0] == "STRING"
     assert required["system_prompt"][1]["default"] == ""
     assert required["system_prompt"][1]["multiline"] is True
@@ -4130,10 +4115,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "user_prompt" not in required
     assert required["seed_mode"][0] == ["fixed", "increment", "decrement", "randomize"]
     assert "control_after_generate" not in required
-    assert "retries once without that field" in required["thinking"][1]["tooltip"]
     assert required["model_memory"][0] == ["Unload after run", "Keep for minutes", "Keep loaded"]
-    assert "server-side unload timeout" in required["keep_minutes"][1]["tooltip"]
-    assert "does not schedule a timed unload" in required["keep_minutes"][1]["tooltip"]
     assert required["comfy_vram_policy"][0] == [
         "Auto: unload only before first LLM call",
         "Always unload before each LLM call",
@@ -4188,7 +4170,6 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "isLocalLLMBusyState" in script
     assert "unload blocked" in script
     assert "payload.busy" in script
-    assert "payload?.manual_unavailable" in script
     assert "/deno/local_llm/stop" in script
     assert "/deno/local_llm/unload" in script
     assert "COMFY_VRAM_VALUES" in script
@@ -4251,18 +4232,10 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "denoLocalLLMModelChoicesByProvider" in script
     assert "Ollama Model" in script
     assert "LM Studio Model" in script
-    assert "llama.cpp" in script
-    assert "vLLM" in script
-    assert "Custom" in script
-    assert "LEGACY_PROVIDER_CUSTOM" in script
-    assert 'const PROVIDER_UNSLOTH = "Unsloth";' in script
-    assert 'const UNSLOTH_DEFAULT_URL = "http://127.0.0.1:8888/v1";' in script
+    assert "const PROVIDER_VALUES = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO];" in script
     assert "const LOADER_SERIALIZED_WIDGET_COUNT = 13;" in script
-    assert "unslothStatusCopy" in script
     assert "Server URL" in script
     assert "custom_server_url" in script
-    assert "LEGACY_CUSTOM_DEFAULT_URL" in script
-    assert "wrapCustomServerCallback" not in script
     assert "repairLegacyProviderValues" in script
     assert "isShiftedCustomModelValue" in script
     assert "function safeAppGraph" in script
@@ -4707,7 +4680,7 @@ def test_local_llm_refiner_image_attachment_resizes_by_pixel_budget():
     assert attachment["data_url"].startswith("data:image/jpeg;base64,")
 
 
-def test_local_llm_refiner_multi_image_content_parts_are_provider_specific():
+def test_local_llm_refiner_lm_native_input_preserves_image_order():
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     images = [
@@ -4715,14 +4688,8 @@ def test_local_llm_refiner_multi_image_content_parts_are_provider_specific():
         {"data_url": "data:image/jpeg;base64,img-b"},
     ]
 
-    openai_content = module._openai_user_content("describe these", images)
     lm_native_input = module._lm_native_input("describe these", images)
 
-    assert openai_content == [
-        {"type": "text", "text": "describe these"},
-        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,img-a"}},
-        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,img-b"}},
-    ]
     assert lm_native_input == [
         {"type": "text", "content": "describe these"},
         {"type": "image", "data_url": "data:image/jpeg;base64,img-a"},
@@ -6102,40 +6069,6 @@ def test_local_llm_refiner_stop_reports_no_active_request_without_unloading():
     assert module._CANCEL_LOCAL_LLM_KEYS == set()
 
 
-def test_local_llm_refiner_legacy_custom_provider_restores_custom_openai_path():
-    package = load_package()
-    node = package.DenoLocalLLMRefiner()
-    calls = []
-
-    def fake_run_single(**kwargs):
-        calls.append(kwargs)
-        return "answer", "thinking", {"model": kwargs["model"]}
-
-    node._run_single = fake_run_single
-
-    output = node.refine(
-        provider=["Custom Local Server"],
-        ollama_model=["qwen3.6:35b-a3b"],
-        lm_studio_model=["google/gemma-4-12b"],
-        custom_server_url=["http://127.0.0.1:8000/v1"],
-        custom_model=["legacy-qwen"],
-        system_prompt=["make a prompt"],
-        prompt=["one prompt"],
-        thinking=[False],
-        seed=[8],
-        seed_mode=["fixed"],
-        model_memory=["Keep loaded"],
-        keep_minutes=[9],
-        unique_id=[123],
-    )
-
-    assert output["result"][0] == ["answer"]
-    assert calls[0]["provider"] == "Custom"
-    assert calls[0]["server_url"] == "http://127.0.0.1:8000/v1"
-    assert calls[0]["model"] == "legacy-qwen"
-    assert calls[0]["seed"] == 8
-
-
 def test_local_llm_refiner_validation_accepts_local_provider_models():
     package = load_package()
     node_cls = package.NODE_CLASS_MAPPINGS["DenoLocalLLMRefiner"]
@@ -6154,63 +6087,9 @@ def test_local_llm_refiner_validation_accepts_local_provider_models():
         custom_model="",
     ) is True
 
-    assert node_cls.VALIDATE_INPUTS(
-        provider="Custom Local Server",
-        ollama_model="qwen3.6:35b-a3b",
-        lm_studio_model="",
-        custom_server_url="http://127.0.0.1:8000/v1",
-        custom_model="legacy-qwen",
-    ) is True
-
-    assert node_cls.VALIDATE_INPUTS(
-        provider="llama.cpp",
-        ollama_model="",
-        lm_studio_model="",
-        custom_server_url="http://127.0.0.1:8080/v1",
-        custom_model="local-vision-model",
-    ) is True
-
-    assert node_cls.VALIDATE_INPUTS(
-        provider="vLLM",
-        ollama_model="",
-        lm_studio_model="",
-        custom_server_url="http://127.0.0.1:8000/v1",
-        custom_model="Qwen/Qwen2.5-VL",
-    ) is True
-
-    assert node_cls.VALIDATE_INPUTS(
-        provider="llama-swap",
-        ollama_model="",
-        lm_studio_model="",
-        custom_server_url="http://127.0.0.1:8080/v1",
-        custom_model="models/Qwen3-8B",
-    ) is True
-
-    shifted_result = node_cls.VALIDATE_INPUTS(
-        provider="Custom Local Server",
-        ollama_model="",
-        lm_studio_model="",
-        custom_server_url="http://127.0.0.1:8000/v1",
-        custom_model=5,
-    )
-    assert "Custom Model" in shifted_result
-
-    provider_result = node_cls.VALIDATE_INPUTS(
-        provider="Remote API",
-        ollama_model="qwen3.6:35b-a3b",
-        lm_studio_model="google/gemma-4-12b",
-        custom_model="qwen3.6-35b-a3b-nvfp4",
-    )
-    assert "Provider" in provider_result
-
-    remote_result = node_cls.VALIDATE_INPUTS(
-        provider="vLLM",
-        ollama_model="",
-        lm_studio_model="",
-        custom_server_url="http://192.168.0.5:8000/v1",
-        custom_model="Qwen/Qwen2.5-VL",
-    )
-    assert "Only local LLM servers are allowed" in remote_result
+    for provider in ("Custom Local Server", "Custom", "llama.cpp", "vLLM", "llama-swap", "Unsloth", "Remote API"):
+        reason = node_cls.VALIDATE_INPUTS(provider=provider, ollama_model="qwen3", lm_studio_model="gemma")
+        assert "Ollama" in reason and "LM Studio" in reason
 
     url_result = node_cls.VALIDATE_INPUTS(
         provider="Ollama",
@@ -6239,109 +6118,25 @@ def test_local_llm_refiner_validation_accepts_local_provider_models():
     assert "qwen3.6:35b-a3b" in missing_saved_result
 
 
-def test_local_llm_refiner_openai_compatible_sends_image_and_reasoning(monkeypatch):
-    package = load_package()
-    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
-    node = package.DenoLocalLLMRefiner()
-    calls = []
-
-    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
-        calls.append({"url": url, "payload": payload, "cancel_key": cancel_key})
-        yield "message", {"choices": [{"delta": {"reasoning_content": "checking image"}}]}
-        yield "message", {"choices": [{"delta": {"content": "DENO_FINAL_PROMPT: a clean product photo"}}]}
-
-    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
-
-    image = np.zeros((2, 8, 8, 3), dtype=np.float32)
-    image[1, :, :, :] = 1.0
-    output = node.refine(
-        provider=["llama.cpp"],
-        ollama_model=["qwen3"],
-        lm_studio_model=["google/gemma-4-12b"],
-        custom_server_url=["http://127.0.0.1:8080/v1"],
-        custom_model=["local-vision-model"],
-        system_prompt=["Return DENO_FINAL_PROMPT."],
-        prompt=["describe the image"],
-        thinking=[True],
-        seed=[123],
-        seed_mode=["fixed"],
-        model_memory=["Keep loaded"],
-        keep_minutes=[5],
-        unique_id=[123],
-        image=[image],
-    )
-
-    assert output["result"][0] == ["a clean product photo"]
-    payload = calls[0]["payload"]
-    assert calls[0]["url"] == "http://127.0.0.1:8080/v1/chat/completions"
-    assert payload["model"] == "local-vision-model"
-    assert payload["messages"][-1]["content"][0] == {"type": "text", "text": "describe the image"}
-    assert payload["messages"][-1]["content"][1]["type"] == "image_url"
-    assert payload["messages"][-1]["content"][1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
-    assert payload["messages"][-1]["content"][2]["type"] == "image_url"
-    assert payload["messages"][-1]["content"][2]["image_url"]["url"].startswith("data:image/jpeg;base64,")
-
-
-def test_local_llm_refiner_splits_vllm_orphan_closing_think_tag(monkeypatch):
-    package = load_package()
-    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
-    node = package.DenoLocalLLMRefiner()
-
-    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
-        yield "message", {
-            "choices": [
-                {
-                    "delta": {
-                        "content": (
-                            "I inspected the image and found a red rectangle.\n"
-                            "</think>\n\n"
-                            "DENO_FINAL_PROMPT: red rectangle"
-                        )
-                    }
-                }
-            ]
-        }
-
-    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
-
-    output = node.refine(
-        provider=["vLLM"],
-        ollama_model=["qwen3"],
-        lm_studio_model=["google/gemma-4-12b"],
-        custom_server_url=["http://127.0.0.1:8000/v1"],
-        custom_model=["Qwen3-VL-2B-Thinking-FP8"],
-        system_prompt=["Return DENO_FINAL_PROMPT."],
-        prompt=["describe the image"],
-        thinking=[True],
-        seed=[123],
-        seed_mode=["fixed"],
-        model_memory=["Keep loaded"],
-        keep_minutes=[5],
-        unique_id=[123],
-    )
-
-    assert output["result"][0] == ["red rectangle"]
-    assert output["ui"]["thinking"] == ["I inspected the image and found a red rectangle."]
-
-
 def test_local_llm_refiner_thinking_on_requires_real_reasoning(monkeypatch):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     node = package.DenoLocalLLMRefiner()
 
-    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
-        yield "message", {"choices": [{"delta": {"content": "DENO_FINAL_PROMPT: plain answer"}}]}
+    def fake_stream(url, payload, **kwargs):
+        yield "message", {"choices": [{"delta": {"content": json.dumps({"deno_final_answer": "plain answer"})}}]}
+        yield "message", {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 
     monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
 
     with pytest.raises(RuntimeError) as exc:
         node.refine(
-            provider=["vLLM"],
+            provider=["LM Studio"],
             ollama_model=["qwen3"],
             lm_studio_model=["google/gemma-4-12b"],
             custom_server_url=["http://127.0.0.1:8000/v1"],
             custom_model=["local-text-model"],
-            system_prompt=["Return DENO_FINAL_PROMPT."],
+            system_prompt=[""],
             prompt=["make a prompt"],
             thinking=[True],
             seed=[123],
@@ -6352,99 +6147,6 @@ def test_local_llm_refiner_thinking_on_requires_real_reasoning(monkeypatch):
         )
 
     assert "no Thinking/reasoning content" in str(exc.value)
-
-
-def test_local_llm_refiner_custom_unload_is_not_fake_success():
-    package = load_package()
-    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
-
-    result = module.unload_local_llm_model("Custom", "http://127.0.0.1:8000/v1", "local-model")
-
-    assert result["ok"] is False
-    assert result["manual_unavailable"] is True
-    assert "do not share a standard unload API" in result["message"]
-
-    with pytest.raises(RuntimeError) as exc:
-        module.unload_local_llm_model("Custom", "http://192.168.0.5:8000/v1", "local-model")
-    assert "Only local LLM servers are allowed" in str(exc.value)
-
-
-def test_local_llm_refiner_openai_compatible_post_run_unload_failure_is_visible(monkeypatch):
-    package = load_package()
-    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
-    node = package.DenoLocalLLMRefiner()
-    events = []
-
-    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
-        yield "message", {"choices": [{"delta": {"content": "DENO_FINAL_PROMPT: final answer"}}]}
-
-    def fail_unload(server_root, model):
-        raise RuntimeError("llama.cpp does not support POST /models/unload in this build")
-
-    monkeypatch.setattr(module, "_send_progress", lambda payload: events.append(dict(payload)))
-    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
-    monkeypatch.setattr(module, "_llama_cpp_unload", fail_unload)
-    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
-    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
-
-    output = node.refine(
-        provider=["llama.cpp"],
-        ollama_model=[""],
-        lm_studio_model=[""],
-        custom_server_url=["http://127.0.0.1:8080/v1"],
-        custom_model=["local-vision-model"],
-        system_prompt=["Return DENO_FINAL_PROMPT."],
-        prompt=["make a prompt"],
-        thinking=[False],
-        seed=[123],
-        seed_mode=["fixed"],
-        model_memory=["Unload after run"],
-        keep_minutes=[5],
-        unique_id=[123],
-    )
-
-    assert output["result"][0] == ["final answer"]
-    assert "unload after run failed" in output["ui"]["thinking"][0]
-    assert events[-1]["status"] == "done, unload warning"
-    assert "unload after run failed" in events[-1]["thinking"]
-    assert "POST /models/unload" in events[-1]["unload_warning"]
-
-
-def test_local_llm_refiner_custom_post_run_unload_unavailable_is_visible(monkeypatch):
-    package = load_package()
-    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
-    node = package.DenoLocalLLMRefiner()
-    events = []
-
-    def fake_stream(url, payload, timeout=600.0, cancel_key=None):
-        yield "message", {"choices": [{"delta": {"content": "DENO_FINAL_PROMPT: custom answer"}}]}
-
-    monkeypatch.setattr(module, "_send_progress", lambda payload: events.append(dict(payload)))
-    monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
-    monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
-    monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
-
-    output = node.refine(
-        provider=["Custom"],
-        ollama_model=[""],
-        lm_studio_model=[""],
-        custom_server_url=["http://127.0.0.1:8000/v1"],
-        custom_model=["local-custom-model"],
-        system_prompt=["Return DENO_FINAL_PROMPT."],
-        prompt=["make a prompt"],
-        thinking=[False],
-        seed=[123],
-        seed_mode=["fixed"],
-        model_memory=["Unload after run"],
-        keep_minutes=[5],
-        unique_id=[123],
-    )
-
-    assert output["result"][0] == ["custom answer"]
-    assert "unload after run is unavailable for Custom" in output["ui"]["thinking"][0]
-    assert events[-1]["status"] == "done, unload warning"
-    assert "unload after run is unavailable for Custom" in events[-1]["thinking"]
-    assert "standard unload API" in events[-1]["unload_warning"]
 
 
 def test_local_llm_and_review_gate_validation_accepts_legacy_saved_combo_labels():
@@ -6597,7 +6299,7 @@ def test_local_llm_refiner_legacy_custom_saved_values_do_not_execute_custom_serv
             unique_id=[123],
         )
 
-    assert "Custom Model" in str(exc.value)
+    assert "Ollama" in str(exc.value) and "LM Studio" in str(exc.value)
     assert calls == []
 
 
@@ -6765,63 +6467,15 @@ def test_local_llm_refiner_normalizes_prompts_seed_modes_and_local_urls():
     assert module._seed_for_index(7, "increment", 2) == 9
     assert module._seed_for_index(7, "decrement", 9) == 0
     assert module._normalize_seed_mode("random") == "randomize"
-    assert module._normalize_lm_openai_url("http://127.0.0.1:1234") == "http://127.0.0.1:1234/v1"
+    assert module._local_llm_server_url("LM Studio") == "http://127.0.0.1:1234/v1"
     assert module._normalize_comfy_vram_policy("Auto") == "Auto: unload only before first LLM call"
     assert module._normalize_comfy_vram_policy("Always free") == "Always unload before each LLM call"
     assert module._normalize_comfy_vram_policy("Never free") == "Never unload before LLM call"
     assert "urlopen" not in source
     assert "urllib.request" not in source
 
-    try:
-        module._assert_local_url("https://example.com")
-    except RuntimeError as exc:
-        assert "Only local LLM servers" in str(exc)
-    else:
-        raise AssertionError("non-local URL should be rejected")
-
-    calls = []
-    original_open_connection = module._open_local_llm_http_connection
-    module._open_local_llm_http_connection = lambda *args, **kwargs: calls.append((args, kwargs))
-    try:
-        with pytest.raises(RuntimeError, match="Only local LLM servers"):
-            module._http_json("https://example.com/api/tags")
-    finally:
-        module._open_local_llm_http_connection = original_open_connection
-    assert calls == []
-
-
-def test_local_llm_refiner_lan_allowlist_requires_exact_private_ip_host_port(monkeypatch):
-    package = load_package()
-    module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
-
-    monkeypatch.delenv("DENO_LOCAL_LLM_ALLOWED_HOSTS", raising=False)
-    assert module._parse_local_llm_url("http://127.0.0.1:8000/v1").hostname == "127.0.0.1"
-    with pytest.raises(RuntimeError, match="Only local LLM servers"):
-        module._parse_local_llm_url("http://192.168.100.100:8080/v1")
-
-    monkeypatch.setenv("DENO_LOCAL_LLM_ALLOWED_HOSTS", "192.168.100.100:8080")
-    parsed = module._parse_local_llm_url("http://192.168.100.100:8080/v1")
-    assert parsed.hostname == "192.168.100.100"
-    assert parsed.port == 8080
-    with pytest.raises(RuntimeError, match="Only local LLM servers"):
-        module._parse_local_llm_url("http://192.168.100.100:8081/v1")
-
-    monkeypatch.setenv(
-        "DENO_LOCAL_LLM_ALLOWED_HOSTS",
-        "192.168.100.*:8080 192.168.100.0/24:8080 lan-box.local:8080 metadata.google.internal:80 169.254.169.254:80 169.254.1.2:8080",
-    )
-    for blocked_url in [
-        "http://192.168.100.100:8080/v1",
-        "http://lan-box.local:8080/v1",
-        "http://metadata.google.internal/v1",
-        "http://169.254.169.254/v1",
-        "http://169.254.1.2:8080/v1",
-    ]:
-        with pytest.raises(RuntimeError, match="Only local LLM servers"):
-            module._parse_local_llm_url(blocked_url)
-
-    with pytest.raises(RuntimeError, match="username/password"):
-        module._parse_local_llm_url("http://user:pass@127.0.0.1:8000/v1")
+    with pytest.raises(RuntimeError, match="default port"):
+        module._parse_local_llm_url("https://example.com")
 
 
 def test_resize_box_declares_comfyui_contract():

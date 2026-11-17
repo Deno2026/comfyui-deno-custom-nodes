@@ -8,17 +8,14 @@ from test_image_resize_node import load_package
 
 GENERIC_ENV = "DENO_LOCAL_LLM_API_KEY"
 LM_STUDIO_ENV = "DENO_LOCAL_LLM_LM_STUDIO_API_KEY"
-UNSLOTH_ENV = "DENO_LOCAL_LLM_UNSLOTH_API_KEY"
 SECRET = "synthetic-local-llm-auth-token"
-GENERIC_PROVIDERS = ["llama.cpp", "vLLM", "Custom", "llama-swap"]
-AUTH_PROVIDERS = ["LM Studio", *GENERIC_PROVIDERS]
 
 
 @pytest.fixture
 def llm(monkeypatch):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
-    for name in (GENERIC_ENV, LM_STUDIO_ENV, UNSLOTH_ENV):
+    for name in (GENERIC_ENV, LM_STUDIO_ENV):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(module, "_send_progress", lambda _event: None)
     return module, package.DenoLocalLLMRefiner()
@@ -26,7 +23,7 @@ def llm(monkeypatch):
 
 def _chat_kwargs():
     return {
-        "server_url": "http://127.0.0.1:8000/v1",
+        "server_url": "http://127.0.0.1:1234/v1",
         "model": "local-model",
         "system_prompt": "Keep the requested format.",
         "prompt": "Write the final answer.",
@@ -42,16 +39,12 @@ def _chat_kwargs():
     }
 
 
-def _run_chat(node, provider, **overrides):
-    kwargs = _chat_kwargs()
-    kwargs.update(overrides)
-    if provider == "LM Studio":
-        return node._run_lm_studio(**kwargs)
-    return node._run_openai_compatible(provider=provider, **kwargs)
+def _run_chat(node, **overrides):
+    return node._run_lm_studio(**{**_chat_kwargs(), **overrides})
 
 
-def _finished_chunk(provider, answer="finished answer"):
-    content = json.dumps({"deno_final_answer": answer}) if provider == "LM Studio" else answer
+def _finished_chunk(answer="finished answer"):
+    content = json.dumps({"deno_final_answer": answer})
     return "message", {
         "choices": [{"delta": {"content": content}, "finish_reason": "stop"}]
     }
@@ -66,74 +59,35 @@ def _assert_transport_only(calls, result):
 
 
 @pytest.mark.parametrize(
-    ("provider", "generic", "dedicated", "expected"),
+    ("generic", "dedicated", "expected"),
     [
-        ("LM Studio", "generic-key", "dedicated-key", "dedicated-key"),
-        ("LM Studio", " generic-key ", None, "generic-key"),
-        ("LM Studio", "generic-key", " \t ", "generic-key"),
-        ("LM Studio", " \t ", None, None),
-        *[(provider, " generic-key ", "lm-only-key", "generic-key") for provider in GENERIC_PROVIDERS],
-        ("Ollama", "generic-key", "lm-only-key", None),
+        ("generic-key", "dedicated-key", "dedicated-key"),
+        (" generic-key ", None, "generic-key"),
+        ("generic-key", " \t ", "generic-key"),
+        (" \t ", None, None),
     ],
 )
-def test_provider_headers_select_environment_key_without_cross_provider_leak(
-    llm, monkeypatch, provider, generic, dedicated, expected
-):
+def test_lm_studio_key_precedence(llm, monkeypatch, generic, dedicated, expected):
     module, _node = llm
     monkeypatch.setenv(GENERIC_ENV, generic)
     if dedicated is not None:
         monkeypatch.setenv(LM_STUDIO_ENV, dedicated)
-    headers = (
-        module._lm_studio_request_headers()
-        if provider == "LM Studio"
-        else module._openai_compatible_request_headers(provider)
-    )
-    assert headers == {"Authorization": f"Bearer {expected}"} if expected else not headers
+    headers = module._lm_studio_request_headers()
+    assert headers == ({"Authorization": f"Bearer {expected}"} if expected else None)
 
 
-@pytest.mark.parametrize("provider", AUTH_PROVIDERS)
-def test_optional_authentication_preserves_servers_without_a_key(llm, provider):
-    module, _node = llm
-    headers = (
-        module._lm_studio_request_headers()
-        if provider == "LM Studio"
-        else module._openai_compatible_request_headers(provider)
-    )
-    assert not headers
-
-
-def test_unsloth_never_uses_the_generic_or_lm_studio_key(llm, monkeypatch):
-    module, _node = llm
-    monkeypatch.setenv(GENERIC_ENV, SECRET)
-    monkeypatch.setenv(LM_STUDIO_ENV, SECRET)
-    with pytest.raises(RuntimeError, match=UNSLOTH_ENV):
-        module._openai_compatible_request_headers("Unsloth")
-    monkeypatch.setenv(UNSLOTH_ENV, " unsloth-only-key ")
-    assert module._openai_compatible_request_headers("Unsloth") == {
-        "Authorization": "Bearer unsloth-only-key"
-    }
-
-
-@pytest.mark.parametrize("provider", AUTH_PROVIDERS)
-def test_model_list_authentication_is_transport_only(llm, monkeypatch, provider):
+def test_model_list_authentication_is_transport_only(llm, monkeypatch):
     module, _node = llm
     monkeypatch.setenv(GENERIC_ENV, SECRET)
     calls = []
 
     def fake_json(url, payload=None, **kwargs):
         calls.append((url, payload, kwargs))
-        if url.endswith("/running"):
-            return {"running": [{"model": "local-model"}]}
-        if provider == "LM Studio":
-            return {"models": [{"key": "local-model", "type": "llm"}]}
-        return {"data": [{"id": "local-model"}]}
+        return {"models": [{"key": "local-model", "type": "llm"}]}
 
     monkeypatch.setattr(module, "_http_json", fake_json)
-    models = module.list_local_llm_models(provider, "http://127.0.0.1:8000/v1")
+    models = module.list_local_llm_models("LM Studio", "")
     assert models[0]["id"] == "local-model"
-    if provider == "llama-swap":
-        assert models[0]["loaded"] is True
-        assert calls[1][0].endswith("/running")
     _assert_transport_only(calls, models)
 
 
@@ -160,9 +114,8 @@ def test_ollama_model_list_and_generation_do_not_send_generic_bearer(llm, monkey
     assert SECRET not in json.dumps([models, result, calls])
 
 
-@pytest.mark.parametrize("provider", AUTH_PROVIDERS)
 def test_chat_stream_authentication_does_not_enter_payload_result_or_progress(
-    llm, monkeypatch, provider
+    llm, monkeypatch
 ):
     module, node = llm
     monkeypatch.setenv(GENERIC_ENV, SECRET)
@@ -170,35 +123,13 @@ def test_chat_stream_authentication_does_not_enter_payload_result_or_progress(
 
     def fake_stream(url, payload, **kwargs):
         calls.append((url, payload, kwargs))
-        yield _finished_chunk(provider)
+        yield _finished_chunk()
 
     monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
     monkeypatch.setattr(module, "_send_progress", progress.append)
-    result = _run_chat(node, provider)
+    result = _run_chat(node)
     assert result[0] == "finished answer"
     _assert_transport_only(calls, [result, progress])
-
-
-@pytest.mark.parametrize("provider", GENERIC_PROVIDERS)
-def test_non_stream_diagnostic_request_reuses_generic_authentication(llm, monkeypatch, provider):
-    module, node = llm
-    monkeypatch.setenv(GENERIC_ENV, SECRET)
-    calls = []
-
-    def empty_stream(url, payload, **kwargs):
-        calls.append((url, payload, kwargs))
-        return iter(())
-
-    def fake_json(url, payload=None, **kwargs):
-        calls.append((url, payload, kwargs))
-        return {"choices": [{"message": {"content": "diagnostic answer"}}]}
-
-    monkeypatch.setattr(module, "_http_stream_sse", empty_stream)
-    monkeypatch.setattr(module, "_http_json", fake_json)
-    result = _run_chat(node, provider)
-    assert result[0] == "diagnostic answer"
-    assert [call[1]["stream"] for call in calls] == [True, False]
-    _assert_transport_only(calls, result)
 
 
 @pytest.mark.parametrize("retry", ["reasoning", "finalization"])
@@ -219,10 +150,10 @@ def test_lm_studio_retries_preserve_auth_and_redact_persisted_error(llm, monkeyp
             else:
                 yield "message", {"choices": [{"delta": {"content": "invalid envelope"}, "finish_reason": "stop"}]}
             return
-        yield _finished_chunk("LM Studio")
+        yield _finished_chunk()
 
     monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
-    result = _run_chat(node, "LM Studio")
+    result = _run_chat(node)
     assert result[0] == "finished answer"
     assert len(calls) == 2
     _assert_transport_only(calls, result)
@@ -231,8 +162,7 @@ def test_lm_studio_retries_preserve_auth_and_redact_persisted_error(llm, monkeyp
         assert "[redacted]" in result[2]["reasoning_compatibility"]["error"]
 
 
-@pytest.mark.parametrize("operation", ["lm_unload", "llama_cpp_unload", "llama_swap_running", "llama_swap_unload", "vllm_sleep_wake"])
-def test_management_requests_use_bearer_without_storing_key(llm, monkeypatch, operation):
+def test_management_requests_use_bearer_without_storing_key(llm, monkeypatch):
     module, _node = llm
     monkeypatch.setenv(GENERIC_ENV, SECRET)
     calls = []
@@ -241,35 +171,17 @@ def test_management_requests_use_bearer_without_storing_key(llm, monkeypatch, op
         calls.append((url, payload, kwargs))
         if url.endswith("/api/v1/models"):
             return {"models": [{"key": "local-model", "loaded_instances": [{"id": "instance-1"}]}]}
-        return {"running": [{"model": "local-model"}], "ok": True}
-
-    def fake_success(url, **kwargs):
-        calls.append((url, kwargs.get("error_payload"), kwargs))
-        return 200, "unloaded"
+        return {"ok": True}
 
     monkeypatch.setattr(module, "_http_json", fake_json)
-    monkeypatch.setattr(module, "_http_expect_success", fake_success)
-    root = "http://127.0.0.1:8000"
-    if operation == "lm_unload":
-        module._lm_unload_best_effort(root, "local-model")
-        assert calls[-1][1] == {"instance_id": "instance-1"}
-    elif operation == "llama_cpp_unload":
-        module._llama_cpp_unload(root, "local-model")
-    elif operation == "llama_swap_running":
-        assert module._llama_swap_is_model_loaded(root, "local-model") is True
-    elif operation == "llama_swap_unload":
-        module._llama_swap_unload(root, "local-model")
-    else:
-        module._vllm_sleep(root, "local-model")
-        assert module._vllm_wake_if_needed(root, "local-model") == {"action": "wake_up"}
-        assert [call[0].rsplit("/", 1)[-1] for call in calls] == ["sleep?level=1", "wake_up"]
+    module.unload_local_llm_model("LM Studio", "", "local-model")
+    assert calls[-1][1] == {"instance_id": "instance-1"}
     _assert_transport_only(calls, None)
 
 
-@pytest.mark.parametrize("provider", AUTH_PROVIDERS)
 @pytest.mark.parametrize("action", ["models", "chat"])
 def test_unauthorized_requests_explain_the_applicable_environment_key(
-    llm, monkeypatch, provider, action
+    llm, monkeypatch, action
 ):
     module, node = llm
     monkeypatch.setenv(GENERIC_ENV, SECRET)
@@ -281,33 +193,27 @@ def test_unauthorized_requests_explain_the_applicable_environment_key(
     monkeypatch.setattr(module, "_http_stream_sse", unauthorized)
     with pytest.raises(RuntimeError, match="HTTP 401") as error:
         if action == "models":
-            module.list_local_llm_models(provider, "http://127.0.0.1:8000/v1")
+            module.list_local_llm_models("LM Studio", "http://127.0.0.1:1234/v1")
         else:
-            _run_chat(node, provider)
+            _run_chat(node)
     assert GENERIC_ENV in str(error.value)
-    if provider == "LM Studio":
-        assert LM_STUDIO_ENV in str(error.value)
+    assert LM_STUDIO_ENV in str(error.value)
     assert SECRET not in str(error.value)
 
 
-@pytest.mark.parametrize("provider", [*AUTH_PROVIDERS, "Unsloth"])
 @pytest.mark.parametrize("message", [
     "HTTP 503: model worker is busy",
     "HTTP 503: authentication service is unavailable",
     "HTTP 403: unauthorized",
 ])
-def test_non_authentication_server_error_keeps_original_diagnostic(llm, provider, message):
+def test_non_authentication_server_error_keeps_original_diagnostic(llm, message):
     module, _node = llm
     original = RuntimeError(message)
-    assert module._openai_compatible_authentication_error(provider, original) is original
-    if provider == "LM Studio":
-        assert module._lm_studio_authentication_error(original) is original
-    elif provider == "Unsloth":
-        assert module._unsloth_authentication_error(original) is original
+    assert module._lm_studio_authentication_error(original) is original
     assert str(original) == message
 
 
-@pytest.mark.parametrize("transport", ["json", "expect_success", "sse"])
+@pytest.mark.parametrize("transport", ["json", "sse"])
 @pytest.mark.parametrize("body_format", ["plain", "escaped_json"])
 def test_http_error_redacts_only_request_bearer_and_preserves_status(
     llm, monkeypatch, transport, body_format
@@ -346,11 +252,9 @@ def test_http_error_redacts_only_request_bearer_and_preserves_status(
     auth = {"Authorization": f"Bearer {token}"}
     with pytest.raises(RuntimeError, match="HTTP 503") as error:
         if transport == "json":
-            module._http_json("http://127.0.0.1:8000/v1/models", headers=auth)
-        elif transport == "expect_success":
-            module._http_expect_success("http://127.0.0.1:8000/api/models/unload/local-model", method="POST", headers=auth)
+            module._http_json("http://127.0.0.1:1234/v1/models", headers=auth)
         else:
-            list(module._http_stream_sse("http://127.0.0.1:8000/v1/chat/completions", {"model": "local-model"}, headers=auth))
+            list(module._http_stream_sse("http://127.0.0.1:1234/v1/chat/completions", {"model": "local-model"}, headers=auth))
     assert token not in str(error.value)
     if body_format == "escaped_json":
         # A JSON error shows only its message, with the request key redacted.
@@ -364,9 +268,8 @@ def test_http_error_redacts_only_request_bearer_and_preserves_status(
     assert token not in str(calls[0][2])
 
 
-@pytest.mark.parametrize("provider", AUTH_PROVIDERS)
 @pytest.mark.parametrize("token", [SECRET, 'synthetic/local"\\token'])
-def test_stream_error_reflected_key_is_redacted(llm, monkeypatch, provider, token):
+def test_stream_error_reflected_key_is_redacted(llm, monkeypatch, token):
     module, node = llm
     monkeypatch.setenv(GENERIC_ENV, token)
 
@@ -376,7 +279,7 @@ def test_stream_error_reflected_key_is_redacted(llm, monkeypatch, provider, toke
 
     monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
     with pytest.raises(RuntimeError, match="HTTP 503") as error:
-        _run_chat(node, provider)
+        _run_chat(node)
     assert token not in str(error.value)
     assert "[redacted]" in str(error.value)
 
@@ -396,8 +299,7 @@ def test_authentication_stays_out_of_public_node_inputs(llm, monkeypatch):
     assert list(before["optional"]) == ["image", "video_seconds", "audio_context"]
 
 
-@pytest.mark.parametrize("provider", ["LM Studio", "Custom"])
-def test_authenticated_refine_persists_answer_without_environment_key(llm, monkeypatch, provider):
+def test_authenticated_refine_persists_answer_without_environment_key(llm, monkeypatch):
     module, node = llm
     monkeypatch.setenv(GENERIC_ENV, SECRET)
     monkeypatch.setenv(LM_STUDIO_ENV, SECRET)
@@ -408,16 +310,16 @@ def test_authenticated_refine_persists_answer_without_environment_key(llm, monke
 
     def fake_stream(url, payload, **kwargs):
         calls.append((url, payload, kwargs))
-        yield _finished_chunk(provider)
+        yield _finished_chunk()
 
     monkeypatch.setattr(module, "_http_stream_sse", fake_stream)
     monkeypatch.setattr(module, "_unload_other_warm_local_llms", lambda **_kwargs: {})
     monkeypatch.setattr(module, "_prepare_comfy_vram_before_llm", lambda **_kwargs: {})
     result = node.refine(
-        provider=provider,
+        provider="LM Studio",
         ollama_model="local-model",
         lm_studio_model="local-model",
-        custom_server_url="http://127.0.0.1:8000/v1",
+        custom_server_url="http://127.0.0.1:1234/v1",
         custom_model="local-model",
         system_prompt="",
         prompt=["Write the final answer."],

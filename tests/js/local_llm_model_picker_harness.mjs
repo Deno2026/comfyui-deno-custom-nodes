@@ -31,7 +31,6 @@ vm.runInContext(source, context, { filename: sourcePath });
 const api = context.testApi;
 assert(api, "Local LLM test API must be exposed");
 
-const pickerName = "deno_local_llm_model_picker";
 const savedValues = [
     "llama.cpp", "qwen3", "google/gemma", "http://127.0.0.1:8080/v1", "saved/custom-model",
     "saved system prompt", true, 17, "fixed", "Keep loaded", 5,
@@ -127,59 +126,31 @@ function chooseProvider(node, provider) {
 for (const [id, storeBacked, removeApi] of [[93, true, true], [94, true, false], [95, false, false]]) {
     const node = makeNode(id, storeBacked, removeApi);
     await api.refreshModels(node);
-    assert.equal(pickerRows(node).length, 1, "First refresh creates one picker");
-    const first = pickerRows(node)[0];
-    assert.equal(first.name, pickerName, "The picker uses its stable internal name");
-    assert.equal(first.label, "Detected Models", "The visible label remains unchanged");
-    assert.equal(api.getWidget(node, "custom_model").value, "saved/custom-model", "Discovery preserves an unavailable custom model id");
+    assert.equal(api.getLocalLLMNodeState(node).status, "unsupported provider");
+    assert.equal(api.getWidget(node, "provider").value, "llama.cpp");
+    assert.deepEqual(Array.from(api.getWidget(node, "provider").options.values), ["Ollama", "LM Studio"]);
+    assert.deepEqual(Array.from(api.localLLMLoaderSerializedValuesFromWidgets(node, savedValues)), savedValues);
 
-    // A provider switch removes the row. The v1.53.6 store can still have its
-    // canonical state, making create-then-rename fail when switching back.
-    chooseProvider(node, "Ollama");
-    assert.equal(pickerRows(node).length, 0, "Ollama has no OpenAI picker");
-    chooseProvider(node, "llama.cpp");
-    for (let count = 0; count < 8; count++) await api.refreshModels(node);
-    assert.equal(pickerRows(node).length, 1, "Repeated refreshes after a provider switch must reuse one picker");
-    assert.equal(pickerRows(node)[0].name, pickerName, "A retained store state cannot prevent canonical naming");
-    assert.equal(pickerRows(node)[0].serialize, false, "The frontend's native serializer skips the generated picker");
-    for (const [name, label] of [["refresh_models", "Refresh Models"], ["stop_llm", "Stop LLM"], ["unload_llm", "Unload LLM"]]) {
-        const button = api.getWidget(node, `deno_local_llm_${name}`);
-        assert(button, "Action buttons also use stable internal names after a provider switch");
-        assert.equal(button.label, label, "Action button labels stay unchanged");
-        assert.equal(button.serialize, false, "The frontend's native serializer skips action buttons");
+    for (const provider of ["Ollama", "LM Studio", "Ollama"]) {
+        chooseProvider(node, provider);
+        await api.refreshModels(node);
+        assert.deepEqual(Array.from(api.getWidget(node, "provider").options.values), ["Ollama", "LM Studio"]);
+        assert.equal(api.getWidget(node, "custom_server_url").hidden, true);
+        assert.equal(api.getWidget(node, "custom_model").hidden, true);
+        assert.equal(api.getWidget(node, "ollama_model").hidden, provider !== "Ollama");
+        assert.equal(api.getWidget(node, "lm_studio_model").hidden, provider !== "LM Studio");
+        assert.equal(pickerRows(node).length, 0);
+        for (const name of ["refresh_models", "stop_llm", "unload_llm"]) {
+            const actions = node.widgets.filter((widget) => widget.name === `deno_local_llm_${name}`);
+            assert.equal(actions.length, 1, "Each action remains available once after provider changes");
+            assert.equal(actions[0].serialize, false);
+        }
+        const values = Array.from(api.localLLMLoaderSerializedValuesFromWidgets(node, savedValues));
+        assert.deepEqual(values, [provider, ...savedValues.slice(1)], "Switching provider preserves all other positions");
+        const restored = makeNode(id + 1000, storeBacked, removeApi);
+        api.applyLocalLLMLoaderSavedWidgetValues(restored, values);
+        assert.deepEqual(Array.from(api.localLLMLoaderSerializedValuesFromWidgets(restored, null)), values);
     }
-
-    const picker = pickerRows(node)[0];
-    picker.value = "llama-b";
-    picker.callback?.("llama-b");
-    assert.equal(api.getWidget(node, "custom_model").value, "llama-b", "A picker selection updates the execution model");
-    const serialized = api.localLLMLoaderSerializedValuesFromWidgets(node, savedValues);
-    assert.equal(serialized.length, 13, "Picker state must not add a saved positional value");
-    assert.equal(serialized[4], "llama-b", "The selected execution model is saved");
-    assert.equal(serialized[5], savedValues[5], "System prompt stays at its saved position");
-    assert.equal(serialized[12], savedValues[12], "User prompt stays at its saved position");
-
-    // Reopen/configure may restore an older frontend's stale internal key.
-    // Legacy public-name rows must be discarded without touching user input.
-    const legacyA = node.addWidget("combo", "Detected Models", "legacy-a", () => {}, { values: ["legacy-a"] });
-    const legacyB = node.addWidget("combo", "Detected Models", "legacy-b", () => {}, { values: ["legacy-b"] });
-    const duplicate = node.addWidget("combo", pickerName, "duplicate", () => {}, { values: ["duplicate"] });
-    const unrelated = node.addWidget("combo", "Other model source", "user-value", () => {}, { values: ["user-value"] });
-    unrelated.label = "Detected Models";
-    let removed = 0;
-    for (const widget of [legacyA, legacyB, duplicate]) widget.onRemove = () => { removed++; };
-    await api.refreshModels(node);
-    assert.equal(pickerRows(node).length, 1, "Existing legacy and canonical duplicates are repaired on refresh");
-    assert.equal(pickerRows(node)[0], picker, "The existing canonical picker is reused");
-    assert(node.widgets.includes(unrelated), "A matching display label alone must not remove unrelated widgets");
-    assert.equal(api.getWidget(node, "custom_model").value, "llama-b", "Duplicate cleanup preserves the selected model");
-    if (removeApi) assert.equal(removed, 3, "Cleanup uses the frontend removal lifecycle when available");
-
-    api.updateModelChoices(node, "llama.cpp", []);
-    assert.equal(pickerRows(node).length, 0, "An empty authoritative list removes the generated picker");
-    api.updateModelChoices(node, "llama.cpp", [{ id: "llama-b" }]);
-    assert.equal(pickerRows(node).length, 1, "A list returning after empty refresh recreates just one picker");
-    assert.equal(pickerRows(node)[0].name, pickerName, "Recreated pickers keep a stable internal name");
 }
 
 console.log("local_llm_model_picker_harness: ok");

@@ -24,6 +24,10 @@
 </p>
 
 > [!NOTE]
+> Após a revisão de segurança do Comfy Registry, na **v0.7.129** o Local LLM Loader se conecta apenas ao Ollama e ao LM Studio pelos endereços locais fixos desses serviços no computador que executa o ComfyUI.
+>
+> Se você salvou um workflow com outro provedor, abra o workflow, selecione **Ollama** ou **LM Studio**, clique em **Refresh Models** e escolha um modelo instalado. O relatório de diagnóstico SOS foi removido. O Floating Tools continua oferecendo **Free VRAM** e **Check Updates**.
+>
 > **Novidade na v0.7.126:** o [`(Deno) MiniMax H3 Tiled Sampler`](#deno-minimax-h3-tiled-sampler) finaliza um latent de vídeo+áudio MiniMax H3 ampliado em tiles sobrepostos, para que uma GPU de 16GB consiga executar a passagem final em alta resolução.
 >
 > A **v0.7.125** restringiu os endereços de servidor do Local LLM, os links do Easy Model Download Helper e o salvamento de imagens do Ideogram Director. IDs de nós, entradas e workflows salvos não mudaram. Veja o [CHANGELOG](../CHANGELOG.md).
@@ -133,7 +137,7 @@ Mantenha grafos grandes legíveis.
 | Ferramenta | O que faz | Requisitos |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | Dobra nós selecionados ou um grupo em uma única pílula compacta, sem subgraph | — |
-| [Floating Tools](#deno-floating-tools) | Liberar VRAM, status de atualização do ComfyUI Stable e Error Help pronto para GPT/Gemini | Desativado por padrão |
+| [Floating Tools](#deno-floating-tools) | Liberar VRAM e verificar a versão estável do ComfyUI | Desativado por padrão |
 | [Node info button](#node-info-button) | Ajuda rápida e notas de atualização em cada nó Deno | — |
 
 ## Ferramentas web
@@ -549,8 +553,7 @@ Auxiliares de workflow com LLM local, para chamar modelos que já estão rodando
 
 Principais recursos:
 
-- chame, a partir do ComfyUI, modelos locais Ollama, LM Studio, llama.cpp, vLLM, Custom compatível com OpenAI, llama-swap ou Unsloth Studio
-- segurança de servidor com localhost por padrão: use `127.0.0.1` ou `localhost`, ou permita explicitamente um único `IP:port` privado da LAN com `DENO_LOCAL_LLM_ALLOWED_HOSTS`
+- Use o Ollama ou o LM Studio no mesmo computador que o ComfyUI.
 - atualize pelo nó as listas de modelos específicas de cada provider
 - interrompa uma requisição de LLM local em andamento antes de descarregar o modelo
 - conecte lotes de prompts por uma única execução do nó, para que o modelo local fique carregado até o lote terminar
@@ -564,12 +567,9 @@ Principais recursos:
 <details>
 <summary>Endereços de servidor, chaves de API e notas sobre providers</summary>
 
-Os campos de servidor de Custom, llama.cpp, vLLM, llama-swap e Unsloth aceitam apenas um endereço de servidor e porta com um `/v1` opcional, por exemplo `http://127.0.0.1:8000/v1`; consultas e outros caminhos são rejeitados com uma dica. Refresh Models, Unload e Stop do Ollama e do LM Studio sempre usam seus servidores locais fixos, os mesmos com que o nó executa. Os erros do servidor mostram a mensagem de erro JSON do servidor, em vez da resposta bruta.
+O Ollama usa `127.0.0.1:11434` e o LM Studio usa `127.0.0.1:1234`. Se um fluxo salvo usar outro provedor, selecione um desses dois, atualize a lista e escolha um modelo instalado.
 
 - mantém um único seletor de modelo detectado em atualizações repetidas e trocas de provider, e remove seletores duplicados conhecidos de sessões antigas do frontend, preservando o modelo selecionado
-- use as APIs de estado de execução ao vivo e de gerenciamento do llama-swap para descarregar manualmente ou após a execução; qualquer timeout de servidor do llama-swap configurado continua responsável pelo descarregamento automático
-- use o provider `Unsloth` apenas com um servidor Unsloth Studio (padrão `http://127.0.0.1:8888/v1`); se um GGUF da Unsloth estiver rodando dentro do LM Studio, selecione `LM Studio`
-- liste modelos do Unsloth Studio, envie requisições de chat compatíveis com OpenAI sem campos de definição de ferramentas nem de escolha de ferramenta, e use a API de gerenciamento do Unsloth Studio para descarregar manualmente ou após a execução; `Keep for minutes` não agenda um descarregamento temporizado do Unsloth
 - os presets de System Prompt existentes no navegador podem ser importados uma vez, e a cópia do navegador fica intacta como backup
 - veja o nome do preset de System Prompt realmente aplicado no nó e no editor; um texto editado sem correspondência aparece como `Custom`
 
@@ -578,15 +578,9 @@ A autenticação da API é lida do ambiente do host do ComfyUI:
 | Provider | Variável de ambiente da chave de API |
 | --- | --- |
 | LM Studio | `DENO_LOCAL_LLM_LM_STUDIO_API_KEY` opcional; usa `DENO_LOCAL_LLM_API_KEY` quando a chave dedicada não está definida |
-| llama.cpp, vLLM, Custom, llama-swap | `DENO_LOCAL_LLM_API_KEY` opcional |
-| Unsloth | `DENO_LOCAL_LLM_UNSLOTH_API_KEY` obrigatória; a chave comum não é usada |
 | Ollama | A chave comum não é enviada |
 
-Defina a variável apropriada antes de iniciar o ComfyUI e reinicie o ComfyUI depois de alterá-la. A chave é enviada como token Bearer na descoberta de modelos, no chat e nas requisições de gerenciamento aceitas pelo provider, incluindo o unload do LM Studio e o gerenciamento do llama-swap. Providers opcionais continuam funcionando sem cabeçalho de autenticação quando nenhuma chave está configurada. As chaves nunca são armazenadas em workflows nem em metadados de PNG.
-
-Para um servidor de LLM hospedado em Docker no mesmo PC, publique a porta do servidor no loopback do host e use a URL local correspondente. A autenticação não muda as regras de URL de localhost/LAN privada; use apenas um servidor confiável, porque a chave configurada é enviada ao provider compatível selecionado.
-
-Nota sobre LM Studio remoto: o provider dedicado `LM Studio` usa atualmente `http://127.0.0.1:1234/v1`. Para chamar o LM Studio em outro PC seu, na mesma LAN confiável, ative **Serve on Local Network** nesse PC, defina uma allowlist exata antes de iniciar o ComfyUI (por exemplo `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`), reinicie o ComfyUI, selecione `Custom` e use `http://192.168.1.50:1234/v1` como Custom Server URL. Se esse servidor exigir autenticação, defina também `DENO_LOCAL_LLM_API_KEY` no host do ComfyUI antes de reiniciar. A allowlist aceita apenas pares exatos de IP privado e porta e nunca é armazenada em workflows nem em metadados de PNG. O Custom não usa os auxiliares de unload específicos do LM Studio, então restrinja a porta do servidor ao PC do ComfyUI com o firewall do host e gerencie o modelo remoto pelo LM Studio.
+Se o LM Studio exigir uma chave, configure-a no computador antes de iniciar o ComfyUI. Reinicie o ComfyUI se a chave mudar.
 
 Nota de compatibilidade do LM Studio: se o LM Studio rejeitar o campo opcional de controle de raciocínio antes de qualquer saída gerada começar, o nó tenta de novo uma vez sem esse campo. O servidor e o modelo selecionados passam então a decidir o comportamento de raciocínio padrão; o toggle Thinking não consegue forçar um modo de raciocínio que o servidor não expõe.
 
@@ -820,11 +814,7 @@ Isto é diferente do Subgraph do ComfyUI. O Subgraph move nós para um grafo fil
 
 O Deno Floating Tools é um auxiliar opcional em `Settings > DENO > Tools`. Ele vem desativado por padrão.
 
-Quando ativado, adiciona um pequeno ícone Deno arrastável à tela do ComfyUI. O painel pode liberar a VRAM do ComfyUI pelo endpoint nativo de limpeza de memória do ComfyUI, mostrar o status atual/mais recente, somente leitura, da versão do núcleo do ComfyUI Stable e abrir um relatório Error Help quando uma execução falha.
-
-O Error Help cria um relatório pronto para GPT/Gemini com o workflow atual, o executável do Python e o tipo de ambiente, as versões dos pacotes, os detalhes da GPU, o contexto recente de traceback/log e um resumo dos custom nodes. Ele é somente leitura, abre primeiro uma janela de relatório e só copia quando você clica em `Copy Report`. Segredos comuns, como tokens, cookies, senhas, chaves privadas e credenciais em URLs, são mascarados antes da cópia.
-
-O Floating Tools não instala, atualiza, reinicia, repara nem modifica workflows. Ele se conecta às funções de requisição do ComfyUI apenas enquanto as ferramentas estão ativadas.
+Abra o ícone móvel do Deno para liberar VRAM ou verificar se há uma nova versão estável do ComfyUI.
 
 #### Node info button
 
@@ -837,10 +827,9 @@ A maioria dos nós Deno tem um pequeno botão verde `i` no canto superior direit
 O Deno Custom Nodes mantém, por padrão, um tratamento restrito de arquivos, rede e segredos.
 
 - **Arquivos:** os carregadores de imagem leem apenas a pasta `input` do ComfyUI. Envie as imagens externas antes de reabrir workflows que usavam caminhos ou URLs externos. O Save Image do Ideogram Director copia apenas arquivos de imagem.
-- **Local LLM:** os servidores são localhost por padrão. Um servidor privado na LAN só funciona por uma allowlist exata em `DENO_LOCAL_LLM_ALLOWED_HOSTS`, e as chaves de API são lidas do ambiente do host do ComfyUI, nunca armazenadas em workflows nem em metadados de PNG.
+- **Local LLM** A chave do LM Studio é lida no computador do ComfyUI e enviada apenas ao endereço local fixo do LM Studio.
 - **Tradução:** a tradução do Ideogram usa apenas os serviços integrados Google, MyMemory e LibreTranslate.
 - **Links de modelos:** o Easy Model Download Helper abre links web oficiais no seu navegador e nunca baixa arquivos em Python.
-- **Relatórios:** o Error Help é somente leitura, mostra o relatório antes de copiar e mascara segredos comuns, como tokens, cookies, senhas e chaves privadas.
 
 Veja [acesso a arquivos e à tradução](SECURITY_CONFIGURATION.md) para as regras exatas.
 

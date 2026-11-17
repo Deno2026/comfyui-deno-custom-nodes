@@ -24,6 +24,10 @@
 </p>
 
 > [!NOTE]
+> **v0.7.129**에서는 Comfy Registry 보안 심사에 대응해 Local LLM Loader가 ComfyUI를 실행하는 PC의 고정 로컬 주소에서 Ollama와 LM Studio만 사용하도록 변경했습니다.
+>
+> 다른 공급자로 저장한 워크플로는 직접 열어 **Ollama** 또는 **LM Studio**를 선택한 뒤 **Refresh Models**를 누르고 설치된 모델을 고르세요. SOS 진단 리포트는 폐지했습니다. Floating Tools에서는 **Free VRAM**과 **Check Updates**를 계속 사용할 수 있습니다.
+>
 > **v0.7.126 신규:** [`(Deno) MiniMax H3 Tiled Sampler`](#deno-minimax-h3-tiled-sampler)는 확대한 MiniMax H3 영상+오디오 latent를 겹치는 조각으로 나눠 마무리하므로, 16GB GPU에서도 고해상도 마지막 패스를 돌릴 수 있습니다.
 >
 > **v0.7.125**에서는 Local LLM 서버 주소, Easy Model Download Helper 링크, Ideogram Director 이미지 저장을 더 엄격하게 다듬었습니다. 노드 ID, 입력, 저장된 워크플로는 그대로입니다. [CHANGELOG](../CHANGELOG.md)를 참고하세요.
@@ -133,7 +137,7 @@ ComfyUI가 설치되어 정상 실행되는 환경에서 시작하세요.
 | 도구 | 기능 | 필요 조건 |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | 서브그래프 없이 선택한 노드나 그룹을 알약 하나로 접습니다 | — |
-| [Floating Tools](#deno-floating-tools) | VRAM 비우기, ComfyUI Stable 업데이트 상태, GPT/Gemini용 Error Help | 기본은 꺼짐 |
+| [Floating Tools](#deno-floating-tools) | VRAM 정리와 ComfyUI Stable 버전 확인 | 기본은 꺼짐 |
 | [Node info button](#node-info-button) | 각 Deno 노드의 빠른 도움말과 업데이트 안내 | — |
 
 ## 웹 도구
@@ -549,8 +553,7 @@ system prompt, user prompt, template, JSON 같은 긴 문구를 담는 작은 mu
 
 주요 기능:
 
-- ComfyUI에서 로컬 Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible, llama-swap, Unsloth Studio 모델 호출
-- 기본 localhost 서버 안전 제한: `127.0.0.1` 또는 `localhost`를 사용하거나, `DENO_LOCAL_LLM_ALLOWED_HOSTS`로 사설 LAN `IP:port` 하나를 명시적으로 허용
+- ComfyUI와 같은 PC에서 실행 중인 Ollama 또는 LM Studio 모델을 호출합니다.
 - 노드에서 provider별 모델 목록 새로고침
 - 모델을 내리기 전에 실행 중인 로컬 LLM 요청 중단
 - prompt batch를 한 번의 노드 실행으로 연결해 batch가 끝날 때까지 로컬 모델을 유지
@@ -564,12 +567,9 @@ system prompt, user prompt, template, JSON 같은 긴 문구를 담는 작은 mu
 <details>
 <summary>서버 주소, API 키, provider 안내</summary>
 
-Custom, llama.cpp, vLLM, llama-swap, Unsloth 서버 칸에는 서버 주소와 포트, 선택적으로 `/v1`만 넣을 수 있습니다. 예: `http://127.0.0.1:8000/v1`. 쿼리나 다른 경로는 안내와 함께 거절됩니다. Ollama와 LM Studio의 모델 새로고침, Unload, Stop은 노드가 실행할 때 쓰는 것과 같은 고정 로컬 서버를 항상 사용합니다. 서버 오류는 원본 응답 대신 서버의 JSON 오류 메시지로 표시됩니다.
+Ollama는 `127.0.0.1:11434`, LM Studio는 `127.0.0.1:1234`를 사용합니다. 다른 서버로 저장한 워크플로는 둘 중 하나를 고르고 모델 목록을 새로고침한 뒤 설치된 모델을 선택하세요.
 
 - 모델 목록을 반복 새로고침하거나 provider를 바꿔도 감지된 모델 선택창은 하나만 유지됩니다. 이전 frontend에서 생긴 알려진 중복 선택창은 정리하며, 선택한 모델은 유지합니다
-- 수동 또는 실행 후 unload에는 llama-swap의 실시간 실행 상태와 관리 API를 사용합니다. llama-swap에 설정된 서버 timeout이 자동 unload 시점을 계속 관리합니다
-- `Unsloth` provider는 Unsloth Studio 서버 전용이며 기본 주소는 `http://127.0.0.1:8888/v1`입니다. Unsloth에서 받은 GGUF를 LM Studio에 불러 실행하는 경우에는 `LM Studio`를 선택하세요
-- Unsloth Studio의 모델 조회와 OpenAI-compatible chat 요청을 사용하고 tool definition/tool choice 필드는 보내지 않으며, 수동 unload와 실행 후 unload에는 Unsloth Studio 관리 API를 사용합니다. `Keep for minutes`는 Unsloth timed unload를 예약하지 않습니다
 - 기존 브라우저 System Prompt 프리셋은 한 번 가져올 수 있으며, 브라우저의 원본은 백업으로 그대로 남습니다
 - 실제로 적용된 System Prompt 프리셋 이름을 노드와 편집기에서 확인할 수 있습니다. 수정해서 어느 프리셋과도 맞지 않는 텍스트는 `Custom`으로 표시됩니다
 
@@ -578,15 +578,9 @@ API 인증 키는 ComfyUI를 실행하는 PC의 환경변수에서 읽습니다.
 | Provider | API key 환경변수 |
 | --- | --- |
 | LM Studio | 선택형 `DENO_LOCAL_LLM_LM_STUDIO_API_KEY`; 전용 키가 없으면 `DENO_LOCAL_LLM_API_KEY` 사용 |
-| llama.cpp, vLLM, Custom, llama-swap | 선택형 `DENO_LOCAL_LLM_API_KEY` |
-| Unsloth | 필수 `DENO_LOCAL_LLM_UNSLOTH_API_KEY`; 공통 키는 사용하지 않음 |
 | Ollama | 공통 키를 보내지 않음 |
 
-ComfyUI를 시작하기 전에 해당 환경변수를 설정하고, 키를 변경한 뒤에는 ComfyUI를 완전히 다시 시작하세요. 키는 모델 조회, chat과 provider가 지원하는 관리 요청에 Bearer token으로 보내며 LM Studio unload와 llama-swap 관리 요청에도 적용됩니다. 선택형 인증 provider는 키가 없으면 기존처럼 인증 헤더 없이 연결합니다. 키는 workflow나 PNG 메타데이터에 저장되지 않습니다.
-
-같은 PC의 Docker에서 LLM 서버를 실행한다면 서버 포트를 host loopback에 공개하고 해당 로컬 URL을 사용하세요. 인증을 설정해도 localhost/사설 LAN 주소 제한은 그대로입니다. 설정한 키는 선택한 지원 provider의 서버로 보내므로 신뢰하는 서버만 사용하세요.
-
-원격 LM Studio 참고: 현재 전용 `LM Studio` provider 주소는 `http://127.0.0.1:1234/v1`로 고정되어 있습니다. 같은 신뢰 가능한 LAN에 있는 본인의 다른 PC에서 LM Studio를 호출하려면, 그 PC의 LM Studio에서 **Serve on Local Network**를 켜고 ComfyUI를 시작하기 전에 정확한 주소를 허용 목록에 넣으세요(예: `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`). ComfyUI를 다시 시작한 뒤 `Custom`을 선택하고 Custom Server URL을 `http://192.168.1.50:1234/v1`로 설정하면 됩니다. 서버에서 인증을 요구하면 재시작 전에 ComfyUI PC의 `DENO_LOCAL_LLM_API_KEY`도 설정하세요. 허용 목록은 정확한 사설 IP와 포트 조합만 받으며 workflow나 PNG 메타데이터에는 저장되지 않습니다. Custom은 LM Studio 전용 unload 기능을 사용하지 않으므로, 방화벽에서 해당 포트를 ComfyUI PC로 제한하고 원격 모델 관리는 LM Studio에서 직접 하세요.
+LM Studio 인증이 필요하면 ComfyUI를 시작하기 전에 해당 PC에 키를 설정하세요. 키를 바꾸면 ComfyUI를 다시 시작하세요.
 
 LM Studio 호환 참고: LM Studio가 생성 출력을 시작하기 전에 선택형 reasoning 제어 필드를 거부하면 노드는 그 필드만 뺀 요청으로 한 번 재시도합니다. 그 이후 reasoning 기본 동작은 선택한 서버와 모델이 결정하므로, Thinking toggle만으로 서버가 노출하지 않는 reasoning 모드를 강제할 수는 없습니다.
 
@@ -820,11 +814,7 @@ ComfyUI Subgraph와는 다릅니다. Subgraph는 노드를 하위 그래프로 �
 
 Deno Floating Tools는 `Settings > DENO > Tools`에서 직접 켜는 선택 기능이며 기본값은 꺼짐입니다.
 
-활성화하면 ComfyUI 화면에 드래그할 수 있는 작은 Deno 아이콘이 나타납니다. 이 패널에서 ComfyUI 기본 메모리 정리 endpoint를 이용해 VRAM을 비우고, 현재 ComfyUI Stable과 최신 공개 버전을 읽기 전용으로 비교하며, 실행 실패 시 Error Help 보고서를 열 수 있습니다.
-
-Error Help는 현재 워크플로, Python 실행 파일과 환경 종류, 패키지 버전, GPU 정보, 최근 traceback·로그 문맥, 커스텀 노드 요약을 담아 GPT/Gemini에 바로 전달할 수 있는 보고서를 만듭니다. 읽기 전용이며 먼저 별도 창에 보고서를 보여 주고, 사용자가 `Copy Report`를 눌렀을 때만 복사합니다. token, cookie, password, private key, URL credential처럼 흔한 비밀 값은 복사 전에 가립니다.
-
-Floating Tools 자체는 설치, 업데이트, 재시작, 복구 또는 워크플로 수정을 실행하지 않습니다. 도구를 켜 둔 동안에만 ComfyUI의 요청 함수에 연결됩니다.
+화면에서 이동할 수 있는 Deno 아이콘을 열면 VRAM을 정리하거나 ComfyUI Stable의 새 버전이 있는지 확인할 수 있습니다.
 
 #### Node info button
 
@@ -837,10 +827,9 @@ Floating Tools 자체는 설치, 업데이트, 재시작, 복구 또는 워크�
 Deno Custom Nodes는 파일, 네트워크, 비밀 정보 처리를 기본적으로 좁게 유지합니다.
 
 - **파일:** 이미지 로더는 ComfyUI `input` 폴더만 읽습니다. 외부 경로나 URL을 쓰던 워크플로를 다시 열기 전에 외부 이미지를 먼저 업로드하세요. Ideogram Director의 Save Image는 이미지 파일만 복사합니다.
-- **Local LLM:** 서버는 기본적으로 localhost입니다. 사설 LAN 서버는 정확한 `DENO_LOCAL_LLM_ALLOWED_HOSTS` 허용 목록으로만 쓸 수 있으며, API 키는 ComfyUI를 실행하는 PC의 환경변수에서 읽고 워크플로나 PNG 메타데이터에는 저장하지 않습니다.
+- **Local LLM** LM Studio 인증 키는 ComfyUI를 실행하는 PC에서 읽으며 해당 PC의 고정된 LM Studio 서버에만 보냅니다.
 - **번역:** Ideogram 번역은 기본 제공되는 Google, MyMemory, LibreTranslate만 사용합니다.
 - **모델 링크:** Easy Model Download Helper는 공식 웹 링크를 브라우저로 열 뿐, Python에서 파일을 내려받지 않습니다.
-- **보고서:** Error Help는 읽기 전용이며, 복사하기 전에 보고서를 먼저 보여 주고 token, cookie, password, private key 같은 흔한 비밀 값을 가립니다.
 
 정확한 규칙은 [파일·번역 접근 설정](SECURITY_CONFIGURATION.md)을 참고하세요.
 

@@ -24,6 +24,10 @@
 </p>
 
 > [!NOTE]
+> Menanggapi tinjauan keamanan Comfy Registry, di **v0.7.129** Local LLM Loader hanya terhubung ke Ollama dan LM Studio melalui alamat lokal tetap masing-masing pada komputer yang menjalankan ComfyUI.
+>
+> Jika workflow tersimpan memakai penyedia lain, buka workflow tersebut, pilih **Ollama** atau **LM Studio**, klik **Refresh Models**, lalu pilih model yang sudah terpasang. Laporan diagnostik SOS telah dihapus. **Free VRAM** dan **Check Updates** tetap tersedia di Floating Tools.
+>
 > **Baru di v0.7.126:** [`(Deno) MiniMax H3 Tiled Sampler`](#deno-minimax-h3-tiled-sampler) menyelesaikan latent video+audio MiniMax H3 yang sudah di-upscale dalam tile yang saling tumpang tindih, sehingga GPU 16GB dapat menjalankan pass akhir beresolusi tinggi.
 >
 > **v0.7.125** memperketat alamat server Local LLM, tautan Easy Model Download Helper, dan penyimpanan gambar Ideogram Director. ID node, input, dan workflow tersimpan tidak berubah. Lihat [CHANGELOG](../CHANGELOG.md).
@@ -133,7 +137,7 @@ Jaga graph besar tetap mudah dibaca.
 | Alat | Fungsinya | Kebutuhan |
 | --- | --- | --- |
 | [Visual Fold](#deno-visual-fold) | Melipat node terpilih atau sebuah group menjadi satu pill ringkas, tanpa subgraph | — |
-| [Floating Tools](#deno-floating-tools) | Free VRAM, status update ComfyUI Stable, dan Error Help siap-GPT/Gemini | Nonaktif secara default |
+| [Floating Tools](#deno-floating-tools) | Kosongkan VRAM dan periksa versi stabil ComfyUI | Nonaktif secara default |
 | [Node info button](#node-info-button) | Bantuan singkat dan catatan update pada setiap node Deno | — |
 
 ## Alat Web
@@ -549,8 +553,7 @@ Helper workflow LLM lokal untuk memanggil model yang sudah berjalan di PC-mu dan
 
 Fitur utama:
 
-- memanggil model lokal Ollama, LM Studio, llama.cpp, vLLM, Custom OpenAI-compatible, llama-swap, atau Unsloth Studio dari ComfyUI
-- keamanan server localhost secara default: gunakan `127.0.0.1` atau `localhost`, atau izinkan secara eksplisit satu `IP:port` LAN privat dengan `DENO_LOCAL_LLM_ALLOWED_HOSTS`
+- Jalankan Ollama atau LM Studio pada komputer yang sama dengan ComfyUI.
 - me-refresh daftar model khusus provider dari node
 - menghentikan request LLM lokal yang sedang berjalan sebelum meng-unload model
 - menghubungkan batch prompt melalui satu eksekusi node sehingga model lokal tetap termuat sampai batch selesai
@@ -564,12 +567,9 @@ Fitur utama:
 <details>
 <summary>Alamat server, API key, dan catatan provider</summary>
 
-Field server Custom, llama.cpp, vLLM, llama-swap, dan Unsloth hanya menerima alamat server dan port dengan `/v1` opsional, misalnya `http://127.0.0.1:8000/v1`; query dan path lain ditolak disertai petunjuk. Refresh Models, Unload, dan Stop untuk Ollama dan LM Studio selalu memakai server lokal tetap mereka, yaitu server yang sama yang dipakai node saat berjalan. Error server menampilkan pesan error JSON dari server, bukan respons mentahnya.
+Ollama menggunakan `127.0.0.1:11434` dan LM Studio menggunakan `127.0.0.1:1234`. Jika workflow tersimpan memakai penyedia lain, pilih salah satu dari keduanya, segarkan daftar model, lalu pilih model yang terpasang.
 
 - mempertahankan satu pemilih model terdeteksi di seluruh refresh berulang dan pergantian provider, serta menghapus pemilih ganda yang dikenal dari sesi frontend lama sambil mempertahankan model yang dipilih
-- memakai API status berjalan dan manajemen llama-swap yang live untuk unload manual atau setelah proses; timeout server llama-swap yang dikonfigurasi tetap menentukan unload otomatis
-- gunakan provider `Unsloth` hanya dengan server Unsloth Studio (default `http://127.0.0.1:8888/v1`); jika GGUF Unsloth berjalan di dalam LM Studio, pilih `LM Studio`
-- menampilkan daftar model Unsloth Studio, mengirim request chat OpenAI-compatible tanpa field tool-definition atau tool-choice, dan memakai API manajemen Unsloth Studio untuk unload manual atau setelah proses; `Keep for minutes` tidak menjadwalkan unload Unsloth berwaktu
 - preset System Prompt browser yang sudah ada dapat diimpor sekali sementara salinan di browser tetap tidak tersentuh sebagai cadangan
 - menampilkan nama preset System Prompt yang benar-benar diterapkan pada node dan di editor; teks yang diedit dan tidak cocok ditampilkan sebagai `Custom`
 
@@ -578,15 +578,9 @@ Autentikasi API dibaca dari environment host ComfyUI:
 | Provider | Environment variable API key |
 | --- | --- |
 | LM Studio | `DENO_LOCAL_LLM_LM_STUDIO_API_KEY` opsional; kembali ke `DENO_LOCAL_LLM_API_KEY` jika key khususnya tidak diset |
-| llama.cpp, vLLM, Custom, llama-swap | `DENO_LOCAL_LLM_API_KEY` opsional |
-| Unsloth | `DENO_LOCAL_LLM_UNSLOTH_API_KEY` wajib; key umum tidak dipakai |
 | Ollama | Key umum tidak dikirim |
 
-Set variable yang sesuai sebelum memulai ComfyUI, dan restart ComfyUI setelah mengubahnya. Key dikirim sebagai Bearer token untuk penemuan model, chat, dan request manajemen yang didukung provider, termasuk unload LM Studio dan manajemen llama-swap. Provider opsional tetap berfungsi tanpa header autentikasi jika tidak ada key yang dikonfigurasi. Key tidak pernah disimpan di workflow atau metadata PNG.
-
-Untuk server LLM yang di-host Docker di PC yang sama, publikasikan port server pada loopback host dan gunakan URL lokal yang sesuai. Autentikasi tidak mengubah aturan URL localhost/LAN privat; gunakan hanya server tepercaya karena key yang dikonfigurasi dikirim ke provider didukung yang dipilih.
-
-Catatan LM Studio jarak jauh: provider khusus `LM Studio` saat ini memakai `http://127.0.0.1:1234/v1`. Untuk menghubungi LM Studio di PC lain milikmu dalam LAN tepercaya yang sama, aktifkan **Serve on Local Network** di PC tersebut, tetapkan allowlist yang tepat sebelum memulai ComfyUI (misalnya `DENO_LOCAL_LLM_ALLOWED_HOSTS=192.168.1.50:1234`), restart ComfyUI, lalu pilih `Custom` dan gunakan `http://192.168.1.50:1234/v1` sebagai Custom Server URL. Jika server itu memerlukan autentikasi, set juga `DENO_LOCAL_LLM_API_KEY` di host ComfyUI sebelum restart. Allowlist hanya menerima pasangan IP privat dan port yang tepat, dan tidak pernah disimpan dalam workflow atau metadata PNG. Custom tidak memakai helper unload khusus LM Studio, jadi batasi port server hanya untuk PC ComfyUI melalui firewall host dan kelola model jarak jauh dari LM Studio.
+Jika LM Studio memerlukan kunci, atur kunci di komputer sebelum menjalankan ComfyUI. Mulai ulang ComfyUI setelah mengubahnya.
 
 Catatan kompatibilitas LM Studio: jika LM Studio menolak field kontrol reasoning opsionalnya sebelum output apa pun dihasilkan, node mencoba satu kali lagi tanpa field itu. Server dan model yang dipilih kemudian menentukan perilaku reasoning defaultnya; toggle Thinking tidak dapat memaksakan mode reasoning yang tidak disediakan server.
 
@@ -820,11 +814,7 @@ Ini berbeda dari Subgraph ComfyUI. Subgraph memindahkan node ke child graph, yan
 
 Deno Floating Tools adalah helper opsional di `Settings > DENO > Tools`. Fitur ini nonaktif secara default.
 
-Saat diaktifkan, sebuah ikon Deno kecil yang bisa diseret muncul di layar ComfyUI. Panelnya dapat membebaskan VRAM ComfyUI melalui endpoint pembersihan memori bawaan ComfyUI, menampilkan status read-only versi saat ini/terbaru untuk rilis inti ComfyUI Stable, serta membuka laporan Error Help saat sebuah eksekusi gagal.
-
-Error Help membuat laporan siap-GPT/Gemini yang berisi workflow saat ini, executable dan jenis environment Python, versi package, detail GPU, konteks traceback/log terbaru, dan ringkasan custom node. Fitur ini read-only, membuka jendela laporan terlebih dahulu, dan hanya menyalin saat kamu mengklik `Copy Report`. Rahasia umum seperti token, cookie, password, private key, dan kredensial URL disamarkan sebelum disalin.
-
-Floating Tools tidak menginstal, meng-update, me-restart, memperbaiki, atau mengubah workflow. Fitur ini hanya mengaitkan fungsi request ComfyUI selama alat tersebut diaktifkan.
+Buka ikon Deno yang dapat digeser untuk mengosongkan VRAM atau memeriksa apakah ada versi stabil ComfyUI yang lebih baru.
 
 #### Node info button
 
@@ -837,10 +827,9 @@ Sebagian besar node Deno memiliki tombol hijau kecil `i` di pojok kanan atas. Kl
 Deno Custom Nodes menjaga penanganan file, jaringan, dan rahasia tetap sempit secara default.
 
 - **File:** loader gambar hanya membaca folder `input` ComfyUI. Upload gambar eksternal sebelum membuka kembali workflow yang memakai path atau URL eksternal. Save Image milik Ideogram Director hanya menyalin file gambar.
-- **Local LLM:** server secara default adalah localhost. Server LAN privat hanya berfungsi melalui allowlist `DENO_LOCAL_LLM_ALLOWED_HOSTS` yang tepat, dan API key dibaca dari environment host ComfyUI, tidak pernah disimpan di workflow atau metadata PNG.
+- **Local LLM** Kunci LM Studio dibaca dari komputer ComfyUI dan hanya dikirim ke server lokal LM Studio yang alamatnya tetap.
 - **Terjemahan:** terjemahan Ideogram hanya memakai layanan bawaan Google, MyMemory, dan LibreTranslate.
 - **Tautan model:** Easy Model Download Helper membuka tautan web resmi di browser-mu dan tidak pernah mengunduh file lewat Python.
-- **Laporan:** Error Help bersifat read-only, menampilkan laporan sebelum disalin, dan menyamarkan rahasia umum seperti token, cookie, password, dan private key.
 
 Lihat [akses file dan terjemahan](SECURITY_CONFIGURATION.md) untuk aturan yang tepat.
 

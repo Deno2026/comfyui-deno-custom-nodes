@@ -124,7 +124,7 @@ function makeNode(id) {
         size: [560, 300],
         __denoLocalLLMRefreshing: true,
         widgets: [
-            makeWidget("provider", "Ollama", ["Ollama", "LM Studio", "llama.cpp", "vLLM", "Custom", "llama-swap", "Unsloth"]),
+            makeWidget("provider", "Ollama", ["Ollama", "LM Studio"]),
             makeWidget("ollama_model", "qwen3", ["qwen3"]),
             makeWidget("lm_studio_model", "google/gemma", ["google/gemma"]),
             makeWidget("custom_server_url", "http://127.0.0.1:8000/v1"),
@@ -225,137 +225,22 @@ assert(
     "A late old-provider response must not update hidden old-provider choices",
 );
 
-providerWidget.value = "llama-swap";
-providerWidget.callback?.("llama-swap");
-assert(
-    JSON.stringify(providerWidget.options.values) === JSON.stringify([
-        "Ollama",
-        "LM Studio",
-        "llama.cpp",
-        "vLLM",
-        "Custom",
-        "llama-swap",
-        "Unsloth",
-    ]),
-    "Unsloth must be appended after the existing provider order",
-);
-assert(
-    api.getWidget(providerNode, "custom_server_url").value === "http://127.0.0.1:8080/v1",
-    "A first llama-swap selection must apply its OpenAI-compatible default URL",
-);
-assert(
-    api.getLocalLLMNodeState(providerNode).thinking.includes("llama-swap"),
-    "llama-swap selection must explain its management-API memory behavior",
-);
-const llamaSwapMemoryWidget = api.getWidget(providerNode, "model_memory");
-llamaSwapMemoryWidget.value = "Keep for minutes";
-providerWidget.callback?.("llama-swap");
-assert(
-    api.getWidget(providerNode, "keep_minutes").hidden === true,
-    "llama-swap must hide the local Keep Minutes value because its server-side timeout owns timed unload",
-);
-assert(
-    api.getLocalLLMNodeState(providerNode).thinking.includes("server-side unload timeout"),
-    "llama-swap Keep for minutes must not claim that DENO schedules a timed management-API unload",
-);
-llamaSwapMemoryWidget.value = "Keep loaded";
-providerWidget.callback?.("llama-swap");
-assert(
-    api.getLocalLLMNodeState(providerNode).thinking.includes("may still unload it"),
-    "llama-swap Keep loaded must not override or overpromise against the server's own timeout",
-);
-llamaSwapMemoryWidget.value = "Unload after run";
-providerWidget.callback?.("llama-swap");
-const llamaSwapRefresh = api.refreshModels(providerNode);
-const llamaSwapRefreshCall = fetchCalls.at(-1);
-const llamaSwapRefreshBody = JSON.parse(llamaSwapRefreshCall.options.body);
-assert(
-    llamaSwapRefreshBody.provider === "llama-swap" &&
-        llamaSwapRefreshBody.server_url === "http://127.0.0.1:8080/v1",
-    "llama-swap Refresh must reuse the shared provider and Server URL request contract",
-);
-llamaSwapRefreshCall.pending.resolve(response({ models: [{ id: "custom-model" }] }));
-await llamaSwapRefresh;
-const llamaSwapUnload = api.unloadLocalModel(providerNode);
-const llamaSwapUnloadCall = fetchCalls.at(-1);
-const llamaSwapUnloadBody = JSON.parse(llamaSwapUnloadCall.options.body);
-assert(
-    llamaSwapUnloadBody.provider === "llama-swap" &&
-        llamaSwapUnloadBody.server_url === "http://127.0.0.1:8080/v1" &&
-        llamaSwapUnloadBody.model === "custom-model",
-    "llama-swap Unload must reuse the selected model and management-aware backend contract",
-);
-llamaSwapUnloadCall.pending.resolve(response({ ok: true, message: "llama-swap model unloaded" }));
-await llamaSwapUnload;
-assert(
-    api.getLocalLLMNodeState(providerNode).status === "LLM unloaded",
-    "A successful llama-swap manual unload must be visible on the node",
-);
-
-providerWidget.value = "Unsloth";
-providerWidget.callback?.("Unsloth");
-assert(
-    api.getWidget(providerNode, "custom_server_url").value === "http://127.0.0.1:8888/v1",
-    "A first Unsloth selection must apply the Unsloth Studio default URL",
-);
-assert(
-    api.getWidget(providerNode, "custom_server_url").hidden === false &&
-        api.getWidget(providerNode, "custom_model").hidden === false &&
-        api.getWidget(providerNode, "ollama_model").hidden === true &&
-        api.getWidget(providerNode, "lm_studio_model").hidden === true,
-    "Unsloth must reuse only the OpenAI-compatible Server URL and Model rows",
-);
-assert(
-    api.getLocalLLMNodeState(providerNode).thinking.includes("Unsloth Studio") &&
-        api.getLocalLLMNodeState(providerNode).thinking.includes("management API"),
-    "Unsloth selection must explain its OpenAI-compatible and management-API behavior",
-);
-const unslothRefresh = api.refreshModels(providerNode);
-const unslothRefreshCall = fetchCalls.at(-1);
-const unslothRefreshBody = JSON.parse(unslothRefreshCall.options.body);
-assert(
-    unslothRefreshBody.provider === "Unsloth" &&
-        unslothRefreshBody.server_url === "http://127.0.0.1:8888/v1",
-    "Unsloth Refresh must reuse the shared provider and Server URL request contract",
-);
-unslothRefreshCall.pending.resolve(response({ models: [{ id: "unsloth/Qwen3.8-27B" }] }));
-await unslothRefresh;
-assert(
-    providerNode.properties.denoLocalLLMModelChoicesByProvider?.Unsloth?.[0]?.id === "unsloth/Qwen3.8-27B" &&
-        providerNode.properties.denoLocalLLMModelChoicesByProvider?.["llama-swap"]?.[0]?.id === "custom-model",
-    "OpenAI-compatible model choices must stay separated by provider",
-);
-
-api.getWidget(providerNode, "custom_server_url").value = "http://127.0.0.1:8899/v1";
-providerWidget.value = "llama-swap";
-providerWidget.callback?.("llama-swap");
-assert(
-    api.getWidget(providerNode, "custom_server_url").value === "http://127.0.0.1:8080/v1",
-    "Switching back to llama-swap must restore its provider-specific URL",
-);
-providerWidget.value = "Unsloth";
-providerWidget.callback?.("Unsloth");
-assert(
-    api.getWidget(providerNode, "custom_server_url").value === "http://127.0.0.1:8899/v1",
-    "Switching back to Unsloth must restore its provider-specific URL",
-);
-
-api.getWidget(providerNode, "custom_model").value = "unsloth/Qwen3.8-27B";
-const unslothUnload = api.unloadLocalModel(providerNode);
-const unslothUnloadCall = fetchCalls.at(-1);
-const unslothUnloadBody = JSON.parse(unslothUnloadCall.options.body);
-assert(
-    unslothUnloadBody.provider === "Unsloth" &&
-        unslothUnloadBody.server_url === "http://127.0.0.1:8899/v1" &&
-        unslothUnloadBody.model === "unsloth/Qwen3.8-27B",
-    "Unsloth Unload must reuse the selected model and management-aware backend contract",
-);
-unslothUnloadCall.pending.resolve(response({ ok: true, message: "Unsloth Studio model unloaded" }));
-await unslothUnload;
-assert(
-    api.getLocalLLMNodeState(providerNode).status === "LLM unloaded",
-    "A successful Unsloth manual unload must be visible on the node",
-);
+assert(JSON.parse(providerRefreshCall.options.body).provider === "Ollama", "Refresh identifies the selected provider");
+assert(!("server_url" in JSON.parse(providerRefreshCall.options.body)), "Provider requests carry no server address");
+const beforeRetiredActions = fetchCalls.length;
+for (const removed of ["llama.cpp", "vLLM", "Custom", "Custom Local Server", "llama-swap", "Unsloth", "unknown provider"]) {
+    providerWidget.value = removed;
+    providerWidget.callback?.(removed);
+    await api.refreshModels(providerNode);
+    await api.unloadLocalModel(providerNode);
+    await api.stopLocalModel(providerNode);
+    assert(fetchCalls.length === beforeRetiredActions, "An unavailable provider cannot dispatch any model action");
+    assert(providerWidget.value === removed, "An unavailable provider is retained until an explicit selection");
+    assert(api.getLocalLLMNodeState(providerNode).thinking.includes("Choose Ollama or LM Studio"));
+}
+providerWidget.value = "LM Studio";
+providerWidget.callback?.("LM Studio");
+assert(api.getLocalLLMNodeState(providerNode).status === "ready");
 
 const executionNode = makeNode(12);
 const executionGraph = {

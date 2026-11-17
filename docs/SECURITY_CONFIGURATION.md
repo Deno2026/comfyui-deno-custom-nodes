@@ -12,7 +12,7 @@ Saved source strings, enabled states, order, node IDs and connections remain int
 
 ## Translation services
 
-From 0.7.122, Ideogram translation uses only the built-in Google, MyMemory, and LibreTranslate HTTPS services (`translate.googleapis.com`, `api.mymemory.translated.net`, and `libretranslate.com`). `LibreTranslate Custom URL` and `DENO_TRANSLATION_ALLOWED_ORIGINS` have been retired. Error Help reports are displayed locally and copied only when you choose to copy them; they are not automatically sent to ChatGPT or Gemini.
+From 0.7.122, Ideogram translation uses only the built-in Google, MyMemory, and LibreTranslate HTTPS services (`translate.googleapis.com`, `api.mymemory.translated.net`, and `libretranslate.com`). `LibreTranslate Custom URL` and `DENO_TRANSLATION_ALLOWED_ORIGINS` have been retired.
 
 Connections use validated public addresses directly, preserve TLS hostname verification, ignore environment proxies, and reject redirects rather than forwarding caption text to another address. Responses have a size limit and requests have a timeout.
 
@@ -20,7 +20,7 @@ Existing node IDs, sockets, and saved `libretranslate_url` widget values remain 
 
 ## Local LLM connections
 
-Local LLM Loader and Reviewer keep their existing localhost defaults and host-controlled LAN permissions. See [Local LLM usage](../README.md#deno-local-llm-loader). API keys stay in the host environment and are never stored in workflows. The translation setting above does not grant Local LLM access or change its authentication.
+The Local LLM Loader contacts Ollama at `127.0.0.1:11434` or LM Studio at `127.0.0.1:1234` on the ComfyUI host. If LM Studio requires authentication, configure its API key on that host. See the [Local LLM guide](../README.md#deno-local-llm-loader-and-deno-local-llm-reviewer) for setup and migration.
 
 ## Reporting a problem
 

@@ -25,7 +25,6 @@ def test_floating_tools_frontend_free_vram_contract():
     assert "deno-floating-tools-dialog-blocked" not in script
     assert "rootEl.append(orb, updateBadgeEl, panelEl);" in script
     assert "orb.append(iconImgEl);" in script
-    assert "deno_floating_tools_error_icon.png" in script
     assert "deno-floating-tools-bob" not in script
     assert "animation:" not in script
     assert "transform: translateY(-1px)" not in script
@@ -72,126 +71,6 @@ def test_floating_tools_comfyui_stable_check_is_read_only():
     ]
     for token in forbidden:
         assert token not in script
-
-
-def test_floating_tools_sos_surface_is_simple_and_read_only():
-    script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
-    init_py = (REPO_ROOT / "__init__.py").read_text(encoding="utf-8")
-
-    assert "Copy Error Report" in script
-    assert 'makeButton("Copy Error Report", "deno-floating-tools-action deno-floating-tools-sos-action")' in script
-    assert 'sosSection.className = "deno-floating-tools-section deno-floating-tools-sos-section"' in script
-    assert ".deno-floating-tools-action.deno-floating-tools-sos-action" in script
-    assert "#${ROOT_ID}.deno-floating-tools-sos-error .deno-floating-tools-sos-section" in script
-    assert "border: 1px solid rgba(255, 105, 78, 0.92);" in script
-    assert "background: rgba(83, 18, 12, 0.36);" in script
-    assert "background: rgba(3, 10, 7, 0.98);" in script
-    assert "border: 1px solid rgba(72, 255, 132, 0.42);" in script
-    assert "background: linear-gradient(180deg, rgba(42, 199, 83, 0.92), rgba(12, 126, 46, 0.95));" in script
-    assert "Include current workflow" not in script
-    assert "workflowToggleEl" not in script
-    assert "include_workflow: true" in script
-    assert "workflow: currentWorkflowSnapshot()" in script
-    assert 'api?.addEventListener?.("execution_error"' in script
-    assert 'api?.addEventListener?.("execution_start"' in script
-    assert 'api.fetchApi("/deno/sos/report"' in script
-    assert "function selectTextareaForCopy(textarea)" in script
-    assert "function copyTextFromTextarea(textarea)" in script
-    assert "async function copyTextFromManualButton(textarea)" in script
-    assert 'const copyButton = makeButton("Copy Report", "deno-floating-tools-action")' in script
-    assert 'copyButton.addEventListener("click", async (event) =>' in script
-    assert 'setSosStatus("Ready to copy")' in script
-    assert 'showManualCopy(report)' in script
-    assert "copyText(report)" not in script
-    assert 'setSosStatus("Click Copy")' not in script
-    assert 'setSosStatus("Select text and copy")' in script
-    assert "deno-floating-tools-manual-copy-actions" in script
-    assert "left: 50%;" in script
-    assert "top: 50%;" in script
-    assert "transform: translate(-50%, -50%);" in script
-    assert "inset: auto 16px 16px auto;" not in script
-    assert "deno-floating-tools-report-header" in script
-    assert "deno-floating-tools-report-title" in script
-    assert 'title.textContent = "Error Report";' in script
-    assert "language: String(window.navigator?.language || \"\")" in script
-    assert "languages: Array.isArray(window.navigator?.languages)" in script
-    assert "function compactExecutionError(detail, promptId = null)" in script
-    assert "function compactPromptFailure(error)" in script
-    assert "function installSosPromptFailureHooks()" in script
-    assert "function installSosValidationObserver()" in script
-    assert "function installSosToastHooks()" in script
-    assert "function scheduleSosToastHooks()" in script
-    assert "function rememberFrontendPromptFailure(text)" in script
-    assert "const SOS_ERROR_AUTO_CLEAR_GRACE_MS = 8000;" in script
-    assert "const SOS_QUEUE_BUSY_RETRY_GRACE_MS = 1200;" in script
-    assert "const SOS_TEXT_SCAN_LIMIT = 1200;" in script
-    assert "const PROMPT_FAILURE_ALERT_SELECTOR = PROMPT_FAILURE_ALERT_SELECTORS.join" in script
-    assert "let sosErrorStickyUntil = 0;" in script
-    assert "let sosRunClearCandidate = false;" in script
-    assert "let sosQueueWasBusyAfterError = false;" in script
-    assert "let sosValidationScanScheduled = false;" in script
-    assert "let sosQueueIdleConfirmBusy = false;" in script
-    assert "let sosErrorGeneration = 0;" in script
-    assert "function markSosErrorSticky()" in script
-    assert "function noteSosRunStartedAfterError(detail = {})" in script
-    assert "function handleSosExecutionSuccess(detail = {})" in script
-    assert "function handleSosExecutionInterrupted(detail = {})" in script
-    assert "function noteSosQueueStateAfterError(isBusy, options = {})" in script
-    assert "async function confirmSosQueueIdleForClear()" in script
-    assert "hasSosQueueIdleClearCandidate()" in script
-    assert "function handleSosStatusEvent(detail)" in script
-    assert "function installSosRuntimeHooks()" in script
-    assert "installSosRuntimeHooks();" in script
-    assert "function installSosPassiveHooks()" in script
-    assert "detail?.exec_info?.queue_remaining" in script
-    assert "detail?.status?.exec_info?.queue_remaining" in script
-    assert "markSosErrorSticky();" in script
-    assert "value.slice(-maxItems).map((item) => safeEventScalar(item)).filter(Boolean)" in script
-    assert "value.slice(-maxItems).map(safeEventScalar)" not in script
-    assert "noteSosQueueStateAfterError(queueBusy, { confirmedIdle: true });" in script
-    assert "if (!force && lastExecutionError && Date.now() < sosErrorStickyUntil)" in script
-    assert "clearExecutionErrorState({ force: true });" in script
-    assert 'api?.addEventListener?.("execution_success"' in script
-    assert 'api?.addEventListener?.("execution_interrupted"' in script
-    assert 'api?.addEventListener?.("status"' in script
-    assert "if (!lastExecutionError) {" in script
-    assert "function safeEventScalar(value, maxLength = 900)" in script
-    assert "function safeFrontendOrigin(value)" in script
-    assert "lastExecutionError = compactExecutionError" in script
-    assert "safeJsonClone(detail" not in script
-    assert "...safeJsonClone(detail" not in script
-    assert "frontend_origin: String(window.location?.origin || \"\")" in script
-    assert "frontend_url: String(window.location?.href || \"\")" not in script
-    assert '"frontend_url",' not in script
-    assert "href: String(window.location?.href || \"\")" not in script
-    assert "user_agent: String(window.navigator?.userAgent || \"\")" not in script
-    assert "function compactHistoryErrors(history)" in script
-    assert "errors.push(compactExecutionError(eventData, promptId))" in script
-    assert "last_error: lastExecutionError ? compactExecutionError(lastExecutionError) : null" in script
-    assert 'response.clone?.().json?.()' in script
-    assert "originalQueuePrompt.apply(this, arguments)" in script
-    assert 'for (const methodName of ["add", "addAlert"])' in script
-    assert "Required input is missing" in script
-    assert "See Errors" in script
-    assert "function limitedSosText(value, maxLength = SOS_TEXT_SCAN_LIMIT)" in script
-    assert "function promptFailureElementFromNode(node)" in script
-    assert "function schedulePromptFailureAlertInspection(elements = [])" in script
-    assert "document.querySelectorAll(PROMPT_FAILURE_ALERT_SELECTOR)" not in script
-    assert "node.innerText" not in script
-    assert "characterData: true" not in script
-    assert "history_errors: compactHistoryErrors(history)" in script
-    assert "function compactQueue(queue)" in script
-    assert "queue: compactQueue(queue)" in script
-    assert "running_count: running.length" in script
-    assert "pending_count: pending.length" in script
-    assert "summary.error" not in script
-    assert "queue?.error" not in script
-    assert "history,\n" not in script
-    assert "queue,\n" not in script
-    assert "ERROR_ICON_URL" in script
-    assert "deno-floating-tools-sos-error" in script
-    assert "deno_sos_report" in init_py
-    assert (REPO_ROOT / "web" / "js" / "assets" / "deno_floating_tools_error_icon.png").exists()
 
 
 def test_floating_tools_comfyui_stable_resyncs_local_version_before_using_cache():
@@ -245,20 +124,6 @@ def test_floating_tools_update_watch_cache_harness():
     )
 
 
-def test_floating_tools_sos_state_harness():
-    node = shutil.which("node")
-    assert node, "node executable is required for the Floating Tools SOS state harness"
-    process_runner = __import__("sub" + "process")
-
-    process_runner.run(
-        [node, str(REPO_ROOT / "tests" / "js" / "floating_tools_sos_state_harness.mjs")],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
 def test_floating_tools_translation_surface_is_removed():
     script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
     init_py = (REPO_ROOT / "__init__.py").read_text(encoding="utf-8")
@@ -273,36 +138,11 @@ def test_floating_tools_translation_surface_is_removed():
     assert not (REPO_ROOT / "deno_floating_tools.py").exists()
 
 
-def test_floating_tools_do_not_wrap_comfyui_functions_while_disabled():
+def test_retired_error_reporting_is_not_registered_or_collected():
     script = (REPO_ROOT / "web" / "js" / "deno_floating_tools.js").read_text(encoding="utf-8")
+    init_py = (REPO_ROOT / "__init__.py").read_text(encoding="utf-8")
 
-    def body(signature):
-        start = script.index(signature)
-        return script[start:script.index("\n}\n", start)]
-
-    passive = body("function installSosPassiveHooks()")
-    runtime = body("function installSosRuntimeHooks()")
-    visibility = body("function updateToolsVisibility(value)")
-    setup = script[script.index("    setup() {"):]
-
-    # The listener installer only registers event listeners; it never reassigns functions.
-    listeners = body("function installSosEventListeners()")
-    assert "api.fetchApi =" not in listeners and "app.queuePrompt =" not in listeners
-    assert "addEventListener" in listeners
-
-    assert "installSosEventListeners();" in passive
-    assert "installSosValidationObserver" not in passive
-    assert "installSosPromptFailureHooks" not in passive
-    assert "scheduleSosToastHooks" not in passive
-
-    assert "installSosPassiveHooks();" in runtime
-    assert "installSosPromptFailureHooks();" in runtime
-    assert "scheduleSosToastHooks();" in runtime
-    assert "installSosValidationObserver();" in runtime
-
-    assert "installSosPassiveHooks();" in setup
-    assert "installSosRuntimeHooks" not in setup
-    assert "installSosPromptFailureHooks" not in setup
-
-    enabled_branch = visibility[visibility.index("if (enabled) {"):visibility.index("} else")]
-    assert "installSosRuntimeHooks();" in enabled_branch
+    assert not (REPO_ROOT / "deno_sos_report.py").exists()
+    assert "deno_sos_report" not in init_py
+    for token in ("/deno/sos/", "Copy Error Report", "/history", "MutationObserver", "api.fetchApi =", "app.queuePrompt ="):
+        assert token not in script

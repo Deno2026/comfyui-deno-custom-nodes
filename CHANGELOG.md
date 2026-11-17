@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.129 - 2026-11-18
+
+- In response to Comfy Registry review, Local LLM Loader now supports Ollama and LM Studio on the ComfyUI computer. Open a workflow saved with another provider, choose Ollama or LM Studio, refresh the models, and select an installed model.
+- Removed the SOS (Error Help) diagnostic report. Floating Tools still offers Free VRAM and Check Updates.
+
 ## 0.7.128 - 2026-11-12
 
 - `(Deno) Multi Image Loader`, `(Deno) MiniMax H3 Reference to Video` and `(Deno) Advanced Image Source Loader`: when a different picture is uploaded again under a file name used before (for example after deleting the old image), the thumbnail now shows the new picture. Before, the card could keep the old picture until the page was reloaded, even though runs already used the new file.
