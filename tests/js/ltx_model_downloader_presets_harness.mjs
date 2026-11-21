@@ -47,6 +47,26 @@ function ids(state) {
 }
 
 const builtinIds = ["ltx_23_8gb_vram", "ltx_25_distilled_int8"];
+const absoluteRoot = "C:\\Example\\Model Store\\models";
+const oldRootWidget = { value: absoluteRoot };
+const rootMigration = helpers.takeRootSelection(oldRootWidget);
+check(rootMigration.legacyRoot === absoluteRoot, "legacy root must be available only for registered-root migration");
+check(oldRootWidget.value === "auto", "legacy root must be scrubbed before a request or save");
+const currentRootWidget = { value: "root_0123456789abcdef" };
+const reopenedRoot = helpers.takeRootSelection(currentRootWidget);
+check(reopenedRoot.rootId === currentRootWidget.value, "explicit root ID must survive save and reopen");
+check(!reopenedRoot.legacyRoot, "an opaque root ID must not use legacy root migration");
+const customWithOldPaths = helpers.normalizePresetsState({
+    active_preset_id: "old_custom",
+    presets: [{
+        id: "old_custom",
+        files: [{ label: absoluteRoot, target_subdir: absoluteRoot, filename: absoluteRoot + "\\model.gguf" }],
+    }],
+});
+const migratedFile = customWithOldPaths.presets.find((preset) => preset.id === "old_custom").files[0];
+check(!migratedFile.target_subdir && !migratedFile.filename && migratedFile.label === "File #1",
+    "legacy preset must not save absolute path fields or path-shaped labels");
+
 const fresh = helpers.normalizePresetsState({});
 check(JSON.stringify(ids(fresh)) === JSON.stringify(builtinIds), "fresh state must contain both built-ins");
 check(fresh.active_preset_id === "ltx_23_8gb_vram", "fresh state must keep the LTX 2.3 default");

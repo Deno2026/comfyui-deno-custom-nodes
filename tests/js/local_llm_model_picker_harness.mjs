@@ -34,12 +34,12 @@ assert(api, "Local LLM test API must be exposed");
 const savedValues = [
     "llama.cpp", "qwen3", "google/gemma", "http://127.0.0.1:8080/v1", "saved/custom-model",
     "saved system prompt", true, 17, "fixed", "Keep loaded", 5,
-    "Never unload before LLM call", "saved user prompt",
+    "Never unload before LLM call", "saved user prompt", false,
 ];
 const savedNames = [
     "provider", "ollama_model", "lm_studio_model", "custom_server_url", "custom_model",
     "system_prompt", "thinking", "seed", "seed_mode", "model_memory", "keep_minutes",
-    "comfy_vram_policy", "prompt",
+    "comfy_vram_policy", "prompt", "save_result_in_files",
 ];
 
 function makeNode(id, storeBacked = true, removeApi = true) {

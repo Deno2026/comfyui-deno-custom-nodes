@@ -491,7 +491,7 @@ KJ スタイルの Bernini プロンプトヘルパーです。positive と nega
 
 - Python でファイルをダウンロードする代わりに、公式のモデルリンクをブラウザで開きます
 - 2段階ワークフローに必要な、LTX 2.5 の diffusion model、projection 付き Gemma 4 text encoder、動画/音声 VAE、x2 spatial upscaler を含みます
-- 検出した ComfyUI のモデルルートを表示し、選択したルートをコピーできます
+- 登録済みのモデルフォルダーを選択でき、モデルのパスは相対パスだけを表示します
 - ワークフロー内に creator プリセットを保存でき、ページを再読み込みした後はブラウザのストレージから復元します
 - Python 側のネットワークリクエストなしで、Hugging Face の直接リンクと Civitai のページ/ダウンロードリンクに対応
 - `extra_model_paths` のカスタムフォルダー名を含め、ComfyUI に登録されたモデルフォルダーをチェック
@@ -559,7 +559,7 @@ system prompt、user prompt、テンプレート、JSON テキストのための
 - プロンプトのバッチを1回のノード実行でつなげることで、バッチが終わるまでローカルモデルを読み込んだままにできます
 - ビジョン対応のローカルモデルの呼び出しに、IMAGE を任意で添付
 - Thinking と Result のテキストを、ノード上で直接プレビュー
-- Local LLM ノードが実行されるたびに、ノードの最終的な Result を保存する PNG/ワークフローのメタデータに埋め込むため、ファイルを開き直すとノード内に復元されます。Thinking/reasoning はプレビューのみで、保存されません
+- **Save Result in Files** を有効にすると、新しい PNG とワークフローに最終的な Result を保存し、開き直したときに復元できます。既定では無効で、Thinking はライブプレビューにだけ表示されます
 - 名前付きの System Prompt プリセットを ComfyUI のユーザーデータに保持するため、ブラウザプロファイルを消去しても残ります
 - 正の FLOAT を `video seconds` に接続すると、保存した Prompt テキストを変えずに、各 LLM の user prompt に `This is an 8-second video.` のような文を追加します
 - Save ノードの前の gate として `(Deno) Local LLM Reviewer` を使い、レビューのテキスト結果をもとに IMAGE と AUDIO の出力を通すか止める、現在レビューした結果を1回だけ承認する、またはレビューの前の経路を再実行する、といった使い方ができます

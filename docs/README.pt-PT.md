@@ -491,7 +491,7 @@ Funcionalidades principais:
 
 - abre ligações oficiais de modelos no navegador em vez de descarregar ficheiros em Python
 - inclui o modelo de difusão LTX 2.5, o text encoder Gemma 4 com projeção, os VAEs de vídeo e áudio e o upscaler espacial x2 exigidos pelo workflow de duas etapas
-- mostra as raízes de modelos do ComfyUI detetadas e permite copiar a raiz selecionada
+- permite escolher uma pasta de modelos registada e mostra apenas os caminhos relativos dos modelos
 - suporta presets de criador guardados no workflow e restaura-os a partir do armazenamento do navegador após recarregar a página
 - suporta ligações diretas do Hugging Face e ligações de página/download do Civitai sem pedidos de rede feitos em Python
 - verifica as pastas de modelos registadas no ComfyUI, incluindo nomes de pasta personalizados de `extra_model_paths`
@@ -559,7 +559,7 @@ Funcionalidades principais:
 - liga batches de prompts através de uma só execução do nó, para que o modelo local possa ficar carregado até o batch terminar
 - anexa opcionalmente uma IMAGE a uma chamada a um modelo local com visão
 - pré-visualiza o texto de Thinking e de Result diretamente no nó
-- incorpora o Result final do nó nos metadados PNG/workflow guardados sempre que o nó Local LLM é executado, para que reabrir o ficheiro o restaure dentro do nó; o Thinking/reasoning continua a ser apenas pré-visualização e não é guardado
+- ativa **Save Result in Files** para incluir o Result final nos novos ficheiros PNG e de workflow e recuperá-lo ao reabri-los. A opção vem desativada e Thinking só aparece na pré-visualização em direto
 - mantém presets de System Prompt com nome nos dados de utilizador do ComfyUI, para que sobrevivam à limpeza do perfil do navegador
 - liga um FLOAT positivo a `video seconds` para acrescentar a cada user prompt do LLM uma frase como `This is an 8-second video.` sem alterar o texto de Prompt guardado
 - usa o `(Deno) Local LLM Reviewer` como porta antes dos nós Save: deixa passar ou bloqueia saídas IMAGE e AUDIO a partir de um resultado de texto de revisão, aprova uma vez o resultado revisto atual ou volta a executar o caminho anterior ao reviewer

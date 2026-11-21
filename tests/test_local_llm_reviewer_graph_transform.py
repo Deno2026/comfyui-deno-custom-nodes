@@ -212,7 +212,12 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             assert(api.previewTextDialogTitle({{ error: "bad" }}, "result") === "Error", "Result popup title must switch to Error when node state has an error");
             assert(api.previewTextDialogBody({{ answer: "final answer" }}, "result") === "final answer", "Result popup must read live answer text from node state");
             assert(api.previewTextDialogBody({{ thinking: "live thinking" }}, "thinking") === "live thinking", "Thinking popup must read live thinking text from node state");
-            const stateNode = {{ id: 44, properties: {{}}, setDirtyCanvas() {{}} }};
+            const stateNode = {{
+                id: 44,
+                widgets: [{{ name: "save_result_in_files", value: true }}],
+                properties: {{}},
+                setDirtyCanvas() {{}},
+            }};
             const savedState = api.setLocalLLMNodeState(stateNode, {{
                 status: "done",
                 provider: "vLLM",
@@ -316,11 +321,12 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 "",
             ];
             const normalizedLoaderValues = api.normalizeLocalLLMLoaderSerializedValues(savedLoaderValues);
-            assert(normalizedLoaderValues.length === 13, "Loader configure migration must keep only real serialized widgets");
+            assert(normalizedLoaderValues.length === 14, "Loader configure migration must keep only real serialized widgets");
             assert(normalizedLoaderValues[0] === "LM Studio", "Loader configure migration must preserve saved provider");
             assert(normalizedLoaderValues[2] === "codex/missing-saved-lm-studio-model", "Loader configure migration must preserve saved LM Studio model");
             assert(normalizedLoaderValues[3] === "http://127.0.0.1:8000/v1", "Loader configure migration must remove generated button values before legacy fields");
             assert(normalizedLoaderValues[12] === "Prompt text", "Loader configure migration must preserve the prompt widget value");
+            assert(normalizedLoaderValues[13] === false, "Loading a legacy workflow must not opt into saving results");
             const normalizedInfo = {{ widgets_values: [...savedLoaderValues] }};
             api.normalizeLocalLLMLoaderWidgetValues(normalizedInfo);
             assert(normalizedInfo.widgets_values[2] === "codex/missing-saved-lm-studio-model", "Loader configure migration wrapper must update info.widgets_values in place");
@@ -366,7 +372,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
             const configuredLoader = new loaderNodeType();
             configuredLoader.id = 46;
             configuredLoader.type = "DenoLocalLLMRefiner";
-            configuredLoader.widgets = [];
+            configuredLoader.widgets = [{{ name: "save_result_in_files", value: true }}];
             const configureInfo = {{
                 widgets_values: [...savedLoaderValues],
                 properties: {{
@@ -383,6 +389,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 }},
             }};
             assert(configuredLoader.configure(configureInfo) === "configured", "Loader configure wrapper must preserve the original configure result");
+            assert(configuredLoader.widgets[0].value === false, "A legacy workflow restores with saving turned off");
             assert(configuredLoader.__denoLocalLLMState.answer === "workflow answer", "Loader configure must restore saved result state from properties");
             assert(configuredLoader.__denoLocalLLMState.thinking === "", "Loader configure must not restore saved private Thinking");
             assert(configureInfo.properties.deno_local_llm_state.thinking === "", "Loader configure must scrub private Thinking before base restore");
@@ -391,14 +398,26 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 api.getLocalLLMNodeState(sameIdOtherWorkflowNode).answer !== "workflow answer",
                 "Loader state must be scoped to the actual node object, not a node id reused by another workflow"
             );
-            api.setLocalLLMNodeState(configuredLoader, {{ thinking: "current run thinking", updatedAt: 3333 }});
+            api.setLocalLLMNodeState(configuredLoader, {{
+                thinking: "current run thinking",
+                error: "current run private error",
+                updatedAt: 3333,
+            }});
             assert(configuredLoader.__denoLocalLLMState.thinking === "current run thinking", "Current-run Thinking must remain visible in the in-memory Loader preview");
             assert(configuredLoader.properties.deno_local_llm_state.thinking === "", "Current-run Thinking must not leak into live workflow properties");
+            const defaultSerialized = {{ widgets_values: [...savedLoaderValues], properties: {{}} }};
+            configuredLoader.onSerialize(defaultSerialized);
+            assert(defaultSerialized.properties.deno_local_llm_state.answer === "", "Default serialization must omit even a restored answer");
+            assert(defaultSerialized.properties.deno_local_llm_state.error === "", "Default serialization must omit private errors");
+            assert(configuredLoader.__denoLocalLLMState.answer === "workflow answer", "Saving without metadata must not erase the visible answer");
+            configuredLoader.widgets[0].value = true;
             const serializedInfo = {{ widgets_values: [...savedLoaderValues], properties: {{}} }};
             assert(configuredLoader.onSerialize(serializedInfo) === "serialized", "Loader serialize wrapper must preserve the original serialize result");
-            assert(serializedInfo.widgets_values.length === 13, "Loader serialize must remove generated buttons and keep canonical widget count");
+            assert(serializedInfo.widgets_values.length === 14, "Loader serialize must remove generated buttons and keep canonical widget count");
+            assert(serializedInfo.widgets_values[13] === true, "Loader serialize must preserve the explicit setting");
             assert(serializedInfo.properties.deno_local_llm_state.answer === "workflow answer", "Loader serialize must include saved result state in properties");
             assert(serializedInfo.properties.deno_local_llm_state.thinking === "", "Loader serialize must never include current-run Thinking");
+            assert(serializedInfo.properties.deno_local_llm_state.error === "", "Loader serialize must never include current-run errors");
             assert(configuredLoader.properties.deno_local_llm_state.thinking === "", "Loader serialize must keep node.properties free of Thinking");
             assert(configuredLoader.__denoLocalLLMState.thinking === "current run thinking", "Loader serialize must not erase the current in-memory Thinking preview");
             const serializedReloadNode = {{ id: 246, properties: serializedInfo.properties }};
@@ -713,7 +732,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 "a cat drinking water",
             ];
             const normalizedPromptAfterButton = api.normalizeLocalLLMLoaderSerializedValues(currentSavedLoaderValuesWithPromptAfterSystemPromptButton);
-            assert(normalizedPromptAfterButton.length === 13, "Loader current saved values with prompt after System Prompt button must normalize to 13 widgets");
+            assert(normalizedPromptAfterButton.length === 14, "Loader saved values with prompt after System Prompt button must normalize to 14 widgets");
             assert(normalizedPromptAfterButton[0] === "LM Studio", "Loader prompt-after-button values must preserve provider");
             assert(normalizedPromptAfterButton[2] === "google/gemma-4-12b", "Loader prompt-after-button values must preserve selected LM Studio model");
             assert(normalizedPromptAfterButton[5] === "Return only the final prompt.", "Loader prompt-after-button values must preserve system prompt");
@@ -739,7 +758,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 "System Prompt text",
             ];
             const normalizedCurrentSaved = api.normalizeLocalLLMLoaderSerializedValues(currentSavedLoaderValuesWithOldButtons);
-            assert(normalizedCurrentSaved.length === 13, "Loader current saved values with old buttons must normalize to the current 13 widgets");
+            assert(normalizedCurrentSaved.length === 14, "Loader saved values with old buttons must normalize to the current 14 widgets");
             assert(normalizedCurrentSaved[0] === "LM Studio", "Loader current saved values must preserve provider");
             assert(normalizedCurrentSaved[2] === "google/gemma-4-12b", "Loader current saved values must preserve selected LM Studio model");
             assert(normalizedCurrentSaved[5] === "System Prompt text", "Loader current saved values must move the real system prompt into the current slot");
@@ -771,7 +790,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 "",
             ];
             const normalizedOllamaButtonsBeforeHiddenRows = api.normalizeLocalLLMLoaderSerializedValues(currentOllamaSavedValuesWithButtonsBeforeHiddenLmRows);
-            assert(normalizedOllamaButtonsBeforeHiddenRows.length === 13, "Loader Ollama saved values with buttons before hidden rows must normalize to 13 widgets");
+            assert(normalizedOllamaButtonsBeforeHiddenRows.length === 14, "Loader Ollama saved values with buttons before hidden rows must normalize to 14 widgets");
             assert(normalizedOllamaButtonsBeforeHiddenRows[0] === "Ollama", "Loader Ollama button-before-hidden-row values must preserve provider");
             assert(normalizedOllamaButtonsBeforeHiddenRows[1] === "gemma4:31b-it-qat", "Loader Ollama button-before-hidden-row values must preserve selected Ollama model");
             assert(normalizedOllamaButtonsBeforeHiddenRows[2] === "google/gemma-4-12b-qat", "Loader Ollama button-before-hidden-row values must preserve hidden LM Studio model without shifting it into buttons");
@@ -801,7 +820,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 "Unload LLM",
             ];
             const normalizedVllmButtonsAfterCustomModel = api.normalizeLocalLLMLoaderSerializedValues(currentVllmSavedValuesWithButtonsAfterCustomModel);
-            assert(normalizedVllmButtonsAfterCustomModel.length === 13, "Loader vLLM saved values with generated buttons after custom_model must normalize to 13 widgets");
+            assert(normalizedVllmButtonsAfterCustomModel.length === 14, "Loader vLLM saved values with generated buttons after custom_model must normalize to 14 widgets");
             assert(normalizedVllmButtonsAfterCustomModel[0] === "vLLM", "Loader vLLM button-after-custom-model values must preserve provider");
             assert(normalizedVllmButtonsAfterCustomModel[3] === "http://127.0.0.1:8000/v1", "Loader vLLM button-after-custom-model values must preserve server URL");
             assert(normalizedVllmButtonsAfterCustomModel[4] === "Qwen3-VL-2B-Thinking-FP8", "Loader vLLM button-after-custom-model values must preserve custom model");
@@ -847,7 +866,7 @@ def test_reviewer_graph_transform_submit_modes(tmp_path):
                 "Unload after run",
             ];
             const normalizedCloneClipboard = api.localLLMLoaderSerializedValuesFromWidgets(clonedClipboardShiftNode, cloneShiftedValues);
-            assert(normalizedCloneClipboard.length === 13, "Loader clone clipboard serialization must stay at 13 canonical widgets");
+            assert(normalizedCloneClipboard.length === 14, "Loader clone clipboard serialization must keep 14 canonical widgets");
             assert(normalizedCloneClipboard[4] === "Qwen3-VL-2B-Thinking-FP8", "Loader clone clipboard serialization must keep custom model in the model slot");
             assert(normalizedCloneClipboard[5] === "SYSTEM PROMPT SHOULD SURVIVE COPY", "Loader clone clipboard serialization must not shift LM Studio model into system prompt");
             assert(normalizedCloneClipboard[6] === true, "Loader clone clipboard serialization must keep Thinking in the Thinking slot");

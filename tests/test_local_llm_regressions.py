@@ -143,9 +143,11 @@ def test_local_llm_audio_context_socket_is_appended_after_existing_optional_inpu
     package = load_package()
     optional = package.DenoLocalLLMRefiner.INPUT_TYPES()["optional"]
 
-    assert list(optional) == ["image", "video_seconds", "audio_context"]
+    assert list(optional) == ["image", "video_seconds", "audio_context", "save_result_in_files"]
     assert optional["audio_context"][0] == "STRING"
     assert optional["audio_context"][1]["forceInput"] is True
+    assert optional["save_result_in_files"][0] == "BOOLEAN"
+    assert optional["save_result_in_files"][1]["default"] is False
 
 
 def test_local_llm_refine_preserves_system_and_user_prompts_when_adding_duration_and_audio_context(monkeypatch):
@@ -267,6 +269,7 @@ def test_local_llm_metadata_helper_is_json_round_trip_safe_and_bounds_answer_tex
     assert state["thinking"] == ""
 
 
+@pytest.mark.parametrize("save_result", [False, True])
 @pytest.mark.parametrize(
     ("provider", "expected_model"),
     [
@@ -274,10 +277,11 @@ def test_local_llm_metadata_helper_is_json_round_trip_safe_and_bounds_answer_tex
         ("LM Studio", "google/gemma"),
     ],
 )
-def test_local_llm_refine_embeds_same_run_final_answer_for_every_provider(
+def test_local_llm_refine_embeds_same_run_final_answer_only_when_requested(
     monkeypatch,
     provider,
     expected_model,
+    save_result,
 ):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
@@ -319,16 +323,22 @@ def test_local_llm_refine_embeds_same_run_final_answer_for_every_provider(
         "extra_pnginfo": extra_pnginfo,
     })
 
+    if save_result:
+        kwargs["save_result_in_files"] = [True]
     output = node.refine(**kwargs)
 
     assert output["result"] == (["same-run final answer"],)
-    state = extra_pnginfo[0]["workflow"]["nodes"][0]["properties"]["deno_local_llm_state"]
-    assert state["answer"] == "same-run final answer"
-    assert state["thinking"] == ""
-    assert state["error"] == ""
-    assert state["provider"] == provider
-    assert state["model"] == expected_model
-    assert state["updatedAt"] == 2000000
+    properties = extra_pnginfo[0]["workflow"]["nodes"][0]["properties"]
+    if save_result:
+        state = properties["deno_local_llm_state"]
+        assert state["answer"] == "same-run final answer"
+        assert state["thinking"] == ""
+        assert state["error"] == ""
+        assert state["provider"] == provider
+        assert state["model"] == expected_model
+        assert state["updatedAt"] == 2000000
+    else:
+        assert "deno_local_llm_state" not in properties
     assert calls[-1]["answer"] == "same-run final answer"
 
 
@@ -358,7 +368,7 @@ def test_local_llm_refine_embeds_the_last_answer_from_a_prompt_batch(monkeypatch
 
     monkeypatch.setattr(node, "_run_single", run_single)
     kwargs = _refine_kwargs(["First direction.", "Second direction."])
-    kwargs.update({"unique_id": "143", "extra_pnginfo": extra_pnginfo})
+    kwargs.update({"unique_id": "143", "extra_pnginfo": extra_pnginfo, "save_result_in_files": True})
 
     output = node.refine(**kwargs)
 

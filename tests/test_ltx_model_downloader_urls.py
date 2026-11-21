@@ -1,6 +1,8 @@
-"""LTX model downloader only hands out http(s) links and the Down button checks the scheme."""
+"""LTX model downloader keeps filesystem details local and opens only web links."""
+import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_image_resize_node import load_package
@@ -85,3 +87,53 @@ def test_down_button_checks_scheme_before_opening():
     assert check < opened
     assert 'protocol === "https:" || protocol === "http:"' in script
     assert script.count("window.open(") == 1
+
+
+def test_model_folder_routes_hide_internal_errors(downloader, monkeypatch, tmp_path):
+    server_path = str(tmp_path / "test-models")
+
+    def fail_to_list_models(*args, **kwargs):
+        raise OSError(f"Could not read {server_path}")
+
+    async def valid_body():
+        return {}
+
+    monkeypatch.setattr(downloader, "_build_payload", fail_to_list_models)
+    monkeypatch.setattr(downloader.web, "json_response", lambda payload, status: (status, payload))
+    responses = (
+        asyncio.run(downloader.ltx_model_downloader_info(SimpleNamespace(query={}))),
+        asyncio.run(downloader.ltx_model_downloader_check(SimpleNamespace(json=valid_body))),
+    )
+    for status, payload in responses:
+        assert status == 500
+        assert payload == {"error": "Model folders are unavailable. Check the ComfyUI console."}
+
+
+def test_nested_model_paths_are_relative(downloader, tmp_path):
+    root = tmp_path / "models"
+    nested = root / "unet" / "LTX"
+    nested.mkdir(parents=True)
+    (nested / "test.gguf").write_bytes(b"sample")
+
+    row = downloader._public_custom_file(
+        str(root),
+        {"filename": "test.gguf", "target_subdir": "unet/LTX", "size": 1},
+        0,
+    )
+
+    assert row["relative_path"] == "unet/LTX/test.gguf"
+    assert row["status"] == "exists"
+    assert "downloaded" not in row
+
+
+def test_model_presets_save_only_relative_path_fields(downloader, tmp_path):
+    model_file = tmp_path / "models" / "vae" / "test.safetensors"
+    package = downloader._normalize_package({
+        "files": [
+            {"filename": str(model_file), "target_subdir": str(model_file.parent), "label": str(model_file.parent)},
+        ],
+    })
+
+    assert package["files"][0]["filename"] == ""
+    assert package["files"][0]["target_subdir"] == ""
+    assert package["files"][0]["label"] == "File #1"

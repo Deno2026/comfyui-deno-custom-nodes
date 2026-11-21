@@ -491,7 +491,7 @@ Fitur utama:
 
 - membuka tautan model resmi di browser, bukan mengunduh file lewat Python
 - mencakup diffusion model LTX 2.5, text encoder Gemma 4 berproyeksi, VAE video dan audio, serta x2 spatial upscaler yang dibutuhkan workflow dua tahap
-- menampilkan root model ComfyUI yang terdeteksi dan memungkinkan pengguna menyalin root yang dipilih
+- memungkinkan Anda memilih folder model terdaftar dan hanya menampilkan path relatif model
 - mendukung creator preset tersimpan di dalam workflow dan memulihkannya dari penyimpanan browser setelah halaman dimuat ulang
 - mendukung tautan langsung Hugging Face dan tautan halaman/unduhan Civitai tanpa request jaringan dari sisi Python
 - memeriksa folder model terdaftar ComfyUI, termasuk nama folder kustom dari `extra_model_paths`
@@ -559,7 +559,7 @@ Fitur utama:
 - menghubungkan batch prompt melalui satu eksekusi node sehingga model lokal tetap termuat sampai batch selesai
 - secara opsional melampirkan IMAGE ke panggilan model lokal yang mendukung vision
 - menampilkan preview teks Thinking dan Result langsung di node
-- menyematkan Result akhir node ke metadata PNG/workflow yang disimpan setiap kali node Local LLM dieksekusi, sehingga membuka kembali file memulihkannya di dalam node; Thinking/reasoning hanya untuk preview dan tidak disimpan
+- aktifkan **Save Result in Files** untuk menyertakan Result akhir dalam file PNG dan workflow baru agar dapat dipulihkan saat dibuka kembali. Opsi ini nonaktif secara default dan Thinking hanya muncul di preview langsung
 - menyimpan preset System Prompt bernama di user data ComfyUI sehingga tetap ada setelah pembersihan profil browser
 - menghubungkan FLOAT positif ke `video seconds` untuk menambahkan kalimat seperti `This is an 8-second video.` ke setiap user prompt LLM tanpa mengubah teks Prompt yang tersimpan
 - memakai `(Deno) Local LLM Reviewer` sebagai gate sebelum node Save: meneruskan atau memblokir output IMAGE dan AUDIO berdasarkan hasil teks review, menyetujui sekali hasil review saat ini, atau menjalankan ulang jalur sebelum reviewer

@@ -296,7 +296,7 @@ def test_authentication_stays_out_of_public_node_inputs(llm, monkeypatch):
         "system_prompt", "thinking", "seed", "seed_mode", "model_memory", "keep_minutes",
         "comfy_vram_policy", "prompt",
     ]
-    assert list(before["optional"]) == ["image", "video_seconds", "audio_context"]
+    assert list(before["optional"]) == ["image", "video_seconds", "audio_context", "save_result_in_files"]
 
 
 def test_authenticated_refine_persists_answer_without_environment_key(llm, monkeypatch):
@@ -331,6 +331,7 @@ def test_authenticated_refine_persists_answer_without_environment_key(llm, monke
         comfy_vram_policy="Never unload before LLM call",
         unique_id=["143"],
         extra_pnginfo=extra_pnginfo,
+        save_result_in_files=True,
     )
     assert result["result"] == (["finished answer"],)
     saved = json.loads(json.dumps(extra_pnginfo))

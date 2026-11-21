@@ -373,7 +373,7 @@ const unslothSavedValuesWithGeneratedPicker = [...unslothSavedValues];
 unslothSavedValuesWithGeneratedPicker.splice(5, 0, "unsloth/Qwen3.8-27B");
 assert(
     JSON.stringify(api.normalizeLocalLLMLoaderSerializedValues(unslothSavedValuesWithGeneratedPicker)) ===
-        JSON.stringify(unslothSavedValues),
+        JSON.stringify([...unslothSavedValues, false]),
     "Unsloth save/reopen migration must remove only the generated picker and preserve all 13 serialized values",
 );
 const unslothRestoreNode = makeNode(24);
@@ -387,8 +387,8 @@ assert(
 );
 assert(
     JSON.stringify(api.localLLMLoaderSerializedValuesFromWidgets(unslothRestoreNode, unslothSavedValues)) ===
-        JSON.stringify(unslothSavedValues),
-    "An Unsloth save/reopen round trip must preserve the canonical 13-value payload exactly",
+        JSON.stringify([...unslothSavedValues, false]),
+    "An Unsloth save/reopen round trip must preserve the legacy values and append the default setting",
 );
 
 const tabRestoreNode = makeNode(19);

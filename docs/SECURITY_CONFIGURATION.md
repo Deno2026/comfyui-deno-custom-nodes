@@ -22,6 +22,10 @@ Existing node IDs, sockets, and saved `libretranslate_url` widget values remain 
 
 The Local LLM Loader contacts Ollama at `127.0.0.1:11434` or LM Studio at `127.0.0.1:1234` on the ComfyUI host. If LM Studio requires authentication, configure its API key on that host. See the [Local LLM guide](../README.md#deno-local-llm-loader-and-deno-local-llm-reviewer) for setup and migration.
 
+From 0.7.130, the node sends live previews only to the browser that submitted the execution. **Save Result in Files** is off by default. Enable it before running if you want the final answer embedded in a new PNG or workflow file.
+
+The Easy Model Download Helper uses registered paths on the ComfyUI host. Its panel shows relative model destinations and saves the selected folder by ID.
+
 ## Reporting a problem
 
 If Manager cannot update the pack, include the installed and requested DENO versions, ComfyUI and Manager versions, and the terminal error from the failed update. Registry review status and dependency-install errors are separate conditions. Do not include API keys or private workflow contents in a public report. See the [security reporting policy](https://github.com/Deno2026/comfyui-deno-custom-nodes/blob/main/SECURITY.md) for sensitive reports.

@@ -19,9 +19,9 @@ The LTX 2.5 preset includes the distilled INT8 transformer, projected Gemma 4 te
 
 | Name | Description |
 | --- | --- |
-| model_root | ComfyUI models root to check. The panel can automatically select a registered root that already contains the most required files. |
+| model_root | Registered ComfyUI model folder to check. The panel can automatically select the folder that contains the most required files. |
 | presets_json | Saved preset library. Built-in presets are refreshed while custom and unknown preset IDs are preserved. |
 
 ## Usage
 
-Select a preset, open each missing file link, then move the downloaded file into the exact target folder shown by the node. Press **Refresh Check** after the files are in place.
+Select a preset and open each missing file link. Move each downloaded file to the relative location shown for the selected model folder. Press **Refresh Check** after the files are in place.

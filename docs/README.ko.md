@@ -491,7 +491,7 @@ KJ Bernini 방식의 프롬프트 도우미로, positive/negative 프롬프트 �
 
 - Python에서 파일을 내려받지 않고 공식 모델 링크를 브라우저로 열기
 - 2단계 워크플로에 필요한 LTX 2.5 diffusion model, projection이 포함된 Gemma 4 text encoder, video/audio VAE, x2 spatial upscaler 포함
-- 감지된 ComfyUI 모델 루트를 보여 주고 선택한 루트를 복사
+- 등록된 모델 폴더를 선택하고 모델의 상대 경로만 표시
 - workflow 안에 creator preset을 저장하고, 페이지를 새로고침하면 브라우저 저장소에서 복원
 - Hugging Face 직접 링크와 Civitai 페이지/다운로드 링크를 Python 쪽 네트워크 요청 없이 지원
 - `extra_model_paths`의 사용자 지정 폴더 이름을 포함해 ComfyUI에 등록된 모델 폴더 확인
@@ -559,7 +559,7 @@ system prompt, user prompt, template, JSON 같은 긴 문구를 담는 작은 mu
 - prompt batch를 한 번의 노드 실행으로 연결해 batch가 끝날 때까지 로컬 모델을 유지
 - vision 모델 호출에 IMAGE를 선택적으로 첨부
 - 노드에서 Thinking과 Result 텍스트를 바로 미리보기
-- Local LLM 노드가 실행될 때마다 노드의 최종 Result를 PNG/워크플로 메타데이터에 넣어, 파일을 다시 열면 노드 안에서 복원. Thinking/reasoning은 미리보기 전용이며 저장하지 않음
+- **Save Result in Files**를 켜면 새 PNG·워크플로 파일에 최종 Result를 포함하고 다시 열 때 복원. 기본값은 꺼짐이며 Thinking은 실시간 미리보기에서만 표시
 - 이름 붙인 System Prompt 프리셋을 ComfyUI 사용자 데이터에 보관하여 브라우저 프로필을 정리해도 유지
 - `video seconds`에 양수 FLOAT를 연결하면 저장된 Prompt 텍스트를 바꾸지 않고 각 LLM user prompt에 `This is an 8-second video.` 같은 문장을 덧붙임
 - `(Deno) Local LLM Reviewer`를 Save 노드 앞 gate로 사용: 리뷰 텍스트 결과에 따라 IMAGE와 AUDIO 출력을 통과시키거나 막고, 현재 리뷰된 결과를 한 번 승인하거나, reviewer 앞 경로를 다시 실행

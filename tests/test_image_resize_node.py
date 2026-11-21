@@ -446,28 +446,40 @@ def test_video_preview_atomic_failure_preserves_previous_stable_file(monkeypatch
     assert list(out_path.parent.glob(f"{out_path.name}.partial-*.mp4")) == []
 
 
-def test_local_llm_progress_event_includes_active_prompt_id(monkeypatch):
+@pytest.mark.parametrize(
+    ("active_prompt", "owner"),
+    [("prompt-workflow-a", "browser-a"), ("prompt-workflow-a", None), ("unmatched-prompt", "browser-a"), ("", "browser-a")],
+)
+def test_local_llm_progress_event_targets_only_the_active_jobs_client(monkeypatch, active_prompt, owner):
     package = load_package()
     module = sys.modules[f"{package.__name__}.deno_local_llm_refiner"]
     sent = []
-    source_payload = {"node_id": "7", "status": "running"}
+    source_payload = {"node_id": "7", "status": "running", "thinking": "private text"}
 
-    monkeypatch.setattr(module, "_active_prompt_id", lambda: "prompt-workflow-a")
+    monkeypatch.setattr(module, "_active_prompt_id", lambda: active_prompt)
     monkeypatch.setattr(
         module.PromptServer,
         "instance",
-        types.SimpleNamespace(send_sync=lambda event, payload: sent.append((event, dict(payload)))),
+        types.SimpleNamespace(
+            client_id="browser-b",
+            prompt_queue=types.SimpleNamespace(
+                get_current_queue_volatile=lambda: ([(0, "prompt-workflow-a", {}, {"client_id": owner})], [])
+            ),
+            send_sync=lambda event, payload, sid: sent.append((event, dict(payload), sid)),
+        ),
     )
 
     module._send_progress(source_payload)
 
-    assert source_payload == {"node_id": "7", "status": "running"}
-    assert sent == [
-        (
+    assert source_payload == {"node_id": "7", "status": "running", "thinking": "private text"}
+    if active_prompt == "prompt-workflow-a" and owner:
+        assert sent == [(
             module.PROGRESS_EVENT,
-            {"node_id": "7", "status": "running", "prompt_id": "prompt-workflow-a"},
-        )
-    ]
+            {**source_payload, "prompt_id": "prompt-workflow-a"},
+            "browser-a",
+        )]
+    else:
+        assert sent == []
 
 
 def test_node_registration_exports_expected_nodes():
@@ -3209,7 +3221,7 @@ def test_ltx_model_setup_helper_declares_output_node_and_safe_root_widget():
     assert node_cls.CATEGORY == "Deno/Setup"
     assert "model_root" in input_types["required"]
     assert input_types["required"]["model_root"][0] == "STRING"
-    assert input_types["required"]["model_root"][1]["default"]
+    assert input_types["required"]["model_root"][1]["default"] == "auto"
     assert "presets_json" in input_types["required"]
     assert input_types["required"]["presets_json"][0] == "STRING"
     assert "ltx_23_8gb_vram" in input_types["required"]["presets_json"][1]["default"]
@@ -3408,14 +3420,22 @@ def test_ltx_model_setup_helper_includes_registered_yaml_model_root():
         }
         try:
             payload = module._build_payload(None, module._default_presets_state(), model_root=str(yaml_root))
+            reopened = module._build_payload(payload["selected_root_id"], module._default_presets_state())
         finally:
             folder_paths.models_dir = original_models_dir
             folder_paths.folder_names_and_paths = original_folder_map
 
-    assert Path(payload["models_root"]) == default_root.resolve()
-    assert payload["legacy_model_root"] == str(yaml_root)
-    assert any(Path(root["path"]) == yaml_root.resolve() for root in payload["roots"])
-    assert payload["selection_mode"] == "auto"
+    assert payload["selected_root_id"] == module._root_id(str(yaml_root))
+    assert reopened["selected_root_id"] == payload["selected_root_id"]
+    assert payload["selection_mode"] == reopened["selection_mode"] == "explicit"
+    assert payload["selection_reason"] == "migrated_registered_root"
+    assert payload["roots"][0]["id"] == module._root_id(str(default_root))
+    assert [root["label"] for root in payload["roots"]] == ["Default models folder", "Registered models folder 2"]
+    serialized = json.dumps(payload)
+    assert json.dumps(str(default_root.resolve()))[1:-1] not in serialized
+    assert json.dumps(str(yaml_root.resolve()))[1:-1] not in serialized
+    assert all(set(root) == {"id", "label", "existing_count"} for root in payload["roots"])
+    assert all("target_path" not in row and "target_dir" not in row for row in payload["files"])
 
 
 def test_ltx_model_setup_helper_autoselects_registered_root_with_ready_files():
@@ -3466,10 +3486,10 @@ def test_ltx_model_setup_helper_autoselects_registered_root_with_ready_files():
             folder_paths.models_dir = original_models_dir
             folder_paths.folder_names_and_paths = original_folder_map
 
-    assert Path(payload["models_root"]) == default_root.resolve()
+    assert payload["selected_root_id"] == module._root_id(str(default_root))
     assert payload["existing_count"] == 2
     assert all(file["status"] == "exists" for file in payload["files"])
-    assert Path(explicit["models_root"]) == default_root.resolve()
+    assert explicit["selected_root_id"] == module._root_id(str(default_root))
     assert explicit["existing_count"] == 2
     assert all(file["status"] == "exists" for file in explicit["files"])
     assert explicit["selection_mode"] == "explicit"
@@ -3574,7 +3594,7 @@ def test_ltx_model_setup_helper_frontend_keeps_auto_root_selection_available():
     assert 'return state.rootMode === "explicit" ? state.explicitRootId : "";' in script
     assert 'refreshButton.addEventListener("click", () => refreshInfo())' in script
     assert "selectRootByUser(rootInfo.id)" in script
-    assert "resetRootToAuto();" in script
+    assert 'autoRootButton.addEventListener("click", () => selectRootByUser(""))' in script
     assert 'refreshButton.addEventListener("click", () => refreshInfo(state.selectedRootId))' not in script
     assert "userSelectedRootId" not in script
     assert "selectedRootId" not in script
@@ -4123,7 +4143,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     ]
     assert required["comfy_vram_policy"][1]["default"] == "Auto: unload only before first LLM call"
     assert optional["image"][0] == "IMAGE"
-    assert list(optional) == ["image", "video_seconds", "audio_context"]
+    assert list(optional) == ["image", "video_seconds", "audio_context", "save_result_in_files"]
+    assert optional["save_result_in_files"][1]["default"] is False
     assert optional["video_seconds"][0] == "FLOAT"
     assert optional["video_seconds"][1]["forceInput"] is True
     assert optional["video_seconds"][1]["default"] == 0.0
@@ -4136,9 +4157,8 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert list(hidden) == ["unique_id", "extra_pnginfo"]
     assert hidden["extra_pnginfo"] == "EXTRA_PNGINFO"
     assert "reviewer_state" not in hidden
-    assert node_cls.OUTPUT_TOOLTIPS == (
-        "Final Result returned by the Local LLM node. When the node executes, its latest Result is embedded in saved workflow metadata; Thinking/reasoning is not persisted. Batched prompts return a STRING list.",
-    )
+    assert "Save Result in Files" in node_cls.OUTPUT_TOOLTIPS[0]
+    assert "Batched prompts return a STRING list" in node_cls.OUTPUT_TOOLTIPS[0]
 
     script = (REPO_ROOT / "web" / "js" / "deno_local_llm_refiner.js").read_text(encoding="utf-8")
     assert 'const NODE_NAME = "DenoLocalLLMRefiner";' in script
@@ -4233,7 +4253,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert "Ollama Model" in script
     assert "LM Studio Model" in script
     assert "const PROVIDER_VALUES = [PROVIDER_OLLAMA, PROVIDER_LM_STUDIO];" in script
-    assert "const LOADER_SERIALIZED_WIDGET_COUNT = 13;" in script
+    assert "const LOADER_LEGACY_WIDGET_COUNT = 13;" in script
     assert "Server URL" in script
     assert "custom_server_url" in script
     assert "repairLegacyProviderValues" in script
@@ -4263,6 +4283,7 @@ def test_local_llm_refiner_declares_batch_prompt_contract_and_frontend_preview()
     assert '"Provider",' in script
     assert '"ollama_model",' in script
     assert '"lm_studio_model",' in script
+    assert '"save_result_in_files"' in loader_socket_block
     assert '"prompt"' not in loader_socket_block
     assert '"Prompt"' not in loader_socket_block
     assert '"video_seconds"' not in loader_socket_block

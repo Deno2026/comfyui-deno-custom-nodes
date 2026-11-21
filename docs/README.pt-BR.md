@@ -491,7 +491,7 @@ Principais recursos:
 
 - abre links oficiais de modelos no navegador, em vez de baixar arquivos em Python
 - inclui o modelo de difusão LTX 2.5, o codificador de texto Gemma 4 com projeção, os VAEs de vídeo e áudio e o upscaler espacial x2 exigidos pelo workflow de duas etapas
-- mostra as raízes de modelos do ComfyUI detectadas e permite copiar a raiz selecionada
+- permite escolher uma pasta de modelos registrada e mostra apenas os caminhos relativos dos modelos
 - aceita presets de criador salvos no workflow e os restaura do armazenamento do navegador depois de recarregar a página
 - aceita links diretos do Hugging Face e links de página/download do Civitai, sem requisições de rede feitas pelo Python
 - verifica as pastas de modelos registradas no ComfyUI, incluindo nomes de pasta personalizados de `extra_model_paths`
@@ -559,7 +559,7 @@ Principais recursos:
 - conecte lotes de prompts por uma única execução do nó, para que o modelo local fique carregado até o lote terminar
 - opcionalmente, anexe uma IMAGE a uma chamada de modelo local com visão
 - veja o texto de Thinking e de Result direto no nó
-- incorpore o Result final do nó nos metadados do PNG/workflow salvos sempre que o nó Local LLM for executado, para que reabrir o arquivo o restaure dentro do nó; o Thinking/raciocínio continua só na prévia e não é persistido
+- ative **Save Result in Files** para incluir o Result final nos novos arquivos PNG e de workflow e restaurá-lo ao reabri-los. A opção vem desativada e Thinking aparece apenas na prévia ao vivo
 - mantenha presets de System Prompt nomeados nos dados de usuário do ComfyUI, para que sobrevivam à limpeza do perfil do navegador
 - conecte um FLOAT positivo a `video seconds` para acrescentar uma frase como `This is an 8-second video.` a cada user prompt do LLM, sem mudar o texto salvo em Prompt
 - use `(Deno) Local LLM Reviewer` como portão antes dos nós Save: deixe passar ou bloqueie saídas IMAGE e AUDIO a partir do texto de uma revisão, aprove uma vez o resultado revisado atual ou execute de novo o caminho anterior ao reviewer

@@ -48,6 +48,8 @@ const LOADER_WIDGET_SOCKET_NAMES = new Set([
     "keep_minutes",
     "Keep Minutes",
     "comfy_vram_policy",
+    "Save Result in Files",
+    "save_result_in_files",
     "ComfyUI VRAM",
     "Unload ComfyUI Models Setting",
 ]);
@@ -71,7 +73,7 @@ const COMFY_VRAM_ALIASES = {
     "Never free": "Never unload before LLM call",
 };
 const SEED_MODE_VALUES = ["fixed", "increment", "decrement", "randomize"];
-const LOADER_SERIALIZED_WIDGET_COUNT = 13;
+const LOADER_LEGACY_WIDGET_COUNT = 13;
 const GATE_SERIALIZED_WIDGET_COUNT = 3;
 const LOADER_STATE_PROPERTY = "deno_local_llm_state";
 const LOADER_STATE_SCHEMA = 1;
@@ -90,7 +92,9 @@ const LOADER_SERIALIZED_WIDGET_NAMES = [
     "keep_minutes",
     "comfy_vram_policy",
     "prompt",
+    "save_result_in_files",
 ];
+const LOADER_SERIALIZED_WIDGET_COUNT = LOADER_SERIALIZED_WIDGET_NAMES.length;
 const LOADER_GENERATED_BUTTON_VALUES = ["Refresh Models", "Stop LLM", "Unload LLM"];
 const LOADER_SYSTEM_PROMPT_BUTTON_VALUE = "System Prompt";
 const LOADER_GENERATED_WIDGET_RESET_VALUES = Object.freeze({
@@ -696,15 +700,16 @@ function sanitizeLocalLLMState(raw) {
     };
 }
 
-function sanitizeLocalLLMPersistedState(raw) {
+function sanitizeLocalLLMPersistedState(raw, keepAnswer = false) {
     const clean = sanitizeLocalLLMState(raw);
     if (!clean) {
         return null;
     }
-    // Thinking is a live preview only; workflow/PNG metadata keeps the final answer, never private reasoning.
     return {
         ...clean,
+        answer: keepAnswer ? clean.answer : "",
         thinking: "",
+        error: "",
     };
 }
 
@@ -712,7 +717,8 @@ function persistLocalLLMStateToProperties(node, state) {
     if (!node) {
         return null;
     }
-    const clean = sanitizeLocalLLMPersistedState(state);
+    const saveResult = getWidget(node, "save_result_in_files")?.value === true;
+    const clean = sanitizeLocalLLMPersistedState(state, saveResult);
     if (!clean) {
         return null;
     }
@@ -722,13 +728,16 @@ function persistLocalLLMStateToProperties(node, state) {
 }
 
 function restoreLocalLLMStateFromProperties(node) {
-    const restored = sanitizeLocalLLMPersistedState(node?.properties?.[LOADER_STATE_PROPERTY]);
-    if (!node || !restored) {
+    if (!node) {
         return null;
     }
-    node.properties = node.properties || {};
-    node.properties[LOADER_STATE_PROPERTY] = restored;
+    const restored = node.__denoLocalLLMState
+        || sanitizeLocalLLMPersistedState(node.properties?.[LOADER_STATE_PROPERTY], true);
+    if (!restored) {
+        return null;
+    }
     node.__denoLocalLLMState = restored;
+    persistLocalLLMStateToProperties(node, restored);
     const key = localLLMNodeStateKey(node);
     if (key) {
         localLLMStateByNode.set(key, restored);
@@ -1064,7 +1073,7 @@ app.registerExtension({
         const configure = nodeType.prototype.configure;
         nodeType.prototype.configure = function (info) {
             const normalizedValues = normalizeLocalLLMLoaderWidgetValues(info);
-            const restoredState = sanitizeLocalLLMPersistedState(info?.properties?.[LOADER_STATE_PROPERTY]);
+            const restoredState = sanitizeLocalLLMPersistedState(info?.properties?.[LOADER_STATE_PROPERTY], true);
             if (restoredState) {
                 info.properties = info.properties || {};
                 info.properties[LOADER_STATE_PROPERTY] = restoredState;
@@ -1073,10 +1082,10 @@ app.registerExtension({
             preserveLocalLLMLoaderSavedComboOptions(this, normalizedValues);
             const result = configure?.apply(this, arguments);
             if (restoredState) {
-                persistLocalLLMStateToProperties(this, restoredState);
+                this.__denoLocalLLMState = restoredState;
             }
-            restoreLocalLLMStateFromProperties(this);
             applyLocalLLMLoaderSavedWidgetValues(this, this.__denoLocalLLMSavedWidgetValues);
+            restoreLocalLLMStateFromProperties(this);
             return result;
         };
 
@@ -1104,12 +1113,11 @@ app.registerExtension({
                     || normalizeLocalLLMLoaderSerializedValues(info.widgets_values)
                     || info.widgets_values.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
             }
-            const state = sanitizeLocalLLMPersistedState(this.__denoLocalLLMState || restoreLocalLLMStateFromProperties(this));
+            const state = persistLocalLLMStateToProperties(
+                this, this.__denoLocalLLMState || restoreLocalLLMStateFromProperties(this),
+            );
             if (state && info) {
-                info.properties = info.properties || {};
-                info.properties[LOADER_STATE_PROPERTY] = state;
-                this.properties = this.properties || {};
-                this.properties[LOADER_STATE_PROPERTY] = state;
+                info.properties = { ...info.properties, [LOADER_STATE_PROPERTY]: state };
             }
             return result;
         };
@@ -1173,6 +1181,9 @@ function normalizeLocalLLMLoaderSerializedValues(values) {
     }
     normalized = normalizeLocalLLMLoaderGeneratedPickerValues(normalized);
     normalized = normalized.slice(0, LOADER_SERIALIZED_WIDGET_COUNT);
+    if (normalized.length >= LOADER_LEGACY_WIDGET_COUNT) {
+        normalized[LOADER_LEGACY_WIDGET_COUNT] = normalized[LOADER_LEGACY_WIDGET_COUNT] === true;
+    }
     for (const modelIndex of [1, 2]) {
         if (modelIndex < normalized.length) {
             normalized[modelIndex] = originalModelValueFromDisplay(normalized[modelIndex]);
@@ -1188,7 +1199,7 @@ function normalizeLocalLLMLoaderGeneratedPickerValues(values) {
     const extraAfterCustomModel = String(normalized[5] ?? "").trim();
     const shiftedSeed = normalized[8];
     const likelyGeneratedPickerValue =
-        normalized.length > LOADER_SERIALIZED_WIDGET_COUNT &&
+        normalized.length > LOADER_LEGACY_WIDGET_COUNT &&
         LEGACY_CUSTOM_PROVIDERS.has(provider) &&
         customModel &&
         (extraAfterCustomModel === customModel ||
@@ -1217,9 +1228,15 @@ function localLLMLoaderSerializedValuesFromWidgets(node, fallbackValues) {
         const widget = getWidget(node, name);
         if (widget) {
             foundNamedWidget = true;
+            if (name === "save_result_in_files") {
+                return widget.value === true;
+            }
             return name === "ollama_model" || name === "lm_studio_model"
                 ? originalModelValueFromDisplay(widget.value)
                 : widget.value;
+        }
+        if (name === "save_result_in_files") {
+            return fallback[index] === true;
         }
         return index < fallback.length ? fallback[index] : "";
     });
@@ -1255,7 +1272,7 @@ function normalizeLocalLLMLoaderLegacyButtonValues(values) {
         return normalized;
     }
 
-    if (tailSystemPromptButtonIndex >= 0 && normalized.length < LOADER_SERIALIZED_WIDGET_COUNT) {
+    if (tailSystemPromptButtonIndex >= 0 && normalized.length < LOADER_LEGACY_WIDGET_COUNT) {
         normalized.splice(5, 0, tailSystemPrompt);
         return normalized;
     }
@@ -1368,15 +1385,15 @@ function applyLocalLLMLoaderSavedWidgetValues(node, values) {
     }
     let changed = false;
     for (let index = 0; index < LOADER_SERIALIZED_WIDGET_NAMES.length; index++) {
-        if (index >= values.length) {
+        const name = LOADER_SERIALIZED_WIDGET_NAMES[index];
+        if (index >= values.length && name !== "save_result_in_files") {
             continue;
         }
-        const name = LOADER_SERIALIZED_WIDGET_NAMES[index];
         const widget = getWidget(node, name);
         if (!widget) {
             continue;
         }
-        let value = values[index];
+        let value = name === "save_result_in_files" ? values[index] === true : values[index];
         if (name === "ollama_model" || name === "lm_studio_model") {
             value = displayModelValueForCurrentChoices(widget, value);
             if (value && !isMissingSavedModelDisplayValue(value)) {
@@ -5122,6 +5139,7 @@ function polishWidgetLabels(node) {
         model_memory: "Model After Run",
         keep_minutes: "Keep Minutes",
         comfy_vram_policy: "Unload ComfyUI Models Setting",
+        save_result_in_files: "Save Result in Files",
     };
     for (const [name, label] of Object.entries(labels)) {
         const widget = getWidget(node, name);

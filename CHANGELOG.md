@@ -4,6 +4,11 @@ Public, user-facing release notes for Deno Custom Nodes.
 
 This file intentionally stays short. Detailed engineering notes belong in private/local handoff notes, not the public changelog.
 
+## 0.7.130 - 2026-11-22
+
+- Local LLM Loader sends live previews only to the browser that submitted the run. Enable **Save Result in Files** to embed the final answer in new PNG and workflow files. The option is off by default.
+- Easy Model Download Helper shows relative model locations and stores model folder selections without absolute server paths.
+
 ## 0.7.129 - 2026-11-18
 
 - In response to Comfy Registry review, Local LLM Loader now supports Ollama and LM Studio on the ComfyUI computer. Open a workflow saved with another provider, choose Ollama or LM Studio, refresh the models, and select an installed model.

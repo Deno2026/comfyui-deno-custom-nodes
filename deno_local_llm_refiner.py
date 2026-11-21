@@ -752,14 +752,15 @@ def _persist_local_llm_answer_in_workflow_metadata(
     extra_pnginfo: Any,
     node_id: Any,
     *,
-    provider: str,
-    model: str,
-    answer: str,
+    provider: str = "",
+    model: str = "",
+    answer: str = "",
     status: str = "done",
     index: int = 1,
     total: int = 1,
+    save_result: bool = True,
 ) -> bool:
-    """Store this node execution's final Result in the embedded workflow snapshot."""
+    """Update only this node's result in the embedded workflow snapshot."""
     metadata = _extract_scalar(extra_pnginfo, None)
     if not isinstance(metadata, dict):
         return False
@@ -780,6 +781,10 @@ def _persist_local_llm_answer_in_workflow_metadata(
         if str(node.get("id", "")) != target_id or node.get("type") != "DenoLocalLLMRefiner":
             continue
         properties = node.get("properties")
+        if not save_result:
+            if isinstance(properties, dict):
+                properties.pop(LOCAL_LLM_STATE_PROPERTY, None)
+            return True
         if not isinstance(properties, dict):
             properties = {}
             node["properties"] = properties
@@ -2348,12 +2353,19 @@ def _send_progress(payload: Dict[str, Any]) -> None:
     try:
         instance = getattr(PromptServer, "instance", None)
         sender = getattr(instance, "send_sync", None)
-        if sender:
-            event_payload = dict(payload)
-            prompt_id = _active_prompt_id()
-            if prompt_id and not event_payload.get("prompt_id"):
-                event_payload["prompt_id"] = prompt_id
-            sender(PROGRESS_EVENT, event_payload)
+        prompt_id = _active_prompt_id()
+        if not sender or not prompt_id:
+            return
+        queue = instance.prompt_queue
+        read_queue = getattr(queue, "get_current_queue_volatile", None) or queue.get_current_queue
+        running, _ = read_queue()
+        for item in running:
+            if len(item) < 4 or item[1] != prompt_id or not isinstance(item[3], dict):
+                continue
+            client_id = item[3].get("client_id")
+            if isinstance(client_id, str) and client_id.strip():
+                sender(PROGRESS_EVENT, {**payload, "prompt_id": prompt_id}, client_id)
+            return
     except Exception:
         pass
 
@@ -2836,9 +2848,8 @@ class DenoLocalLLMRefiner:
         "adds a short English duration sentence to each user prompt. Optional audio_context STRING "
         "data can carry upstream transcript and acoustic evidence without replacing the user prompt; "
         "only explicitly labeled user-supplied wording is authoritative.\n\n"
-        "When this node executes, its final Result is stored in the embedded workflow state so "
-        "reopening a saved PNG or workflow restores it. Thinking and reasoning stay preview-only "
-        "and are not persisted in that state.\n\n"
+        "Enable Save Result in Files to include the final Result in saved workflows and PNG metadata. "
+        "This option defaults to off. Thinking and error details stay in the live preview.\n\n"
         "Designed for prompt-batcher workflows: use the in-node Prompt field or connect STRING into Prompt, "
         "and this node processes the whole prompt batch in one execution so the local LLM can stay "
         "loaded until the batch is complete.\n\n"
@@ -2902,6 +2913,13 @@ class DenoLocalLLMRefiner:
                             "Only explicitly labeled user-supplied wording is authoritative; all "
                             "automatic transcript and acoustic analysis remain untrusted evidence."
                         ),
+                    },
+                ),
+                "save_result_in_files": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "Include the final Result in saved workflow files and PNG metadata.",
                     },
                 ),
             },
@@ -2983,7 +3001,13 @@ class DenoLocalLLMRefiner:
         audio_context=None,
         unique_id=None,
         extra_pnginfo=None,
+        save_result_in_files=False,
     ):
+        node_id = str(_extract_scalar(unique_id, "") or "")
+        save_result = _extract_scalar(save_result_in_files, False) is True
+        if not save_result:
+            _persist_local_llm_answer_in_workflow_metadata(extra_pnginfo, node_id, save_result=False)
+
         provider_value = _normalize_provider(str(_extract_scalar(provider, PROVIDER_OLLAMA)))
         ollama_model_value = str(_extract_scalar(ollama_model, "")).strip()
         lm_studio_model_value = str(_extract_scalar(lm_studio_model, "")).strip()
@@ -3011,7 +3035,6 @@ class DenoLocalLLMRefiner:
         memory_value = _normalize_model_memory(model_memory)
         keep_minutes_value = _safe_int(keep_minutes, 5, 1, 240)
         comfy_vram_policy_value = _normalize_comfy_vram_policy(comfy_vram_policy)
-        node_id = str(_extract_scalar(unique_id, "") or "")
         prompts = _flatten_prompts(prompt)
         image_attachments = _prepare_image_attachments(image)
 
@@ -3129,16 +3152,17 @@ class DenoLocalLLMRefiner:
                 thinking_results[-1] = final_thinking
 
         final_status = "done, unload warning" if post_run_unload_warnings else "done"
-        _persist_local_llm_answer_in_workflow_metadata(
-            extra_pnginfo,
-            node_id,
-            provider=provider_value,
-            model=model_value,
-            answer=results[-1] if results else "",
-            status=final_status,
-            index=total,
-            total=total,
-        )
+        if save_result:
+            _persist_local_llm_answer_in_workflow_metadata(
+                extra_pnginfo,
+                node_id,
+                provider=provider_value,
+                model=model_value,
+                answer=results[-1] if results else "",
+                status=final_status,
+                index=total,
+                total=total,
+            )
 
         _send_progress({
             "node_id": node_id,

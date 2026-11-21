@@ -491,7 +491,7 @@ Main features:
 
 - opens official model links in the browser instead of downloading files in Python
 - includes the LTX 2.5 diffusion model, projected Gemma 4 text encoder, video and audio VAEs, and x2 spatial upscaler required by the two-stage workflow
-- shows detected ComfyUI model roots and lets users copy the selected root
+- lets you select a registered model folder and shows only relative model paths
 - supports saved creator presets inside the workflow and restores them from browser storage after a page reload
 - supports Hugging Face direct links and Civitai page/download links without Python-side network requests
 - checks ComfyUI-registered model folders, including custom folder names from `extra_model_paths`
@@ -559,7 +559,7 @@ Main features:
 - connect prompt batches through one node run so the local model can stay loaded until the batch finishes
 - optionally attach an IMAGE to a vision-capable local model call
 - preview Thinking and Result text directly on the node
-- embed the node's final Result in saved PNG/workflow metadata whenever the Local LLM node executes, so reopening the file restores it inside the node; Thinking/reasoning remains preview-only and is not persisted
+- enable **Save Result in Files** to include the final Result in new PNG and workflow files and restore it on reopening; the option is off by default, and Thinking stays in the live preview
 - keep named System Prompt presets in ComfyUI user data so they survive browser-profile cleanup
 - connect a positive FLOAT to `video seconds` to append a sentence such as `This is an 8-second video.` to each LLM user prompt without changing the saved Prompt text
 - use `(Deno) Local LLM Reviewer` as a gate before Save nodes: pass or block IMAGE and AUDIO outputs from a review text result, approve the current reviewed result once, or rerun the path before the reviewer

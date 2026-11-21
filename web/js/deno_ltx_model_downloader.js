@@ -6,6 +6,9 @@ const ROUTE = "/deno/ltx_model_downloader";
 const MIN_SIZE = [560, 430];
 const PANEL_MIN_HEIGHT = 352;
 const NODE_CHROME_HEIGHT = 62;
+const AUTO_MODEL_ROOT = "auto";
+const MODEL_ROOT_ID = /^root_[0-9a-f]{16}$/;
+const ABSOLUTE_MODEL_PATH = /^(?:[a-z]:[\\/]|[\\/])/i;
 const PRESET_STORAGE_KEY = "deno_ltx_model_downloader_presets_v3";
 const LEGACY_PRESET_STORAGE_KEYS = [
     "deno_ltx_model_downloader_presets_v1",
@@ -143,9 +146,10 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             const result = onConfigure?.apply(this, arguments);
+            const rootSelection = takeRootSelection(getWidget(this, "model_root"));
             queueMicrotask(() => {
                 if (!this.__denoLtxSetupDisposed) {
-                    setupNode(this);
+                    setupNode(this, rootSelection);
                 }
             });
             return result;
@@ -162,12 +166,12 @@ app.registerExtension({
     },
 });
 
-function setupNode(node) {
+function setupNode(node, rootSelection) {
     if (!node || node.type !== NODE_NAME || node.__denoLtxSetupDisposed) {
         return;
     }
     if (node.__denoLtxSetupReady) {
-        node.__denoLtxSetupUi?.reloadFromWidgets?.();
+        node.__denoLtxSetupUi?.reloadFromWidgets?.(rootSelection);
         return;
     }
 
@@ -186,7 +190,7 @@ function setupNode(node) {
         }
     }
 
-    const ui = buildUi(node, rootWidget, presetsWidget);
+    const ui = buildUi(node, rootWidget, presetsWidget, rootSelection ?? takeRootSelection(rootWidget));
     const domWidget = node.addDOMWidget("deno_ltx_setup_panel", "deno_ltx_setup_panel", ui.root, {
         serialize: false,
     });
@@ -198,6 +202,16 @@ function setupNode(node) {
 
 function getWidget(node, name) {
     return node.widgets?.find((widget) => widget.name === name);
+}
+
+function takeRootSelection(widget) {
+    const saved = String(widget?.value || "").trim();
+    const rootId = MODEL_ROOT_ID.test(saved) ? saved : "";
+    const legacyRoot = ABSOLUTE_MODEL_PATH.test(saved) ? saved : "";
+    if (widget) {
+        widget.value = rootId || AUTO_MODEL_ROOT;
+    }
+    return { rootId, legacyRoot };
 }
 
 function hideWidget(widget) {
@@ -241,7 +255,7 @@ function createLatestRequestGate() {
     };
 }
 
-function buildUi(node, rootWidget, presetsWidget) {
+function buildUi(node, rootWidget, presetsWidget, rootSelection) {
     let disposed = false;
     const requestGate = createLatestRequestGate();
     const root = document.createElement("div");
@@ -331,9 +345,6 @@ function buildUi(node, rootWidget, presetsWidget) {
     const pathRow = document.createElement("div");
     pathRow.style.cssText = "display:flex; flex-direction:column; gap:5px;";
 
-    const rootSelect = document.createElement("select");
-    rootSelect.style.cssText = "display:none;";
-
     const rootHeader = document.createElement("div");
     rootHeader.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:8px;";
 
@@ -341,8 +352,8 @@ function buildUi(node, rootWidget, presetsWidget) {
     rootLabel.style.cssText = "font:800 10px sans-serif; color:#88dca4; letter-spacing:0.02em;";
     rootLabel.textContent = "Model Roots";
 
-    const copyRootButton = createButton("Copy selected root");
-    rootHeader.append(rootLabel, copyRootButton);
+    const autoRootButton = createButton("Auto select");
+    rootHeader.append(rootLabel, autoRootButton);
 
     const rootList = document.createElement("div");
     rootList.style.cssText = `
@@ -351,23 +362,7 @@ function buildUi(node, rootWidget, presetsWidget) {
         gap:5px;
     `;
 
-    const pathText = document.createElement("div");
-    pathText.style.cssText = `
-        display:none;
-        flex:1;
-        min-width:0;
-        padding:6px 9px;
-        border-radius:9px;
-        background:rgba(0,0,0,0.42);
-        border:1px solid rgba(108,255,158,0.18);
-        color:#ccf8d8;
-        white-space:nowrap;
-        overflow:hidden;
-        text-overflow:ellipsis;
-    `;
-    pathText.textContent = "Loading model roots...";
-
-    pathRow.append(rootHeader, rootList, pathText, rootSelect);
+    pathRow.append(rootHeader, rootList);
 
     const progressOuter = document.createElement("div");
     progressOuter.style.cssText = `
@@ -414,41 +409,29 @@ function buildUi(node, rootWidget, presetsWidget) {
     bottomRow.append(refreshButton, status);
 
     const state = {
-        rootMode: "auto",
-        explicitRootId: "",
+        rootMode: rootSelection.rootId ? "explicit" : "auto",
+        explicitRootId: rootSelection.rootId,
+        legacyRoot: rootSelection.legacyRoot,
         effectiveRootId: "",
         refreshSequence: 0,
         roots: [],
         files: [],
-        modelsRoot: "",
         modelSubdirs: [],
         editing: false,
         presetsState: readPresetsState(presetsWidget),
         editorPresetId: "",
     };
 
-    function resetRootToAuto() {
-        state.rootMode = "auto";
-        state.explicitRootId = "";
-    }
-
     function requestedRootId() {
         return state.rootMode === "explicit" ? state.explicitRootId : "";
     }
 
     function selectRootByUser(rootId) {
-        if (!rootId) {
-            resetRootToAuto();
-            refreshInfo();
-            return;
-        }
-        state.rootMode = "explicit";
+        state.rootMode = rootId ? "explicit" : "auto";
         state.explicitRootId = rootId;
-        const rootInfo = state.roots.find((rootItem) => rootItem.id === rootId);
-        if (rootInfo) {
-            rootSelect.value = rootId;
-            writeRootWidget(rootInfo.path || "");
-        }
+        state.legacyRoot = "";
+        writeRootWidget(rootId);
+        markWorkflowDirty();
         renderRootList();
         refreshInfo();
     }
@@ -502,12 +485,13 @@ function buildUi(node, rootWidget, presetsWidget) {
         status.style.color = danger ? "#ffb0b0" : "#94f7af";
     }
 
-    function writeRootWidget(path) {
-        if (!rootWidget || !path) {
+    function writeRootWidget(rootId) {
+        const next = MODEL_ROOT_ID.test(rootId) ? rootId : AUTO_MODEL_ROOT;
+        if (!rootWidget || rootWidget.value === next) {
             return;
         }
-        rootWidget.value = path;
-        rootWidget.callback?.(path);
+        rootWidget.value = next;
+        rootWidget.callback?.(next);
     }
 
     async function apiJson(path, options = {}) {
@@ -561,7 +545,6 @@ function buildUi(node, rootWidget, presetsWidget) {
                 presetMenu.style.display = "none";
                 setEditingMode(false);
                 editor.load(currentPackage(state.presetsState));
-                resetRootToAuto();
                 refreshInfo();
             }, item.id === state.presetsState.active_preset_id);
             presetMenu.append(option);
@@ -572,26 +555,20 @@ function buildUi(node, rootWidget, presetsWidget) {
         const roots = payload.roots || [];
         state.roots = roots;
         state.effectiveRootId = payload.selected_root_id || roots[0]?.id || "";
-        state.modelsRoot = payload.models_root || "";
         state.modelSubdirs = payload.model_subdirs || state.modelSubdirs || [];
         hint.textContent = payload.instructions || currentPackage(state.presetsState).description || "Open links, download with your browser, then move files into the shown target paths.";
-
-        rootSelect.replaceChildren();
-        for (const rootInfo of roots) {
-            const option = document.createElement("option");
-            option.value = rootInfo.id;
-            option.textContent = rootInfo.existing_count > 0
-                ? `${rootInfo.path} (${rootInfo.existing_count} files found)`
-                : rootInfo.path;
-            rootSelect.append(option);
+        if (state.legacyRoot && payload.selection_mode === "explicit") {
+            state.rootMode = "explicit";
+            state.explicitRootId = state.effectiveRootId;
+            writeRootWidget(state.explicitRootId);
+            markWorkflowDirty();
         }
-        rootSelect.value = state.effectiveRootId;
-        pathText.textContent = state.modelsRoot || "No model root selected";
-        writeRootWidget(state.modelsRoot);
+        state.legacyRoot = "";
         renderRootList();
     }
 
     function renderRootList() {
+        autoRootButton.disabled = state.rootMode === "auto" && !state.legacyRoot;
         rootList.replaceChildren();
         const roots = state.roots || [];
         if (!roots.length) {
@@ -607,7 +584,7 @@ function buildUi(node, rootWidget, presetsWidget) {
             const chip = document.createElement("button");
             chip.type = "button";
             chip.style.cssText = rootChipStyle(selected);
-            chip.title = rootInfo.path || "";
+            chip.title = rootInfo.label;
             chip.dataset.rootCount = String(roots.length);
 
             const indexBadge = document.createElement("span");
@@ -628,7 +605,7 @@ function buildUi(node, rootWidget, presetsWidget) {
 
             const path = document.createElement("span");
             path.style.cssText = "min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left;";
-            path.textContent = rootInfo.path || "(unknown root)";
+            path.textContent = rootInfo.label;
 
             const stateLabel = document.createElement("span");
             stateLabel.style.cssText = `
@@ -697,20 +674,22 @@ function buildUi(node, rootWidget, presetsWidget) {
                 setStatus(`Opened download link: ${file.filename || file.target_subdir || "download link"}`);
             };
 
-            row.title = file.target_path || file.relative_path || file.error || "";
+            row.title = file.relative_path || file.error || "";
             row.append(nameWrap, badge, downButton);
             fileList.append(row);
         }
         applyNodeSize();
     }
 
-    function reloadFromWidgets() {
+    function reloadFromWidgets(saved = takeRootSelection(rootWidget)) {
         if (disposed) {
             return;
         }
         state.presetsState = readPresetsState(presetsWidget);
         state.editorPresetId = currentPackage(state.presetsState).id;
-        resetRootToAuto();
+        state.rootMode = saved.rootId ? "explicit" : "auto";
+        state.explicitRootId = saved.rootId;
+        state.legacyRoot = saved.legacyRoot;
         renderPresetButton();
         editor.load(currentPackage(state.presetsState));
         setEditingMode(false);
@@ -729,7 +708,7 @@ function buildUi(node, rootWidget, presetsWidget) {
             const active = currentPackage(state.presetsState);
             const payload = await postJson(`${ROUTE}/check`, {
                 root_id: requestedRootId(),
-                model_root: rootWidget?.value || "",
+                ...(state.legacyRoot ? { model_root: state.legacyRoot } : {}),
                 presets_state: state.presetsState,
                 package: active,
             }, { signal: request.signal });
@@ -805,13 +784,7 @@ function buildUi(node, rootWidget, presetsWidget) {
         app.graph?.setDirtyCanvas?.(true, true);
     }
 
-    rootSelect.addEventListener("change", () => {
-        selectRootByUser(rootSelect.value);
-    });
-    copyRootButton.addEventListener("click", async () => {
-        await copyText(state.modelsRoot || pathText.textContent || "");
-        setStatus("Copied selected models root.");
-    });
+    autoRootButton.addEventListener("click", () => selectRootByUser(""));
     refreshButton.addEventListener("click", () => refreshInfo());
     presetButton.addEventListener("click", (event) => {
         event.preventDefault();
@@ -1599,6 +1572,10 @@ function currentPackage(state) {
     return normalized.presets.find((item) => item.id === normalized.active_preset_id) || normalized.presets[0];
 }
 
+function isModelPathComponent(value) {
+    return Boolean(value) && !/[. ]$/.test(value) && !/[\u0000-\u001f<>:"/\\|?*]/.test(value);
+}
+
 function normalizePackage(value = {}) {
     const files = Array.isArray(value.files) ? value.files : [];
     const title = String(value.title || DEFAULT_PACKAGE.title || "Custom Preset");
@@ -1606,14 +1583,22 @@ function normalizePackage(value = {}) {
         id: String(value.id || slugify(title)),
         title,
         description: String(value.description || ""),
-        files: files.map((file, index) => ({
-            id: String(file.id || `file_${index + 1}`),
-            label: String(file.label || file.target_subdir || file.filename || `File #${index + 1}`),
-            url: String(file.url || ""),
-            target_subdir: String(file.target_subdir || "checkpoints"),
-            filename: String(file.filename || guessFilename(file.url || "")),
-            size: Number(file.size || file.expected_size || 0),
-        })),
+        files: files.map((file, index) => {
+            const subdir = String(file.target_subdir ?? "checkpoints").replaceAll("\\", "/");
+            const filename = String(file.filename ?? guessFilename(file.url || "")).trim();
+            const safeSubdir = subdir.split("/").every(isModelPathComponent) ? subdir : "";
+            const safeFilename = isModelPathComponent(filename) ? filename : "";
+            const label = String(file.label || "").trim();
+            const safeLabel = ABSOLUTE_MODEL_PATH.test(label) ? "" : label;
+            return {
+                id: String(file.id || `file_${index + 1}`),
+                label: safeLabel || safeSubdir || safeFilename || `File #${index + 1}`,
+                url: String(file.url || ""),
+                target_subdir: safeSubdir,
+                filename: safeFilename,
+                size: Number(file.size || file.expected_size || 0),
+            };
+        }),
     };
 }
 
@@ -1711,24 +1696,10 @@ function guessFilename(url) {
     }
 }
 
-async function copyText(text) {
-    if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        return;
-    }
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.append(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    textarea.remove();
-}
-
 if (typeof window !== "undefined" && typeof window.__DENO_LTX_MODEL_DOWNLOADER_TEST_HOOK__ === "function") {
     window.__DENO_LTX_MODEL_DOWNLOADER_TEST_HOOK__({
         createLatestRequestGate,
+        takeRootSelection,
         normalizePresetsState,
         mergePresetLibrary,
         hasCustomPresets,

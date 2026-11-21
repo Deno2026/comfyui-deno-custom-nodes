@@ -491,7 +491,7 @@ KJ 风格的 Bernini 提示词辅助节点，把 positive 与 negative 提示词
 
 - 在浏览器中打开官方模型链接，而不是用 Python 下载文件
 - 包含两阶段工作流所需的 LTX 2.5 diffusion model、带 projection 的 Gemma 4 text encoder、video 和 audio VAE，以及 x2 spatial upscaler
-- 显示检测到的 ComfyUI 模型根目录，并可复制所选的根目录
+- 支持选择已注册的模型文件夹，仅显示模型的相对路径
 - 在工作流内保存 creator 预设，并在页面重新加载后从浏览器存储中恢复
 - 支持 Hugging Face 直接链接以及 Civitai 页面/下载链接，不在 Python 端发起网络请求
 - 检查 ComfyUI 已注册的模型文件夹，包括来自 `extra_model_paths` 的自定义文件夹名称
@@ -559,7 +559,7 @@ Dynamic VRAM 会根据显存压力移动权重，可能有意保留部分 text e
 - 通过一次节点运行连接提示词批次，使本地模型在批次完成前保持加载
 - 可选择为支持 vision 的本地模型调用附加一张 IMAGE
 - 直接在节点上预览 Thinking 和 Result 文本
-- 只要 Local LLM 节点执行，就把节点最终的 Result 嵌入保存的 PNG/工作流 metadata，重新打开文件时会在节点内恢复；Thinking/reasoning 只用于预览，不会保存
+- 启用 **Save Result in Files** 可将最终的 Result 写入新保存的 PNG 和工作流文件，重新打开时即可恢复。此选项默认关闭，Thinking 仅在实时预览中显示
 - 将具名的 System Prompt 预设保存在 ComfyUI 用户数据中，清理浏览器配置文件后依然保留
 - 把一个正数 FLOAT 连接到 `video seconds`，即可在每条 LLM 用户提示词后追加类似 `This is an 8-second video.` 的句子，而不改变已保存的 Prompt 文本
 - 在 Save 节点之前使用 `(Deno) Local LLM Reviewer` 作为把关：根据审查文本结果放行或阻止 IMAGE 与 AUDIO 输出，一次性批准当前已审查的结果，或重新运行 reviewer 之前的路径

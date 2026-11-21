@@ -491,7 +491,7 @@ Funciones principales:
 
 - abre enlaces oficiales de modelos en el navegador en lugar de descargar archivos desde Python
 - incluye el modelo de difusión LTX 2.5, el text encoder Gemma 4 con proyección, los VAE de video y audio, y el spatial upscaler x2 que exige el workflow de dos etapas
-- muestra las raíces de modelos de ComfyUI detectadas y permite copiar la raíz seleccionada
+- permite elegir una carpeta de modelos registrada y muestra solo las rutas relativas de los modelos
 - admite presets de creador guardados dentro del workflow y los restaura desde el almacenamiento del navegador tras recargar la página
 - admite enlaces directos de Hugging Face y enlaces de página/descarga de Civitai sin solicitudes de red desde Python
 - comprueba las carpetas de modelos registradas en ComfyUI, incluidos los nombres de carpeta personalizados de `extra_model_paths`
@@ -559,7 +559,7 @@ Funciones principales:
 - conecta lotes de prompts mediante una sola ejecución del nodo, de modo que el modelo local puede seguir cargado hasta que termine el lote
 - opcionalmente adjunta una IMAGE a una llamada a un modelo local con capacidad de visión
 - previsualiza el texto de Thinking y de Result directamente en el nodo
-- incrusta el Result final del nodo en los metadatos de PNG/workflow guardados cada vez que se ejecuta el nodo Local LLM, de modo que al reabrir el archivo se restaura dentro del nodo; Thinking/razonamiento sigue siendo solo vista previa y no se guarda
+- activa **Save Result in Files** para incluir el Result final en los nuevos archivos PNG y de workflow y restaurarlo al abrirlos de nuevo. La opción está desactivada por defecto y Thinking solo aparece en la vista previa en directo
 - conserva presets de System Prompt con nombre en los datos de usuario de ComfyUI para que sobrevivan a la limpieza del perfil del navegador
 - conecta un FLOAT positive a `video seconds` para añadir a cada user prompt del LLM una frase como `This is an 8-second video.` sin cambiar el texto de Prompt guardado
 - usa `(Deno) Local LLM Reviewer` como puerta antes de los nodos Save: deja pasar o bloquea salidas IMAGE y AUDIO a partir del resultado de texto de una revisión, aprueba una vez el resultado revisado actual o vuelve a ejecutar la ruta anterior al reviewer
